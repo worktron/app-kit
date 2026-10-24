@@ -43,7 +43,8 @@ declare module 'hono' {
  * routes listed in `readableByKey`. Which route a key reaches is the one Hono picked to answer the request, read from
  * its own match, so a literal route registered beside a listed `:id` route is never mistaken for it. Mount it once over
  * the app's API, after the provider's middleware and every other middleware: middleware mounted after it could answer
- * a key's request, so a key is refused wherever any matches.
+ * a key's request, so a key is refused wherever any matches, unless its method and path are listed. Hono records
+ * middleware as `ALL <path>`, as it does an `app.all` route, so listing `ALL /api/*` lets both through.
  */
 export function requireCaller(options: RequireCallerOptions): MiddlewareHandler {
   const readable = new Set(options.readableByKey);
