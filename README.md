@@ -43,7 +43,7 @@ createRoot(root).render(
 );
 ```
 
-The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account, `google('remembered')` and `google('choose')`, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. The app calls `useAppDrawn()`'s function once its first screen has its data, and every request goes through `request`.
+The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account, `google('remembered')`, `google('choose')` and `google({ account })` for an account chosen in another window, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. The app calls `useAppDrawn()`'s function once its first screen has its data, and every request goes through `request`.
 
 `e2e/fixture` is a whole one, which the kit's own browser test runs.
 

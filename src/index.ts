@@ -12,10 +12,12 @@ export {
   useSignOut,
   usePerson,
   useAppDrawn,
+  accountFor,
   GOOGLE_CALLBACK_PATH,
   GOOGLE_UNFINISHED,
   SESSION_ENDED,
   type SignIn,
+  type GoogleAccount,
   type SignInGateProps,
 } from './sign-in/SignInGate';
 export type { SignInProvider, ProviderSession, GoogleReturnProps, SignedInPerson, Outcome } from './sign-in/provider';

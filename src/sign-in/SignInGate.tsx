@@ -9,6 +9,16 @@ export const GOOGLE_CALLBACK_PATH = '/sso-callback';
 export const GOOGLE_UNFINISHED = 'Signing in with Google did not finish. Try again, or use an emailed code.';
 export const SESSION_ENDED = 'Your session ended. Sign in again to carry on where you were.';
 
+/** Which Google account a sign-in asks for. */
+export type GoogleAccount = 'remembered' | 'choose' | { account: string };
+
+/** The account to name to Google, or null for its list. */
+export function accountFor(choice: GoogleAccount, remembered: string | null): string | null {
+  if (choice === 'choose') return null;
+  if (choice === 'remembered') return remembered;
+  return choice.account;
+}
+
 /** What the app's sign-in screen works with. */
 export interface SignIn {
   /** The account this app last signed in with on this device, for Continue as that account, or null. */
@@ -17,9 +27,10 @@ export interface SignIn {
   notice: string | null;
   /**
    * Google, returning to this address. `remembered` names the last account to Google, so it shows no page while it is
-   * still signed in to it; `choose` has Google list its accounts, as does `remembered` with no account remembered.
+   * still signed in to it; `choose` has Google list its accounts, as does `remembered` with no account remembered. An
+   * account named outright is for a choice made elsewhere, as in a desktop app's window that hands sign-in to the browser.
    */
-  google(account: 'remembered' | 'choose'): Promise<Outcome>;
+  google(account: GoogleAccount): Promise<Outcome>;
   sendEmailCode(email: string): Promise<Outcome>;
   checkEmailCode(code: string, email: string): Promise<Outcome>;
 }
@@ -142,7 +153,7 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
       google: (account) => {
         setNotice(null);
         rememberReturn(currentAddress());
-        return latest.current.google({ callbackPath, account: account === 'choose' ? null : lastAccount() });
+        return latest.current.google({ callbackPath, account: accountFor(account, lastAccount()) });
       },
       sendEmailCode: (address) => {
         setNotice(null);

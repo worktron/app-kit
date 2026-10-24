@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect, useState } from 'react';
 import { request } from '../src/fetch';
 import { resetConnection } from '../src/connection';
-import { GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../src/sign-in/SignInGate';
+import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../src/sign-in/SignInGate';
 import { lastAccount, rememberAccount, rememberSignedIn } from '../src/sign-in/remembered';
 import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../testing';
 
@@ -150,6 +150,13 @@ test('after a sign-in and sign-out on the page, the sign-in screen offers the ac
   await press('Email code');
   await press('Sign out');
   expect(screen.getByRole('button', { name: 'Continue as ana@example.com' })).toBeTruthy();
+});
+
+test('an account named outright goes to Google as it is, for a choice made in another window', () => {
+  expect(accountFor({ account: 'bo@example.com' }, 'ana@example.com')).toBe('bo@example.com');
+  expect(accountFor('remembered', 'ana@example.com')).toBe('ana@example.com');
+  expect(accountFor('remembered', null)).toBeNull();
+  expect(accountFor('choose', 'ana@example.com')).toBeNull();
 });
 
 test('back from Google, the sign-in finishes in the page and lands on the address the trip started from', async () => {
