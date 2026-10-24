@@ -36,7 +36,7 @@ function SignInScreen() {
   const signIn = useSignIn();
   useEffect(() => {
     const asked = desktopSignInRequest();
-    if (asked && startGoogleHere()) void signIn.google(asked.account ? { account: asked.account } : 'choose');
+    if (asked && startGoogleHere()) void signIn.google(asked.account ?? 'choose');
   }, [signIn]);
   return <h1>Sign in</h1>;
 }
@@ -111,6 +111,46 @@ test('signed in as another account, the page signs out, goes to Google once for 
   await waitFor(() => expect(heading()).toBe('sent'));
   expect(back.calls.signOut).toBe(0);
   expect(new URLSearchParams(window.location.href.split('?')[1]).get('ticket')).toBe(standInTicket('bo@example.com'));
+});
+
+test("asked for Google's list, as by Use a different account, a signed-in page signs out and goes to Google's list", async () => {
+  goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn({ person: { id: 'p1', email: 'ana@example.com' }, leaveForGoogle: () => {} });
+  draw(provider);
+  await waitFor(() => expect(heading()).toBe('Sign in'));
+  expect(provider.calls.signOut).toBe(1);
+  expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: null }]);
+  expect(sent).toEqual([]);
+});
+
+test('asked for no account in particular, a signed-in page hands over whoever it is signed in as', async () => {
+  goTo(`/desktop-sign-in?nonce=${NONCE}`);
+  serveDesktopSignIn(() => 'bo@example.com');
+  const provider = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' } });
+  draw(provider);
+  await waitFor(() => expect(heading()).toBe('sent'));
+  expect(provider.calls.signOut).toBe(0);
+});
+
+test('a sign-out that fails, as on a network failure, says so, and Open the app again tries it again', async () => {
+  goTo(PAGE);
+  serveDesktopSignIn(() => 'bo@example.com');
+  const provider = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' }, leaveForGoogle: () => {} });
+  let refuse = true;
+  const failing: StandInSignIn = {
+    ...provider,
+    useSession: () => {
+      const session = provider.useSession();
+      return { ...session, signOut: () => (refuse ? Promise.reject(new Error('offline')) : session.signOut()) };
+    },
+  };
+  draw(failing);
+  await waitFor(() => expect(heading()).toBe('failed'));
+  refuse = false;
+  await act(async () => screen.getByRole('button', { name: 'Open the app again' }).click());
+  await waitFor(() => expect(heading()).toBe('Sign in'));
+  expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
 });
 
 test('a page the window did not open, with no nonce, hands nothing over', async () => {

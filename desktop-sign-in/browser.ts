@@ -3,11 +3,12 @@ import type { ProviderSession } from '../src/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../src/storage';
 import { DESKTOP_SIGN_IN_PATH, LINK_HOST } from './names';
 import { NONCE, post } from './requests';
+import type { DesktopSignInAccount } from './window';
 
 /*
  * The browser end: the app's sign-in page in the default browser, opened by the app's window. Signed in there as the
  * account the window asked for, it asks the server for a one-time ticket and opens the app's own link with it; signed
- * in as another, it signs out, and the app's sign-in screen goes to Google for the one asked. Once the app has signed
+ * in as another, or asked for Google's list, it signs out, and the app's sign-in screen goes to Google. Once the app has signed
  * in with the ticket, which the server says, the tab closes.
  */
 
@@ -17,10 +18,10 @@ const STARTED_KEY = 'app-kit.desktopSignInGoogleStarted';
 export const ASK_TAKEN_EVERY_MS = 500;
 export const ASK_TAKEN_FOR_MS = 90_000;
 
-/** What the app's window asked the browser for: its nonce, and the Google account chosen there, or null for Google's list. */
+/** What the app's window asked the browser for: its nonce, and the Google account chosen there. */
 export interface DesktopSignInRequest {
   nonce: string;
-  account: string | null;
+  account: DesktopSignInAccount;
 }
 
 /** On the browser's sign-in page with a well-formed nonce, the window's request; on any other page, null. */
@@ -30,7 +31,7 @@ export function desktopSignInRequest(location: Pick<Location, 'pathname' | 'sear
   const nonce = query.get('nonce');
   if (!nonce || !NONCE.test(nonce)) return null;
   const account = query.get('account');
-  return { nonce, account: account && account !== 'choose' ? account : null };
+  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account } };
 }
 
 /**
@@ -73,10 +74,11 @@ export interface DesktopSignInBrowserPageOptions {
 }
 
 /**
- * The browser's sign-in page once signed in. Signed in as an account other than the one the window asked for, and not
- * back from Google, it only signs out: the app's sign-in screen then goes to Google for the account asked, through
- * `startGoogleHere`. Otherwise it hands the account to the app, and the state says where that stands for the app to
- * draw. `again` asks for a new ticket and opens the app again, for a link the browser did not open or that expired.
+ * The browser's sign-in page once signed in. Signed in as an account other than the one the window asked for, or asked
+ * for Google's list, and not back from Google, it only signs out: the app's sign-in screen then goes to Google for the
+ * account asked, through `startGoogleHere`. Otherwise it hands the account to the app, and the state says where that
+ * stands for the app to draw. `again` decides again, for a link the browser did not open or that expired, or a
+ * sign-out that failed.
  */
 export function useDesktopSignInBrowserPage({ session, scheme }: DesktopSignInBrowserPageOptions): DesktopSignInBrowserPage & { again(): void } {
   const [now, setNow] = useState<DesktopSignInBrowserPage>(() => (desktopSignInRequest() ? { state: 'asking' } : { state: 'not-from-app' }));
@@ -98,19 +100,24 @@ export function useDesktopSignInBrowserPage({ session, scheme }: DesktopSignInBr
     window.location.href = link;
   }, [scheme]);
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+  const decide = useCallback(() => {
     const asked = desktopSignInRequest();
-    if (!asked) return;
+    if (!asked) return setNow({ state: 'not-from-app' });
     const email = latest.current.person?.email?.toLowerCase() ?? null;
-    if (asked.account && asked.account.toLowerCase() !== email && !googleStartedHere()) {
+    const notAsked = asked.account === 'choose' || (asked.account !== null && asked.account.account.toLowerCase() !== email);
+    if (notAsked && !googleStartedHere()) {
       setNow({ state: 'signing-out' });
-      void latest.current.signOut();
+      latest.current.signOut().catch(() => setNow({ state: 'failed' }));
       return;
     }
     void handOver();
   }, [handOver]);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    decide();
+  }, [decide]);
 
   // Once the link is out: asks whether the app has signed in with it, and closes the tab when it has. The browser
   // closes only a tab with no pages behind it, so after a trip to Google the tab stays, saying the app is signed in.
@@ -139,5 +146,5 @@ export function useDesktopSignInBrowserPage({ session, scheme }: DesktopSignInBr
     };
   }, [sent]);
 
-  return { ...now, again: () => void handOver() };
+  return { ...now, again: decide };
 }

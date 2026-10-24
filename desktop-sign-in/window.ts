@@ -19,6 +19,13 @@ const NONCE_KEY = 'app-kit.desktopSignInNonce';
 
 export const NOT_FROM_THIS_WINDOW = 'This sign-in did not come from this window. Sign in again.';
 
+/**
+ * Which Google account the window asks the browser for: the one named; Google's list, even when the browser is
+ * already signed in, as for Use a different account; or null, whoever the browser is signed in as, and Google's list
+ * when nobody is.
+ */
+export type DesktopSignInAccount = { account: string } | 'choose' | null;
+
 /** What the browser hands the app: the ticket, and the nonce the window asked with. */
 export interface DesktopSignInLink {
   ticket: string;
@@ -26,17 +33,18 @@ export interface DesktopSignInLink {
 }
 
 /**
- * The browser page to open for Google, as a full address, since the iPhone's sign-in sheet takes only one. `account`
- * is the Google account chosen in the window, or null for Google's list. A nonce already kept and not yet used is
- * asked with again, so a second click leaves the first browser tab's sign-in good.
+ * The browser page to open for Google, as a full address, since the iPhone's sign-in sheet takes only one, asking for
+ * the account chosen in the window. A nonce already kept and not yet used is asked with again, so a second click leaves
+ * the first browser tab's sign-in good.
  */
-export function desktopSignInAddress(account: string | null, store: () => KeyValueStore = thisTab): string {
+export function desktopSignInAddress(account: DesktopSignInAccount, store: () => KeyValueStore = thisTab): string {
   let nonce = read(store, NONCE_KEY);
   if (!nonce || !NONCE.test(nonce)) {
     nonce = crypto.randomUUID();
     write(store, NONCE_KEY, nonce);
   }
-  const query = new URLSearchParams({ nonce, account: account ?? 'choose' });
+  const query = new URLSearchParams({ nonce });
+  if (account) query.set('account', account === 'choose' ? 'choose' : account.account);
   return `${window.location.origin}${DESKTOP_SIGN_IN_PATH}?${query}`;
 }
 

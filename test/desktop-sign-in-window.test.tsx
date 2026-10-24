@@ -50,13 +50,14 @@ const handOver = (link: DesktopSignInLink) => act(async () => void window.dispat
 
 const heading = () => screen.getByRole('heading').textContent;
 
-test("the browser page's address is a full one, naming the account chosen in the window or asking for Google's list", () => {
-  const named = new URL(desktopSignInAddress('ana@example.com'));
+test("the browser page's address is a full one, naming the account chosen in the window, Google's list, or neither", () => {
+  const named = new URL(desktopSignInAddress({ account: 'ana@example.com' }));
   expect(named.origin).toBe(window.location.origin);
   expect(named.pathname).toBe('/desktop-sign-in');
   expect(named.searchParams.get('account')).toBe('ana@example.com');
   expect(nonceIn(named.href)).toMatch(/^[0-9a-f-]{36}$/);
-  expect(new URL(desktopSignInAddress(null)).searchParams.get('account')).toBe('choose');
+  expect(new URL(desktopSignInAddress('choose')).searchParams.get('account')).toBe('choose');
+  expect(new URL(desktopSignInAddress(null)).searchParams.has('account')).toBe(false);
 });
 
 test('the page tells the shell it takes a link where it is', () => {
@@ -65,7 +66,7 @@ test('the page tells the shell it takes a link where it is', () => {
 
 test('a link with the nonce this window asked with signs it in where it is, and the server hears it was taken', async () => {
   const { sent } = serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   const ticket = standInTicket('ana@example.com');
@@ -77,7 +78,7 @@ test('a link with the nonce this window asked with signs it in where it is, and 
 });
 
 test('a link the window did not ask for is refused, and its ticket never tried', async () => {
-  desktopSignInAddress('ana@example.com');
+  desktopSignInAddress({ account: 'ana@example.com' });
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   await handOver({ ticket: standInTicket('mallory@example.com'), nonce: crypto.randomUUID() });
@@ -118,7 +119,7 @@ test('a nonce works once: after a sign-in, the same link or a fresh ticket with 
   serveDesktopSignIn(() => null);
   const provider = standInSignIn();
   const session = sessionOf(provider);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   expect(await take(session, { ticket: standInTicket('ana@example.com'), nonce })).toEqual({ ok: true });
   act(() => provider.endSession());
   expect(await take(session, { ticket: 'stand-in-ticket:ana+again@example.com', nonce })).toEqual({ ok: false, message: NOT_FROM_THIS_WINDOW });
@@ -126,7 +127,7 @@ test('a nonce works once: after a sign-in, the same link or a fresh ticket with 
 
 test('a second Continue with Google asks with the same nonce, so the first browser tab still signs in; a new one follows a sign-in', async () => {
   serveDesktopSignIn(() => null);
-  const first = nonceIn(desktopSignInAddress('ana@example.com'));
+  const first = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   expect(nonceIn(desktopSignInAddress(null))).toBe(first);
   const session = sessionOf(standInSignIn());
   expect(await take(session, { ticket: standInTicket('ana@example.com'), nonce: first })).toEqual({ ok: true });
@@ -135,7 +136,7 @@ test('a second Continue with Google asks with the same nonce, so the first brows
 
 test('a ticket that fails, as one expired while the browser asked to open the app, leaves the nonce for a fresh ticket', async () => {
   serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   await handOver({ ticket: 'expired-ticket', nonce });
@@ -146,7 +147,7 @@ test('a ticket that fails, as one expired while the browser asked to open the ap
 
 test('a provider that throws on a ticket, as on a network failure, fails the sign-in, and a fresh ticket still works', async () => {
   serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   const provider = standInSignIn();
   const throwing: StandInSignIn = {
     ...provider,
@@ -164,7 +165,7 @@ test('a provider that throws on a ticket, as on a network failure, fails the sig
 
 test('a second link while the first is being taken, as from a second Open the app, is dropped and shows no failure', async () => {
   serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   const ticket = standInTicket('ana@example.com');
@@ -179,7 +180,7 @@ test('a second link while the first is being taken, as from a second Open the ap
 
 test('a link that comes before the page is ready for it is held, then taken', async () => {
   serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   window.dispatchEvent(new CustomEvent(DESKTOP_SIGN_IN_EVENT, { detail: { ticket: standInTicket('ana@example.com'), nonce } }));
   render(<Window provider={standInSignIn()} />);
   await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
@@ -187,7 +188,7 @@ test('a link that comes before the page is ready for it is held, then taken', as
 
 test('a page loaded with a link, by a shell whose page could not take it where it was, takes it off the address and signs in', async () => {
   serveDesktopSignIn(() => null);
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   window.history.replaceState(null, '', `/week?${new URLSearchParams({ [TICKET_PARAM]: standInTicket('ana@example.com'), [NONCE_PARAM]: nonce, day: '3' })}`);
   listenForDesktopSignIn();
   expect(window.location.pathname + window.location.search).toBe('/week?day=3');
@@ -196,7 +197,7 @@ test('a page loaded with a link, by a shell whose page could not take it where i
 });
 
 test('signed in already, a link is dropped, and never tried after a later sign-out', async () => {
-  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
   const provider = standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } });
   render(<Window provider={provider} />);
   await handOver({ ticket: standInTicket('bo@example.com'), nonce });
