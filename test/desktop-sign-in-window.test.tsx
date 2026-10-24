@@ -189,9 +189,10 @@ test('a link that comes before the page is ready for it is held, then taken', as
 test('a page loaded with a link, by a shell whose page could not take it where it was, takes it off the address and signs in', async () => {
   serveDesktopSignIn(() => null);
   const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
-  window.history.replaceState(null, '', `/week?${new URLSearchParams({ [TICKET_PARAM]: standInTicket('ana@example.com'), [NONCE_PARAM]: nonce, day: '3' })}`);
+  // In the fragment, which the browser never sends, so the ticket is in no request the server could log.
+  window.history.replaceState(null, '', `/week?day=3#${new URLSearchParams({ [TICKET_PARAM]: standInTicket('ana@example.com'), [NONCE_PARAM]: nonce })}`);
   listenForDesktopSignIn();
-  expect(window.location.pathname + window.location.search).toBe('/week?day=3');
+  expect(window.location.pathname + window.location.search + window.location.hash).toBe('/week?day=3');
   render(<Window provider={standInSignIn()} />);
   await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
 });

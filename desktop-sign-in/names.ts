@@ -20,6 +20,9 @@ export const LINK_HOST = 'sign-in';
 export const DESKTOP_SIGN_IN_EVENT = 'app-kit-desktop-sign-in';
 export const DESKTOP_SIGN_IN_LISTENING = '__APP_KIT_TAKES_DESKTOP_SIGN_IN__';
 
-/** For a page without the flag, still loading or from an older build: the shell loads the app's address with these. */
+/**
+ * For a page without the flag, still loading or from an older build: the shell loads the app's address with these in
+ * its fragment (`#desktop_sign_in_ticket=…&desktop_sign_in_nonce=…`), which the browser never sends to the server.
+ */
 export const TICKET_PARAM = 'desktop_sign_in_ticket';
 export const NONCE_PARAM = 'desktop_sign_in_nonce';

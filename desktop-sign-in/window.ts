@@ -86,15 +86,18 @@ function arrived(link: DesktopSignInLink) {
 
 /**
  * In the desktop app's window, from the page's first script: takes a link the shell loaded the page with off the
- * address, so a reload never tries a used ticket, and listens for the ones it dispatches, telling the shell so.
+ * address, so a reload never tries a used ticket, and listens for the ones it dispatches, telling the shell so. The
+ * shell puts a link in the address's fragment, which the browser never sends, so the ticket reaches no server's log.
  */
 export function listenForDesktopSignIn(): void {
   const url = new URL(window.location.href);
-  const ticket = url.searchParams.get(TICKET_PARAM);
-  const nonce = url.searchParams.get(NONCE_PARAM);
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const ticket = fragment.get(TICKET_PARAM);
+  const nonce = fragment.get(NONCE_PARAM);
   if (ticket !== null || nonce !== null) {
-    url.searchParams.delete(TICKET_PARAM);
-    url.searchParams.delete(NONCE_PARAM);
+    fragment.delete(TICKET_PARAM);
+    fragment.delete(NONCE_PARAM);
+    url.hash = fragment.toString();
     window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
     const link = desktopSignInLink({ ticket, nonce });
     if (link) arrived(link);
