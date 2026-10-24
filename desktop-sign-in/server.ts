@@ -70,6 +70,9 @@ export function desktopSignInRoutes<E extends Env = Env>({ userId, makeTicket, n
   const routes = new Hono<E>();
 
   routes.post('/ticket', async (c) => {
+    // A browser sends a cookie to another site's request in some setups, but never a bearer token, so a ticket is made
+    // only for a request that carries one, whatever the app's own sign-in check accepts.
+    if (!c.req.header('Authorization')?.startsWith('Bearer ')) return c.json({ error: 'Sign in in this browser first.' }, 401);
     const id = userId(c);
     if (!id) return c.json({ error: 'Sign in in this browser first.' }, 401);
     const ticket = await makeTicket(id, c);

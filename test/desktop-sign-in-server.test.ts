@@ -18,8 +18,8 @@ function server(signedInAs: string | null) {
       now: () => now,
     }),
   );
-  const post = (path: string, body?: object) =>
-    app.request(`${DESKTOP_SIGN_IN_ROUTES}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+  const post = (path: string, body?: object, headers: Record<string, string> = { Authorization: 'Bearer session-token' }) =>
+    app.request(`${DESKTOP_SIGN_IN_ROUTES}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: body && JSON.stringify(body) });
   return { app, made, post, later: (ms: number) => (now += ms) };
 }
 
@@ -30,6 +30,12 @@ test("a ticket is made for the caller's own account, and never cached", async ()
   expect(res.headers.get('Cache-Control')).toBe('no-store');
   expect(await res.json()).toEqual({ ticket: 'ticket-1-for-user_a' });
   expect(made).toEqual(['user_a']);
+});
+
+test("a request without a bearer token, as another site's through the person's browser cookie, gets no ticket", async () => {
+  const { made, post } = server('user_a');
+  expect((await post('/ticket', undefined, { Cookie: '__session=from-the-browser' })).status).toBe(401);
+  expect(made).toEqual([]);
 });
 
 test('signed out, or asked with GET, nothing is made', async () => {
