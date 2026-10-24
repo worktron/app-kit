@@ -23,6 +23,8 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 let scale: number | null = null;
 let stopReturn: (() => void) | null = null;
+/** The root's inline font size before the kit first set it, often none. */
+let appRootSize: string | null = null;
 
 /**
  * The phone's Text Size as a scale: 1 at the default, about 0.82 at the smallest, about 3.12 at the largest
@@ -46,17 +48,20 @@ function read() {
   const next = readScale();
   if (next === scale) return;
   scale = next;
-  const root = document.documentElement.style;
-  root.setProperty('--text-scale', String(next));
-  root.fontSize = next === 1 ? '' : `calc(100% * ${next})`;
+  const html = document.documentElement;
+  html.style.setProperty('--text-scale', String(next));
+  // The app's own root size, inline or from its styles, is what the scale multiplies, and what a scale of 1 leaves.
+  appRootSize ??= html.style.fontSize;
+  html.style.fontSize = appRootSize;
+  if (next !== 1) html.style.fontSize = `${parseFloat(getComputedStyle(html).fontSize) * next}px`;
   for (const listener of listeners) listener();
 }
 
 /**
- * Makes the page's text follow the phone's Text Size: sets the root font size, so every size in rem follows, and the
- * `--text-scale` variable, for a size in pixels as `calc(14px * var(--text-scale, 1))`. Reads it again each time the
- * page comes back in front, since changing the setting means leaving the app. Called once at start; later calls do
- * nothing.
+ * Makes the page's text follow the phone's Text Size: multiplies the root font size, the app's own or the browser's,
+ * so every size in rem follows, and sets the `--text-scale` variable, for a size in pixels as
+ * `calc(14px * var(--text-scale, 1))`. Reads it again each time the page comes back in front, since changing the
+ * setting means leaving the app. Called once at start; later calls do nothing.
  */
 export function followTextSize(): void {
   if (stopReturn) return;
@@ -87,5 +92,6 @@ export function resetTextSize(): void {
   scale = null;
   listeners.clear();
   document.documentElement.style.removeProperty('--text-scale');
-  document.documentElement.style.fontSize = '';
+  document.documentElement.style.fontSize = appRootSize ?? document.documentElement.style.fontSize;
+  appRootSize = null;
 }

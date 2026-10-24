@@ -17,8 +17,15 @@ function playPlace(place: Pick<Place, 'supports' | 'touchPoints' | 'bodyPx'>) {
   Object.defineProperty(globalThis, 'CSS', { value: { supports: () => place.supports }, configurable: true });
   Object.defineProperty(navigator, 'maxTouchPoints', { value: place.touchPoints, configurable: true });
   computed?.mockRestore();
-  computed = spyOn(globalThis, 'getComputedStyle').mockReturnValue({ fontSize: `${place.bodyPx}px` } as CSSStyleDeclaration);
+  computed = spyOn(globalThis, 'getComputedStyle').mockImplementation(
+    (element: Element) => ({ fontSize: element === document.documentElement ? rootSize() : `${place.bodyPx}px` }) as CSSStyleDeclaration,
+  );
 }
+
+/** The root's size as a browser computes it: the app's inline size if it set one, else the 16px default. */
+const rootSize = () => document.documentElement.style.fontSize || '16px';
+/** The root size the kit sets at `scale` from a root of `px`. */
+const scaled = (scale: number, px = 16) => (scale === 1 ? '' : `${px * scale}px`);
 
 const comeBack = () => window.dispatchEvent(new Event('focus'));
 const root = () => document.documentElement.style;
@@ -38,7 +45,7 @@ test.each(readings as Place[])('$where reads $scale', (place) => {
   playPlace(place);
   followTextSize();
   expect(Number(root().getPropertyValue('--text-scale'))).toBe(place.scale);
-  expect(root().fontSize).toBe(place.scale === 1 ? '' : `calc(100% * ${place.scale})`);
+  expect(root().fontSize).toBe(scaled(place.scale));
 });
 
 test('the recorded places include the smallest, the default and the largest iPhone sizes, and a Mac that reads 1', () => {
@@ -61,12 +68,32 @@ test('a change made away from the page is read when it comes back in front', () 
   playPlace(largest);
   comeBack();
   expect(root().getPropertyValue('--text-scale')).toBe(String(largest.scale));
-  expect(root().fontSize).toBe(`calc(100% * ${largest.scale})`);
+  expect(root().fontSize).toBe(scaled(largest.scale));
 
   // And back to the default, which leaves the root to the app again.
   playPlace(iPhone('iPhone Safari, large'));
   comeBack();
   expect(root().fontSize).toBe('');
+});
+
+test("the app's own root size is what the scale multiplies, and a scale of 1 leaves it as the app set it", () => {
+  root().fontSize = '18px';
+  playPlace(iPhone('Mac WebKit'));
+  followTextSize();
+  expect(root().fontSize).toBe('18px');
+
+  const largest = iPhone('iPhone Safari, accessibility-extra-extra-extra-large');
+  playPlace(largest);
+  comeBack();
+  expect(parseFloat(root().fontSize)).toBeCloseTo(18 * largest.scale);
+
+  playPlace(iPhone('iPhone Safari, large'));
+  comeBack();
+  expect(root().fontSize).toBe('18px');
+  // A second change multiplies the app's size again, never the size the kit set.
+  playPlace(largest);
+  comeBack();
+  expect(parseFloat(root().fontSize)).toBeCloseTo(18 * largest.scale);
 });
 
 test('following twice listens once', () => {
