@@ -153,6 +153,18 @@ test('a sign-out that fails, as on a network failure, says so, and Open the app 
   expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
 });
 
+test("signed in as the account asked, whose email the provider has not loaded yet, the page waits for it rather than signing out", async () => {
+  goTo(PAGE);
+  serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn({ person: { id: 'p1', email: null } });
+  draw(provider);
+  await act(async () => {});
+  expect(heading()).toBe('asking');
+  act(() => provider.signInAs({ id: 'p1', email: 'ana@example.com' }));
+  await waitFor(() => expect(heading()).toBe('sent'));
+  expect(provider.calls.signOut).toBe(0);
+});
+
 test('a page the window did not open, with no nonce, hands nothing over', async () => {
   goTo('/desktop-sign-in?account=ana%40example.com');
   const { sent } = serveDesktopSignIn(() => 'ana@example.com');

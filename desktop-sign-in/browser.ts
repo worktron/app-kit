@@ -113,11 +113,16 @@ export function useDesktopSignInBrowserPage({ session, scheme }: DesktopSignInBr
     void handOver();
   }, [handOver]);
 
+  // A named account is compared once the person's email is known: a provider can know who is signed in a moment before
+  // it has their email, and comparing then would sign out the very account the window asked for.
+  const email = session.person?.email ?? null;
   useEffect(() => {
     if (started.current) return;
+    const asked = desktopSignInRequest();
+    if (asked && asked.account !== null && asked.account !== 'choose' && email === null) return;
     started.current = true;
     decide();
-  }, [decide]);
+  }, [decide, email]);
 
   // Once the link is out: asks whether the app has signed in with it, and closes the tab when it has. The browser
   // closes only a tab with no pages behind it, so after a trip to Google the tab stays, saying the app is signed in.
