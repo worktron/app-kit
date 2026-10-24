@@ -40,8 +40,9 @@ declare module 'hono' {
 /**
  * Lets a request through only with a caller: a signed-in session reaches every route, and a key reaches only the GET
  * routes listed in `readableByKey`. Which route a key reaches is the one Hono picked to answer the request, read from
- * its own match, so a literal route registered beside a listed `:id` route is never mistaken for it. Mount it once,
- * after the provider's middleware, over the app's API.
+ * its own match, so a literal route registered beside a listed `:id` route is never mistaken for it. Mount it once over
+ * the app's API, after the provider's middleware and every other middleware: middleware mounted after it could answer
+ * a key's request, so a key is refused wherever any matches.
  */
 export function requireCaller(options: RequireCallerOptions): MiddlewareHandler {
   const readable = new Set(options.readableByKey);
@@ -61,16 +62,16 @@ export function requireCaller(options: RequireCallerOptions): MiddlewareHandler 
     }
     if (caller.kind === 'key') {
       const key = `key ${caller.keyName} (${caller.keyId})`;
-      const route = answeringRoute(c);
       if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
         log(`${key} refused for ${c.req.method} ${c.req.path}: a key only reads`);
         return c.json({ error: 'a key only reads: it is refused on anything but GET' }, 403);
       }
-      if (!route || !readable.has(route)) {
-        log(`${key} refused for ${c.req.method} ${c.req.path}: ${route ?? 'no route'} is not one a key may read`);
+      const route = routeForKey(c, readable);
+      if ('refused' in route) {
+        log(`${key} refused for ${c.req.method} ${c.req.path}: ${route.refused}`);
         return c.json({ error: 'this route is not one a key may read' }, 403);
       }
-      log(`${key} let through for ${c.req.method} ${c.req.path} as ${route}`);
+      log(`${key} let through for ${c.req.method} ${c.req.path} as ${route.listed}`);
     }
     c.set('appKitCaller', caller);
     return next();
@@ -78,12 +79,26 @@ export function requireCaller(options: RequireCallerOptions): MiddlewareHandler 
 }
 
 /**
- * The route that will answer, as `GET /registered/:path`: the first match that is not middleware, since `app.use`
- * registers for every method. A HEAD request is matched against the GET routes, which Hono runs for it.
+ * Whether every route that could run after this check is one a key may reach, read from Hono's own match, in the order
+ * Hono runs them. The first must be listed: anything ahead of it, a literal route, an `app.all` handler or middleware
+ * mounted after the check, could answer instead. After it, a listed route could pass the request on with `next()`, so
+ * an unlisted route is refused too, unless it is a catch-all (registered for every method, or a path ending in `*`), such
+ * as a not-found answer or the page the app serves for every other address. A HEAD request is matched against the GET
+ * routes, which Hono runs for it.
  */
-function answeringRoute(c: Context): string | null {
-  const route = matchedRoutes(c).find((r) => r.method !== 'ALL');
-  return route ? `${route.method} ${route.path}` : null;
+function routeForKey(c: Context, readable: ReadonlySet<string>): { listed: string } | { refused: string } {
+  let listed: string | null = null;
+  for (const route of matchedRoutes(c).slice(c.req.routeIndex + 1)) {
+    const name = `${route.method} ${route.path}`;
+    if (readable.has(name)) {
+      listed ??= name;
+    } else if (!listed) {
+      return { refused: `${name} would answer first, and it is not one a key may read` };
+    } else if (route.method !== 'ALL' && !route.path.endsWith('*')) {
+      return { refused: `${name} would run if ${listed} passed the request on, and it is not one a key may read` };
+    }
+  }
+  return listed ? { listed } : { refused: 'no route answers' };
 }
 
 /** The caller `requireCaller` let through. Throws a 401 when it was never mounted in front, so a handler fails closed. */

@@ -71,13 +71,59 @@ test('a key is refused on a literal route registered beside a listed :id route, 
   const res = await ask('/api/items/export', anasKey);
   expect(res.status).toBe(403);
   expect(await res.json()).toEqual({ error: 'this route is not one a key may read' });
-  expect(logged).toEqual(['key Reading agent (key-1) refused for GET /api/items/export: GET /api/items/export is not one a key may read']);
+  expect(logged).toEqual([
+    'key Reading agent (key-1) refused for GET /api/items/export: GET /api/items/export would answer first, and it is not one a key may read',
+  ]);
 });
 
-test('a key is refused on a route nobody listed, and on a path no route answers', async () => {
+test('a key is refused on a route nobody listed, and on a path only the catch-all answers', async () => {
   expect((await ask('/api/settings', anasKey)).status).toBe(403);
   expect((await ask('/api/nothing/here', anasKey)).status).toBe(403);
-  expect(logged[1]).toBe('key Reading agent (key-1) refused for GET /api/nothing/here: no route is not one a key may read');
+  expect(logged[1]).toBe('key Reading agent (key-1) refused for GET /api/nothing/here: ALL /api/* would answer first, and it is not one a key may read');
+});
+
+/** An app with the check in front and the given routes after it, asked by Ana's key. */
+async function askWith(path: string, routes: (api: Hono) => void) {
+  const api = new Hono();
+  api.use('/api/*', requireCaller({ caller: () => anasKey, readableByKey: READABLE, log: (line) => logged.push(line) }));
+  routes(api);
+  return api.request(path);
+}
+
+test('a listed route that could pass the request on with next() to an unlisted route refuses the key', async () => {
+  const res = await askWith('/api/items/export', (api) => {
+    api.get('/api/items/:id', (c, next) => (c.req.param('id') === 'export' ? next() : c.json({})));
+    api.get('/api/items/export', (c) => c.json({ exporting: true }));
+  });
+  expect(res.status).toBe(403);
+  expect(logged).toEqual([
+    'key Reading agent (key-1) refused for GET /api/items/export: GET /api/items/export would run if GET /api/items/:id passed the request on, and it is not one a key may read',
+  ]);
+});
+
+test('an app.all handler or middleware mounted after the check, ahead of a listed route, refuses the key', async () => {
+  const all = await askWith('/api/items/export', (api) => {
+    api.all('/api/items/export', (c) => c.json({ exporting: true }));
+    api.get('/api/items/:id', (c) => c.json({}));
+  });
+  expect(all.status).toBe(403);
+  const middleware = await askWith('/api/items/abc', (api) => {
+    api.use('/api/items/*', async (_c, next) => next());
+    api.get('/api/items/:id', (c) => c.json({}));
+  });
+  expect(middleware.status).toBe(403);
+  expect(logged[1]).toBe(
+    'key Reading agent (key-1) refused for GET /api/items/abc: ALL /api/items/* would answer first, and it is not one a key may read',
+  );
+});
+
+test("catch-alls after a listed route, a not-found answer and the app's page for every other address, let the key through", async () => {
+  const res = await askWith('/api/items/abc', (api) => {
+    api.get('/api/items/:id', (c) => c.json({ item: c.req.param('id') }));
+    api.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
+    api.get('*', (c) => c.html('<!doctype html>'));
+  });
+  expect(res.status).toBe(200);
 });
 
 test('a key only reads: a POST to a listed path is refused even though the app lists it', async () => {
