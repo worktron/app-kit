@@ -4,7 +4,7 @@
 // checks the copy, prints an extension's ID, and prints a native host's status.
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
@@ -22,10 +22,17 @@ const USAGE = `app-kit <part> <command>
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
 files that differ; 4 status found no host answering.`
 
-/** The commit this copy of the kit runs from: its checkout's, or, installed from GitHub with no checkout, the tag's. */
+/**
+ * The commit this copy of the kit runs from: its checkout's, or, installed from GitHub with no checkout of its own,
+ * the tag's. git looks upward for a checkout, so an installed copy inside an app's checkout would find the app's;
+ * only a checkout whose top is the kit's own folder counts.
+ */
 function commit(): string {
-  const git = spawnSync('git', ['-C', join(import.meta.dir, '..'), 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' })
-  return git.status === 0 ? git.stdout.trim() : `the commit tagged v${packageJson.version}`
+  const kit = realpathSync(join(import.meta.dir, '..'))
+  const git = (...args: string[]) => spawnSync('git', ['-C', kit, ...args], { encoding: 'utf8' })
+  const top = git('rev-parse', '--show-toplevel')
+  if (top.status === 0 && realpathSync(top.stdout.trim()) === kit) return git('rev-parse', '--short', 'HEAD').stdout.trim()
+  return `the commit tagged v${packageJson.version}`
 }
 
 async function extension([command, argument]: string[]): Promise<boolean> {
