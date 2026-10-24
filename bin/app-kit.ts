@@ -1,0 +1,73 @@
+#!/usr/bin/env bun
+// app-kit <part> <command>: the kit's command line. Its one part with commands
+// is the extension kit, which copies the kit's worker files into an extension,
+// checks the copy, prints an extension's ID, and prints a native host's status.
+
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
+import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
+import packageJson from '../package.json'
+
+const USAGE = `app-kit <part> <command>
+
+  extension copy <folder>     write the kit's worker files into the extension's <folder>
+  extension check <folder>    exit 3 when <folder>'s worker files differ from this kit's
+  extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
+  extension status <socket>   the status a native host serving <socket> gives, as JSON:
+                              the extension's build, commit and kept errors
+  --version                   this kit's version and the commit it runs from
+
+Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
+files that differ; 4 status found no host answering.`
+
+/** The commit this copy of the kit runs from: its checkout's, or, installed from GitHub with no checkout, the tag's. */
+function commit(): string {
+  const git = spawnSync('git', ['-C', join(import.meta.dir, '..'), 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' })
+  return git.status === 0 ? git.stdout.trim() : `the commit tagged v${packageJson.version}`
+}
+
+async function extension([command, argument]: string[]): Promise<boolean> {
+  if (command === 'copy' && argument) {
+    console.log(`Copied ${copyWorker(argument).join(', ')} into ${argument}`)
+  } else if (command === 'check' && argument) {
+    const differs = workerCopyDiffers(argument)
+    if (differs.length) {
+      console.error(`${differs.join(', ')} in ${argument} differ from app-kit ${packageJson.version}; run: bun run app-kit extension copy ${argument}`)
+      process.exit(3)
+    }
+  } else if (command === 'id') {
+    const manifest = JSON.parse(readFileSync(join(argument ?? '.', 'manifest.json'), 'utf8'))
+    if (!manifest.key) throw new Error('The manifest has no key, so its ID changes from profile to profile')
+    console.log(extensionId(manifest.key))
+  } else if (command === 'status' && argument) {
+    try {
+      console.log(JSON.stringify(await hostStatus(argument), null, 2))
+    } catch (error) {
+      if (!(error instanceof NotConnected)) throw error
+      console.log(JSON.stringify({ connected: false, reason: error.message }, null, 2))
+      process.exit(4)
+    }
+  } else {
+    return false
+  }
+  return true
+}
+
+async function main([part, ...rest]: string[]) {
+  if (part === 'extension' && (await extension(rest))) return
+  if (part === '--version') {
+    console.log(`app-kit ${packageJson.version} (${commit()})`)
+  } else if (part === undefined || part === '--help' || part === '-h' || part === 'help') {
+    console.log(USAGE)
+  } else {
+    console.error(USAGE)
+    process.exit(2)
+  }
+}
+
+main(process.argv.slice(2)).catch((error) => {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+})

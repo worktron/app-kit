@@ -1,6 +1,6 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app; the web client kit is the first, and the extension and Tauri kits are to follow. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents, and the extension kit, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
 
 ## The web client kit
 
@@ -23,7 +23,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.3.0
+bun add github:worktron/app-kit#v0.4.0
 ```
 
 `bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
@@ -136,9 +136,86 @@ app.get('/api/reference', Scalar({ ...REFERENCE_PAGE_SETTINGS, pageTitle: 'Argon
 
 Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page.
 
+## The extension kit
+
+`app-kit/extension`: what every browser extension of ours ships with. `rules/extensions.md` is its list. The worker files are plain JavaScript Chrome loads with no build step; the rest is TypeScript run by Bun on the Mac.
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Self-reload | `extension/worker/self-reload.js` | An extension loaded unpacked from its checkout reloads itself when the checkout's commit changes, when a file it loads is deleted, or, for a built folder, when the build on disk changes. A Web Store install never does. |
+| Build identity | `extension/worker/build.js` | The version and the commit the worker loaded from, as `0.1.0-src (abc1234)`, and a record in `storage.local` of when this profile first ran that build. |
+| Account identity | `extension/worker/account.js` | The profile's signed-in account from `chrome.identity.getProfileUserInfo`, with `identity.email` an optional permission asked for when a feature needs it. |
+| Timers | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`. |
+| Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
+| Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, and answers the host's status question with its build, commit and errors. |
+| Native host | `app-kit/extension/host` | The host Chrome starts: it serves a unix socket for callers on the Mac (a command line, an MCP server, a server) and relays their requests to the extension. Also the client callers use, the status they read, the extension's ID from its key, and the manifest that tells Chrome about the host. |
+| Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors. |
+| Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
+| Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for unit tests of a worker built on the kit. |
+
+An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
+
+```sh
+bun add github:worktron/app-kit#v0.4.0
+bun run app-kit extension copy extension/kit
+```
+
+`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy:
+
+```ts
+import { workerCopyDiffers } from 'app-kit/extension/copy'
+test('the kit copy is current', () => expect(workerCopyDiffers('extension/kit')).toEqual([]))
+```
+
+To upgrade, run the same `bun add` at the new tag, then the copy command again.
+
+A worker built on it:
+
+```js
+import { every } from "./kit/alarms.js";
+import { buildName, recordBuild } from "./kit/build.js";
+import { watchWorkerErrors } from "./kit/errors.js";
+import { nativePort } from "./kit/port.js";
+import { checkForNewCheckout } from "./kit/self-reload.js";
+
+const LOADED_FILES = ["extension/worker.js", "extension/kit/self-reload.js" /* every file the worker loads */];
+let commit = null;
+
+const port = nativePort({
+  host: "com.example.tool",
+  describe: () => ({ version: buildName(commit), commit }),
+  answer: async (message) => ({ type: "answer", id: message.id /* , what the extension found */ }),
+});
+
+async function start() {
+  const checked = await checkForNewCheckout(LOADED_FILES);
+  commit = checked.commit;
+  if (checked.reloading) return;
+  await recordBuild(commit);
+  port.connect();
+}
+
+watchWorkerErrors(self, () => buildName(commit));
+every("check", 1, start);
+chrome.runtime.onStartup.addListener(start);
+chrome.runtime.onInstalled.addListener(start);
+start();
+```
+
+`extension/test/fixture/worker.js` is a whole one, which the kit's own hidden-Chromium test loads.
+
+The host:
+
+```ts
+import { serveHost } from 'app-kit/extension/host'
+await serveHost({ socketPath, logPath, refuse: (request) => (allowed(request) ? null : 'never sent') })
+```
+
+A caller writes one JSON line with an `id` and a `type` to the socket and reads one line back with the same `id`; `ask(socketPath, line)` does both. The type `status` is the host's own. The socket belongs in the tool's Application Support folder (`applicationSupport(name)`), and its path must stay under 104 bytes.
+
 ## Develop
 
-`bun test`, `bun run typecheck`, `bun run lint`, and `bun run test:e2e` for the fixture in a hidden Chromium (`bunx playwright install chromium` first). `scripts/gates.sh` runs all four.
+`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
 
 Releases are tags, `v<version>`, matching `package.json`'s version, made on main after the change merges, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its release notes say.
 

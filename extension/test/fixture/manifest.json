@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Extension kit fixture",
+  "version": "0.1.0",
+  "version_name": "0.1.0-src",
+  "description": "A small extension built on the kit, for the kit's own hidden-Chromium test.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoDxktbZx9AAJFRIfzDgD8cSxsIgTq8Sq0dyOETowMnsqUYD5ukey5vFnUMgbmFrlPtyIGUe0VgZTiNaZH8G8TxaMd4ISXrkw0G+lbl2nq1yWuKRirB6CGqV+DMFSoqxSUAYmjhvhPckST4eAYkiSk0d14nHYrvI74aszY9tOZPV7poQ/YWKpF0MmL/GS+Pj4wvDam9e1z+IXMGjNZlDe6+Ubxquwpv2l0GNnag7oxXH08rFg0dcCSYUrh8GDqeGs5+S6vFU11FcktifBHuE9Gfv+b1khanlKjCBZR7zAPv49BYBLzSOekBiKLye1kM0xrRx4fLCumfBsSekvMX+CMwIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": ["nativeMessaging", "alarms", "storage", "identity"],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  }
+}
