@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hidePage, serveNewerBuild, showPage } from '../testing/playwright';
 
 // The fixture app (e2e/fixture) built on the kit with the stand-in sign-in, served built, in Chromium. The app's server
 // is played by page.route, so each test says what the server answers.
@@ -163,22 +164,16 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
   await page.goto('/');
   await signInByCode(page);
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
-  await page.route(
-    (url) => url.pathname === '/',
-    async (route) => {
-      const response = await route.fetch();
-      const html = (await response.text()).replace(/\/assets\/index-[^"]+\.js/, '/assets/index-Newer123.js');
-      await route.fulfill({ response, body: html });
-    },
-  );
-  const comeBack = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await serveNewerBuild(page);
   const line = page.getByRole('status').filter({ hasText: 'the fixture has changed since this page loaded.' });
 
   // Just loaded, so coming back at once does not look.
-  await comeBack();
+  await showPage(page);
   await expect(line).toHaveCount(0);
   await page.clock.fastForward('01:01');
-  await comeBack();
+  // Away and back, as the person switching tabs: the page looks once it is shown again.
+  await hidePage(page);
+  await showPage(page);
   await expect(line).toBeVisible();
 
   const count = countLoads(page);
@@ -191,22 +186,13 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
   await serve(page);
   await page.goto('/');
   await signInByCode(page);
-  await page.route(
-    (url) => url.pathname === '/',
-    async (route) => {
-      const response = await route.fetch();
-      await route.fulfill({ response, body: (await response.text()).replace(/\/assets\/index-[^"]+\.js/, '/assets/index-Newer123.js') });
-    },
-  );
+  await serveNewerBuild(page);
   await page.clock.fastForward('01:01');
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await showPage(page);
   await expect(page.getByRole('status')).toContainText('has changed since this page loaded');
   const count = countLoads(page);
 
   // The person switches to another tab.
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
+  await hidePage(page);
   await expect.poll(() => count.loads).toBe(1);
 });

@@ -1,6 +1,6 @@
 {
   "name": "app-kit",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The baseline every app ships with, written once. Its web part: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, and a sign-in gate behind a provider adapter, with Clerk the first adapter. Its extension part: self-reload from the checkout, build and account identity, alarms, recorded errors, a native host over a unix socket, and a hidden-Chromium test harness.",
   "private": true,
   "type": "module",
@@ -8,6 +8,7 @@
     "./web": "./src/index.ts",
     "./web/clerk": "./clerk/index.tsx",
     "./web/testing": "./testing/index.tsx",
+    "./web/testing/playwright": "./testing/playwright.js",
     "./agent-keys": "./agent-keys/index.ts",
     "./agent-keys/clerk": "./clerk/server.ts",
     "./agent-keys/openapi": "./agent-keys/openapi.ts",
@@ -33,7 +34,8 @@
     "@clerk/hono": "^0.1.93",
     "hono": "^4.12.16",
     "hono-openapi": "^1.5.0",
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "@playwright/test": "^1.60.0"
   },
   "peerDependenciesMeta": {
     "@clerk/react": {
@@ -58,6 +60,9 @@
       "optional": true
     },
     "playwright": {
+      "optional": true
+    },
+    "@playwright/test": {
       "optional": true
     }
   },

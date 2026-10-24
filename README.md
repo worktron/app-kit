@@ -17,16 +17,17 @@ The baseline every app of ours ships with, written once instead of copied from t
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
 | Clerk | `app-kit/web/clerk` | `clerkSignIn({ publishableKey })`, the first adapter. |
 | Stand-in | `app-kit/web/testing` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
+| Playwright steps | `app-kit/web/testing/playwright` | `showPage`, `hidePage` and `serveNewerBuild`, for an app's browser tests. See Browser tests below. |
 
 ## Taking it in
 
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.4.0
+bun add github:worktron/app-kit#v0.4.1
 ```
 
-`bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
+`bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app, except the Playwright steps, which are plain JavaScript; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
 
 ## An app built on it
 
@@ -50,6 +51,32 @@ createRoot(root).render(
 The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account, `google('remembered')`, `google('choose')` and `google({ account })` for an account chosen in another window, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. With `waitForFirstDraw`, the app is rendered from the start, so its requests go out, but none of it shows until it calls `useAppDrawn()`'s function, so the whole screen appears at once. Every screen calls it once its first data is in or has failed to come, and a screen with nothing to load calls it at once: a screen that never calls it stays hidden. Every request goes through `request`.
 
 `e2e/fixture` is a whole one, which the kit's own browser test runs.
+
+## Browser tests
+
+The kit's own tests prove how each piece behaves: that the unreachable line comes and goes, that a newer deploy is found when the page comes back in front, that sign-in lands on the address asked for. An app's tests prove only its wiring: that it mounted the piece, where it shows, in its own words, and with which options, such as `reloadsItself: false`. An app does not test the kit's behavior again.
+
+Three steps depend on how the kit works inside, so an app takes them from the kit rather than writing its own:
+
+- `showPage(page)` brings the page back in front, as a phone does when the home-screen app returns. After `hidePage`, it makes the page visible again, since the kit looks only from a visible page.
+- `hidePage(page)` hides the page, as when the person switches to another tab.
+- `serveNewerBuild(page)` serves the index page as a newer deploy would, naming another built entry, and returns `{ stop }`, which serves the real page again. It throws at once if the page names no Vite entry under `/assets/`.
+
+```ts
+import { expect, test } from '@playwright/test';
+import { serveNewerBuild, showPage } from 'app-kit/web/testing/playwright';
+
+test('a newer deploy shows our own line under the bar', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await serveNewerBuild(page);
+  await page.clock.fastForward('01:01');
+  await showPage(page);
+  await expect(page.locator('header').getByRole('status')).toHaveText(/Our app has changed/);
+});
+```
+
+The steps are plain JavaScript with their types beside them, because Playwright's test runner leaves files under `node_modules` to Node, which refuses TypeScript there. An app whose browser tests sit outside the workspace that depends on the kit, such as a root `e2e/` folder beside `client/`, adds the kit to that workspace too, at the same tag.
 
 ## The adapter
 
