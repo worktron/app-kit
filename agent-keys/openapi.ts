@@ -1,6 +1,6 @@
 import { Hono, type Env, type Schema } from 'hono';
 import { generateSpecs } from 'hono-openapi';
-import type { Caller } from '.';
+import type { SignedInCaller } from '.';
 
 /** An OpenAPI description as `hono-openapi` generates it. */
 export type OpenApiDescription = Awaited<ReturnType<typeof generateSpecs>>;
@@ -21,8 +21,11 @@ export interface OpenApiDescriptions {
   forPerson(): Promise<OpenApiDescription>;
   /** Only the GET routes a key may read, with no schema used only by another route, for an agent with a key. */
   forKey(): Promise<OpenApiDescription>;
-  /** The one the caller may see: a key's, or the whole for a session. */
-  forCaller(caller: Caller): Promise<OpenApiDescription>;
+  /**
+   * The one the caller `callerOf` gives may see: a key's, or the whole for a session. Any other caller, signed out or a
+   * key that could not be checked, is refused with an error rather than handed the whole description.
+   */
+  forCaller(caller: SignedInCaller): Promise<OpenApiDescription>;
 }
 
 // The kit takes any Hono app the app built, whatever its own environment and schema types.
@@ -46,7 +49,12 @@ export function openApiDescriptions(app: AnyApp, options: OpenApiDescriptionOpti
     })());
   const forPerson = () => (person ??= (async () => withKeySection(await generate(app, options), options, await forKey()))());
 
-  return { forPerson, forKey, forCaller: (caller) => (caller.kind === 'key' ? forKey() : forPerson()) };
+  const forCaller = (caller: SignedInCaller) => {
+    if (caller.kind === 'key') return forKey();
+    if (caller.kind === 'session') return forPerson();
+    return Promise.reject(new Error(`no OpenAPI description for a caller who is ${(caller as { kind: string }).kind}`));
+  };
+  return { forPerson, forKey, forCaller };
 }
 
 /**

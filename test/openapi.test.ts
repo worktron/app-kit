@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
 import { z } from 'zod';
-import { callerOf, requireCaller, type Caller } from '../agent-keys';
+import { callerOf, requireCaller, type Caller, type SignedInCaller } from '../agent-keys';
 import { openApiDescriptions, REFERENCE_PAGE_SETTINGS, undescribedForKey } from '../agent-keys/openapi';
 
 const READABLE = [
@@ -100,6 +100,15 @@ test('the description answers each caller with theirs, generated once, after eve
   expect(await descriptions.forCaller({ kind: 'session', personId: 'person-ana' })).toBe(await descriptions.forPerson());
   const served = await (await api.request('/api/reference.json')).json();
   expect(operations(served.paths)).toContain('GET /api/settings');
+});
+
+test('a caller who is neither signed in nor a checked key gets no description, not the whole one', async () => {
+  const { descriptions } = app();
+  // An app that hands over the provider's caller instead of callerOf's: the types refuse it, and so does the code.
+  const signedOut = { kind: 'nobody', reason: null } as unknown as SignedInCaller;
+  const unchecked = { kind: 'unchecked', reason: 'Clerk could not check the key' } as unknown as SignedInCaller;
+  await expect(descriptions.forCaller(signedOut)).rejects.toThrow('no OpenAPI description for a caller who is nobody');
+  await expect(descriptions.forCaller(unchecked)).rejects.toThrow('no OpenAPI description for a caller who is unchecked');
 });
 
 test('the check names each listed GET route a key would not see described, and skips the catch-alls', async () => {
