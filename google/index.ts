@@ -1,7 +1,9 @@
 /**
  * What a refusal from Google means for the app that got it, read the same way in every app: reconnect (and why), ask
- * once more with a fresh token, try later, or failed. It takes the answer of any Google API (Gmail, Calendar, Drive)
- * or of Google's token endpoint. No React and no packages, so a server imports it.
+ * once more with a fresh token, try later, or failed. It takes the answer to a call made with a grant the app holds:
+ * any Google API (Gmail, Calendar, Drive), or a refresh at Google's token endpoint. A sign-in's first exchange of its
+ * code is not one: Google answers `invalid_grant` there too, for a code that is stale or used, and the sign-in starts
+ * again. No React and no packages, so a server imports it.
  *
  * Only refusals with a recorded or Google-documented answer get a meaning. Everything else reads as failed, with
  * Google's own reason attached for the app to log, until a sample of it is recorded.

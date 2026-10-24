@@ -275,7 +275,7 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 ## The Google part
 
-`app-kit/google`, for an app's server: what a refusal from Google means, read the same way in every app. It takes the answer of any Google API (Gmail, Calendar, Drive) or of Google's token endpoint, whether the token came from Clerk or from the app's own Google sign-in, and has no React and no packages.
+`app-kit/google`, for an app's server: what a refusal from Google means, read the same way in every app. It takes the answer to a call made with a grant the app holds, whether the token came from Clerk or from the app's own Google sign-in: any Google API (Gmail, Calendar, Drive), or a refresh at Google's token endpoint. A sign-in's first exchange of its code is not one: Google answers `invalid_grant` there too, for a code that is stale or used, and the sign-in starts again. It has no React and no packages.
 
 ```ts
 import { readGoogleResponse } from 'app-kit/google';

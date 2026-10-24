@@ -12,7 +12,7 @@ import { relative } from 'path';
 const EMAIL = /[\w.+-]+@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
 const HOME_FOLDER = /\/(?:Users|home)\/[\w.-]+/g;
 /** A real Google Cloud project, by number, or an OAuth client of one. A test's stand-in project is a short number. */
-const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|[\w-]+\.apps\.googleusercontent\.com/g;
+const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]+\.apps\.googleusercontent\.com/g;
 const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$/;
 const ALLOWED_IN_HISTORY = new Set(['noreply@anthropic.com']);
 const COMMIT_NAMES = new Set(['Worktron']);
@@ -44,6 +44,7 @@ test("a Google Cloud project's number or OAuth client is found, and a test's sta
     'projects/123456789012',
     '123456789012-abc123.apps.googleusercontent.com',
   ]);
+  expect(personalFacts('Google Calendar API has not been used in project 123456789012 before')).toEqual(['project 123456789012']);
   expect(personalFacts("project 0, consumer 'projects/0' or 'project_number:1'")).toEqual([]);
 });
 
