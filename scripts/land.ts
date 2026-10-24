@@ -5,16 +5,16 @@
 // the one moment only one thread can pass. So two threads landing at once never take the same number.
 //
 //   1. refuse main, a detached head, a rebase in progress, uncommitted changes; fetch and pin main's commit
-//   2. main's version untagged on GitHub (a landing that moved main and then failed to tag): tag main's commit
+//   2. main's version untagged on GitHub (a release landed by hand, or a push whose answer was lost): tag main's commit
 //   3. a branch already in main: stop there
 //   4. refuse a hand edit to the version, and a missing or unknown Release line; a branch touching only
 //      .claude/plans is none and skips the gates, so ticket landings keep working
 //   5. rebase on the pinned commit, then, on a detached head so a stopped run never leaves it on the branch, commit
 //      the new version and the README's install lines
-//   6. the gates, then a push of main that is never forced, so it only moves main forward and adds no commit: every
-//      commit keeps Worktron as author and committer. Refused because another landing moved main: start again, up to
-//      three tries
-//   7. tag the release and push the branch
+//   6. the gates, then one push of main and the tag, never forced, so it only moves main forward and adds no commit:
+//      every commit keeps Worktron as author and committer. Refused because another landing moved main: start again,
+//      up to three tries
+//   7. push the branch
 //
 // Tags are made only on GitHub, never in the local repository: every worktree shares one set, so a tag made in one
 // and never pushed would hide a missing tag from the next landing.
@@ -116,7 +116,7 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
     log(`main is at ${pin.slice(0, 7)}, version ${mainVersion}${attempt > 1 ? `, try ${attempt} of ${tries}` : ''}`)
 
     if (!(await tagOnGitHub(mainVersion))) {
-      log(`main's version ${mainVersion} has no tag on GitHub, so a landing stopped before tagging it`)
+      log(`main's version ${mainVersion} has no tag on GitHub (released by hand, or a push whose answer was lost); tagging main`)
       await pushTag(pin, mainVersion)
     }
     if ((await git('merge-base', '--is-ancestor', 'HEAD', pin)).ok) {
@@ -172,8 +172,10 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
         log('the gates passed')
       }
 
+      // Main and the tag move in one push that GitHub takes whole or not at all, so a refused tag never leaves main
+      // released without it.
       const head = await must('rev-parse', 'HEAD')
-      const pushed = await git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+      const pushed = await git('push', '-q', '--atomic', 'origin', 'HEAD:refs/heads/main', ...(version ? [`HEAD:refs/tags/v${version}`] : []))
       if (!pushed.ok) {
         const remoteMain = (await must('ls-remote', 'origin', 'refs/heads/main')).split(/\s/)[0]
         if (remoteMain === pin) return stop(`the push of main failed and main did not move: ${pushed.err}`)
@@ -181,11 +183,12 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
           log(`another landing moved main to ${remoteMain.slice(0, 7)} first`)
           return 'again'
         }
+        landedAt = head
         log('the push of main reported a failure, but main is at the landed commit')
+        if (version && !(await tagOnGitHub(version))) await pushTag(head, version)
       }
       landedAt = head
-      log(`main moved to ${head.slice(0, 7)}`)
-      if (version) await pushTag(head, version)
+      log(`main moved to ${head.slice(0, 7)}${version ? `, tagged v${version}` : ''}`)
       if (!(await git('push', '-q', '--force-with-lease', 'origin', `HEAD:refs/heads/${branch}`)).ok) log(`the branch ${branch} was not pushed to GitHub; main and the tag are`)
       return { landed: true, sha: head, version }
     }
