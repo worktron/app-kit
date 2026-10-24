@@ -77,7 +77,9 @@ export function useNewBuild(): boolean {
   return newBuild;
 }
 
-const TEXT_FIELDS = 'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], [contenteditable="true"]';
+/** Fields a person types into: every input but those that are clicked or chosen, every textarea, and editable text. */
+const NOT_TYPED = ['checkbox', 'radio', 'hidden', 'button', 'submit', 'reset', 'image', 'file', 'range', 'color'];
+const TEXT_FIELDS = `textarea, input${NOT_TYPED.map((t) => `:not([type="${t}"])`).join('')}, [contenteditable="true"]`;
 
 /** Whether a field on the page holds text, which a reload would lose. */
 export function somethingTyped(doc: Document = document): boolean {

@@ -36,6 +36,9 @@ test('a field with text in it holds back the reload that loses it', () => {
   expect(somethingTyped()).toBe(false);
   (document.getElementById('title') as HTMLInputElement).value = 'Call the dentist';
   expect(somethingTyped()).toBe(true);
+  // A number, a date or a phone number is as much typed as text.
+  document.body.innerHTML = '<input type="number" value="42"><input type="checkbox" value="on">';
+  expect(somethingTyped()).toBe(true);
 });
 
 test('a pull to refresh looks for a newer build at once, without the minute between looks', async () => {

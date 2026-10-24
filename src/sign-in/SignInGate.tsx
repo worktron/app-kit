@@ -67,7 +67,10 @@ export interface SignInGateProps {
    * says otherwise, as when its own bar draws the wordmark in another place and the placeholder's would jump.
    */
   whileReturning?: ReactNode;
-  /** Hold the placeholder up after a sign-in until the app calls `useAppDrawn`'s function, rather than drawing its empty screen. */
+  /**
+   * Show nothing of the app until it calls `useAppDrawn`'s function, with the placeholder held up meanwhile after a
+   * sign-in, so the whole screen appears at once. Every screen calls it once its first data is in or has failed.
+   */
   waitForFirstDraw?: boolean;
   callbackPath?: string;
   children: ReactNode;
@@ -191,11 +194,16 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
   // Back from Google and signed in: on to the address the person asked for, before the app reads where it is.
   if (window.location.pathname === callbackPath) window.history.replaceState(null, '', takeReturn());
 
+  // Until the app has drawn its first data, it renders, so its requests go out, but nothing of it shows: the whole
+  // screen appears at once. The wrapper is always there, with no box of its own, so drawing the app never remounts it.
+  const holding = waitForFirstDraw && !appDrawn;
   return (
     <PersonContext.Provider value={person}>
       <AppDrawnContext.Provider value={markAppDrawn}>
-        {waitForFirstDraw && cameThroughSignIn && !appDrawn && placeholder}
-        <SignOutContext.Provider value={signOut}>{children}</SignOutContext.Provider>
+        {holding && cameThroughSignIn && placeholder}
+        <div style={{ display: 'contents', visibility: holding ? 'hidden' : undefined }} aria-hidden={holding || undefined}>
+          <SignOutContext.Provider value={signOut}>{children}</SignOutContext.Provider>
+        </div>
       </AppDrawnContext.Provider>
     </PersonContext.Provider>
   );

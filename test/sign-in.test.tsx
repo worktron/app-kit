@@ -223,8 +223,29 @@ test('after a sign-in, the placeholder stays until the app has drawn its first d
   draw(standInSignIn(), <Loading />, true);
   await press('Email code');
   expect(screen.getByRole('progressbar')).toBeTruthy();
-  await press('Data arrives');
+  // The app is there, so its requests go out, but none of it shows beside the placeholder.
+  expect(screen.queryByRole('button', { name: 'Data arrives' })).toBeNull();
+  await act(async () => screen.getByText('Data arrives').click());
   expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(screen.getByRole('heading').textContent).toStartWith('The app at');
+});
+
+test('a browser signed in last time shows nothing of the app until its first data is drawn', async () => {
+  rememberSignedIn(true);
+  function Loading() {
+    const [loaded, setLoaded] = useState(false);
+    return (
+      <>
+        <h1>The bar alone</h1>
+        <button onClick={() => setLoaded(true)}>Data arrives</button>
+        {loaded && <App />}
+      </>
+    );
+  }
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }), <Loading />, true);
+  expect(screen.queryByRole('heading')).toBeNull();
+  await act(async () => screen.getByText('Data arrives').click());
+  expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['The bar alone', 'The app at /']);
 });
 
 test('a browser that was signed in last time draws what the app asks while the provider loads', () => {

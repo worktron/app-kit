@@ -96,9 +96,10 @@ function Items() {
     void load();
     return onReconnect(() => void load());
   }, []);
+  // Drawn once the list is in or has failed: a failure is shown too, never held back behind the placeholder.
   useLayoutEffect(() => {
-    if (items) appDrawn();
-  }, [items, appDrawn]);
+    if (items || failed) appDrawn();
+  }, [items, failed, appDrawn]);
   if (!items) return failed ? <p>{failed}</p> : null;
   return (
     <ul>
@@ -115,6 +116,12 @@ function App() {
   const [address, navigate] = useAddress();
   const signOut = useSignOut();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
+  // Only the list waits for data; every other screen is drawn at once.
+  const appDrawn = useAppDrawn();
+  const waitsForList = !item && address !== '/later';
+  useLayoutEffect(() => {
+    if (!waitsForList) appDrawn();
+  }, [waitsForList, appDrawn]);
   return (
     <NavigateProvider navigate={navigate}>
       <header>
