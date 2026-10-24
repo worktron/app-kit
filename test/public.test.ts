@@ -1,6 +1,6 @@
 /*
  * The repository is public, so nothing in it names a person's own email or home folder: not a tracked file, not a
- * commit's author or committer, not a commit message. Test addresses are on example.com, and the kit's own on
+ * file as any commit had it, not a commit's author or committer, not a commit message. Test addresses are on example.com, and the kit's own on
  * worktron.com. Commits are by Worktron; GitHub commits a rebase merge as itself, and the commit trailers name
  * Claude's address.
  */
@@ -14,6 +14,8 @@ const HOME_FOLDER = /\/(?:Users|home)\/[\w.-]+/g;
 const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$/;
 const ALLOWED_IN_HISTORY = new Set(['noreply@github.com', 'noreply@anthropic.com']);
 const COMMIT_NAMES = new Set(['Worktron', 'GitHub']);
+/** Addresses that name no one, in commits from before example.com was the rule: GitHub's SSH user and two made up. */
+const NAMES_NO_ONE = new Set(['git@github.com', 'a@b.co', 'x@y.co']);
 const THIS_FILE = relative(process.cwd(), import.meta.path);
 
 const git = (...args: string[]) => {
@@ -40,6 +42,20 @@ test('no tracked file names a personal email or home folder', () => {
     for (const fact of personalFacts(readFileSync(path, 'utf8'))) found.push(`${path}: ${fact}`);
   }
   expect(found).toEqual([]);
+});
+
+test('no file in any commit ever named a personal email or home folder, though a later commit took it out', () => {
+  // Every line each commit added, in every file but this one, whose patterns would match themselves.
+  const added = git('log', '--all', '--format=%x01%H', '-p', '--no-color', '--', '.', `:!${THIS_FILE}`)
+    .split('\x01')
+    .flatMap((commit) => {
+      const [sha, ...lines] = commit.split('\n');
+      return lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => [sha.slice(0, 7), line.slice(1)] as const);
+    });
+  expect(added.length).toBeGreaterThan(0);
+  const allowed = (e: string) => ALLOWED_EMAIL.test(e) || NAMES_NO_ONE.has(e);
+  const found = added.flatMap(([sha, line]) => personalFacts(line, allowed).map((fact) => `${sha}: ${fact}`));
+  expect([...new Set(found)]).toEqual([]);
 });
 
 test('no commit names a person, or a personal email or home folder, as author, committer or in its message', () => {

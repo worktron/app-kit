@@ -63,8 +63,9 @@ export interface SignInGateProps {
   /** The app's sign-in screen, which uses `useSignIn`. */
   signedOut: ReactNode;
   /**
-   * What to draw while the provider loads in a browser that was signed in last time. The placeholder unless the app
-   * says otherwise, as when its own bar draws the wordmark in another place and the placeholder's would jump.
+   * What to draw while the provider loads in a browser that was signed in last time, and, with `waitForFirstDraw`,
+   * until the app is drawn. The placeholder unless the app says otherwise, as when its own bar draws the wordmark in
+   * another place and the placeholder's would jump.
    */
   whileReturning?: ReactNode;
   /**
@@ -200,7 +201,8 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
   return (
     <PersonContext.Provider value={person}>
       <AppDrawnContext.Provider value={markAppDrawn}>
-        {holding && cameThroughSignIn && placeholder}
+        {/* What stood while the provider loaded stays until the app is drawn: one steady thing, never a blank between. */}
+        {holding && (cameThroughSignIn ? placeholder : whileReturning)}
         <div style={{ display: 'contents', visibility: holding ? 'hidden' : undefined }} aria-hidden={holding || undefined}>
           <SignOutContext.Provider value={signOut}>{children}</SignOutContext.Provider>
         </div>

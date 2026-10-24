@@ -230,7 +230,7 @@ test('after a sign-in, the placeholder stays until the app has drawn its first d
   expect(screen.getByRole('heading').textContent).toStartWith('The app at');
 });
 
-test('a browser signed in last time shows nothing of the app until its first data is drawn', async () => {
+test('a browser signed in last time keeps what it drew while loading, and nothing of the app, until the first data is drawn', async () => {
   rememberSignedIn(true);
   function Loading() {
     const [loaded, setLoaded] = useState(false);
@@ -244,7 +244,9 @@ test('a browser signed in last time shows nothing of the app until its first dat
   }
   draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }), <Loading />, true);
   expect(screen.queryByRole('heading')).toBeNull();
+  expect(screen.getByRole('progressbar')).toBeTruthy();
   await act(async () => screen.getByText('Data arrives').click());
+  expect(screen.queryByRole('progressbar')).toBeNull();
   expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['The bar alone', 'The app at /']);
 });
 

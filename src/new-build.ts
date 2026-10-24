@@ -67,9 +67,11 @@ export function useNewBuild(): boolean {
     const atOnce = () => look(true);
     lookNow.add(atOnce);
     const stop = onPageReturn(() => look());
+    const stopWatching = watchChoices();
     return () => {
       lookNow.delete(atOnce);
       stop();
+      stopWatching();
     };
   }, []);
 
@@ -81,18 +83,37 @@ export function useNewBuild(): boolean {
 const NOT_TYPED = ['checkbox', 'radio', 'hidden', 'button', 'submit', 'reset', 'image', 'file', 'range', 'color'];
 const TEXT_FIELDS = `textarea, input${NOT_TYPED.map((t) => `:not([type="${t}"])`).join('')}, [contenteditable="true"]`;
 
-/** Whether a field on the page holds text, which a reload would lose. */
-export function somethingTyped(doc: Document = document): boolean {
+/** Controls a person chooses with, whose state no attribute shows once React controls them. */
+const CHOICES = 'select, input[type="checkbox"], input[type="radio"]';
+
+/**
+ * The choices the person has changed since the page loaded. Whether a change was saved cannot be told from the page,
+ * so a changed choice still on the page holds back the reload until the person reloads with the line's Reload.
+ */
+const changedChoices = new WeakSet<EventTarget>();
+const noteChoice = (event: Event) => {
+  if (event.target instanceof Element && event.target.matches(CHOICES)) changedChoices.add(event.target);
+};
+
+/** Notes each choice the person changes on the page, from now until the returned function stops it. */
+export function watchChoices(doc: Document = document): () => void {
+  doc.addEventListener('change', noteChoice, true);
+  return () => doc.removeEventListener('change', noteChoice, true);
+}
+
+/** Whether the page holds something the person entered that a reload would lose: text in a field, or a choice they changed. */
+export function unsavedInput(doc: Document = document): boolean {
   for (const field of doc.querySelectorAll<HTMLElement>(TEXT_FIELDS)) {
     const text = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : field.textContent;
     if (text && text.trim()) return true;
   }
+  for (const choice of doc.querySelectorAll(CHOICES)) if (changedChoices.has(choice)) return true;
   return false;
 }
 
 /**
  * Once a newer build is waiting, the page loads it by itself only where nobody loses anything: as soon as it is
- * hidden, or after IDLE_MS with nothing touched, and either way only with nothing typed. Otherwise the line's Reload
+ * hidden, or after IDLE_MS with nothing touched, and either way only with nothing entered (unsavedInput). Otherwise the line's Reload
  * is the way.
  */
 function useReloadWhileAway(newBuild: boolean) {
@@ -100,13 +121,13 @@ function useReloadWhileAway(newBuild: boolean) {
     if (!newBuild) return;
     const reload = () => window.location.reload();
     const hidden = () => {
-      if (document.visibilityState === 'hidden' && !somethingTyped()) reload();
+      if (document.visibilityState === 'hidden' && !unsavedInput()) reload();
     };
     let idle: ReturnType<typeof setTimeout>;
     const wait = () => {
       clearTimeout(idle);
       idle = setTimeout(() => {
-        if (!somethingTyped()) reload();
+        if (!unsavedInput()) reload();
         else wait();
       }, IDLE_MS);
     };

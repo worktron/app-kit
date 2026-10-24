@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, somethingTyped, useNewBuild } from '../src/new-build';
+import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, unsavedInput, useNewBuild, watchChoices } from '../src/new-build';
 
 const realFetch = globalThis.fetch;
 
@@ -33,12 +33,31 @@ test('a new build is a different built entry, never a page from the dev server',
 
 test('a field with text in it holds back the reload that loses it', () => {
   document.body.innerHTML = '<input type="text" id="title"><textarea></textarea><input type="checkbox">';
-  expect(somethingTyped()).toBe(false);
+  expect(unsavedInput()).toBe(false);
   (document.getElementById('title') as HTMLInputElement).value = 'Call the dentist';
-  expect(somethingTyped()).toBe(true);
+  expect(unsavedInput()).toBe(true);
   // A number, a date or a phone number is as much typed as text.
   document.body.innerHTML = '<input type="number" value="42"><input type="checkbox" value="on">';
-  expect(somethingTyped()).toBe(true);
+  expect(unsavedInput()).toBe(true);
+});
+
+test('a choice the person changed holds back the reload, and one only shown does not', () => {
+  const stop = watchChoices();
+  try {
+    document.body.innerHTML = '<input type="checkbox" id="done"><select id="list"><option>Home</option><option>Work</option></select>';
+    expect(unsavedInput()).toBe(false);
+    const list = document.getElementById('list') as HTMLSelectElement;
+    list.value = 'Work';
+    list.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(unsavedInput()).toBe(true);
+    // Gone from the page with its screen, the choice holds nothing back.
+    list.remove();
+    expect(unsavedInput()).toBe(false);
+    (document.getElementById('done') as HTMLInputElement).click();
+    expect(unsavedInput()).toBe(true);
+  } finally {
+    stop();
+  }
 });
 
 test('a pull to refresh looks for a newer build at once, without the minute between looks', async () => {
