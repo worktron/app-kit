@@ -23,7 +23,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.1.1
+bun add github:worktron/app-kit#v0.3.0
 ```
 
 `bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
@@ -88,9 +88,53 @@ app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
 - **Only a person's own keys.** A key owned by an organization, and Clerk's other kinds of machine token, are refused.
 - **Revoking takes about a minute.** Measured on 2026-10-24: Clerk's key check kept accepting a revoked key for 55 seconds, though its key lookup said revoked at once.
 - **Switching it on.** In the Clerk Dashboard, for each instance: Configure, Developers, API keys, Enable API keys, with user API keys on and organization keys off. The page under Instance, also called API keys, is the app's own Clerk secret keys, not this.
-- **The agent's side.** The person pastes the key into 1Password, and the agent reads it where it calls: `curl -H "Authorization: Bearer $(op read 'op://<vault>/<item>/credential')" https://<app>/api/...`.
+- **The agent's side.** The person pastes the key into 1Password, and the agent reads it where it calls: `curl -H "Authorization: Bearer $(op read 'op://<vault>/<item>/credential')" https://<app>/api/...`. An agent starts at the app's `/api/reference.json` (below), which lists what its key may read.
 
 Needs `hono` 4.12 or later and `@clerk/hono` 0.1.93 or later.
+
+## API reference
+
+`app-kit/agent-keys/openapi`: the app describes its routes next to their code with `hono-openapi`, and the kit generates two OpenAPI descriptions from them: the whole one for a signed-in person, and one holding only the GET routes a key may read, for an agent. Both end with a section on calling the API with a key, written from the key's description, so no app writes that prose by hand. People read it on a Scalar reference page.
+
+```ts
+import { describeRoute, resolver, validator } from 'hono-openapi';
+import { z } from 'zod';
+import { Scalar } from '@scalar/hono-api-reference';
+import { callerOf } from 'app-kit/agent-keys';
+import { openApiDescriptions, REFERENCE_PAGE_SETTINGS } from 'app-kit/agent-keys/openapi';
+
+const READABLE = ['GET /api/reference.json', 'GET /api/profiles/:id/decisions', 'ALL /api/*'];
+// ...requireCaller({ caller: clerkCaller, readableByKey: READABLE }) as above, then the routes:
+
+app.get(
+  '/api/profiles/:id/decisions',
+  describeRoute({ summary: 'List the decisions on a profile', responses: { 200: { description: 'The decisions', content: { 'application/json': { schema: resolver(Decisions) } } } } }),
+  validator('param', z.object({ id: z.string().uuid() })),
+  (c) => listDecisions(callerOf(c).personId, c.req.valid('param').id),
+);
+
+const descriptions = openApiDescriptions(app, { title: 'Argon', description: 'What the app keeps for you.', readableByKey: READABLE });
+app.get('/api/reference.json', describeRoute({ summary: "This API's OpenAPI description" }), async (c) =>
+  c.json(await descriptions.forCaller(callerOf(c))),
+);
+app.get('/api/reference', Scalar({ ...REFERENCE_PAGE_SETTINGS, pageTitle: 'Argon API', url: '/api/reference.json' }));
+// ...then the not-found catch-all, last.
+```
+
+- **One list.** The same `READABLE` goes to `requireCaller` and to `openApiDescriptions`, and lists `GET /api/reference.json`, so an agent with a key reads its own description there and a signed-in person reads the whole one. The page itself is not listed: only a signed-in person opens it. A signed-out person sees `{"error":"unauthorized"}`, so the app links the page from its own signed-in screens.
+- **Generated once.** Each description is generated on first use, after every route is registered, and kept for the life of the server.
+- **A key's description is generated from only its routes**, the same strings the key check compares, so it holds no schema that only another route uses.
+- **The test.** `undescribedForKey(app, READABLE)` names each listed GET route a key would not see described: no `describeRoute`, only a `validator`, or a route the generator drops. Catch-alls are skipped. An app's test expects `[]`.
+- **Describing a route.** `describeRoute` gives the summary; `validator` from `hono-openapi` replaces `zValidator` from `@hono/zod-validator` and puts the schema in the description. Its 400 answer differs: `{ success: false, error: [issues], data }`, which echoes the input back. Zod 4, or Zod 3.25 with `zod-to-json-schema`.
+- **The reference page stays on the app's host.** `REFERENCE_PAGE_SETTINGS` turns off what Scalar does by default that leaves it:
+  - its AI agent, on by default on localhost, which uploads the description to Scalar;
+  - its hosted proxy, through which a test request from a deployed app goes to Scalar's server with any key typed into the page;
+  - its developer toolbar, whose Share and Deploy send the description to Scalar's cloud;
+  - its fonts and its telemetry.
+
+  It also pins Scalar's script to one release on jsDelivr, so a page that carries the session never runs a newer script than the one checked, and draws its first frame in the system's light or dark. The page asks only the app and `cdn.jsdelivr.net`. An app with a content security policy allows `https://cdn.jsdelivr.net/npm/@scalar/` and inline scripts on that page, or passes Scalar its nonce (`nonce: c.get('secureHeadersNonce')`).
+
+Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page.
 
 ## Develop
 

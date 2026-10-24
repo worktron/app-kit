@@ -1,6 +1,6 @@
 {
   "name": "app-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The baseline every app ships with, written once. Its web part: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, and a sign-in gate behind a provider adapter, with Clerk the first adapter.",
   "private": true,
   "type": "module",
@@ -10,6 +10,7 @@
     "./web/testing": "./testing/index.tsx",
     "./agent-keys": "./agent-keys/index.ts",
     "./agent-keys/clerk": "./clerk/server.ts",
+    "./agent-keys/openapi": "./agent-keys/openapi.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -25,7 +26,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@clerk/hono": "^0.1.93",
-    "hono": "^4.12.16"
+    "hono": "^4.12.16",
+    "hono-openapi": "^1.5.0"
   },
   "peerDependenciesMeta": {
     "@clerk/react": {
@@ -35,6 +37,9 @@
       "optional": true
     },
     "hono": {
+      "optional": true
+    },
+    "hono-openapi": {
       "optional": true
     }
   },
@@ -46,16 +51,19 @@
     "@happy-dom/global-registrator": "^20.0.0",
     "@mui/material": "^9.4.0",
     "@playwright/test": "^1.64.1",
+    "@scalar/hono-api-reference": "^0.12.14",
     "@testing-library/react": "^16.3.0",
     "@types/bun": "^1.4.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "hono": "^4.12.16",
+    "hono-openapi": "^1.5.0",
     "oxlint": "^1.89.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "zod": "^4.4.3"
   }
 }

@@ -6,7 +6,7 @@ The app baseline as one public package, which apps install from GitHub at a tag,
 
 ```
 src/         the web kit (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary, row links, sign-in gate
-agent-keys/  the server check that lets a person's key read the GET routes an app lists (app-kit/agent-keys)
+agent-keys/  the server check that lets a person's key read the GET routes an app lists (app-kit/agent-keys), and the API reference that shows a key those routes (openapi.ts, app-kit/agent-keys/openapi)
 clerk/       the Clerk adapter (index.tsx) and the Clerk reader for the key check (server.ts), the only code that imports Clerk
 testing/     the stand-in sign-in provider, for the kit's tests and apps'
 test/        unit tests in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced
