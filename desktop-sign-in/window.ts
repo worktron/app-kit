@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Outcome, ProviderSession } from '../src/sign-in/provider';
+import { TICKET_FAILED } from '../src/sign-in/SignInGate';
 import { read, session as thisTab, write, type KeyValueStore } from '../src/storage';
 import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, NONCE_PARAM, TICKET_PARAM } from './names';
 import { NONCE, post } from './requests';
@@ -9,6 +10,9 @@ import { NONCE, post } from './requests';
  * app's sign-in page, with a nonce it keeps in its own storage. The browser, signed in, hands back a one-time ticket
  * through the app's own link; the shell passes it to the page, which signs in with it only when the nonce is the one
  * it asked with, so a link the window did not ask for, made by any other app on the Mac, never signs it in.
+ *
+ * The window's page is the app's own site, served by the server that mounts the routes, as a Tauri window onto the
+ * hosted app is: the browser page's address and the routes are both on the page's origin.
  */
 
 const NONCE_KEY = 'app-kit.desktopSignInNonce';
@@ -54,7 +58,8 @@ export async function takeDesktopSignIn(
   store: () => KeyValueStore = thisTab,
 ): Promise<Outcome> {
   if (!NONCE.test(link.nonce) || read(store, NONCE_KEY) !== link.nonce) return { ok: false, message: NOT_FROM_THIS_WINDOW };
-  const outcome = await session.ticket(link.ticket);
+  // A provider that throws, as on a network failure, fails like one that says no, so the window never stays signing in.
+  const outcome = await session.ticket(link.ticket).catch((): Outcome => ({ ok: false, message: TICKET_FAILED }));
   if (!outcome.ok) return outcome;
   write(store, NONCE_KEY, null);
   await post(session, '/taken', { ticket: link.ticket }).catch(() => undefined);

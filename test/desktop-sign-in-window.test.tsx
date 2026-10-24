@@ -144,6 +144,24 @@ test('a ticket that fails, as one expired while the browser asked to open the ap
   await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
 });
 
+test('a provider that throws on a ticket, as on a network failure, fails the sign-in, and a fresh ticket still works', async () => {
+  serveDesktopSignIn(() => null);
+  const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
+  const provider = standInSignIn();
+  const throwing: StandInSignIn = {
+    ...provider,
+    useSession: () => {
+      const session = provider.useSession();
+      return { ...session, ticket: (ticket) => (ticket === 'unreachable' ? Promise.reject(new Error('offline')) : session.ticket(ticket)) };
+    },
+  };
+  render(<Window provider={throwing} />);
+  await handOver({ ticket: 'unreachable', nonce });
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(TICKET_FAILED));
+  await handOver({ ticket: standInTicket('ana@example.com'), nonce });
+  await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
+});
+
 test('a second link while the first is being taken, as from a second Open the app, is dropped and shows no failure', async () => {
   serveDesktopSignIn(() => null);
   const nonce = nonceIn(desktopSignInAddress('ana@example.com'));
