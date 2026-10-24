@@ -99,7 +99,8 @@ The server mounts the routes where the kit asks for them, behind its own sign-in
 import { DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes } from 'app-kit/desktop-sign-in/server';
 
 app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({
-  userId: (c) => getAuth(c)?.userId ?? null,
+  // A session's person only, never a key for agents': a ticket signs its holder in as that person.
+  userId: (c) => getAuth(c, { acceptsToken: 'session_token' })?.userId ?? null,
   makeTicket: async (userId) => (await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 60 })).token,
 }));
 ```
