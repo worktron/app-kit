@@ -63,4 +63,4 @@ Clerk-specific, by design: the Clerk adapter starts Google through Clerk's class
 
 Releases are tags, `v<version>`, matching `package.json`'s version, made on main after the change merges, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its release notes say.
 
-The repository is public. Pull requests merge by rebasing, which keeps each commit's author, and `test/public.test.ts` fails on any personal email, home folder or name in the files or the history.
+The repository is public. A change lands by moving main forward to the reviewed branch's head through GitHub's API (`gh api -X PATCH repos/worktron/app-kit/git/refs/heads/main -f sha=<head>`), which adds no commit, so every commit keeps Worktron as its author and committer; GitHub marks the pull request merged. Its merge buttons write a new committer, the merging account, for every commit, merge, squash and rebase alike. `test/public.test.ts` fails on any personal email, home folder or name in the files or the history.

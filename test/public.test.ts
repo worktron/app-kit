@@ -1,8 +1,8 @@
 /*
  * The repository is public, so nothing in it names a person's own email or home folder: not a tracked file, not a
  * file as any commit had it, not a commit's author or committer, not a commit message. Test addresses are on example.com, and the kit's own on
- * worktron.com. Commits are by Worktron; GitHub commits a rebase merge as itself, and the commit trailers name
- * Claude's address.
+ * worktron.com. Commits are by Worktron, and land by moving main forward, since GitHub's merge button commits as the
+ * merging account; the commit trailers name Claude's address.
  */
 import { expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'fs';
@@ -12,8 +12,8 @@ import { relative } from 'path';
 const EMAIL = /[\w.+-]+@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
 const HOME_FOLDER = /\/(?:Users|home)\/[\w.-]+/g;
 const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$/;
-const ALLOWED_IN_HISTORY = new Set(['noreply@github.com', 'noreply@anthropic.com']);
-const COMMIT_NAMES = new Set(['Worktron', 'GitHub']);
+const ALLOWED_IN_HISTORY = new Set(['noreply@anthropic.com']);
+const COMMIT_NAMES = new Set(['Worktron']);
 /** Addresses that name no one, in commits from before example.com was the rule: GitHub's SSH user and two made up. */
 const NAMES_NO_ONE = new Set(['git@github.com', 'a@b.co', 'x@y.co']);
 const THIS_FILE = relative(process.cwd(), import.meta.path);
