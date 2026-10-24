@@ -1,0 +1,49 @@
+{
+  "name": "web-client-kit",
+  "version": "0.1.0",
+  "description": "The baseline every web app ships with, written once: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, and a sign-in gate behind a provider adapter, with Clerk the first adapter.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./clerk": "./clerk/index.tsx",
+    "./testing": "./testing/index.tsx",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "bun test",
+    "test:e2e": "bash scripts/e2e.sh",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "oxlint .",
+    "gates": "bash scripts/gates.sh"
+  },
+  "peerDependencies": {
+    "@clerk/react": "^6.17.4",
+    "@mui/material": "^9.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@clerk/react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@clerk/react": "^6.17.4",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@happy-dom/global-registrator": "^20.0.0",
+    "@mui/material": "^9.4.0",
+    "@playwright/test": "^1.64.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/bun": "^1.4.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.89.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}
