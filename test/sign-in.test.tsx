@@ -176,7 +176,7 @@ test('back from Google, the sign-in finishes in the page and lands on the addres
 
 test('back from Google without a sign-in, the sign-in screen says so at the address the trip started from', async () => {
   window.history.replaceState(null, '', '/week');
-  sessionStorage.setItem('web-client-kit.returnTo', '/week');
+  sessionStorage.setItem('app-kit.returnTo', '/week');
   window.history.replaceState(null, '', GOOGLE_CALLBACK_PATH);
   draw(standInSignIn({ store: sessionStorage }));
   await waitFor(() => expect(heading()).toBe('Sign in'));

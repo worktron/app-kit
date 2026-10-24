@@ -1,6 +1,6 @@
 export { request, ApiError, SIGN_IN_LOOP_MS } from './fetch';
 export { configureConnection, onReconnect, serverReachable, useServerReachable, PROBE_MS } from './connection';
-export { useNewBuild, builtEntry, runningEntry, isNewBuild, somethingTyped, BUILD_CHECK_MS, IDLE_MS } from './new-build';
+export { useNewBuild, lookForNewBuild, builtEntry, runningEntry, isNewBuild, somethingTyped, BUILD_CHECK_MS, IDLE_MS } from './new-build';
 export { onPageReturn, type PageEvents } from './page-return';
 export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';
 export { ErrorBoundary } from './ErrorBoundary';

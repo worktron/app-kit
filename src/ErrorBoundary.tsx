@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, { error: Error | null }> {
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
     // The console is the one place a crash is kept on the page; the stack is there for a bug report.
-    console.error('[web-client-kit] render crash', error, info.componentStack);
+    console.error('[app-kit] render crash', error, info.componentStack);
   }
 
   override render() {

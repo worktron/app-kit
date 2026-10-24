@@ -1,6 +1,6 @@
 import { read, session, write, type KeyValueStore } from './storage';
 
-const KEY = 'web-client-kit.preloadReloadAt';
+const KEY = 'app-kit.preloadReloadAt';
 
 /** A second failure this soon after the reload is not a deploy, so the page shows the failure instead of reloading again. */
 export const RELOAD_GUARD_MS = 30_000;

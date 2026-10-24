@@ -5,7 +5,8 @@ import { useNewBuild } from './new-build';
 const line = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, px: 2, py: 0.5, typography: 'body2', color: 'text.secondary' } as const;
 
 /**
- * A quiet line once a newer build is deployed, with Reload. An app that draws its own lines under its bar uses
+ * A quiet line once a newer build is deployed, with Reload. It never says "new version", which a desktop app's own
+ * update offer says: this reloads only the page. An app that draws its own lines under its bar uses
  * `useNewBuild` instead and draws this in its own style.
  */
 export function NewBuildLine({ appName }: { appName: string }) {
@@ -13,7 +14,7 @@ export function NewBuildLine({ appName }: { appName: string }) {
   if (!newBuild) return null;
   return (
     <Box role="status" sx={line}>
-      A new version of {appName} is ready.
+      {appName} has changed since this page loaded.
       <Button size="small" onClick={() => window.location.reload()}>
         Reload
       </Button>

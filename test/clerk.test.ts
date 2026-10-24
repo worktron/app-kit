@@ -43,35 +43,35 @@ describe('what the person is told', () => {
   });
 
   test('read off the error itself when there is no list', () => {
-    expect(messageFor({ code: 'verification_expired' }, 'a@b.co')).toBe('That code has expired. Send a new one.');
+    expect(messageFor({ code: 'verification_expired' }, 'a@example.com')).toBe('That code has expired. Send a new one.');
   });
 
   test("anything else is a plain retry line, never Clerk's own text", () => {
-    expect(messageFor(apiError('something_new'), 'a@b.co')).toBe('Signing in did not work. Try again.');
+    expect(messageFor(apiError('something_new'), 'a@example.com')).toBe('Signing in did not work. Try again.');
   });
 });
 
 test('an emailed code starts a sign-in for the address, then emails it', async () => {
   const { signIn, calls } = fakeSignIn();
-  expect(await sendEmailCode(signIn, 'a@b.co')).toEqual({ ok: true });
-  expect(calls).toEqual(['create a@b.co', 'sendCode a@b.co']);
+  expect(await sendEmailCode(signIn, 'a@example.com')).toEqual({ ok: true });
+  expect(calls).toEqual(['create a@example.com', 'sendCode a@example.com']);
 });
 
 test('an unknown address stops before any email goes out', async () => {
   const { signIn, calls } = fakeSignIn({ create: apiError('form_identifier_not_found') });
-  expect(await sendEmailCode(signIn, 'x@y.co')).toEqual({ ok: false, message: 'There is no account for x@y.co.' });
-  expect(calls).toEqual(['create x@y.co']);
+  expect(await sendEmailCode(signIn, 'x@example.com')).toEqual({ ok: false, message: 'There is no account for x@example.com.' });
+  expect(calls).toEqual(['create x@example.com']);
 });
 
 test('a right code makes the session active, a wrong one leaves it alone', async () => {
   const right = fakeSignIn();
-  await sendEmailCode(right.signIn, 'a@b.co');
-  expect(await checkEmailCode(right.signIn, '481207', 'a@b.co')).toEqual({ ok: true });
+  await sendEmailCode(right.signIn, 'a@example.com');
+  expect(await checkEmailCode(right.signIn, '481207', 'a@example.com')).toEqual({ ok: true });
   expect(right.calls.slice(2)).toEqual(['verifyCode 481207', 'finalize']);
 
   const wrong = fakeSignIn({ verifyCode: apiError('form_code_incorrect') });
-  await sendEmailCode(wrong.signIn, 'a@b.co');
-  expect((await checkEmailCode(wrong.signIn, '000000', 'a@b.co')).ok).toBe(false);
+  await sendEmailCode(wrong.signIn, 'a@example.com');
+  expect((await checkEmailCode(wrong.signIn, '000000', 'a@example.com')).ok).toBe(false);
   expect(wrong.calls).not.toContain('finalize');
 });
 

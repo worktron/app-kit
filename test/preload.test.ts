@@ -34,7 +34,7 @@ test('a screen whose code fails to load reloads the page once, and a second fail
 test('a failure long after the last reload reloads again', () => {
   const win = new EventTarget();
   const store = memory();
-  store.setItem('web-client-kit.preloadReloadAt', String(Date.now() - RELOAD_GUARD_MS - 1));
+  store.setItem('app-kit.preloadReloadAt', String(Date.now() - RELOAD_GUARD_MS - 1));
   let reloads = 0;
   reloadOnFailedLoad({ win, store: () => store, reload: () => reloads++ });
   win.dispatchEvent(failedLoad());

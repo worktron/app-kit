@@ -1,8 +1,8 @@
 import { local, read, session, write, type KeyValueStore } from '../storage';
 
-const SIGNED_IN_KEY = 'web-client-kit.signedIn';
-const ACCOUNT_KEY = 'web-client-kit.lastAccount';
-const RETURN_KEY = 'web-client-kit.returnTo';
+const SIGNED_IN_KEY = 'app-kit.signedIn';
+const ACCOUNT_KEY = 'app-kit.lastAccount';
+const RETURN_KEY = 'app-kit.returnTo';
 
 /** Whether this browser was signed in when it last looked, so the page drawn while the provider loads matches the next. */
 export function lastSignedIn(store: () => KeyValueStore = local): boolean | null {

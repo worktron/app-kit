@@ -172,7 +172,7 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
     },
   );
   const comeBack = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  const line = page.getByRole('status').filter({ hasText: 'A new version of the fixture is ready.' });
+  const line = page.getByRole('status').filter({ hasText: 'the fixture has changed since this page loaded.' });
 
   // Just loaded, so coming back at once does not look.
   await comeBack();
@@ -200,7 +200,7 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
   );
   await page.clock.fastForward('01:01');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await expect(page.getByRole('status')).toContainText('A new version');
+  await expect(page.getByRole('status')).toContainText('has changed since this page loaded');
   const count = countLoads(page);
 
   // The person switches to another tab.

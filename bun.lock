@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "web-client-kit",
+      "name": "app-kit",
       "devDependencies": {
         "@clerk/react": "^6.17.4",
         "@emotion/react": "^11.14.0",

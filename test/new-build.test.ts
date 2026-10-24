@@ -1,7 +1,12 @@
-import { afterEach, expect, test } from 'bun:test';
-import { builtEntry, isNewBuild, runningEntry, somethingTyped } from '../src/new-build';
+import { afterEach, expect, mock, test } from 'bun:test';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, somethingTyped, useNewBuild } from '../src/new-build';
+
+const realFetch = globalThis.fetch;
 
 afterEach(() => {
+  cleanup();
+  globalThis.fetch = realFetch;
   document.body.innerHTML = '';
   document.head.innerHTML = '';
 });
@@ -31,4 +36,17 @@ test('a field with text in it holds back the reload that loses it', () => {
   expect(somethingTyped()).toBe(false);
   (document.getElementById('title') as HTMLInputElement).value = 'Call the dentist';
   expect(somethingTyped()).toBe(true);
+});
+
+test('a pull to refresh looks for a newer build at once, without the minute between looks', async () => {
+  document.head.innerHTML = '<script type="module" src="/assets/index-a.js"></script>';
+  const looked = mock(async () => new Response('<script type="module" src="/assets/index-b.js"></script>'));
+  globalThis.fetch = looked as unknown as typeof fetch;
+  const { result } = renderHook(() => useNewBuild());
+  // Back in front within the minute since the page loaded: no look.
+  window.dispatchEvent(new Event('focus'));
+  expect(looked).not.toHaveBeenCalled();
+  lookForNewBuild();
+  await waitFor(() => expect(result.current).toBe(true));
+  expect(looked).toHaveBeenCalledTimes(1);
 });

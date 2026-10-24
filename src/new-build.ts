@@ -33,10 +33,18 @@ export function isNewBuild(running: string | null, served: string | null): boole
   return running !== null && served !== null && running !== served;
 }
 
+/** The looks of every page using useNewBuild, for lookForNewBuild. */
+const lookNow = new Set<() => void>();
+
+/** Looks for a newer build at once, without the minute's wait, as a pull to refresh asks. */
+export function lookForNewBuild() {
+  for (const look of lookNow) look();
+}
+
 /**
  * Whether a newer build of the client has been deployed since this page loaded. It looks when the page comes back in
  * front, a minute or more after it last looked, and never on a timer, so the line it brings never appears while the
- * page is being used.
+ * page is being used. A pull to refresh also looks, at once, through lookForNewBuild.
  */
 export function useNewBuild(): boolean {
   const [newBuild, setNewBuild] = useState(false);
@@ -45,8 +53,8 @@ export function useNewBuild(): boolean {
     const running = runningEntry();
     if (!running) return;
     let lastLook = Date.now();
-    const look = () => {
-      if (Date.now() - lastLook < BUILD_CHECK_MS) return;
+    const look = (now = false) => {
+      if (!now && Date.now() - lastLook < BUILD_CHECK_MS) return;
       lastLook = Date.now();
       fetch('/', { cache: 'no-store' })
         .then((res) => (res.ok ? res.text() : ''))
@@ -56,7 +64,13 @@ export function useNewBuild(): boolean {
         // Offline, or the server is mid-deploy: the next return looks again.
         .catch(() => undefined);
     };
-    return onPageReturn(look);
+    const atOnce = () => look(true);
+    lookNow.add(atOnce);
+    const stop = onPageReturn(() => look());
+    return () => {
+      lookNow.delete(atOnce);
+      stop();
+    };
   }, []);
 
   useReloadWhileAway(newBuild);
