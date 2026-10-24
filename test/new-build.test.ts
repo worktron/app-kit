@@ -96,3 +96,22 @@ test('a hidden page with a newer build reloads by itself, but never over typed t
     delete (document as { visibilityState?: unknown }).visibilityState;
   }
 });
+
+test('an app whose view a reload would lose turns the reload by itself off, and keeps the line', async () => {
+  document.head.innerHTML = '<script type="module" src="/assets/index-a.js"></script>';
+  globalThis.fetch = mock(async () => new Response('<script type="module" src="/assets/index-b.js"></script>')) as unknown as typeof fetch;
+  const reload = mock(() => {});
+  Object.defineProperty(window.location, 'reload', { value: reload, configurable: true });
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  try {
+    const { result } = renderHook(() => useNewBuild({ reloadsItself: false }));
+    lookForNewBuild();
+    await waitFor(() => expect(result.current).toBe(true));
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(reload).not.toHaveBeenCalled();
+  } finally {
+    delete (window.location as { reload?: unknown }).reload;
+    delete (document as { visibilityState?: unknown }).visibilityState;
+  }
+});

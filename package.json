@@ -1,6 +1,6 @@
 {
   "name": "app-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The baseline every app ships with, written once. Its web part: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, and a sign-in gate behind a provider adapter, with Clerk the first adapter.",
   "private": true,
   "type": "module",

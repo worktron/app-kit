@@ -44,9 +44,11 @@ export function lookForNewBuild() {
 /**
  * Whether a newer build of the client has been deployed since this page loaded. It looks when the page comes back in
  * front, a minute or more after it last looked, and never on a timer, so the line it brings never appears while the
- * page is being used. A pull to refresh also looks, at once, through lookForNewBuild.
+ * page is being used. A pull to refresh also looks, at once, through lookForNewBuild. Once one is waiting, the page
+ * loads it by itself where nobody loses anything, unless `reloadsItself` is false: for an app whose view holds
+ * something only in memory that a reload would lose, so only the person's Reload loads it.
  */
-export function useNewBuild(): boolean {
+export function useNewBuild({ reloadsItself = true }: { reloadsItself?: boolean } = {}): boolean {
   const [newBuild, setNewBuild] = useState(false);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function useNewBuild(): boolean {
     };
   }, []);
 
-  useReloadWhileAway(newBuild);
+  useReloadWhileAway(newBuild && reloadsItself);
   return newBuild;
 }
 
