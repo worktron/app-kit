@@ -57,6 +57,38 @@ A provider is `{ Root, useSession, GoogleReturn }` (`src/sign-in/provider.ts`): 
 
 Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for, such as signing in with a one-time token, uses Clerk's own hooks inside the gate, whose provider is Clerk's.
 
+## Keys for agents
+
+`app-kit/agent-keys`: a person makes a key in the app's Settings, and an agent or script sends it as `Authorization: Bearer <key>` to read that person's own data. The app's server names the GET routes a key may read; every other route stays session-only. Clerk holds the keys: it makes, lists and revokes them in the API keys tab of its own profile screen (or its `<APIKeys />` component), and checks each one on every request.
+
+```ts
+import { clerkMiddleware } from '@clerk/hono';
+import { requireCaller, callerOf } from 'app-kit/agent-keys';
+import { clerkCaller } from 'app-kit/agent-keys/clerk';
+
+app.use('/api/*', clerkMiddleware());
+app.use(
+  '/api/*',
+  requireCaller({
+    caller: clerkCaller,
+    readableByKey: ['GET /api/profiles/:id/decisions', 'GET /api/profiles/:id/matters'],
+    openPaths: ['/api/oauth/gmail/callback'],
+  }),
+);
+
+app.get('/api/profiles/:id/decisions', (c) => listDecisions(callerOf(c).personId, c.req.param('id')));
+```
+
+- **The list decides.** Each entry is the method and the path as the app registered it. The check compares it with the route Hono picked to answer, so a literal route such as `/api/items/export`, registered beside a listed `/api/items/:id`, is never let through by mistake. A key is refused on anything but GET (and HEAD, which runs the GET route), but a GET can still write, so a listed route must never write, not even behind a query flag such as `?check=1`.
+- **Handlers read the person with `callerOf(c).personId`.** A handler that asks Clerk for a session itself, such as `getAuth(c, { acceptsToken: 'session_token' })`, refuses every key the check let through. An app swaps its one helper for `callerOf`.
+- **The answers.** A key on a write or on a route not listed gets 403 with why. No sign-in, or a revoked, expired or unknown key, gets 401. A key Clerk could not check, because Clerk could not be reached or answered with an error, gets 503, so an agent does not report a working key as revoked. Every decision about a key is logged with the key's name and id, never its secret.
+- **Only a person's own keys.** A key owned by an organization, and Clerk's other kinds of machine token, are refused.
+- **Revoking takes about a minute.** Measured on 2026-10-24: Clerk's key check kept accepting a revoked key for 55 seconds, though its key lookup said revoked at once.
+- **Switching it on.** In the Clerk Dashboard, for each instance: Configure, Developers, API keys, Enable API keys, with user API keys on and organization keys off. The page under Instance, also called API keys, is the app's own Clerk secret keys, not this.
+- **The agent's side.** The person pastes the key into 1Password, and the agent reads it where it calls: `curl -H "Authorization: Bearer $(op read 'op://<vault>/<item>/credential')" https://<app>/api/...`.
+
+Needs `hono` 4.12 or later and `@clerk/hono` 0.1.93 or later.
+
 ## Develop
 
 `bun test`, `bun run typecheck`, `bun run lint`, and `bun run test:e2e` for the fixture in a hidden Chromium (`bunx playwright install chromium` first). `scripts/gates.sh` runs all four.

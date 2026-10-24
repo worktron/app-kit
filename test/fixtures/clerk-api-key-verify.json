@@ -1,0 +1,36 @@
+{
+  "_about": "Clerk Backend API answers to POST /api_keys/verify, recorded on 2026-10-24 against a development instance with user API keys on, ids replaced with stand-ins. valid: a live key. notFound: a made-up key, and also what a revoked key gets once Clerk stops accepting it, about 55 seconds after the revoke.",
+  "valid": {
+    "status": 200,
+    "body": {
+      "object": "api_key",
+      "id": "ak_stand_in_key_id",
+      "type": "api_key",
+      "subject": "user_stand_in_person",
+      "name": "Reading agent",
+      "description": null,
+      "scopes": [],
+      "claims": null,
+      "revoked": false,
+      "revocation_reason": null,
+      "expired": false,
+      "expiration": null,
+      "created_by": null,
+      "last_used_at": 1792876569321,
+      "created_at": 1792876568999,
+      "updated_at": 1792876569321
+    }
+  },
+  "notFound": {
+    "status": 404,
+    "body": {
+      "errors": [
+        {
+          "message": "API Key not found",
+          "long_message": "The requested API Key could not be found.",
+          "code": "api_key_not_found"
+        }
+      ]
+    }
+  }
+}
