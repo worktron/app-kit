@@ -1,5 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { NewBuildLine } from '../src/lines';
 import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, unsavedInput, useNewBuild, watchChoices } from '../src/new-build';
 
 const realFetch = globalThis.fetch;
@@ -105,8 +106,11 @@ test('an app whose view a reload would lose turns the reload by itself off, and 
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   try {
     const { result } = renderHook(() => useNewBuild({ reloadsItself: false }));
+    // The kit's own line, which an app may draw beside its use of the hook, takes the same option.
+    render(<NewBuildLine appName="Atlas" reloadsItself={false} />);
     lookForNewBuild();
     await waitFor(() => expect(result.current).toBe(true));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Atlas has changed since this page loaded.'));
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
     expect(reload).not.toHaveBeenCalled();

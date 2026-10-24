@@ -7,10 +7,10 @@ const line = { display: 'flex', alignItems: 'center', justifyContent: 'center', 
 /**
  * A quiet line once a newer build is deployed, with Reload. It never says "new version", which a desktop app's own
  * update offer says: this reloads only the page. An app that draws its own lines under its bar uses
- * `useNewBuild` instead and draws this in its own style.
+ * `useNewBuild` instead and draws this in its own style. `reloadsItself={false}` is useNewBuild's option of that name.
  */
-export function NewBuildLine({ appName }: { appName: string }) {
-  const newBuild = useNewBuild();
+export function NewBuildLine({ appName, reloadsItself = true }: { appName: string; reloadsItself?: boolean }) {
+  const newBuild = useNewBuild({ reloadsItself });
   if (!newBuild) return null;
   return (
     <Box role="status" sx={line}>
