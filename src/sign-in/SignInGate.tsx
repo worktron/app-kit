@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { setCurrentSession } from './current';
 import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
 import { currentAddress, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
@@ -111,10 +111,14 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
     latest.current.signOut().catch(() => setSigningOut(false));
   }, []);
 
-  useEffect(() => {
+  // In a layout effect, which runs before any passive one: an app's first requests come from its own effects, and
+  // children's effects run before their parent's, so a passive one here would let them go out without a token.
+  useLayoutEffect(() => {
     setCurrentSession({
       token: (options) => latest.current.token(options),
       refused: () => {
+        // Already signed out, as when a second request in flight is refused after the first: the sign-in screen is up.
+        if (!latest.current.person) return;
         setNotice(SESSION_ENDED);
         signOut();
       },

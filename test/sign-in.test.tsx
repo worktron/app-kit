@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { request } from '../src/fetch';
 import { resetConnection } from '../src/connection';
 import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../src/sign-in/SignInGate';
@@ -130,6 +130,32 @@ test('a request the server refuses brings sign-in up over the current address, s
   // Signing in again lands back on the same item.
   await press('Email code');
   expect(heading()).toBe('The app at /events/42');
+});
+
+test('a request refused after the sign-out it caused leaves the sign-in screen up', async () => {
+  globalThis.fetch = mock(async () => new Response('', { status: 401 })) as unknown as typeof fetch;
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await press('Load tasks');
+  await waitFor(() => expect(heading()).toBe('Sign in'));
+  // A second request that was in flight comes back refused once the person is already signed out.
+  await act(async () => void (await request('/api/events').catch(() => undefined)));
+  expect(heading()).toBe('Sign in');
+  expect(screen.queryByRole('progressbar')).toBeNull();
+});
+
+test("the app's first request, made from its own effect, carries the session's token", async () => {
+  const sent: (string | null)[] = [];
+  globalThis.fetch = mock(async (_url: string, init?: RequestInit) => {
+    sent.push(new Headers(init?.headers).get('Authorization'));
+    return new Response('[]');
+  }) as unknown as typeof fetch;
+  function LoadsAtOnce() {
+    useEffect(() => void request('/api/tasks'), []);
+    return <h1>The app</h1>;
+  }
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }), <LoadsAtOnce />);
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]).toStartWith('Bearer ');
 });
 
 test('Continue as names the remembered account to Google, and a different account asks Google for its list', async () => {

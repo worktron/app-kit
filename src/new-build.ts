@@ -90,14 +90,15 @@ export function somethingTyped(doc: Document = document): boolean {
 
 /**
  * Once a newer build is waiting, the page loads it by itself only where nobody loses anything: as soon as it is
- * hidden, or after IDLE_MS with nothing touched and nothing typed. Otherwise the line's Reload is the way.
+ * hidden, or after IDLE_MS with nothing touched, and either way only with nothing typed. Otherwise the line's Reload
+ * is the way.
  */
 function useReloadWhileAway(newBuild: boolean) {
   useEffect(() => {
     if (!newBuild) return;
     const reload = () => window.location.reload();
     const hidden = () => {
-      if (document.visibilityState === 'hidden') reload();
+      if (document.visibilityState === 'hidden' && !somethingTyped()) reload();
     };
     let idle: ReturnType<typeof setTimeout>;
     const wait = () => {

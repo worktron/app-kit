@@ -50,3 +50,27 @@ test('a pull to refresh looks for a newer build at once, without the minute betw
   await waitFor(() => expect(result.current).toBe(true));
   expect(looked).toHaveBeenCalledTimes(1);
 });
+
+test('a hidden page with a newer build reloads by itself, but never over typed text', async () => {
+  document.head.innerHTML = '<script type="module" src="/assets/index-a.js"></script>';
+  globalThis.fetch = mock(async () => new Response('<script type="module" src="/assets/index-b.js"></script>')) as unknown as typeof fetch;
+  const reload = mock(() => {});
+  Object.defineProperty(window.location, 'reload', { value: reload, configurable: true });
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  try {
+    const { result } = renderHook(() => useNewBuild());
+    lookForNewBuild();
+    await waitFor(() => expect(result.current).toBe(true));
+    document.body.innerHTML = '<textarea>half a note</textarea>';
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(reload).not.toHaveBeenCalled();
+    // Nothing typed any more: hidden again, it loads the newer build.
+    document.body.innerHTML = '<textarea></textarea>';
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(reload).toHaveBeenCalledTimes(1);
+  } finally {
+    delete (window.location as { reload?: unknown }).reload;
+    delete (document as { visibilityState?: unknown }).visibilityState;
+  }
+});
