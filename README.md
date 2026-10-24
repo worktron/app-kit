@@ -277,6 +277,14 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 `bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
 
-Releases are tags, `v<version>`, matching `package.json`'s version, made on main after the change merges, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its release notes say.
+Releases are tags, `v<version>`, matching `package.json`'s version, on the commit main lands at, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its commit messages say.
 
-The repository is public. A change lands by moving main forward to the reviewed branch's head through GitHub's API (`gh api -X PATCH repos/worktron/app-kit/git/refs/heads/main -f sha=<head>`), which adds no commit, so every commit keeps Worktron as its author and committer; GitHub marks the pull request merged. Its merge buttons write a new committer, the merging account, for every commit, merge, squash and rebase alike. `test/public.test.ts` fails on any personal email, home folder or name in the files or the history.
+A branch never sets the version. Its commits say what kind of change it is, with a line beside Co-Authored-By:
+
+```
+Release: minor
+```
+
+`minor`, `patch` or `none`; a branch that changes only plan files needs none. `scripts/land-main.sh` lands it: it rebases onto main, works out the next version from main's, commits it along with the install lines above, runs `scripts/gates.sh`, moves main and pushes the tag. If another branch lands while the gates run, it starts again with the next number, up to three times. It refuses a branch that edits the version itself or says no kind of change, and a run that stops before main moves leaves the branch as it was, with no version commit on it. One that moved main but could not push the tag says so, and the next landing pushes that tag first.
+
+The repository is public. Main moves forward with a push that is never forced, which adds no commit, so every commit keeps Worktron as its author and committer. A pull request's merge buttons write a new committer, the merging account, for every commit, merge, squash and rebase alike. `test/public.test.ts` fails on any personal email, home folder or name in the files or the history.
