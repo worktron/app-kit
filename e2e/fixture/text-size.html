@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Text size</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { background: #f4efe6; margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+      main { padding: 1rem; }
+      h1 { font-size: 1.75rem; margin: 0 0 0.5rem; }
+      p { font-size: 1rem; line-height: 1.4; }
+      .scale { font-size: 1.25rem; font-weight: 600; }
+      /* A page's own rule for every span, which the kit's measuring element must still beat. */
+      span { font-size: 40px !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Text size</h1>
+      <p class="scale">Scale <output id="scale"></output></p>
+      <p>Every size on this page is in rem, so it follows the root font size the kit sets from the phone's Text Size.</p>
+    </main>
+    <script type="module" src="/text-size.ts"></script>
+  </body>
+</html>

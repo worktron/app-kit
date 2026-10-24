@@ -14,6 +14,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
 | Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. |
 | Links for rows and cards | `RowLink`, `NavigateProvider` | A whole row as a real `<a href>`: ⌘-click and middle-click open a new tab, a plain click moves through the app's navigate. |
+| The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
 | Clerk | `app-kit/web/clerk` | `clerkSignIn({ publishableKey })`, the first adapter. |
 | Stand-in | `app-kit/web/testing` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
@@ -24,7 +25,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.5.0
+bun add github:worktron/app-kit#v0.5.1
 ```
 
 `bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app, except the Playwright steps, which are plain JavaScript; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
@@ -32,11 +33,12 @@ bun add github:worktron/app-kit#v0.5.0
 ## An app built on it
 
 ```tsx
-import { ErrorBoundary, SignInGate, reloadOnFailedLoad, configureConnection } from 'app-kit/web';
+import { ErrorBoundary, SignInGate, reloadOnFailedLoad, configureConnection, followTextSize } from 'app-kit/web';
 import { clerkSignIn } from 'app-kit/web/clerk';
 
 reloadOnFailedLoad();
 configureConnection({ probePath: '/api/health' });
+followTextSize();
 const provider = clerkSignIn({ publishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY });
 
 createRoot(root).render(
@@ -77,6 +79,14 @@ test('a newer deploy shows our own line under the bar', async ({ page }) => {
 ```
 
 The steps are plain JavaScript with their types beside them, because Playwright's test runner leaves files under `node_modules` to Node, which refuses TypeScript there. An app whose browser tests sit outside the workspace that depends on the kit, such as a root `e2e/` folder beside `client/`, adds the kit to that workspace too, at the same tag.
+
+## The phone's Text Size
+
+An iPhone's web view, Safari's and the one a Tauri app runs in, ignores the Text Size set in Settings unless the page asks for it, and Apple has said it will stay that way (WebKit bug 187013). `followTextSize()`, called once at start, asks: it measures an element in Apple's body text style, which does take the setting, against its default of 17 pixels, and sets the page's root font size to that scale, from about 0.82 at the smallest size to about 3.12 at the largest accessibility size. It reads again each time the page comes back in front, since changing the setting means leaving the app.
+
+- **Size text in rem.** MUI's theme does by default, so its typography follows with nothing more. A size in pixels follows only when the app multiplies it: `calc(14px * var(--text-scale, 1))`, the variable the kit sets beside the root size. Spacing in pixels stays as it is, as in Apple's own apps.
+- **Lay screens out for the largest sizes.** At three times the default, a row of buttons or a fixed-height card no longer fits. `useTextScale()` gives the scale to code that changes a layout at large sizes, and re-renders when it changes; it follows the setting too, so an app using only the hook needs no `followTextSize()` call.
+- **Off an iPhone or iPad the scale is 1**, and the root size is left alone. A Mac's Safari knows Apple's style but answers 13 pixels, its own fixed size, so the kit reads only on a touch device that answers at least 14, the smallest iPhone size. Playwright's WebKit, with an iPhone profile or without, is a Mac's and reads 1 too; only the iPhone Simulator shows the setting, as `src/text-size.ts` says how.
 
 ## The adapter
 
@@ -206,7 +216,7 @@ Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
 
 ```sh
-bun add github:worktron/app-kit#v0.5.0
+bun add github:worktron/app-kit#v0.5.1
 bun run app-kit extension copy extension/kit
 ```
 

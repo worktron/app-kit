@@ -1,0 +1,8 @@
+[
+  { "where": "iPhone Safari, extra-small", "supports": true, "touchPoints": 5, "bodyPx": 14, "scale": 0.82 },
+  { "where": "iPhone Safari, large", "supports": true, "touchPoints": 5, "bodyPx": 17, "scale": 1 },
+  { "where": "iPhone Safari, accessibility-extra-extra-extra-large", "supports": true, "touchPoints": 5, "bodyPx": 53, "scale": 3.12 },
+  { "where": "Mac WebKit", "supports": true, "touchPoints": 0, "bodyPx": 13, "scale": 1 },
+  { "where": "Mac WebKit with Playwright's iPhone 15 profile", "supports": true, "touchPoints": 0, "bodyPx": 13, "scale": 1 },
+  { "where": "Chromium", "supports": false, "touchPoints": 0, "bodyPx": 16, "scale": 1 }
+]

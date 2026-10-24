@@ -5,12 +5,12 @@ The app baseline as one public package, which apps install from GitHub at a tag,
 ## Layout
 
 ```
-src/         the web kit (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary, row links, sign-in gate
+src/         the web kit (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary, row links, the phone's Text Size, sign-in gate
 agent-keys/  the server check that lets a person's key read the GET routes an app lists (app-kit/agent-keys), and the API reference that shows a key those routes (openapi.ts, app-kit/agent-keys/openapi)
 clerk/       the Clerk adapter (index.tsx) and the Clerk reader for the key check (server.ts), the only code that imports Clerk
 desktop-sign-in/  desktop sign-in through the browser (app-kit/desktop-sign-in), and its server routes (server.ts, app-kit/desktop-sign-in/server)
 testing/     the stand-in sign-in provider, for the kit's tests and apps', and the Playwright steps for apps' browser tests (playwright.js)
-test/        unit tests in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced
+test/        unit tests in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced, and what each browser answered for the phone's Text Size
 e2e/         e2e/fixture, a small app built on the kit, run built in a hidden Chromium
 extension/   the extension kit: worker/ (plain JavaScript Chrome loads, copied into each extension), host/ (the Mac side),
              harness/ (hidden Chromium), testing/ (a chrome stand-in), copy.ts, and its own test/ and e2e/

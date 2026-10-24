@@ -200,3 +200,9 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
   await hidePage(page);
   await expect.poll(() => count.loads).toBe(1);
 });
+
+test("off an iPhone the text size is 1 and the page's root size is left alone", async ({ page }) => {
+  await page.goto('/text-size.html');
+  await expect(page.locator('#scale')).toHaveText('1');
+  expect(await page.evaluate(() => document.documentElement.style.fontSize)).toBe('');
+});
