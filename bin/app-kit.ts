@@ -41,7 +41,8 @@ function commit(): string {
   return 'commit unknown: no checkout of its own and no bun.lock naming it'
 }
 
-async function extension([command, argument]: string[]): Promise<boolean> {
+async function extension([command, argument, ...extra]: string[]): Promise<boolean> {
+  if (extra.length) return false
   if (command === 'copy' && argument) {
     console.log(`Copied ${copyWorker(argument).join(', ')} into ${argument}`)
   } else if (command === 'check' && argument) {
@@ -70,9 +71,9 @@ async function extension([command, argument]: string[]): Promise<boolean> {
 
 async function main([part, ...rest]: string[]) {
   if (part === 'extension' && (await extension(rest))) return
-  if (part === '--version') {
+  if (part === '--version' && rest.length === 0) {
     console.log(`app-kit ${packageJson.version} (${commit()})`)
-  } else if (part === undefined || part === '--help' || part === '-h' || part === 'help') {
+  } else if ((part === undefined || part === '--help' || part === '-h' || part === 'help') && rest.length === 0) {
     console.log(USAGE)
   } else {
     console.error(USAGE)

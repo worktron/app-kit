@@ -20,8 +20,8 @@ test('no arguments, help, -h and --help print the usage with its exit codes, and
   }
 });
 
-test('an unknown part, a part with no command, or a command missing its argument prints the usage to stderr and exits 2', () => {
-  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy']]) {
+test('an unknown part, a part with no command, a command missing its argument or given one too many prints the usage to stderr and exits 2', () => {
+  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['--version', 'extra'], ['help', 'extra']]) {
     const { code, out, err } = run(...args);
     expect(code).toBe(2);
     expect(out).toBe('');
