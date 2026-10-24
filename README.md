@@ -1,6 +1,6 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents, and the extension kit, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents, the extension kit, and desktop sign-in through the browser, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
 
 ## The web client kit
 
@@ -80,9 +80,32 @@ The steps are plain JavaScript with their types beside them, because Playwright'
 
 ## The adapter
 
-A provider is `{ Root, useSession, GoogleReturn }` (`src/sign-in/provider.ts`): its own context around the app; a hook giving whether it has loaded, who is signed in, a token (fresh on demand), Google sign-in to a callback path naming an account or asking for the list, an emailed code sent and checked, and sign-out that stays on the page; and a component that finishes the return from Google. Another provider is another adapter, and the apps change only which one they pass to the gate.
+A provider is `{ Root, useSession, GoogleReturn }` (`src/sign-in/provider.ts`): its own context around the app; a hook giving whether it has loaded, who is signed in, a token (fresh on demand), Google sign-in to a callback path naming an account or asking for the list, an emailed code sent and checked, a sign-in with a one-time ticket from the app's server, and sign-out that stays on the page; and a component that finishes the return from Google. Another provider is another adapter, and the apps change only which one they pass to the gate.
 
-Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for, such as signing in with a one-time token, uses Clerk's own hooks inside the gate, whose provider is Clerk's.
+Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for uses Clerk's own hooks inside the gate, whose provider is Clerk's. An app with its own `ClerkProvider` and no gate reads the adapter's session with `clerkSignIn({ publishableKey }).useSession()` inside it.
+
+## Desktop sign-in
+
+`app-kit/desktop-sign-in` and, for the server, `app-kit/desktop-sign-in/server`: Google refuses to sign in inside a desktop app's web view, so the app's window opens the default browser for it, and the browser hands the sign-in back through the app's own link. Practices' `rules/desktop-apps.md` and `rules/tauri.md` say why. The kit holds every decision and request; the app draws its own screens from the states the hooks give, and its shell passes the link into the page.
+
+1. The window opens `desktopSignInAddress(account)` in the browser: `/desktop-sign-in`, with the account chosen in the window (or Google's list) and a nonce kept in the window's own storage. A second click asks with the same nonce.
+2. In the browser, signed out, the app's sign-in screen goes to Google once per tab when `startGoogleHere()` says so, for `desktopSignInRequest().account`. Signed in, `useDesktopSignInBrowserPage({ session, scheme })` hands the account over: signed in as another account than the one asked, it signs out first, and the sign-in screen goes to Google; back from Google, whoever was picked there goes over. It asks the server for a one-time ticket, opens `<scheme>://sign-in?ticket=…&nonce=…`, and closes the tab once the server says the app has signed in. After a trip to Google the browser will not close the tab, so the app says the window is signed in.
+3. The shell, given that link, dispatches `DESKTOP_SIGN_IN_EVENT` with `{ ticket, nonce }` when the page has set `DESKTOP_SIGN_IN_LISTENING`, else loads the app's address with `TICKET_PARAM` and `NONCE_PARAM`. It JSON-encodes both values into its script and checks their characters, since any app on the Mac can open the link. Each app holds its shell to these names with a test that reads its Rust.
+4. The page calls `listenForDesktopSignIn()` from its first script, and `useDesktopSignInWindow(session)` signs in with the link through the adapter's `ticket`, only when the nonce is the one the window asked with. The nonce is used up once the ticket works, so a fresh ticket after an expired one still signs in; links that come while one is being taken, or while signed in, are dropped. An iPhone app whose sign-in sheet returns the link to the page passes it to `desktopSignInArrived`.
+
+The server mounts the routes where the kit asks for them, behind its own sign-in check:
+
+```ts
+import { DESKTOP_SIGN_IN_ROUTES } from 'app-kit/desktop-sign-in';
+import { desktopSignInRoutes } from 'app-kit/desktop-sign-in/server';
+
+app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({
+  userId: (c) => getAuth(c)?.userId ?? null,
+  makeTicket: async (userId) => (await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 60 })).token,
+}));
+```
+
+Every request the part makes carries the session's own token, so it works without the gate. The server half needs Hono 4.
 
 ## Keys for agents
 

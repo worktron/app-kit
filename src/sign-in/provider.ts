@@ -30,6 +30,11 @@ export interface ProviderSession {
   sendEmailCode(email: string): Promise<Outcome>;
   /** Checks the emailed code and makes its session the active one. */
   checkEmailCode(code: string, email: string): Promise<Outcome>;
+  /**
+   * Signs in with a one-time ticket the app's server made for someone signed in elsewhere, as a desktop app's window
+   * does with the sign-in its browser hands it, and makes its session the active one.
+   */
+  ticket(ticket: string): Promise<Outcome>;
   /** Ends the session and stays on this page: no page load. */
   signOut(): Promise<void>;
 }

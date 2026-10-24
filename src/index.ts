@@ -16,6 +16,7 @@ export {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_UNFINISHED,
   SESSION_ENDED,
+  TICKET_FAILED,
   type SignIn,
   type GoogleAccount,
   type SignInGateProps,

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from '../clerk/email-code';
+import { signInWithTicket, type TicketSignIn } from '../clerk/ticket';
+import { TICKET_FAILED } from '../src/sign-in/SignInGate';
 
 const apiError = (code: string) => ({ errors: [{ code, message: 'from Clerk' }] });
 
@@ -78,4 +80,41 @@ test('a right code makes the session active, a wrong one leaves it alone', async
 test('Google is told the account to sign in as, or asked for its list', () => {
   expect(googleAccountParams('ana@example.com')).toEqual({ oidcLoginHint: 'ana@example.com' });
   expect(googleAccountParams(null)).toEqual({ oidcPrompt: 'select_account' });
+});
+
+describe('a one-time ticket from the browser', () => {
+  /** Clerk's sign-in object as a ticket uses it, failing the step it is told to. */
+  function fakeTicketSignIn(fail: Partial<Record<'ticket' | 'finalize', unknown>> = {}, completes = true) {
+    const calls: string[] = [];
+    const signIn: TicketSignIn & { status: string } = {
+      status: 'needs_identifier',
+      async ticket({ ticket }) {
+        calls.push(`ticket ${ticket}`);
+        if (!fail.ticket && completes) signIn.status = 'complete';
+        return { error: fail.ticket ?? null };
+      },
+      async finalize() {
+        calls.push('finalize');
+        return { error: fail.finalize ?? null };
+      },
+    };
+    return { signIn, calls };
+  }
+
+  test('signs in with the ticket and makes its session the active one', async () => {
+    const { signIn, calls } = fakeTicketSignIn();
+    expect(await signInWithTicket(signIn, 'tkt_1')).toEqual({ ok: true });
+    expect(calls).toEqual(['ticket tkt_1', 'finalize']);
+  });
+
+  test('a ticket Clerk refuses, as an expired or used one, makes no session and says to try again', async () => {
+    const { signIn, calls } = fakeTicketSignIn({ ticket: apiError('sign_in_token_expired') });
+    expect(await signInWithTicket(signIn, 'tkt_1')).toEqual({ ok: false, message: TICKET_FAILED });
+    expect(calls).toEqual(['ticket tkt_1']);
+  });
+
+  test('a sign-in left unfinished, or a session that will not become active, says the same', async () => {
+    expect(await signInWithTicket(fakeTicketSignIn({}, false).signIn, 'tkt_1')).toEqual({ ok: false, message: TICKET_FAILED });
+    expect(await signInWithTicket(fakeTicketSignIn({ finalize: apiError('session_exists') }).signIn, 'tkt_1')).toEqual({ ok: false, message: TICKET_FAILED });
+  });
 });

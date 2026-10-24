@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { GoogleReturnProps, Outcome, ProviderSession, SignedInPerson, SignInProvider } from '../src/sign-in/provider';
 import type { KeyValueStore } from '../src/storage';
+import { TICKET_FAILED } from '../src/sign-in/SignInGate';
 
 /** The code the stand-in takes, as Clerk's development instance takes 424242 for a +clerk_test address. */
 export const STAND_IN_CODE = '424242';
@@ -8,12 +9,19 @@ export const WRONG_CODE = 'That code did not match. Use the newest email, or sen
 
 const PERSON_KEY = 'stand-in.person';
 const GOOGLE_KEY = 'stand-in.google';
+const TICKET_PREFIX = 'stand-in-ticket:';
+
+/** A one-time ticket the stand-in takes, signing in as the address, as a server's ticket for that person would. */
+export function standInTicket(email: string): string {
+  return `${TICKET_PREFIX}${email}`;
+}
 
 /** Everything the stand-in was asked, for tests to check. */
 export interface StandInCalls {
   google: { callbackPath: string; account: string | null }[];
   sendEmailCode: string[];
   checkEmailCode: string[];
+  tickets: string[];
   signOut: number;
   tokens: { fresh: boolean }[];
 }
@@ -47,8 +55,9 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
   const stored = store?.getItem(PERSON_KEY);
   let state = { loaded, person: stored ? (JSON.parse(stored) as SignedInPerson) : stored === '' ? null : person };
   let tokenCount = 0;
+  const usedTickets = new Set<string>();
   const listeners = new Set<() => void>();
-  const calls: StandInCalls = { google: [], sendEmailCode: [], checkEmailCode: [], signOut: 0, tokens: [] };
+  const calls: StandInCalls = { google: [], sendEmailCode: [], checkEmailCode: [], tickets: [], signOut: 0, tokens: [] };
 
   const set = (next: Partial<typeof state>) => {
     state = { ...state, ...next };
@@ -81,6 +90,15 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
     checkEmailCode: async (code: string, email: string): Promise<Outcome> => {
       calls.checkEmailCode.push(code);
       if (code !== STAND_IN_CODE) return { ok: false, message: WRONG_CODE };
+      set({ person: { id: `person-${email}`, email } });
+      return ok;
+    },
+    ticket: async (ticket: string): Promise<Outcome> => {
+      calls.tickets.push(ticket);
+      // A ticket works once, as a provider's does.
+      if (!ticket.startsWith(TICKET_PREFIX) || usedTickets.has(ticket)) return { ok: false, message: TICKET_FAILED };
+      usedTickets.add(ticket);
+      const email = ticket.slice(TICKET_PREFIX.length);
       set({ person: { id: `person-${email}`, email } });
       return ok;
     },

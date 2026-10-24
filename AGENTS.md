@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag, with a part for each kind of app. Today it holds the web client kit, which apps import as `app-kit/web`, the server check for keys for agents, `app-kit/agent-keys`, and the extension kit, `app-kit/extension/...`. README.md says what each piece is and how an app takes it in; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag, with a part for each kind of app. Today it holds the web client kit, which apps import as `app-kit/web`, the server check for keys for agents, `app-kit/agent-keys`, the extension kit, `app-kit/extension/...`, and desktop sign-in through the browser, `app-kit/desktop-sign-in`. README.md says what each piece is and how an app takes it in; practices' rules files say why each exists.
 
 ## Layout
 
@@ -8,6 +8,7 @@ The app baseline as one public package, which apps install from GitHub at a tag,
 src/         the web kit (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary, row links, sign-in gate
 agent-keys/  the server check that lets a person's key read the GET routes an app lists (app-kit/agent-keys), and the API reference that shows a key those routes (openapi.ts, app-kit/agent-keys/openapi)
 clerk/       the Clerk adapter (index.tsx) and the Clerk reader for the key check (server.ts), the only code that imports Clerk
+desktop-sign-in/  desktop sign-in through the browser (app-kit/desktop-sign-in), and its server routes (server.ts, app-kit/desktop-sign-in/server)
 testing/     the stand-in sign-in provider, for the kit's tests and apps', and the Playwright steps for apps' browser tests (playwright.js)
 test/        unit tests in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced
 e2e/         e2e/fixture, a small app built on the kit, run built in a hidden Chromium

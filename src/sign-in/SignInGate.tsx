@@ -8,6 +8,8 @@ export const GOOGLE_CALLBACK_PATH = '/sso-callback';
 
 export const GOOGLE_UNFINISHED = 'Signing in with Google did not finish. Try again, or use an emailed code.';
 export const SESSION_ENDED = 'Your session ended. Sign in again to carry on where you were.';
+/** What a desktop app's window says when the sign-in its browser handed it does not work. */
+export const TICKET_FAILED = 'Signing in from the browser did not finish. Try again.';
 
 /** Which Google account a sign-in asks for. */
 export type GoogleAccount = 'remembered' | 'choose' | { account: string };

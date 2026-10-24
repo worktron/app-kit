@@ -2,13 +2,16 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { ClerkProvider, useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
 import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../src/sign-in/provider';
 import { checkEmailCode, googleAccountParams, messageFor, sendEmailCode } from './email-code';
+import { signInWithTicket } from './ticket';
 
 export { CODE_LENGTH, cleanCode, checkEmailCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from './email-code';
+export { signInWithTicket, type TicketSignIn } from './ticket';
 
 /**
- * Clerk as the kit's sign-in provider. An app makes it once, outside React, and gives it to the sign-in gate. A part of
- * an app that needs more of Clerk than the kit asks for, such as signing in with a one-time token, uses Clerk's own
- * hooks inside the gate, since the gate's provider is Clerk's.
+ * Clerk as the kit's sign-in provider. An app makes it once, outside React, and gives it to the sign-in gate. An app
+ * with its own ClerkProvider and no gate, such as one that uses only the desktop sign-in part, reads the same session
+ * with the provider's `useSession` inside its own. A part of an app that needs more of Clerk than the kit asks for uses
+ * Clerk's own hooks inside the gate, since the gate's provider is Clerk's.
  */
 export function clerkSignIn({ publishableKey }: { publishableKey: string }): SignInProvider {
   function Root({ children }: { children: ReactNode }) {
@@ -49,6 +52,7 @@ function useSession(): ProviderSession {
     },
     sendEmailCode: (address) => sendEmailCode(signIn, address),
     checkEmailCode: (code, address) => checkEmailCode(signIn, code, address),
+    ticket: (ticket) => signInWithTicket(signIn, ticket),
     // Given a function to run instead, Clerk stays on this page rather than loading another once the session has ended.
     signOut: () => clerk.signOut(() => {}),
   };
