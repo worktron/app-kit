@@ -1,6 +1,6 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents, the extension kit, and desktop sign-in through the browser, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents with its API reference, the extension kit, and desktop sign-in through the browser, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
 
 ## The web client kit
 
@@ -24,7 +24,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.4.1
+bun add github:worktron/app-kit#v0.5.0
 ```
 
 `bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app, except the Playwright steps, which are plain JavaScript; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
@@ -205,7 +205,7 @@ Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
 
 ```sh
-bun add github:worktron/app-kit#v0.4.0
+bun add github:worktron/app-kit#v0.5.0
 bun run app-kit extension copy extension/kit
 ```
 
