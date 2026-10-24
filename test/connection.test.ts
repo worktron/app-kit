@@ -17,14 +17,17 @@ test('while unreachable it looks at the probe path, and once the server answers 
   }) as unknown as typeof fetch;
   configureConnection({ probePath: '/api/health' });
   let reconnects = 0;
-  onReconnect(() => reconnects++);
+  const back = new Promise<void>((resolve) => onReconnect(() => {
+    reconnects++;
+    resolve();
+  }));
 
   markUnreachable();
   expect(serverReachable()).toBe(false);
   // Coming back in front looks at once, rather than waiting for the next look.
   up = true;
   window.dispatchEvent(new Event('online'));
-  await Bun.sleep(10);
+  await back;
   expect(looked).toEqual(['/api/health']);
   expect(serverReachable()).toBe(true);
   expect(reconnects).toBe(1);

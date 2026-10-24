@@ -66,7 +66,7 @@ test('a proxy page with an error keeps its status rather than failing to parse',
 
 test("the server's own error message is the error's", async () => {
   answer({ status: 422, body: '{"error":"Title is required"}' });
-  expect(request('/api/tasks')).rejects.toThrow('Title is required');
+  await expect(request('/api/tasks')).rejects.toThrow('Title is required');
 });
 
 test('a 401 asks again with a fresh token, and an answer then is the answer', async () => {
@@ -92,8 +92,7 @@ test('refused right after a sign-in on this page, it is an error rather than sig
   const s = session({ signedInAt: Date.now() - SIGN_IN_LOOP_MS / 2 });
   setCurrentSession(s);
   answer({ status: 401, body: '{"error":"Session not accepted"}' }, { status: 401, body: '{"error":"Session not accepted"}' });
-  expect(request('/api/tasks')).rejects.toThrow('Session not accepted');
-  await Bun.sleep(0);
+  await expect(request('/api/tasks')).rejects.toThrow('Session not accepted');
   expect(s.refusals).toBe(0);
 });
 
@@ -122,5 +121,5 @@ test("a proxy's 502 marks the server unreachable", async () => {
 
 test('an answer that is not JSON is an error that says so', async () => {
   answer({ status: 200, body: '<html>the index page</html>' });
-  expect(request('/api/tasks')).rejects.toThrow('not JSON');
+  await expect(request('/api/tasks')).rejects.toThrow('not JSON');
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useLayoutEffect, useState } from 'react';
 import { request } from '../src/fetch';
 import { resetConnection } from '../src/connection';
@@ -121,8 +121,7 @@ test('a request the server refuses brings sign-in up over the current address, s
   const provider = standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } });
   draw(provider);
   await press('Load tasks');
-  await act(() => Bun.sleep(0));
-  expect(heading()).toBe('Sign in');
+  await waitFor(() => expect(heading()).toBe('Sign in'));
   expect(screen.getByRole('alert').textContent).toBe(SESSION_ENDED);
   expect(window.location.pathname).toBe('/events/42');
   // Asked once more with a fresh token before giving up on the session.
@@ -164,8 +163,7 @@ test('back from Google, the sign-in finishes in the page and lands on the addres
   // The page Google sends the browser back to.
   window.history.replaceState(null, '', GOOGLE_CALLBACK_PATH);
   draw(standInSignIn({ store }));
-  await act(() => Bun.sleep(0));
-  expect(heading()).toBe('The app at /week?category=work');
+  await waitFor(() => expect(heading()).toBe('The app at /week?category=work'));
   expect(window.location.pathname).toBe('/week');
 });
 
@@ -174,8 +172,7 @@ test('back from Google without a sign-in, the sign-in screen says so at the addr
   sessionStorage.setItem('web-client-kit.returnTo', '/week');
   window.history.replaceState(null, '', GOOGLE_CALLBACK_PATH);
   draw(standInSignIn({ store: sessionStorage }));
-  await act(() => Bun.sleep(0));
-  expect(heading()).toBe('Sign in');
+  await waitFor(() => expect(heading()).toBe('Sign in'));
   expect(screen.getByRole('alert').textContent).toBe(GOOGLE_UNFINISHED);
   expect(window.location.pathname).toBe('/week');
 });

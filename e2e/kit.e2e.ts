@@ -152,8 +152,8 @@ test('a screen whose code is gone after a deploy reloads the page once, and neve
   await page.getByRole('link', { name: 'Later' }).click();
   await expect.poll(() => count.loads).toBe(1);
   // The reload asks again, still fails, and stops there: the error boundary says what failed.
+  // The guard decides before the error reaches the boundary, so once the boundary shows, no reload is coming.
   await expect(page.getByRole('alert')).toContainText('Something went wrong');
-  await page.waitForTimeout(500);
   expect(count.loads).toBe(1);
 });
 
