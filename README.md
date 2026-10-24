@@ -71,15 +71,17 @@ app.use(
   '/api/*',
   requireCaller({
     caller: clerkCaller,
-    readableByKey: ['GET /api/profiles/:id/decisions', 'GET /api/profiles/:id/matters'],
+    readableByKey: ['GET /api/profiles/:id/decisions', 'GET /api/profiles/:id/matters', 'ALL /api/*'],
     openPaths: ['/api/oauth/gmail/callback'],
   }),
 );
 
 app.get('/api/profiles/:id/decisions', (c) => listDecisions(callerOf(c).personId, c.req.param('id')));
+// ...
+app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
 ```
 
-- **The list decides.** Each entry is the method and the path as the app registered it. The check reads every route Hono matched after it, in the order Hono runs them: the first must be listed, and after it only listed routes and catch-alls (an `app.all` not-found answer, a `*` page fallback) may follow, since a listed route could pass the request on with `next()`. So a literal route such as `/api/items/export`, registered beside a listed `/api/items/:id`, is never let through by mistake. A key is refused on anything but GET (and HEAD, which runs the GET route), but a GET can still write, so a listed route must never write, not even behind a query flag such as `?check=1`.
+- **The list decides.** Each entry is the method and the path as the app registered it. The check reads every route Hono matched for the request after it, and lets a key through only when all of them are listed, since any of them could run: the first unless it passes the request on with `next()`, and an `app.all` handler cannot be told from middleware. So the app lists its catch-alls too, such as a not-found answer `ALL /api/*` and a page fallback registered as `*`, which Hono records as `GET /*`. A literal route such as `/api/items/export`, registered beside a listed `/api/items/:id`, is never let through by mistake. A refusal's log line names the unlisted route. A key is refused on anything but GET (and HEAD, which runs the GET route), but a GET can still write, so a listed route must never write, not even behind a query flag such as `?check=1`.
 - **Mount the check last.** After `clerkMiddleware()` and every other middleware, right before the routes: middleware mounted after it, the app's or a sub-app's, could answer a key's request, so a key is refused wherever any matches, and the log names it.
 - **Handlers read the person with `callerOf(c).personId`.** A handler that asks Clerk for a session itself, such as `getAuth(c, { acceptsToken: 'session_token' })`, refuses every key the check let through. An app swaps its one helper for `callerOf`.
 - **The answers.** A key on a write or on a route not listed gets 403 with why. No sign-in, or a revoked, expired or unknown key, gets 401. A key Clerk could not check, because Clerk could not be reached or answered with an error, gets 503, so an agent does not report a working key as revoked. Every decision about a key is logged with the key's name and id, never its secret.

@@ -21,8 +21,9 @@ export interface RequireCallerOptions {
   caller: (c: Context) => Caller;
   /**
    * The routes a key may read, each as its method and the path the app registered it with, such as
-   * `GET /api/profiles/:id/decisions`. Only GET routes count, and a listed route must never write, not even behind a
-   * query flag: the list is what decides.
+   * `GET /api/profiles/:id/decisions`, and the catch-alls behind them, such as a not-found answer `ALL /api/*`: every
+   * route Hono would run for a key's request must be listed. A key is refused on anything but GET whatever is listed,
+   * and a listed route must never write, not even behind a query flag: the list is what decides.
    */
   readableByKey: readonly string[];
   /** Paths answered with no caller at all, such as the health check and an OAuth callback, matched exactly. */
@@ -79,26 +80,18 @@ export function requireCaller(options: RequireCallerOptions): MiddlewareHandler 
 }
 
 /**
- * Whether every route that could run after this check is one a key may reach, read from Hono's own match, in the order
- * Hono runs them. The first must be listed: anything ahead of it, a literal route, an `app.all` handler or middleware
- * mounted after the check, could answer instead. After it, a listed route could pass the request on with `next()`, so
- * an unlisted route is refused too, unless it is a catch-all (registered for every method, or a path ending in `*`), such
- * as a not-found answer or the page the app serves for every other address. A HEAD request is matched against the GET
- * routes, which Hono runs for it.
+ * Whether every route Hono matched after this check is listed, read from Hono's own match. Any of them could run for the
+ * request: the first answers unless it passes the request on with `next()`, and so on down the list, and an `app.all`
+ * handler cannot be told from middleware. So the kit guesses nothing about what a route does: all must be listed, the
+ * app's catch-alls included. A HEAD request is matched against the GET routes, which Hono runs for it.
  */
 function routeForKey(c: Context, readable: ReadonlySet<string>): { listed: string } | { refused: string } {
-  let listed: string | null = null;
-  for (const route of matchedRoutes(c).slice(c.req.routeIndex + 1)) {
-    const name = `${route.method} ${route.path}`;
-    if (readable.has(name)) {
-      listed ??= name;
-    } else if (!listed) {
-      return { refused: `${name} would answer first, and it is not one a key may read` };
-    } else if (route.method !== 'ALL' && !route.path.endsWith('*')) {
-      return { refused: `${name} would run if ${listed} passed the request on, and it is not one a key may read` };
-    }
-  }
-  return listed ? { listed } : { refused: 'no route answers' };
+  const routes = matchedRoutes(c)
+    .slice(c.req.routeIndex + 1)
+    .map((route) => `${route.method} ${route.path}`);
+  const unlisted = routes.find((route) => !readable.has(route));
+  if (unlisted) return { refused: `${unlisted} could run for this request, and it is not one a key may read` };
+  return routes[0] ? { listed: routes[0] } : { refused: 'no route answers' };
 }
 
 /** The caller `requireCaller` let through. Throws a 401 when it was never mounted in front, so a handler fails closed. */
