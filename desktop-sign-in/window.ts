@@ -131,13 +131,17 @@ export type DesktopSignInWindow = { state: 'waiting' } | { state: 'signing-in' }
  * dropped rather than held, so it is never tried after a later sign-out. The app draws what the state says: a quiet
  * line while signing in, and its sign-in screen with the message after a failure.
  */
-export function useDesktopSignInWindow(session: Pick<ProviderSession, 'person' | 'ticket' | 'token'>): DesktopSignInWindow {
+export function useDesktopSignInWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token'>): DesktopSignInWindow {
   const [now, setNow] = useState<DesktopSignInWindow>({ state: 'waiting' });
   const latest = useRef(session);
   latest.current = session;
   const taking = useRef(false);
 
+  // Until the provider knows who is signed in, a link stays held: an app without the sign-in gate draws this before
+  // then, when a signed-in person still reads as nobody and the provider cannot take a ticket yet.
+  const loaded = session.loaded;
   useEffect(() => {
+    if (!loaded) return;
     const listener = (link: DesktopSignInLink) => {
       if (latest.current.person || taking.current) return;
       taking.current = true;
@@ -154,7 +158,7 @@ export function useDesktopSignInWindow(session: Pick<ProviderSession, 'person' |
     return () => {
       if (take === listener) take = null;
     };
-  }, []);
+  }, [loaded]);
 
   return now;
 }

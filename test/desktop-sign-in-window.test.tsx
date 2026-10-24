@@ -178,6 +178,17 @@ test('a second link while the first is being taken, as from a second Open the ap
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
+test('a link that comes while the provider is still loading is held until it has loaded, then taken', async () => {
+  serveDesktopSignIn(() => null);
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
+  const provider = standInSignIn({ loaded: false });
+  render(<Window provider={provider} />);
+  await handOver({ ticket: standInTicket('ana@example.com'), nonce });
+  expect(provider.calls.tickets).toEqual([]);
+  act(() => provider.finishLoading());
+  await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
+});
+
 test('a link that comes before the page is ready for it is held, then taken', async () => {
   serveDesktopSignIn(() => null);
   const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
