@@ -5,7 +5,7 @@
 // the port carries messages both ways, that the worker's errors reach the
 // status, that a new commit in the checkout reloads the worker and restarts the
 // host, and that nothing opens a tab.
-// Run with `bun run test:e2e`.
+// Run with `bun test ./extension/e2e/harness.e2e.ts`, which scripts/gates.sh does.
 
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'

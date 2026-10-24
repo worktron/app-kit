@@ -1,4 +1,4 @@
-// A small extension built on the kit, which e2e/harness.test.ts loads in a
+// A small extension built on the kit, which extension/e2e/harness.e2e.ts loads in a
 // hidden Chromium. It reloads itself when its checkout moves, records its
 // build and errors, checks each minute on an alarm, and keeps a native port
 // open to test/hosts/echo-host.ts, answering `echo` with the text it was sent
