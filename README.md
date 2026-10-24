@@ -96,8 +96,7 @@ Clerk-specific, by design: the Clerk adapter starts Google through Clerk's class
 The server mounts the routes where the kit asks for them, behind its own sign-in check:
 
 ```ts
-import { DESKTOP_SIGN_IN_ROUTES } from 'app-kit/desktop-sign-in';
-import { desktopSignInRoutes } from 'app-kit/desktop-sign-in/server';
+import { DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes } from 'app-kit/desktop-sign-in/server';
 
 app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({
   userId: (c) => getAuth(c)?.userId ?? null,

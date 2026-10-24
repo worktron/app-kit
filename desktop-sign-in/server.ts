@@ -1,5 +1,8 @@
 import { Hono, type Context, type Env } from 'hono';
 
+// The server imports this entry alone, never the page's, which needs React.
+export { DESKTOP_SIGN_IN_ROUTES } from './names';
+
 /*
  * The server's half of the desktop sign-in, mounted at DESKTOP_SIGN_IN_ROUTES. The browser, signed in, asks for a
  * one-time ticket for its own account and hands it to the app; the app, signed in with it, says so; the browser tab
