@@ -1,6 +1,6 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents with its API reference, the extension kit, and desktop sign-in through the browser, with the Tauri kit to follow. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a part for each kind of app: the web client kit, the server check for keys for agents with its API reference, the extension kit, and desktop sign-in through the browser, with the Tauri kit to follow. Beside them, the Google part reads Google's refusals for an app's server. Practices' rules files say why each piece exists; this package is the code.
 
 ## The web client kit
 
@@ -272,6 +272,33 @@ await serveHost({ socketPath, logPath, refuse: (request) => (allowed(request) ? 
 ```
 
 A caller writes one JSON line with an `id` and a `type` to the socket and reads one line back with the same `id`; `ask(socketPath, line)` does both. The type `status` is the host's own. The socket belongs in the tool's Application Support folder (`applicationSupport(name)`), and its path must stay under 104 bytes.
+
+## The Google part
+
+`app-kit/google`, for an app's server: what a refusal from Google means, read the same way in every app. It takes the answer of any Google API (Gmail, Calendar, Drive) or of Google's token endpoint, whether the token came from Clerk or from the app's own Google sign-in, and has no React and no packages.
+
+```ts
+import { readGoogleResponse } from 'app-kit/google';
+
+let response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+let refusal = response.ok ? null : await readGoogleResponse(response);
+if (refusal?.kind === 'freshToken') {
+  response = await fetch(url, { headers: { Authorization: `Bearer ${await freshToken()}` } });
+  refusal = response.ok ? null : await readGoogleResponse(response, { tokenWasFresh: true });
+}
+```
+
+| Google's answer | Reads as |
+| --- | --- |
+| The token endpoint's `invalid_grant`: revoked, expired (Testing mode ends a grant after about 7 days) or a changed password | `reconnect`, why `revoked` |
+| A 403 with `insufficientPermissions` or `ACCESS_TOKEN_SCOPE_INSUFFICIENT`: the grant lacks the permission, usually a box left unticked on Google's consent screen | `reconnect`, why `missingAccess` |
+| A 401 from an API | `freshToken`; with `tokenWasFresh`, `reconnect`, why `revoked` |
+| `rateLimitExceeded`, `userRateLimitExceeded`, `quotaExceeded` or `RATE_LIMIT_EXCEEDED` (sent as a 403 as often as a 429), a 429, or a 500, 502, 503 or 504 | `later`, with `retryAfterMs` from Retry-After |
+| Anything else: an API the Google Cloud project has not switched on (`accessNotConfigured`), a permission on the item itself, a 404, a 410 `fullSyncRequired`, the token endpoint's `invalid_client` | `failed` |
+
+Every reading carries Google's own `reason` and a one-line `message` for the log. Only answers with a recorded or Google-documented sample have a meaning; anything else reads as `failed` until one is recorded. What the person sees is the app's: its server sends the words with the status, a reconnect names the service ("Reconnect Google Calendar"), says how old what is shown is, and for `missingAccess` says to tick the box on Google's screen.
+
+A server installs the kit as an app's client does. The package names React and MUI as peers for its web part; the Google part imports neither.
 
 ## Develop
 

@@ -1,7 +1,7 @@
 {
   "name": "app-kit",
   "version": "0.5.2",
-  "description": "The baseline every app ships with, written once. Its web part: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, text that follows the phone's Text Size, and a sign-in gate behind a provider adapter, with Clerk the first adapter. Its extension part: self-reload from the checkout, build and account identity, alarms, recorded errors, a native host over a unix socket, and a hidden-Chromium test harness. Its desktop sign-in part: a desktop app's window signs in through the default browser and back, with the account chosen in the window, a nonce only that window matches, and the server routes both ends use.",
+  "description": "The baseline every app ships with, written once. Its web part: a fetch wrapper that turns a 401 into sign-in over the current address, the server-unreachable line, the new-deploy line, the reload after a failed screen load, an error boundary, links for rows and cards, text that follows the phone's Text Size, and a sign-in gate behind a provider adapter, with Clerk the first adapter. Its extension part: self-reload from the checkout, build and account identity, alarms, recorded errors, a native host over a unix socket, and a hidden-Chromium test harness. Its desktop sign-in part: a desktop app's window signs in through the default browser and back, with the account chosen in the window, a nonce only that window matches, and the server routes both ends use. Its Google part, for servers: one reading of what a refusal from Google means.",
   "private": true,
   "type": "module",
   "exports": {
@@ -19,6 +19,7 @@
     "./extension/worker/*": "./extension/worker/*",
     "./desktop-sign-in": "./desktop-sign-in/index.ts",
     "./desktop-sign-in/server": "./desktop-sign-in/server.ts",
+    "./google": "./google/index.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
