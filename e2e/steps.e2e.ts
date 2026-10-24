@@ -10,7 +10,7 @@ test('serving a newer build fails at once, saying why, on a page that names no V
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   const context = await browser.newContext({ baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
   try {
-    await expect(serveNewerBuild(await context.newPage())).rejects.toThrow('names no /assets/index-*.js to rename');
+    await expect(serveNewerBuild(await context.newPage())).rejects.toThrow('names no module script under /assets/ to rename');
   } finally {
     await context.close();
     server.close();

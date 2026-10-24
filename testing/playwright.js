@@ -19,19 +19,20 @@ export async function hidePage(page) {
   });
 }
 
-const BUILT_ENTRY = /\/assets\/index-[^"]+\.js/;
+// The built entry as src/new-build.ts reads it, with the script tag kept so only its src is renamed.
+const BUILT_ENTRY = /(<script\b[^>]*\btype="module"[^>]*\bsrc=")\/assets\/[^"]+\.js"/;
 
 /** @type {typeof import('./playwright').serveNewerBuild} */
 export async function serveNewerBuild(page) {
   // Checked here rather than in the route, where a throw only leaves the page's request hanging.
   const served = await page.request.get('/');
-  if (!BUILT_ENTRY.test(await served.text())) throw new Error('serveNewerBuild: the index page names no /assets/index-*.js to rename.');
+  if (!BUILT_ENTRY.test(await served.text())) throw new Error('serveNewerBuild: the index page names no module script under /assets/ to rename.');
   /** @param {URL} url */
   const indexPage = (url) => url.pathname === '/';
   /** @type {Parameters<typeof page.route>[1]} */
   const handler = async (route) => {
     const response = await route.fetch();
-    await route.fulfill({ response, body: (await response.text()).replace(BUILT_ENTRY, '/assets/index-Newer123.js') });
+    await route.fulfill({ response, body: (await response.text()).replace(BUILT_ENTRY, '$1/assets/newer-build.js"') });
   };
   await page.route(indexPage, handler);
   return { stop: () => page.unroute(indexPage, handler) };

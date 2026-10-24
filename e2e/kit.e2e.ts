@@ -164,7 +164,7 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
   await page.goto('/');
   await signInByCode(page);
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
-  await serveNewerBuild(page);
+  const newer = await serveNewerBuild(page);
   const line = page.getByRole('status').filter({ hasText: 'the fixture has changed since this page loaded.' });
 
   // Just loaded, so coming back at once does not look.
@@ -176,9 +176,13 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
   await showPage(page);
   await expect(line).toBeVisible();
 
+  // The real index page again, as the reload gets once the deploy is live: the app comes back, with no line.
+  await newer.stop();
   const count = countLoads(page);
   await line.getByRole('button', { name: 'Reload' }).click();
   await expect.poll(() => count.loads).toBe(1);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  await expect(line).toHaveCount(0);
 });
 
 test('with a newer deploy waiting, a page that is hidden loads it by itself', async ({ page }) => {

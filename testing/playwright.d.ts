@@ -10,6 +10,6 @@ export function hidePage(page: Page): Promise<void>;
 
 /**
  * Serves the index page as a newer deploy would: the same page, naming another built entry. Throws when the page names
- * no Vite entry under /assets/ to rename. `stop` serves the real page again, as a reload gets once the deploy is live.
+ * no module script under /assets/ to rename. `stop` serves the real page again, as a reload gets once the deploy is live.
  */
 export function serveNewerBuild(page: Page): Promise<{ stop: () => Promise<void> }>;

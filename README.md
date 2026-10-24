@@ -60,7 +60,7 @@ Three steps depend on how the kit works inside, so an app takes them from the ki
 
 - `showPage(page)` brings the page back in front, as a phone does when the home-screen app returns. After `hidePage`, it makes the page visible again, since the kit looks only from a visible page.
 - `hidePage(page)` hides the page, as when the person switches to another tab.
-- `serveNewerBuild(page)` serves the index page as a newer deploy would, naming another built entry, and returns `{ stop }`, which serves the real page again. It throws at once if the page names no Vite entry under `/assets/`.
+- `serveNewerBuild(page)` serves the index page as a newer deploy would, naming another built entry, and returns `{ stop }`, which serves the real page again. It throws at once if the page names no module script under `/assets/`, which is how the kit tells a page's build.
 
 ```ts
 import { expect, test } from '@playwright/test';
