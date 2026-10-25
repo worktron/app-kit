@@ -16,7 +16,7 @@ export interface DesktopSignInRoutesOptions<E extends Env> {
   /**
    * The id of the person signed in with a session, or null. Never a key for agents' person: a ticket signs its holder in
    * as that person, so a key that could reach this would buy a whole session. Clerk's `getAuth(c)` reads session tokens
-   * only unless told otherwise, and `requireCaller` from `app-kit/agent-keys` refuses a key on anything but GET.
+   * only unless told otherwise, and `requireCaller` from `app-kit/authentication/agent-keys` refuses a key on anything but GET.
    */
   userId(c: Context<E>): string | null;
   /** A one-time ticket that signs this user in elsewhere, good for a minute: Clerk's sign-in token, or another provider's. */

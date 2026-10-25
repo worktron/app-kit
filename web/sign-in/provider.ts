@@ -9,6 +9,9 @@ export interface SignedInPerson {
 /** Whether a step worked, and if not, what to tell the person, in words that say what to do next. */
 export type Outcome = { ok: true } | { ok: false; message: string };
 
+/** What a desktop app's window says when the sign-in its browser handed it does not work. */
+export const TICKET_FAILED = 'Signing in from the browser did not finish. Try again.';
+
 /**
  * What the kit needs from a sign-in provider such as Clerk or WorkOS, read on each render inside the provider's
  * `Root`. An adapter for another provider implements this and nothing in an app changes beyond which adapter it

@@ -14,9 +14,9 @@ test('an app loads the Playwright steps by their import name with Node, from ins
   const kit = join(app, 'node_modules', 'app-kit');
   mkdirSync(kit, { recursive: true });
   cpSync(join(root, 'package.json'), join(kit, 'package.json'));
-  cpSync(join(root, 'testing'), join(kit, 'testing'), { recursive: true });
+  cpSync(join(root, 'authentication/stand-in'), join(kit, 'authentication/stand-in'), { recursive: true });
 
-  const load = "const steps = await import('app-kit/web/testing/playwright'); console.log(Object.keys(steps).sort().join(' '));";
+  const load = "const steps = await import('app-kit/authentication/stand-in/playwright'); console.log(Object.keys(steps).sort().join(' '));";
   const done = Bun.spawnSync(['node', '--input-type=module', '-e', load], { cwd: app, stdout: 'pipe', stderr: 'pipe' });
   expect(done.stderr.toString()).toBe('');
   expect(done.stdout.toString().trim()).toBe('hidePage serveNewerBuild showPage');

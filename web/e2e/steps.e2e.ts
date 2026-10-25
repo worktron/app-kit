@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
-import { serveNewerBuild } from '../testing/playwright';
+import { serveNewerBuild } from '../../authentication/stand-in/playwright';
 
 // The Playwright steps' own guard; kit.e2e.ts drives the steps against the fixture.
 

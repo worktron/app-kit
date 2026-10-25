@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { ApiError, request, SIGN_IN_LOOP_MS } from '../src/fetch';
-import { resetConnection, serverReachable } from '../src/connection';
-import { setCurrentSession, type CurrentSession } from '../src/sign-in/current';
+import { ApiError, request, SIGN_IN_LOOP_MS } from '../web/fetch';
+import { resetConnection, serverReachable } from '../web/connection';
+import { setCurrentSession, type CurrentSession } from '../web/sign-in/current';
 
 const realFetch = globalThis.fetch;
 type Answer = { status: number; body: string };

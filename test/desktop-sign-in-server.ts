@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { DESKTOP_SIGN_IN_ROUTES } from '../desktop-sign-in/names';
-import { desktopSignInRoutes } from '../desktop-sign-in/server';
-import { standInTicket } from '../testing';
+import { DESKTOP_SIGN_IN_ROUTES } from '../tauri/sign-in/names';
+import { desktopSignInRoutes } from '../tauri/sign-in/server';
+import { standInTicket } from '../authentication/stand-in';
 
 export interface SentRequest {
   path: string;

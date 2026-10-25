@@ -17,7 +17,7 @@ export type Caller =
 export type SignedInCaller = Extract<Caller, { kind: 'session' | 'key' }>;
 
 export interface RequireCallerOptions {
-  /** Reads the request's caller from the sign-in provider: `clerkCaller` from `app-kit/agent-keys/clerk`. */
+  /** Reads the request's caller from the sign-in provider: `clerkCaller` from `app-kit/authentication/clerk/server`. */
   caller: (c: Context) => Caller;
   /**
    * The routes a key may read, each as its method and the path the app registered it with, such as

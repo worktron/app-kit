@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { ClerkProvider, useAuth, useClerk, useSignIn, useUser } from '@clerk/react';
-import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../src/sign-in/provider';
+import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../../web/sign-in/provider';
 import { checkEmailCode, googleAccountParams, messageFor, sendEmailCode } from './email-code';
 import { signInWithTicket } from './ticket';
 

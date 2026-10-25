@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { request } from '../src/fetch';
-import { resetConnection } from '../src/connection';
-import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../src/sign-in/SignInGate';
-import { lastAccount, rememberAccount, rememberSignedIn } from '../src/sign-in/remembered';
-import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../testing';
+import { request } from '../web/fetch';
+import { resetConnection } from '../web/connection';
+import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../web/sign-in/SignInGate';
+import { lastAccount, rememberAccount, rememberSignedIn } from '../web/sign-in/remembered';
+import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 
 const realFetch = globalThis.fetch;
 

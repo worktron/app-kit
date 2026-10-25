@@ -9,7 +9,7 @@ import type { Caller } from '../agent-keys';
 const COULD_NOT_CHECK = new Set(['unexpected-error', 'secret-key-invalid']);
 
 /**
- * The request's caller as Clerk reads it, for `requireCaller` from `app-kit/agent-keys`. Mount `clerkMiddleware()` from
+ * The request's caller as Clerk reads it, for `requireCaller` from `app-kit/authentication/agent-keys`. Mount `clerkMiddleware()` from
  * `@clerk/hono` in front. A session is a person signed in; a key is one of a person's API keys, made in Clerk's own API
  * keys screen; a key owned by an organization, and Clerk's other kinds of token, are nobody.
  */

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { hidePage, serveNewerBuild, showPage } from '../testing/playwright';
+import { hidePage, serveNewerBuild, showPage } from '../../authentication/stand-in/playwright';
 
 // The fixture app (e2e/fixture) built on the kit with the stand-in sign-in, served built, in Chromium. The app's server
 // is played by page.route, so each test says what the server answers.

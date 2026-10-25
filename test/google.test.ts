@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readGoogleRefusal, readGoogleResponse, retryAfterMs } from '../google';
+import { readGoogleRefusal, readGoogleResponse, retryAfterMs } from '../server/google';
 
 /*
  * Each body is one Google really sends: recorded by an app that met it, or quoted from Google's Calendar errors page.

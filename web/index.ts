@@ -17,10 +17,9 @@ export {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_UNFINISHED,
   SESSION_ENDED,
-  TICKET_FAILED,
   type SignIn,
   type GoogleAccount,
   type SignInGateProps,
 } from './sign-in/SignInGate';
-export type { SignInProvider, ProviderSession, GoogleReturnProps, SignedInPerson, Outcome } from './sign-in/provider';
+export { TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome } from './sign-in/provider';
 export { lastAccount } from './sign-in/remembered';

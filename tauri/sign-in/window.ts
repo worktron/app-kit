@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Outcome, ProviderSession } from '../src/sign-in/provider';
-import { TICKET_FAILED } from '../src/sign-in/SignInGate';
-import { read, session as thisTab, write, type KeyValueStore } from '../src/storage';
+import { TICKET_FAILED, type Outcome, type ProviderSession } from '../../web/sign-in/provider';
+import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, NONCE_PARAM, TICKET_PARAM } from './names';
 import { NONCE, post } from './requests';
 

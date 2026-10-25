@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { reloadOnFailedLoad, RELOAD_GUARD_MS } from '../src/preload';
-import type { KeyValueStore } from '../src/storage';
+import { reloadOnFailedLoad, RELOAD_GUARD_MS } from '../web/preload';
+import type { KeyValueStore } from '../web/storage';
 
 function memory(): KeyValueStore {
   const values = new Map<string, string>();

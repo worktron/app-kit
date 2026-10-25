@@ -8,11 +8,11 @@ import {
   takeDesktopSignIn,
   useDesktopSignInWindow,
   type DesktopSignInLink,
-} from '../desktop-sign-in';
-import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, NONCE_PARAM, TICKET_PARAM } from '../desktop-sign-in/names';
-import { TICKET_FAILED } from '../src/sign-in/SignInGate';
-import type { ProviderSession } from '../src/sign-in/provider';
-import { standInSignIn, standInTicket, type StandInSignIn } from '../testing';
+} from '../tauri/sign-in';
+import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, NONCE_PARAM, TICKET_PARAM } from '../tauri/sign-in/names';
+import { TICKET_FAILED } from '../web/sign-in/provider';
+import type { ProviderSession } from '../web/sign-in/provider';
+import { standInSignIn, standInTicket, type StandInSignIn } from '../authentication/stand-in';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
 
 const realFetch = globalThis.fetch;

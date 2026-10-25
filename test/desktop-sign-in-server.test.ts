@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { Hono } from 'hono';
-import { DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes, TICKET_KEPT_MS } from '../desktop-sign-in/server';
+import { DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes, TICKET_KEPT_MS } from '../tauri/sign-in/server';
 
 /** An app's server with the routes mounted where the kit asks for them, signed in as `signedInAs`. */
 function server(signedInAs: string | null) {

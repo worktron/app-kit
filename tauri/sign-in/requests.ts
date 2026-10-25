@@ -1,4 +1,4 @@
-import type { ProviderSession } from '../src/sign-in/provider';
+import type { ProviderSession } from '../../web/sign-in/provider';
 import { DESKTOP_SIGN_IN_ROUTES } from './names';
 
 /** A well-formed nonce: the window mints one with `crypto.randomUUID()`. */

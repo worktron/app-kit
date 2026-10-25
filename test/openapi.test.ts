@@ -3,8 +3,8 @@ import { Hono } from 'hono';
 import { describeRoute, resolver, validator } from 'hono-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
 import { z } from 'zod';
-import { callerOf, requireCaller, type Caller, type SignedInCaller } from '../agent-keys';
-import { openApiDescriptions, REFERENCE_PAGE_SETTINGS, undescribedForKey } from '../agent-keys/openapi';
+import { callerOf, requireCaller, type Caller, type SignedInCaller } from '../authentication/agent-keys';
+import { openApiDescriptions, REFERENCE_PAGE_SETTINGS, undescribedForKey } from '../authentication/agent-keys/openapi';
 
 const READABLE = [
   'GET /api/reference.json',

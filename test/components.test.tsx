@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ErrorBoundary } from '../src/ErrorBoundary';
-import { NavigateProvider, RowLink } from '../src/RowLink';
+import { ErrorBoundary } from '../web/ErrorBoundary';
+import { NavigateProvider, RowLink } from '../web/RowLink';
 
 afterEach(cleanup);
 

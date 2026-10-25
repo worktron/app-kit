@@ -1,4 +1,4 @@
-import { followTextSize, onPageReturn } from '../../src';
+import { followTextSize, onPageReturn } from '../..';
 
 // A page whose text follows the phone's Text Size, which prints the scale it read. With ?report it also sends each
 // reading to /reading, with what the browser answered and whether the page had just loaded or come back in front, for

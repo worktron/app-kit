@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../desktop-sign-in';
-import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../src/sign-in/SignInGate';
-import { standInSignIn, standInTicket, type StandInSignIn } from '../testing';
+import { desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../tauri/sign-in';
+import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../web/sign-in/SignInGate';
+import { standInSignIn, standInTicket, type StandInSignIn } from '../authentication/stand-in';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
 
 const realFetch = globalThis.fetch;

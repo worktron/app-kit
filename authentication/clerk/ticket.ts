@@ -1,5 +1,4 @@
-import type { Outcome } from '../src/sign-in/provider';
-import { TICKET_FAILED } from '../src/sign-in/SignInGate';
+import { TICKET_FAILED, type Outcome } from '../../web/sign-in/provider';
 
 type Result = Promise<{ error: unknown }>;
 

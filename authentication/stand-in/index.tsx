@@ -1,7 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import type { GoogleReturnProps, Outcome, ProviderSession, SignedInPerson, SignInProvider } from '../src/sign-in/provider';
-import type { KeyValueStore } from '../src/storage';
-import { TICKET_FAILED } from '../src/sign-in/SignInGate';
+import { TICKET_FAILED, type GoogleReturnProps, type Outcome, type ProviderSession, type SignedInPerson, type SignInProvider } from '../../web/sign-in/provider';
+import type { KeyValueStore } from '../../web/storage';
 
 /** The code the stand-in takes, as Clerk's development instance takes 424242 for a +clerk_test address. */
 export const STAND_IN_CODE = '424242';

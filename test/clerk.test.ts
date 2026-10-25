@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from '../clerk/email-code';
-import { signInWithTicket, type TicketSignIn } from '../clerk/ticket';
-import { TICKET_FAILED } from '../src/sign-in/SignInGate';
+import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from '../authentication/clerk/email-code';
+import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
+import { TICKET_FAILED } from '../web/sign-in/provider';
 
 const apiError = (code: string) => ({ errors: [{ code, message: 'from Clerk' }] });
 

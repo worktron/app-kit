@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { followTextSize, resetTextSize, useTextScale } from '../src/text-size';
+import { followTextSize, resetTextSize, useTextScale } from '../web/text-size';
 import readings from './fixtures/text-size-readings.json';
 
 // Each place's answer, recorded: on a simulated iPhone's Safari at three Text Sizes, the scale being what the kit read

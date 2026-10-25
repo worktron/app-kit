@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Hono } from 'hono';
 import { clerkMiddleware } from '@clerk/hono';
-import { callerOf, requireCaller } from '../agent-keys';
-import { clerkCaller } from '../clerk/server';
+import { callerOf, requireCaller } from '../authentication/agent-keys';
+import { clerkCaller } from '../authentication/clerk/server';
 import recorded from './fixtures/clerk-api-key-verify.json';
 
 const SECRET = `ak_${'s'.repeat(32)}`;

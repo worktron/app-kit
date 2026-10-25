@@ -14,8 +14,8 @@ import {
   useAppDrawn,
   useSignIn,
   useSignOut,
-} from '../../src';
-import { STAND_IN_CODE, standInSignIn } from '../../testing';
+} from '../..';
+import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
 
 reloadOnFailedLoad();
 configureConnection({ probePath: '/api/health' });

@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { NewBuildLine } from '../src/lines';
-import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, unsavedInput, useNewBuild, watchChoices } from '../src/new-build';
+import { NewBuildLine } from '../web/lines';
+import { builtEntry, isNewBuild, lookForNewBuild, runningEntry, unsavedInput, useNewBuild, watchChoices } from '../web/new-build';
 
 const realFetch = globalThis.fetch;
 

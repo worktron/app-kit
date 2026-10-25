@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from 'bun:test';
-import { configureConnection, isProxyFailure, markUnreachable, onReconnect, resetConnection, serverReachable } from '../src/connection';
+import { configureConnection, isProxyFailure, markUnreachable, onReconnect, resetConnection, serverReachable } from '../web/connection';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

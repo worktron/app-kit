@@ -1,4 +1,4 @@
-import type { Outcome } from '../src/sign-in/provider';
+import type { Outcome } from '../../web/sign-in/provider';
 
 /** Clerk's emailed codes are six digits. */
 export const CODE_LENGTH = 6;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProviderSession } from '../src/sign-in/provider';
-import { read, session as thisTab, write, type KeyValueStore } from '../src/storage';
+import type { ProviderSession } from '../../web/sign-in/provider';
+import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { DESKTOP_SIGN_IN_PATH, LINK_HOST } from './names';
 import { NONCE, post } from './requests';
 import type { DesktopSignInAccount } from './window';

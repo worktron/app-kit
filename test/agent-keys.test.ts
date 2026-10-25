@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test';
 import { Hono } from 'hono';
-import { callerOf, requireCaller, type Caller } from '../agent-keys';
+import { callerOf, requireCaller, type Caller } from '../authentication/agent-keys';
 
 /** The caller each test request carries, standing in for the provider's half. */
 const CALLER = 'x-test-caller';
