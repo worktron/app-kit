@@ -81,7 +81,7 @@ describe('quietSimulator', () => {
    * A stand-in for xcrun and plutil over one simulator whose data folder is real, so the settings file exists. It
    * records each command, and a boot reads the route from the settings file as the simulator does.
    */
-  function simulator(options: { blackHoleInstalled?: boolean; routed?: boolean; bootFails?: boolean; stuckBooted?: boolean } = {}) {
+  function simulator(options: { blackHoleInstalled?: boolean; routed?: boolean; bootFails?: boolean; stuckBooted?: boolean; unlisted?: boolean } = {}) {
     const cache = join(import.meta.dir, '../node_modules/.cache');
     mkdirSync(cache, { recursive: true });
     const dataPath = mkdtempSync(join(cache, 'iphone-simulator-'));
@@ -100,6 +100,7 @@ describe('quietSimulator', () => {
         return { ok: true, out: listing(name) };
       }
       if (tool === 'xcrun' && b === 'list') {
+        if (options.unlisted) return { ok: true, out: JSON.stringify({ devices: {} }) };
         return { ok: true, out: JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': [{ udid: UDID, dataPath, state }] } }) };
       }
       if (tool === 'xcrun' && b === 'shutdown') {
@@ -184,6 +185,16 @@ describe('quietSimulator', () => {
   });
 
   test('a simulator the listing does not know, or one xcrun cannot read, changes nothing', () => {
+    const sim = simulator({ unlisted: true });
+    try {
+      expect(quietSimulator(UDID, sim.run)).toEqual({
+        code: 0,
+        line: "[iphone-simulator] the simulator has no audio settings file yet, so its sound plays on the Mac's speakers until the next run",
+      });
+      expect(sim.commands.some((c) => c.includes('shutdown') || c.includes('-replace'))).toBe(false);
+    } finally {
+      sim.done();
+    }
     const unreadable = quietSimulator(UDID, () => ({ ok: false, out: 'Invalid device' }));
     expect(unreadable).toEqual({ code: 0, line: "[iphone-simulator] could not read the simulator's audio route; its sound may play on the Mac's speakers" });
   });
