@@ -1,0 +1,3 @@
+[default]
+description = "Lets the page ask for permission, get the device token and take a tapped notification's page"
+permissions = ["allow-request-permission", "allow-get-token", "allow-take-tapped-address"]

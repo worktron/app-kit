@@ -13,6 +13,7 @@
         "@mui/material": "^9.4.0",
         "@playwright/test": "^1.64.1",
         "@scalar/hono-api-reference": "^0.12.14",
+        "@tauri-apps/api": "^2.12.0",
         "@testing-library/react": "^16.3.0",
         "@types/bun": "^1.4.3",
         "@types/chrome": "^0.1.43",
@@ -34,6 +35,7 @@
         "@clerk/react": "^6.17.4",
         "@mui/material": "^9.0.0",
         "@playwright/test": "^1.60.0",
+        "@tauri-apps/api": "^2.0.0",
         "hono": "^4.12.16",
         "hono-openapi": "^1.5.0",
         "playwright": "^1.60.0",
@@ -45,6 +47,7 @@
         "@clerk/react",
         "@mui/material",
         "@playwright/test",
+        "@tauri-apps/api",
         "hono",
         "hono-openapi",
         "playwright",
@@ -233,6 +236,8 @@
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@tanstack/query-core": ["@tanstack/query-core@5.104.5", "", {}, "sha512-Q94gI8Opd+CbdVNOdj8ZCyV8WqLYitrDq1t96Xc8WZT6lY0r5iRnJLXYDxMex7EEf2v+mXvn4FcjaBKSxXZQ9A=="],
+
+    "@tauri-apps/api": ["@tauri-apps/api@2.12.4", "", {}, "sha512-pVmfis+4zT8H0Qhp3xPZx9Ju7kpzvA6rr/PSJPyuwfvucTQ8sVt61NYU9KMkK703UFlYadFmjKA4HhybOtN0gg=="],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 

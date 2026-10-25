@@ -1,0 +1,23 @@
+# app-kit's copy of tauri-plugin-mobile-push 0.1.4 from crates.io, MIT or Apache 2.0 (LICENSE-MIT, LICENSE-APACHE),
+# changed to hand a tapped notification's page to the page. iPhone only.
+[package]
+name = "tauri-plugin-iphone-notifications"
+version = "0.1.0"
+description = "iPhone notifications through Apple's push service for app-kit's Tauri apps, with the tapped notification's page handed to the page"
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.77.2"
+links = "tauri-plugin-iphone-notifications"
+
+[dependencies]
+tauri = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[package.metadata.tauri-plugin]
+ios-src = "ios"

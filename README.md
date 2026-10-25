@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `app-kit/tauri/sign-in/server` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
 | `server/` | `app-kit/server/google` | Server-only pieces no kind of app owns: what a refusal from Google means. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -174,7 +174,11 @@ await serveHost({ socketPath, logPath, refuse: (request) => (allowed(request) ? 
 
 A caller writes one JSON line with an `id` and a `type` to the socket and reads one line back with the same `id`; `ask(socketPath, line)` does both. The type `status` is the host's own. The socket belongs in the tool's Application Support folder (`applicationSupport(name)`), and its path must stay under 104 bytes.
 
-## tauri/: desktop sign-in
+## tauri/: Mac and iPhone apps
+
+What a Tauri app's page, shell and server share: desktop sign-in, and iPhone notifications.
+
+### Desktop sign-in
 
 `app-kit/tauri/sign-in` and, for the server, `app-kit/tauri/sign-in/server`: Google refuses to sign in inside a desktop app's web view, so the app's window opens the default browser for it, and the browser hands the sign-in back through the app's own link. Practices' `rules/desktop-apps.md` and `rules/tauri.md` say why. The kit holds every decision and request; the app draws its own screens from the states the hooks give, and its shell passes the link into the page. The window's page is the app's own site, served by the server that mounts the routes, as a Tauri window onto the hosted app is, since the browser page and the routes are on the page's origin.
 
@@ -196,6 +200,57 @@ app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({
 ```
 
 Every request the part makes carries the session's own token, so it works without the gate. The server half needs Hono 4.
+
+### iPhone notifications
+
+`app-kit/tauri/iphone-notifications` for the page, `app-kit/tauri/iphone-notifications/server` for the server, and a Tauri plugin for the shell, in `tauri/iphone-notifications/plugin/`: an iPhone build gets notifications through Apple's push service, and a tap opens the page the notification is about, whether the app was closed, in the background or in front. Tauri's own notification plugin shows only notifications the app makes itself. The plugin is the kit's copy of tauri-plugin-mobile-push 0.1.4 (MIT or Apache 2.0), changed so that a tap reaches the page: the original receives it but never hands it over, and listens for taps only once the page asks for a token, after a tap that launched the app is gone. argon-watcher is the first app.
+
+How a tap reaches the page: the plugin keeps the notification's page until the page takes it, and the page takes it when it starts (a tap that launched the app), each time it comes back in front (a tap with the app in the background), and when the plugin dispatches `TAPPED_EVENT` (a tap on a banner with the app in front). Only a page on the app's own site opens; anything else is refused and logged. Every step logs a line starting `[iphone-notifications]`, in the page's console and in the phone's log, and a tap that opened its page logs `[iphone-notifications] opened /alerts/3 from a tap`.
+
+The shell builds the plugin from the kit that bun installed, so `package.json` stays the only place that names the kit's version and the page and the plugin always come from one release. Run `bun install` before any Rust build. In `src-tauri/Cargo.toml`, with the path from `src-tauri` to the `node_modules` that holds the kit:
+
+```toml
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-iphone-notifications = { path = "../node_modules/app-kit/tauri/iphone-notifications/plugin" }
+```
+
+In the shell, registered after `tauri_plugin_notification` when the app has it, and with the permission granted to the page; a permission the shell names that no plugin defines stops the app at launch:
+
+```rust
+#[cfg(target_os = "ios")]
+let builder = builder
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_iphone_notifications::init());
+// ...
+let page = CapabilityBuilder::new("page").remote(format!("{origin}/*")).window(MAIN)
+    .permission("iphone-notifications:default");
+```
+
+Only one object can be iOS's notification delegate. Tauri's notification plugin takes it when it starts and ignores pushes, so this plugin takes it when it starts and again once the window loads, logging which plugin it took it from. On an iPhone, taps on notifications the app made through Tauri's plugin then do nothing, as they did with the original plugin.
+
+The page, from its first script after sign-in; `register` sends the device to the app's server, and `open` is the router's navigate (without it the page loads the address):
+
+```ts
+import { startIphoneNotifications } from 'app-kit/tauri/iphone-notifications';
+
+startIphoneNotifications({
+  register: (device) => request('/api/push/apple', { method: 'POST', body: JSON.stringify(device) }),
+  open: (page) => navigate(page),
+});
+```
+
+It runs only in a Tauri app on an iPhone or iPad and does nothing elsewhere, so the Mac app shares the page. It registers on every launch, which covers Apple changing the token. `device` is `{ token, environment }`: the plugin says which of Apple's services the token is for, `development` for a debug build (installed from Xcode) and `production` for a release build (TestFlight and the App Store). The app's build needs the Push Notifications capability, `aps-environment` in its entitlements.
+
+The server keeps the devices and sends:
+
+```ts
+import { sendToApple } from 'app-kit/tauri/iphone-notifications/server';
+
+const result = await sendToApple(devices, { title, body, url: '/alerts/3', tag }, { topic: 'com.example.app', ttlSeconds: 4 * 60 * 60 });
+for (const token of result.gone) await forgetAppleDevice(token);
+```
+
+`topic` is the iPhone app's bundle id. The push key comes from `APPLE_PUSH_KEY_ID`, `APPLE_PUSH_TEAM_ID` and `APPLE_PUSH_KEY` (the .p8 file's contents); with any missing it sends nothing. `url` is the page a tap opens, and the payload carries only its path, query and fragment, so a debug build whose page runs on a dev server opens the same page there. A device Apple calls unregistered or bad comes back in `gone` for the app to remove; since the phone registers again on its next launch, a token removed by mistake comes back. A send that Apple has not answered in 15 seconds counts as failed.
 
 ## authentication/: who is calling
 
@@ -324,7 +379,7 @@ Every reading carries Google's own `reason` and a one-line `message` for the log
 
 ## bin/, scripts/ and test/: develop
 
-`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
+`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five, then builds the iPhone notifications plugin's Rust and Swift for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
 
 Releases are tags, `v<version>`, matching `package.json`'s version, on the commit main lands at, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its commit messages say.
 
