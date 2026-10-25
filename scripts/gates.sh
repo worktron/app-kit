@@ -14,6 +14,8 @@ bun test ./extension/e2e/harness.e2e.ts
 # The plugin's Rust and Swift. rustup puts cargo in ~/.cargo/bin, which a plain bash, as a landing runs this, has not
 # read into PATH. One build folder serves every app-kit checkout, so only the first landing builds all of Tauri; cargo
 # locks it, so two landings at once take turns.
+# The build for the simulator compiles the Swift too: the plugin's build script hands ios/ to swift-rs, which runs
+# Xcode's Swift build and fails the cargo build on a Swift error.
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 command -v cargo >/dev/null || { echo "gates: cargo not found; install Rust from https://rustup.rs" >&2; exit 1; }
 rustup target list --installed | grep -qx aarch64-apple-ios-sim || { echo "gates: no iPhone simulator target; run: rustup target add aarch64-apple-ios-sim" >&2; exit 1; }
