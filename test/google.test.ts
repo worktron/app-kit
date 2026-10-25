@@ -137,6 +137,16 @@ describe('failed', () => {
     });
     expect(answer(404, calendar(404, 'notFound', 'Not Found'))).toMatchObject({ kind: 'failed', reason: 'notFound' });
   });
+
+  test('a body of a shape the reader does not know is failed, never thrown', () => {
+    expect(answer(403, { error: { details: { reason: 'OTHER' }, errors: 'none' } })).toMatchObject({ kind: 'failed', reason: null });
+    expect(answer(403, { error: { errors: [null, 7, { reason: 3 }], message: 42 } })).toMatchObject({ kind: 'failed', message: 'Google answered 403' });
+  });
+});
+
+test("Google's words are kept on one line, so a log holds one line per refusal", () => {
+  const refusal = answer(400, { error: 'invalid_grant', error_description: 'Token has been\nexpired or revoked.\r\n' });
+  expect(refusal.message).toBe('Google answered 400 (invalid_grant): Token has been expired or revoked.');
 });
 
 test('a response is read with its status, body and Retry-After', async () => {

@@ -52,8 +52,8 @@ const GOOGLE_TROUBLE = new Set([429, 500, 502, 503, 504]);
 
 interface Body {
   /** An API's refusal is an object; the token endpoint's is a string such as `invalid_grant`. */
-  error?: string | { message?: string; errors?: { reason?: string }[]; details?: { reason?: string }[] };
-  error_description?: string;
+  error?: string | { message?: unknown; errors?: unknown; details?: unknown };
+  error_description?: unknown;
 }
 
 function parse(body: string): Body {
@@ -65,14 +65,27 @@ function parse(body: string): Body {
   }
 }
 
+/** The reasons in a list of Google's errors or details; a body of another shape has none, so it reads as failed. */
+function listed(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry: unknown) => {
+    const reason: unknown = entry && typeof entry === 'object' ? (entry as { reason?: unknown }).reason : undefined;
+    return typeof reason === 'string' ? [reason] : [];
+  });
+}
+
+/** Google's own words on one line, so a log keeps one line per refusal. */
+function oneLine(text: unknown): string {
+  return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+}
+
 /** Reads a refusal from Google. */
 export function readGoogleRefusal({ status, body, retryAfter = null, tokenWasFresh = false }: GoogleAnswer, now = Date.now()): GoogleRefusal {
   const { error, error_description } = parse(body);
   const fromTokenEndpoint = typeof error === 'string';
-  const reasons =
-    error && typeof error === 'object' ? [...(error.errors ?? []), ...(error.details ?? [])].flatMap((e) => e.reason ?? []) : [];
+  const reasons = error && typeof error === 'object' ? [...listed(error.errors), ...listed(error.details)] : [];
   const reason = fromTokenEndpoint ? error : (reasons[0] ?? null);
-  const googleSaid = fromTokenEndpoint ? error_description : error?.message;
+  const googleSaid = oneLine(fromTokenEndpoint ? error_description : error?.message);
   const said: Said = { reason, message: `Google answered ${status}${reason ? ` (${reason})` : ''}${googleSaid ? `: ${googleSaid}` : ''}` };
 
   if (fromTokenEndpoint && error === 'invalid_grant') return { kind: 'reconnect', why: 'revoked', ...said };
