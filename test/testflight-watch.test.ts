@@ -73,8 +73,9 @@ function runner() {
   });
 }
 
+let failures = 0;
 async function pass(stand = runner(), limits: Partial<Limits> = {}) {
-  await watch({
+  failures = await watch({
     urls: [`file://${origin}`],
     run: stand.run,
     env: { PATH: process.env.PATH, HOME: place.folder, XDG_STATE_HOME: state, OP_SERVICE_ACCOUNT_TOKEN: 'from-the-shell' },
@@ -340,6 +341,21 @@ test('a failing fetch writes one line when it starts and one when it works again
   clock += 5 * MINUTE;
   await pass();
   expect(logLines()[2]).toBe(`${at(clock)} fetching main works again (failing since ${new Date(START).toISOString()})`);
+});
+
+test('a pass gives how many apps had a step fail, so the command exits 1; skips and waiting are not failures', async () => {
+  uploaded(head());
+  await pass();
+  expect(failures).toBe(0);
+  commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
+  token = false;
+  await pass();
+  expect(failures).toBe(0);
+  clock += 61 * MINUTE;
+  token = true;
+  uploadAnswer = () => exit(1, '[testflight] the build of 2 (abc1234) failed: error: No signing certificate\n');
+  await pass();
+  expect(failures).toBe(1);
 });
 
 describe('what counts as the iPhone app', () => {

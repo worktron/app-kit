@@ -31,7 +31,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions, type TestFlightKey } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
-import { runCommand, type Run } from './run.ts';
+import { runCommand, stopRunning, type Run } from './run.ts';
 
 export const EXPORT_OPTIONS = 'src-tauri/gen/apple/ExportOptions.plist';
 const INFO_PLIST = /^src-tauri\/gen\/apple\/[^/]+_iOS\/Info\.plist$/;
@@ -61,19 +61,31 @@ export function buildEnv(env: Env, home = homedir()): Env {
 }
 
 /**
- * Whether a failed build failed on the app's own code, which builds the same way every time: Rust, Swift, the web
- * front end, or the link. Signing, network and Apple's tools fail for reasons another try can clear.
+ * Whether a failed build failed on the app's own code, which builds the same way every time: Rust, Swift or the web
+ * front end. Signing, network and Apple's tools fail for reasons another try can clear, and so can the link, which a
+ * Rust build made before llvm-tools was installed fails until its folder is removed.
  */
 export function compileFailed(output: string): boolean {
-  return [
-    /error: could not compile `/,
-    /^error\[E\d{4}\]/m,
-    /beforeBuildCommand .* failed/i,
-    /\.swift:\d+:\d+: error:/,
-    /linker command failed/,
-    /Undefined symbols for architecture/,
-  ].some((pattern) => pattern.test(output));
+  return [/error: could not compile `/, /^error\[E\d{4}\]/m, /beforeBuildCommand .* failed/i, /\.swift:\d+:\d+: error:/].some((pattern) =>
+    pattern.test(output),
+  );
 }
+
+/**
+ * What must be undone however the upload ends: temporary folders (one holds the key) and the plists Tauri wrote. A
+ * `finally` does not run when the process is stopped by a signal, so each is also kept here for the signal's handler.
+ */
+const cleanups = new Set<() => void>();
+
+/** Keeps `cleanup` for a stop by signal, and gives the function that runs it once and forgets it. */
+function cleanupOnStop(cleanup: () => void): () => void {
+  cleanups.add(cleanup);
+  return () => {
+    if (cleanups.delete(cleanup)) cleanup();
+  };
+}
+
+const STOP_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
 /** Whether altool refused the upload because App Store Connect already holds this build number. */
 export function alreadyUploaded(output: string): boolean {
@@ -135,7 +147,32 @@ export type UploadOptions = {
   processingLimitMs?: number;
 };
 
+/**
+ * Uploads, as the module's comment says. Stopped by a signal, as the watcher's time limit stops it, it stops the
+ * programs it started, each in a process group of its own that the watcher's signal does not reach, removes its
+ * temporary folders and puts the plists back, then exits 1.
+ */
 export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
+  const say = options.fail ?? ((line: string) => console.error(`[testflight] ${line}`));
+  const onSignal = (signal: NodeJS.Signals) => {
+    say(`stopped by ${signal}; stopping the programs it started and removing the key`);
+    stopRunning('SIGTERM');
+    for (const cleanup of cleanups) {
+      cleanups.delete(cleanup);
+      cleanup();
+    }
+    stopRunning('SIGKILL');
+    process.exit(1);
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
+  try {
+    return await uploadSteps(options);
+  } finally {
+    for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
+  }
+}
+
+async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   const { cwd, tokenOnly } = options;
   const run = options.run ?? runCommand;
   const now = options.now ?? Date.now;
@@ -198,6 +235,13 @@ export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
   }
 
   const appleRsync = mkdtempSync(join(tmpdir(), 'app-kit-testflight-rsync-'));
+  const putBack = cleanupOnStop(() => {
+    rmSync(appleRsync, { recursive: true, force: true });
+    for (const r of restores) {
+      const path = join(cwd, r.file);
+      if (existsSync(path)) writeFileSync(path, restoreValue(readFileSync(path, 'utf8'), r.key, r.wrote, r.committed));
+    }
+  });
   try {
     symlinkSync('/usr/bin/rsync', join(appleRsync, 'rsync'));
     print(`building build ${buildNumber} (${short})`);
@@ -215,11 +259,7 @@ export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
       return fail(`the build of ${buildNumber} (${short}) failed: ${lastLine(built.out)}`);
     }
   } finally {
-    rmSync(appleRsync, { recursive: true, force: true });
-    for (const r of restores) {
-      const path = join(cwd, r.file);
-      if (existsSync(path)) writeFileSync(path, restoreValue(readFileSync(path, 'utf8'), r.key, r.wrote, r.committed));
-    }
+    putBack();
   }
 
   const ipaFolder = join(cwd, IPA_FOLDER);
@@ -269,6 +309,7 @@ export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
 /** The built app's Info.plist and entitlements, or why they could not be read. */
 async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-ipa-'));
+  const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
   try {
     const unzipped = await run(['unzip', '-q', '-o', ipa, '-d', folder], { env });
     if (unzipped.code !== 0) return `could not unzip ${ipa}: ${lastLine(unzipped.out)}`;
@@ -288,7 +329,7 @@ async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | stri
     if (!info || !entitlements) return `could not read ${app}'s Info.plist or entitlements`;
     return { info, entitlements };
   } finally {
-    rmSync(folder, { recursive: true, force: true });
+    remove();
   }
 }
 
@@ -298,6 +339,7 @@ async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | stri
  */
 async function altoolUpload(ipa: string, key: TestFlightKey, run: Run, env: Env, output: (chunk: string) => void): Promise<string> {
   const keys = mkdtempSync(join(tmpdir(), 'app-kit-testflight-key-'));
+  const remove = cleanupOnStop(() => rmSync(keys, { recursive: true, force: true }));
   try {
     writeFileSync(join(keys, `AuthKey_${key.keyId}.p8`), `${key.privateKey}\n`, { mode: 0o600 });
     const done = await run(['xcrun', 'altool', '--upload-app', '--type', 'ios', '--file', ipa, '--apiKey', key.keyId, '--apiIssuer', key.issuerId], {
@@ -309,6 +351,6 @@ async function altoolUpload(ipa: string, key: TestFlightKey, run: Run, env: Env,
     if (done.code === 0 && !/\bERROR\b[^\n]*ITMS-|UPLOAD FAILED/.test(done.out)) return 'uploaded';
     return lastLine(done.out);
   } finally {
-    rmSync(keys, { recursive: true, force: true });
+    remove();
   }
 }

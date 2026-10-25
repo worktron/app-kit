@@ -1,9 +1,11 @@
 /*
  * The one way the TestFlight part runs another program, so tests can stand in for every outside program it uses. Each
  * program starts in a process group of its own, so a step that runs past its time limit is stopped with everything it
- * started (Xcode's build starts many).
+ * started (Xcode's build starts many). A group of its own is out of reach of a signal to its parent's group, so a
+ * program that is stopped itself stops the groups it started (`stopRunning`), as the upload does when the watcher's
+ * time limit stops it.
  */
-import { spawn } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 
 export type RunOptions = {
   cwd?: string;
@@ -29,6 +31,19 @@ export type Run = (command: string[], options?: RunOptions) => Promise<RunResult
 const KEPT_OUTPUT = 1_000_000;
 /** How long a stopped process group has between the polite signal and the forced one. */
 const GRACE_MS = 5_000;
+/** Every program this process started through `runCommand` that has not ended. */
+const running = new Set<ChildProcess>();
+
+/** Sends `signal` to the process group of every program this process started and that is still running. */
+export function stopRunning(signal: NodeJS.Signals): void {
+  for (const child of running) {
+    try {
+      if (child.pid) process.kill(-child.pid, signal);
+    } catch {
+      // the group has already exited
+    }
+  }
+}
 
 export const runCommand: Run = ([program, ...args], options = {}) =>
   new Promise((resolve) => {
@@ -41,6 +56,7 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
       detached: true,
       stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
+    running.add(child);
     const stopGroup = () => {
       timedOut = true;
       const signal = (name: NodeJS.Signals) => {
@@ -68,12 +84,14 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
     child.stderr?.on('data', take);
     if (options.input !== undefined) child.stdin?.end(options.input);
     child.on('error', (error) => {
+      running.delete(child);
       limit(undefined);
       resolve({ code: 127, out: `${out}${error.message}`, timedOut });
     });
     // When the program ends, anything it left running in its group goes with it, so nothing outlives a step, and
     // nothing left holding its output keeps the step from ending.
     child.on('exit', () => {
+      running.delete(child);
       try {
         if (child.pid) process.kill(-child.pid, 'SIGKILL');
       } catch {

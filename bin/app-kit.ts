@@ -37,7 +37,8 @@ const USAGE = `app-kit <part> <command>
                               one pass: for each app whose main moved and changed its
                               iPhone app, build main's commit in a clone of its own and
                               upload it; one line per decision in
-                              ~/.local/state/app-kit/testflight/testflight.log
+                              ~/.local/state/app-kit/testflight/testflight.log;
+                              exits 1 when a step failed for any app
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
@@ -96,7 +97,8 @@ async function testflight([command, ...args]: string[]): Promise<boolean> {
     const code = await upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
     if (code !== 0) process.exit(code)
   } else if (command === 'watch' && args.length > 0 && !args.some((url) => url.startsWith('-'))) {
-    await watch({ urls: args })
+    // Each failure is a line in the watcher's log; the exit code says a pass had one.
+    if ((await watch({ urls: args })) > 0) process.exit(1)
   } else {
     return false
   }

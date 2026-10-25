@@ -163,17 +163,28 @@ export type WatchOptions = {
   appStoreConnect?: AppStoreConnectOptions;
 };
 
-export async function watch(options: WatchOptions): Promise<void> {
+/** One pass over every app; gives how many of them had a step fail in it, each failure logged. */
+export async function watch(options: WatchOptions): Promise<number> {
   const env = options.env ?? process.env;
   const state = stateFolder(env, options.home);
   const lockFile = join(state, 'testflight.lock');
   // Another pass is building; it has written its own lines.
-  if (!lock(lockFile)) return;
+  if (!lock(lockFile)) return 0;
+  let failures = 0;
   try {
-    for (const url of options.urls) await watchApp(url, state, options);
+    for (const url of options.urls) {
+      try {
+        if (await watchApp(url, state, options)) failures++;
+      } catch (error) {
+        // Nothing an app does stops the pass over the others.
+        log(state, `${new Date((options.now ?? Date.now)()).toISOString()} ${appName(url)}: failed: ${error instanceof Error ? error.message : String(error)}`);
+        failures++;
+      }
+    }
   } finally {
     rmSync(lockFile, { force: true });
   }
+  return failures;
 }
 
 function log(state: string, line: string) {
@@ -194,7 +205,8 @@ function readRecord(file: string): AppRecord {
   }
 }
 
-async function watchApp(url: string, state: string, options: WatchOptions): Promise<void> {
+/** One app's pass; gives true when a step failed. */
+async function watchApp(url: string, state: string, options: WatchOptions): Promise<boolean> {
   const run = options.run ?? runCommand;
   const now = options.now ?? Date.now;
   const limits = { ...LIMITS, ...options.limits };
@@ -227,7 +239,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
       line(`failed: fetching main: ${why}; trying every pass, with a line when it works`);
       save({ ...record, fetchFailingSince: new Date(now()).toISOString() });
     }
-    return;
+    return true;
   }
   if (record.fetchFailingSince) {
     line(`fetching main works again (failing since ${record.fetchFailingSince})`);
@@ -236,13 +248,16 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   }
 
   const head = (await git(['rev-parse', 'refs/remotes/origin/main'])).out;
-  if (head === record.judgedHead && !retryDue(record, head, now())) return;
+  if (head === record.judgedHead && !retryDue(record, head, now())) return false;
   const count = Number((await git(['rev-list', '--count', head])).out);
   const at = `build ${count} (${head.slice(0, 7)})`;
-  const judged = (failure: Failure | null = null) => save({ judgedHead: head, failure, fetchFailingSince: null });
+  const judged = (failure: Failure | null = null) => {
+    save({ judgedHead: head, failure, fetchFailingSince: null });
+    return failure !== null;
+  };
   const failed = (step: string, message: string, held = false) => {
     line(message);
-    judged({ commit: head, step, time: new Date(now()).toISOString(), ...(held ? { held } : {}) });
+    return judged({ commit: head, step, time: new Date(now()).toISOString(), ...(held ? { held } : {}) });
   };
   const retry = 'trying again in an hour';
 
@@ -267,7 +282,11 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   }
 
   const keyRead = await readKey(run, childEnv, { tokenOnly: true });
-  if ('missing' in keyRead) return failed('token', `waiting for the 1Password token: the login keychain has no "app-kit testflight" item; checking again in an hour`);
+  if ('missing' in keyRead) {
+    // Kept as a failure, so it is checked again in an hour, but a pass waiting for the owner has not failed.
+    failed('token', `waiting for the 1Password token: the login keychain has no "app-kit testflight" item; checking again in an hour`);
+    return false;
+  }
   if ('error' in keyRead) return failed('key', `failed: ${keyRead.error}; ${retry}`);
 
   let tauriConfig: string;
