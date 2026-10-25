@@ -211,8 +211,9 @@ test('processing that fails, or takes more than thirty minutes, exits 1', async 
 test('stopped by the watcher\'s time limit, the upload stops the programs it started, removes the key and puts the plists back', async () => {
   for (const at of ['build', 'altool'] as const) {
     const marker = join(place.folder, `hang-${at}`);
-    // As the watcher runs it: a process group of its own, signalled once the step is under way.
-    const stopped = await runCommand(['bun', join(import.meta.dir, 'testflight-upload-child.ts'), app, cargoHome, at, marker], {
+    // As the watcher runs it: under caffeinate, which ends at once on the signal, in a process group of its own,
+    // signalled once the step is under way.
+    const stopped = await runCommand(['caffeinate', '-i', 'bun', join(import.meta.dir, 'testflight-upload-child.ts'), app, cargoHome, at, marker], {
       output: (chunk) => (chunk.includes(`hanging ${marker}`) ? 0 : undefined),
     });
     expect(stopped.timedOut).toBe(true);

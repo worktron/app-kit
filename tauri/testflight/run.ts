@@ -50,6 +50,7 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
     let out = '';
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let grace: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(program, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
@@ -67,7 +68,7 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
         }
       };
       signal('SIGTERM');
-      setTimeout(() => signal('SIGKILL'), GRACE_MS).unref();
+      grace = setTimeout(() => signal('SIGKILL'), GRACE_MS);
     };
     const limit = (ms: number | undefined) => {
       if (timer) clearTimeout(timer);
@@ -89,9 +90,12 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
       resolve({ code: 127, out: `${out}${error.message}`, timedOut });
     });
     // When the program ends, anything it left running in its group goes with it, so nothing outlives a step, and
-    // nothing left holding its output keeps the step from ending.
+    // nothing left holding its output keeps the step from ending. A group stopped at its time limit keeps its grace
+    // period instead: the first program in it can end on the polite signal at once (caffeinate does), while another,
+    // the upload, is still putting things back.
     child.on('exit', () => {
       running.delete(child);
+      if (timedOut) return;
       try {
         if (child.pid) process.kill(-child.pid, 'SIGKILL');
       } catch {
@@ -100,6 +104,15 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
     });
     child.on('close', (code) => {
       limit(undefined);
+      // The forced signal stays due while anything in the stopped group is left, so a program that ignores the polite
+      // one does not outlive the step; with the group gone, nothing waits for it.
+      let left = false;
+      try {
+        if (child.pid) left = process.kill(-child.pid, 0);
+      } catch {
+        // the group is gone
+      }
+      if (grace && !left) clearTimeout(grace);
       resolve({ code: timedOut ? -1 : (code ?? -1), out, timedOut });
     });
   });

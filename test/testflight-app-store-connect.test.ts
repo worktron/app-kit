@@ -82,6 +82,16 @@ test('a program past its time limit is stopped with everything it started, and o
   }
 });
 
+test('a program in a stopped group that ignores the polite signal is forced to stop after the grace period', async () => {
+  const marker = `ignores-term-${process.pid}-${Date.now()}`;
+  // The first program ends on the polite signal; the one it started ignores it and holds the output open.
+  const stopped = await runCommand(['sh', '-c', `(trap '' TERM; while :; do sleep 1; : ${marker}; done) & echo started; sleep 600`], {
+    output: (chunk) => (chunk.includes('started') ? 0 : undefined),
+  });
+  expect(stopped).toMatchObject({ code: -1, timedOut: true });
+  expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
+}, 15_000);
+
 test('a time limit can be replaced as the output comes', async () => {
   const result = await runCommand(['sh', '-c', 'echo building; sleep 0.5; echo uploading; sleep 600'], {
     timeoutMs: 600_000,
