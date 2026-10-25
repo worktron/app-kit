@@ -20,8 +20,8 @@ const env = { ...process.env, PATH: `${gitFolder}:${process.env.PATH}`, GIT_CONF
 let root: string;
 let count = 0;
 /**
- * The bound on the test that runs two landings, some fifty git processes: the fifteen seconds a test may take, not Bun's
- * default five. Running the real git brought it to 3.0 to 4.6 seconds beside three other runs of this file at load 30
+ * The bound on the two tests that run a landing twice, up to some fifty git processes: the fifteen seconds a test may take,
+ * not Bun's default five. Running the real git brought the larger to 3.0 to 4.6 seconds beside three other runs of this file at load 30
  * (2026-10-24), but at load 50 to 60 it overran five seconds with no assertion failing (2026-10-25). Nothing here waits on
  * time; each step waits for its process to exit, so the bound only says how long a busy machine may take.
  */
@@ -193,7 +193,7 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
 
   await commit(work, 'The fix', 'fix.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1' });
-});
+}, TWO_LANDINGS);
 
 test.concurrent('none lands and releases nothing', async () => {
   const { work } = await scratch();
