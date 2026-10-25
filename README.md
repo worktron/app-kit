@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
 | `server/` | `app-kit/server/google` | Server-only pieces no kind of app owns: what a refusal from Google means. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -189,7 +189,7 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, and an iPhone Simulator that runs silent.
+What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
 
 ### Desktop sign-in
 
@@ -313,6 +313,62 @@ xcrun simctl install "$udid" "$app"
 ```
 
 It prints one line starting `[iphone-simulator]` and exits 0 whatever it finds, so a Mac without BlackHole still runs the app, with a line saying how to install it (`brew install --cask blackhole-2ch`, then `sudo killall coreaudiod` so macOS's audio service sees it). It exits 1 only when the simulator did not boot again after its own restart, since the device is then down. When the setting is saved but the simulator still plays elsewhere, it says so and does not restart again.
+
+### TestFlight
+
+`app-kit testflight upload` and `app-kit testflight watch`: an iPhone build reaches TestFlight after each landing that changes the iPhone app, with nobody running anything. The upload builds the commit checked out, checks the build, uploads it and waits until App Store Connect has processed it. The watcher, run by a background job on a Mac every five minutes, notices when an app's main has moved and runs the app's own upload in a clone of its own.
+
+The upload, from the app's checkout:
+
+```sh
+bun run app-kit testflight upload
+```
+
+It uploads only a commit on `origin/main`'s first-parent line, from a clean tree, since the build number is the commit count (`git rev-list --count HEAD`) and a branch's number above main's would make Apple refuse every lower one. It puts Rust's own folder first on `PATH`, builds with `bunx tauri ios build --ci --export-method app-store-connect` and the build number as `bundleVersion`, with Apple's `rsync` ahead of Homebrew's, and puts back only the values Tauri wrote into `src-tauri/gen/apple/ExportOptions.plist` and `src-tauri/gen/apple/<app>_iOS/Info.plist`. It refuses an `.ipa` whose `CFBundleVersion` is not the build number or whose `Info.plist` does not say `ITSAppUsesNonExemptEncryption` false, and, with push, one not signed for production. It reads the App Store Connect key from 1Password once, writes it to a temporary folder for altool that is removed however the upload ends, and polls App Store Connect for up to 30 minutes until the build is processed, then prints its TestFlight state. A number App Store Connect already holds counts as uploaded. Every line starts `[testflight]`; it exits 3 when the app did not compile and 1 for any other failure. The comment at the top of `tauri/testflight/upload.ts` says what each step works around.
+
+The watcher, one pass, for each app's git address:
+
+```sh
+bun bin/app-kit.ts testflight watch https://github.com/worktron/argon-watcher.git https://github.com/worktron/timescale.git
+```
+
+A background job runs it from a copy of the kit at a release tag, with SSH addresses; fetches never prompt. For each app it fetches main into its own clone under `$XDG_STATE_HOME/app-kit/testflight/<app>/` (`~/.local/state/app-kit/testflight/<app>/` by default), and when main's head is the one it judged last it does nothing and writes nothing. Otherwise it checks out main's commit, removes everything not committed but `node_modules` and `src-tauri/target`, runs `bun install --frozen-lockfile`, reads the key, and asks App Store Connect for the app's builds. Its newest build, by number, decides: the changes from that build's commit to main's head are judged together, so two landings between passes count as one, and an app change followed by a documentation-only landing still uploads. Which files count follows from the app's Tauri setup: when `frontendDist` in `src-tauri/tauri.conf.json` is an address, the iPhone app is only `src-tauri/`, `package.json` and `bun.lock`, since the website reaches phones when it deploys; otherwise it is every file but `*.md`, `.claude/`, `docs/`, `*.test.*`, `test/`, `tests/` and `e2e/`. An upload runs the app's own `bun run app-kit testflight upload --token-only` at background priority, keeping the Mac awake while it runs, so each app's pinned kit decides how it is built. Each step has a time limit: the fetch 2 minutes, the install 10, the build 60, the upload and processing 45. A build that did not compile is held until main moves; any other failure is tried again after an hour.
+
+Every decision is one line in `~/.local/state/app-kit/testflight/testflight.log`, with its reason:
+
+```
+2026-10-25T14:00:03.000Z urge-surfer: uploading build 130 (1a2b3c4): app files changed since build 128 (src/coast.tsx)
+2026-10-25T14:09:41.000Z urge-surfer: uploaded build 130 (1a2b3c4), processed
+2026-10-25T15:20:02.000Z urge-surfer: skipped: no app files changed since build 130
+2026-10-25T15:20:04.000Z argon-watcher: waiting: main's app-kit has no testflight upload
+```
+
+Each build's output is in `<app>/build-<n>.log`, and `<app>/record.json` holds the main commit judged last and the last failure. An app whose newest TestFlight build names no commit on main, such as one uploaded from a branch, gets one upload to settle it; one whose newest build is above main's count is skipped until main passes it.
+
+Once per Apple team, by its Account Holder:
+
+1. Xcode signed in to the Account Holder's Apple account (Xcode, Settings, Accounts). Signing goes through it, and Apple makes the distribution certificate and profile in its cloud; the API key only uploads, since an App Manager key may not use that cloud certificate.
+2. An App Store Connect API team key: App Store Connect, Users and Access, Integrations, App Store Connect API, Team Keys, role App Manager. The `.p8` file downloads once. Keep it in 1Password as the item "App Store Connect API" with the fields "key id", "issuer id" and "private key" (the file's text). One key serves every app on the team.
+3. Rust's release tools: `rustup component add llvm-tools` and `rustup target add aarch64-apple-ios`. Without llvm-tools, Xcode 27's release build hides the Swift entry points of Tauri and its plugins and the link fails; a release build made before installing it needs `src-tauri/target/aarch64-apple-ios/release` removed.
+
+Once per app:
+
+1. The app record: App Store Connect, Apps, +, New App. The API cannot make one, and altool fails with "Unable to find Apple ID for Bundle ID" until it exists.
+2. `src-tauri/Info.ios.plist` saying `ITSAppUsesNonExemptEncryption` false, or App Store Connect asks the export question of every build; and `CFBundleIconName` `AppIcon` when `Info.plist` names a Mac icon.
+3. A TestFlight tester group with access to every build, or a processed build reaches nobody. The API can make one with the same key (`POST /v1/betaGroups` with `isInternalGroup` and `hasAccessToAllBuilds` true) and add testers (`POST /v1/betaTesters`); `POST /v1/betaTesterInvitations` sends the invitation. An invitation that never arrives may be a mail filter on `email.apple.com`.
+
+The watcher reads the key without Touch ID through a 1Password service account that may read only the key's vault, whose token is kept in the Mac's login keychain. Once, by the 1Password account's owner:
+
+1. In 1Password on the web: Developer, Service Accounts.
+2. Create a vault named "TestFlight", and move the item "App Store Connect API" into it.
+3. Create a service account named "TestFlight upload" with read access to the vault "TestFlight" only, and copy its token.
+4. In Terminal on the Mac that runs the watcher, paste the token at this command's prompt:
+
+   ```sh
+   security add-generic-password -a "$USER" -s "app-kit testflight" -w
+   ```
+
+The token is handed only to the `op` call, never to the build's programs. Until it is in the keychain, the watcher logs "waiting for the 1Password token" each hour and uploads nothing; an upload run by hand without it uses the signed-in `op`, which asks for Touch ID. The first build from the background job may show macOS's "codesign wants to access key" dialog; choose Always Allow, or the build stops at its time limit and the log says so.
 
 ## authentication/: who is calling
 

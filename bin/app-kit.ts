@@ -2,7 +2,8 @@
 // app-kit <part> <command>: the kit's command line. The extension kit copies the
 // kit's worker files into an extension, checks the copy, prints an extension's
 // ID, and prints a native host's status. The iPhone simulator part sends a
-// simulator's sound to BlackHole so it plays nowhere.
+// simulator's sound to BlackHole so it plays nowhere. The TestFlight part uploads
+// an iPhone build, and watches apps' main to upload after each landing.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -11,6 +12,8 @@ import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
 import packageJson from '../package.json'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
+import { upload } from '../tauri/testflight/upload.ts'
+import { watch } from '../tauri/testflight/watch.ts'
 
 const USAGE = `app-kit <part> <command>
 
@@ -24,10 +27,22 @@ const USAGE = `app-kit <part> <command>
                               restarting it once when it plays elsewhere; prints
                               one line, and exits 0 even when BlackHole is missing,
                               1 only when the simulator did not boot again
+  testflight upload [--token-only]
+                              from a Tauri app's checkout at a commit of origin/main:
+                              build its iPhone app, check it, upload it to TestFlight
+                              and wait until App Store Connect has processed it.
+                              --token-only reads the key only through the keychain's
+                              1Password token, never the signed-in op
+  testflight watch <git url>...
+                              one pass: for each app whose main moved and changed its
+                              iPhone app, build main's commit in a clone of its own and
+                              upload it; one line per decision in
+                              ~/.local/state/app-kit/testflight/testflight.log
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
-files that differ; 4 status found no host answering.`
+files that differ, or testflight upload's app did not compile; 4 status found no
+host answering.`
 
 /**
  * The commit this copy of the kit runs from: its own checkout's, or, installed from GitHub, the commit the app's
@@ -76,6 +91,18 @@ async function extension([command, argument, ...extra]: string[]): Promise<boole
   return true
 }
 
+async function testflight([command, ...args]: string[]): Promise<boolean> {
+  if (command === 'upload' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
+    const code = await upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
+    if (code !== 0) process.exit(code)
+  } else if (command === 'watch' && args.length > 0 && !args.some((url) => url.startsWith('-'))) {
+    await watch({ urls: args })
+  } else {
+    return false
+  }
+  return true
+}
+
 function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
   if (command !== 'quiet' || !udid || extra.length) return false
   const { code, line } = quietSimulator(udid)
@@ -90,6 +117,7 @@ function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
 async function main([part, ...rest]: string[]) {
   if (part === 'extension' && (await extension(rest))) return
   if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
+  if (part === 'testflight' && (await testflight(rest))) return
   if (part === '--version' && rest.length === 0) {
     console.log(`app-kit ${packageJson.version} (${commit()})`)
   } else if ((part === undefined || part === '--help' || part === '-h' || part === 'help') && rest.length === 0) {

@@ -9,7 +9,7 @@
  *   APPLE_PUSH_KEY       the .p8 file's contents (PEM; \n escapes allowed)
  */
 import { connect } from 'node:http2';
-import { createPrivateKey, sign } from 'node:crypto';
+import { appleToken } from '../apple-token';
 import { ADDRESS_KEY } from './names';
 
 export type AppleEnvironment = 'development' | 'production';
@@ -40,8 +40,6 @@ export function applePushConfig(env: Record<string, string | undefined> = proces
   return { keyId, teamId, key: key.replace(/\\n/g, '\n') };
 }
 
-const b64url = (data: string | Buffer) => Buffer.from(data).toString('base64url');
-
 /**
  * Apple takes a provider token for an hour and refuses a new one more often than every twenty minutes, so a token is
  * kept for fifty.
@@ -52,13 +50,7 @@ let cached: { token: string; keyId: string; madeAt: number } | null = null;
 /** The provider token: an ES256 JWT naming the key and team. */
 export function providerToken(config: AppleConfig, nowMs: number): string {
   if (cached && cached.keyId === config.keyId && nowMs - cached.madeAt < PROVIDER_TOKEN_LIFE_MS) return cached.token;
-  const header = b64url(JSON.stringify({ alg: 'ES256', kid: config.keyId }));
-  const claims = b64url(JSON.stringify({ iss: config.teamId, iat: Math.floor(nowMs / 1000) }));
-  const signature = sign('sha256', Buffer.from(`${header}.${claims}`), {
-    key: createPrivateKey(config.key),
-    dsaEncoding: 'ieee-p1363',
-  });
-  const token = `${header}.${claims}.${b64url(signature)}`;
+  const token = appleToken(config.keyId, config.key, { iss: config.teamId, iat: Math.floor(nowMs / 1000) });
   cached = { token, keyId: config.keyId, madeAt: nowMs };
   return token;
 }
