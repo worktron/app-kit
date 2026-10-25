@@ -1,0 +1,177 @@
+{
+  "object": "user",
+  "id": "user_cafebabe",
+  "username": null,
+  "first_name": "Ana",
+  "last_name": "Example",
+  "profile_image_url": "https://clerk.com/test.jpg",
+  "image_url": "https://clerk.com",
+  "primary_email_address_id": "idn_email_address",
+  "primary_phone_number_id": "idn_phone_number",
+  "primary_web3_wallet_id": "idn_metamask",
+  "password_enabled": false,
+  "two_factor_enabled": true,
+  "banned": false,
+  "email_addresses": [
+    {
+      "object": "email_address",
+      "id": "idn_email_address",
+      "email_address": "person@example.com",
+      "reserved": true,
+      "created_at": 1611948436,
+      "updated_at": 1611948436,
+      "verification": {
+        "status": "verified",
+        "strategy": "from_oauth_google",
+        "external_verification_redirect_url": null,
+        "attempts": 1,
+        "expire_at": 1613831855
+      },
+      "linked_to": [
+        {
+          "type": "oauth_google",
+          "id": "idn_email_address"
+        }
+      ]
+    }
+  ],
+  "phone_numbers": [
+    {
+      "object": "phone_number",
+      "id": "idn_phone_number",
+      "phone_number": "+311-555-2368",
+      "reserved_for_second_factor": false,
+      "reserved": true,
+      "created_at": 1611948436,
+      "updated_at": 1611948436,
+      "verification": {
+        "status": "verified",
+        "strategy": "phone_code",
+        "external_verification_redirect_url": null,
+        "attempts": 1,
+        "expire_at": 1613831855
+      },
+      "linked_to": []
+    }
+  ],
+  "web3_wallets": [
+    {
+      "id": "idn_metamask",
+      "object": "web3_wallet",
+      "web3_wallet": "0x0000000000000000000000000000000000000000",
+      "created_at": 1611948436,
+      "updated_at": 1611948436,
+      "verification": {
+        "status": "verified",
+        "strategy": "web3_metamask_signature",
+        "attempts": 1,
+        "expire_at": 1642762718086,
+        "nonce": "l6i2keszfr0yftb0aghwxye8xdxmec2x4m86elc5"
+      }
+    }
+  ],
+  "external_accounts": [
+    {
+      "object": "google_account",
+      "provider": "google",
+      "id": "idn_2abcGoogleIdentification00000",
+      "external_account_id": "eac_2abcGoogleExternalAccount0000",
+      "identification_id": "idn_2abcGoogleIdentification00000",
+      "provider_user_id": "1234567890",
+      "approved_scopes": "email https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile openid profile",
+      "email_address": "person@example.com",
+      "first_name": "Ana",
+      "last_name": "Example",
+      "avatar_url": "https://clerk.com/test.jpg",
+      "username": "jdoe",
+      "phone_number": "+306900000000",
+      "public_metadata": {},
+      "label": null,
+      "verification": null,
+      "created_at": 1611948436,
+      "updated_at": 1611948436
+    },
+    {
+      "object": "external_account",
+      "provider": "github",
+      "id": "eac_2defGithubExternalAccount0000",
+      "identification_id": "idn_2defGithubIdentification00000",
+      "provider_user_id": "9876543210",
+      "approved_scopes": "read:user user:email",
+      "email_address": "person@example.com",
+      "first_name": "Ana",
+      "last_name": "Example",
+      "avatar_url": "https://clerk.com/test.jpg",
+      "username": "jdoe",
+      "phone_number": null,
+      "public_metadata": {},
+      "label": null,
+      "verification": null,
+      "created_at": 1611948436,
+      "updated_at": 1611948436
+    }
+  ],
+  "enterprise_accounts": [
+    {
+      "object": "enterprise_account",
+      "id": "ea_okta",
+      "active": true,
+      "email_address": "person@example.com",
+      "first_name": "Ana",
+      "last_name": "Example",
+      "protocol": "saml",
+      "provider": "saml_okta",
+      "provider_user_id": "okta_user_123",
+      "public_metadata": {},
+      "verification": {
+        "status": "verified",
+        "strategy": "saml",
+        "attempts": null,
+        "expire_at": 1613831855
+      },
+      "last_authenticated_at": 1611948436,
+      "enterprise_connection_id": "ent_conn_okta",
+      "enterprise_connection": {
+        "id": "ent_conn_okta",
+        "object": "enterprise_account_connection",
+        "active": true,
+        "allow_idp_initiated": false,
+        "allow_subdomains": false,
+        "disable_additional_identifications": false,
+        "domain": "clerk.test",
+        "logo_public_url": null,
+        "name": "Okta SSO",
+        "protocol": "saml",
+        "provider": "saml_okta",
+        "sync_user_attributes": true,
+        "created_at": 1611948436,
+        "updated_at": 1611948436
+      }
+    }
+  ],
+  "saml_accounts": [
+    {
+      "object": "saml_account",
+      "id": "samlacc_microsoft",
+      "provider": "saml_microsoft",
+      "active": true,
+      "email_address": "person@example.com",
+      "first_name": "Ana",
+      "last_name": "Example",
+      "provider_user_id": null,
+      "verification": {
+        "status": "verified",
+        "strategy": "saml",
+        "attempts": null,
+        "expire_at": 1613831855,
+        "external_verification_redirect_url": null
+      }
+    }
+  ],
+  "public_metadata": {
+    "zodiac_sign": "leo"
+  },
+  "private_metadata": {},
+  "created_at": 1611948436,
+  "updated_at": 1611948436
+}

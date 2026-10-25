@@ -13,6 +13,7 @@
     "./authentication/stand-in/playwright": "./authentication/stand-in/playwright.js",
     "./authentication/agent-keys": "./authentication/agent-keys/index.ts",
     "./authentication/agent-keys/openapi": "./authentication/agent-keys/openapi.ts",
+    "./authentication/owner": "./authentication/owner/index.ts",
     "./extension/host": "./extension/host/index.ts",
     "./extension/harness": "./extension/harness/index.ts",
     "./extension/testing/chrome": "./extension/testing/chrome.ts",
@@ -38,6 +39,7 @@
     "@mui/material": "^9.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "@clerk/backend": "^3.0.0",
     "@clerk/hono": "^0.1.93",
     "hono": "^4.12.16",
     "hono-openapi": "^1.5.0",
@@ -47,6 +49,9 @@
   },
   "peerDependenciesMeta": {
     "@clerk/react": {
+      "optional": true
+    },
+    "@clerk/backend": {
       "optional": true
     },
     "@clerk/hono": {
@@ -78,6 +83,7 @@
     }
   },
   "devDependencies": {
+    "@clerk/backend": "^3.26.2",
     "@clerk/hono": "^0.1.93",
     "@clerk/react": "^6.17.4",
     "@emotion/react": "^11.14.0",

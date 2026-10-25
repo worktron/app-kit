@@ -321,12 +321,13 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Piece | Import | What it does |
 | --- | --- | --- |
 | Clerk | `app-kit/authentication/clerk` | `clerkSignIn({ publishableKey })`, the first adapter for the web kit's sign-in gate. |
-| Clerk for the key check | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`. |
+| Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`, and `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail`. |
 | Stand-in | `app-kit/authentication/stand-in` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
 | Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage` and `serveNewerBuild`, for an app's browser tests. See Browser tests above. |
 | WebKit out of the Dock | `app-kit/web/playwright-webkit` | `webkitWithoutDockIcon`, the launch options that run Playwright's WebKit from a copy macOS keeps out of the Dock. See Browser tests above. |
 | Keys for agents | `app-kit/authentication/agent-keys` | `requireCaller` and `callerOf`: a person's key reads the GET routes the app lists. |
 | API reference | `app-kit/authentication/agent-keys/openapi` | The OpenAPI descriptions and reference page that show a key those routes. |
+| Owner only | `app-kit/authentication/owner` | `requireOwner` and `ownerCheckByEmail`: a server that serves one person lets only them in. |
 
 ### The adapter
 
@@ -335,6 +336,29 @@ A provider is `{ Root, useSession, GoogleReturn }` (`web/sign-in/provider.ts`): 
 Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for uses Clerk's own hooks inside the gate, whose provider is Clerk's. An app with its own `ClerkProvider` and no gate reads the adapter's session with `clerkSignIn({ publishableKey }).useSession()` inside it.
 
 The Clerk instance needs Google on for sign-in and emailed codes as an email sign-in strategy, since the adapter signs in with both. In the settings Clerk's command line tool reads and writes (`clerk config patch`), that is `connection_oauth_google` with `enabled` and `authenticatable` true, and `auth_email` with `used_for_sign_in` true and `email_code` among its `sign_in_strategies`. A production instance copies them from development when it is created as a clone, and Google there also needs the app's own Google OAuth client.
+
+### Owner only
+
+`app-kit/authentication/owner`: a server that serves one person, its owner, lets only them in. The owner is whoever signed in with the owner's email address, verified; an address the sign-in provider has not verified never counts.
+
+```ts
+import { Hono } from 'hono';
+import { clerkMiddleware, getAuth } from '@clerk/hono';
+import { every } from 'hono/combine';
+import { clerkVerifiedEmails } from 'app-kit/authentication/clerk/server';
+import { ownerCheckByEmail, requireOwner, type OwnerEnv } from 'app-kit/authentication/owner';
+
+const isOwner = ownerCheckByEmail(process.env.OWNER_EMAIL!, clerkVerifiedEmails({ secretKey: process.env.CLERK_SECRET_KEY }));
+const app = new Hono<OwnerEnv>();
+app.use('/api/*', every(clerkMiddleware(), requireOwner({ identify: (c) => getAuth(c).userId ?? null, isOwner, appName: 'Argon' })));
+app.get('/api/items', (c) => listItems(c.get('userId')));
+```
+
+- **The answers.** Nobody signed in gets 401 `{"error":"Sign in first"}`; someone signed in who is not the owner gets 403 `{"error":"This account is not allowed to use <appName>"}`, and a log line naming the route and the user id. The owner goes on, with their user id as `userId` on the context.
+- **Asked once per user.** `ownerCheckByEmail` keeps each user's answer, yes or no, for the life of the process, and requests that arrive together share one lookup, so the provider is asked once per user, not per request. A lookup that fails, such as the provider unreachable, is not kept. So a change to a user's addresses takes a restart of the server: a user whose owner address is taken off stays let in, and an owner refused before verifying the address stays refused, until then.
+- **Another provider** passes its own `identify` and its own reader of a user's verified addresses; nothing in `app-kit/authentication/owner` imports Clerk.
+
+Needs `hono` 4.12 or later; with Clerk, `@clerk/hono` 0.1.93 or later and `@clerk/backend` 3 or later.
 
 ### Keys for agents
 

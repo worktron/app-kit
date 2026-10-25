@@ -1,6 +1,19 @@
 import type { Context } from 'hono';
+import { createClerkClient } from '@clerk/backend';
 import { getAuth } from '@clerk/hono';
 import type { Caller } from '../agent-keys';
+
+/**
+ * A user's verified email addresses as Clerk holds them, for `ownerCheckByEmail` from `app-kit/authentication/owner`.
+ * An address Clerk has not verified is left out, so nobody becomes the owner by adding the owner's address unchecked.
+ */
+export function clerkVerifiedEmails(options: { secretKey: string | undefined }): (userId: string) => Promise<string[]> {
+  const clerk = createClerkClient({ secretKey: options.secretKey });
+  return async (userId) => {
+    const user = await clerk.users.getUser(userId);
+    return user.emailAddresses.filter((e) => e.verification?.status === 'verified').map((e) => e.emailAddress);
+  };
+}
 
 /**
  * Clerk's reasons, on a key it did not accept, that mean Clerk could not answer rather than that the key is no good:

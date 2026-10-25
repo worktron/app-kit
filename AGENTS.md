@@ -18,9 +18,10 @@ tauri/           Mac and iPhone apps built with Tauri: sign-in/, desktop sign-in
                  iphone-sign-in/, Google sign-in in Apple's sign-in sheet: the page half (index.ts), the names it shares
                  with the plugin (names.ts), and plugin/;
                  iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole
-authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk reader for the key check, server.ts),
+authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts),
                  stand-in/ (the stand-in sign-in provider, and the Playwright steps for apps' browser tests, playwright.js),
-                 agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts)
+                 agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts),
+                 owner/ (the server check that lets in only the one person an app serves)
 server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React)
 bin/             the app-kit command
 scripts/         the gates (gates.sh), and the landing (land-main.sh, which runs land.ts), which sets the version and tags it
