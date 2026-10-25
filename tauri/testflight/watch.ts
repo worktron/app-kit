@@ -19,8 +19,8 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
-import { runCommand, type Run } from './run.ts';
-import { UPLOADING } from './upload.ts';
+import { runCommand, stopRunning, type Run } from './run.ts';
+import { STOP_SIGNALS, UPLOADING } from './upload.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -170,6 +170,14 @@ export async function watch(options: WatchOptions): Promise<number> {
   const lockFile = join(state, 'testflight.lock');
   // Another pass is building; it has written its own lines.
   if (!lock(lockFile)) return 0;
+  // Stopped itself (launchd unloading its job), it stops the programs it started, each in a process group of its own,
+  // so no upload goes on building in a clone the next pass checks out; the upload puts its own things back.
+  const onSignal = () => {
+    stopRunning('SIGTERM');
+    rmSync(lockFile, { force: true });
+    process.exit(1);
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   let failures = 0;
   try {
     for (const url of options.urls) {
@@ -182,6 +190,7 @@ export async function watch(options: WatchOptions): Promise<number> {
       }
     }
   } finally {
+    for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
     rmSync(lockFile, { force: true });
   }
   return failures;
@@ -261,11 +270,15 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   };
   const retry = 'trying again in an hour';
 
-  // Each try at a build starts its own log, keeping the try before it, so retries at one commit never grow it.
+  // A build log is written only for a pass that builds, or whose install failed, so skipped landings never push the
+  // logs of real builds out. Each try starts its own, keeping the try before, so retries at one commit never grow it.
   const buildLog = join(folder, `build-${count}.log`);
-  if (existsSync(buildLog)) renameSync(buildLog, `${buildLog}.1`);
-  writeFileSync(buildLog, `== ${new Date(now()).toISOString()} ${at}\n`);
-  pruneBuildLogs(folder);
+  const logName = `build-${count}.log`;
+  const startBuildLog = (installOutput: string) => {
+    if (existsSync(buildLog)) renameSync(buildLog, `${buildLog}.1`);
+    writeFileSync(buildLog, `== ${new Date(now()).toISOString()} ${at}\n${installOutput}`);
+    pruneBuildLogs(folder);
+  };
   const toBuildLog = (chunk: string) => appendFileSync(buildLog, chunk);
 
   // Main's exact commit, with nothing left from another commit's build but the installed packages and Rust's build.
@@ -273,10 +286,11 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const cleaned = checkedOut.ok ? await git(['clean', '-ffdxq', '-e', 'node_modules', '-e', 'src-tauri/target']) : checkedOut;
   if (!cleaned.ok) return failed('checkout', `failed: checking out ${at}: ${lastLine(cleaned.out)}; ${retry}`);
 
-  const installed = await run(['bun', 'install', '--frozen-lockfile'], { cwd: checkout, env: childEnv, timeoutMs: limits.install, output: toBuildLog });
+  const installed = await run(['bun', 'install', '--frozen-lockfile'], { cwd: checkout, env: childEnv, timeoutMs: limits.install });
   if (installed.code !== 0) {
+    startBuildLog(installed.out);
     const why = installed.timedOut ? `it did not finish in ${minutes(limits.install)} and was stopped` : lastLine(installed.out);
-    return failed('install', `failed: bun install at ${at}: ${why}; ${retry}`);
+    return failed('install', `failed: bun install at ${at}: ${why}; ${retry} (${logName})`);
   }
   if (!existsSync(join(checkout, 'node_modules/app-kit/tauri/testflight/upload.ts'))) {
     line("waiting: main's app-kit has no testflight upload");
@@ -315,6 +329,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const decision = decide({ newest, newestCommit, head: { commit: head, count }, changed, kind: appKind(tauriConfig) });
   line(decision.reason);
   if (!decision.upload) return judged();
+  startBuildLog(installed.out);
 
   // The app's own kit builds it, at background priority, keeping the Mac awake only while it runs. The build has its
   // time limit, and the upload and Apple's processing theirs from the line that says the build is done.
@@ -334,7 +349,6 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
     },
   });
   const said = uploaded.out.split('\n').filter((l) => l.startsWith('[testflight] ')).pop()?.slice('[testflight] '.length) ?? lastLine(uploaded.out);
-  const logName = `build-${count}.log`;
   if (uploaded.code === 0) {
     line(`uploaded ${at}, processed`);
     return judged();

@@ -85,7 +85,8 @@ function cleanupOnStop(cleanup: () => void): () => void {
   };
 }
 
-const STOP_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
+/** The signals that stop the upload, or the watcher, as launchd and a terminal send them. */
+export const STOP_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
 /** Whether altool refused the upload because App Store Connect already holds this build number. */
 export function alreadyUploaded(output: string): boolean {

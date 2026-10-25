@@ -121,6 +121,8 @@ test('a landing that changes only documentation, plans and tests uploads nothing
   const stand = await pass();
   expect(logLines()).toEqual([`${at(START)} skipped: no app files changed since build ${countOf(first)}`]);
   expect(stand.named('testflight upload')).toEqual([]);
+  // A pass that builds nothing writes no build log, so it never pushes a real build's log out.
+  expect(readdirSync(join(folder(), 'urge-surfer')).filter((name) => name.startsWith('build-'))).toEqual([]);
 });
 
 test('two landings between passes are judged together', async () => {
@@ -313,6 +315,17 @@ test('a step that never exits is stopped at its time limit with everything it st
   expect(stopped.stdout.toString()).toBe('');
 });
 
+test('stopped itself, as launchd stops its job, the watcher stops the upload it started and leaves no lock', async () => {
+  const marker = join(place.folder, 'hanging-upload');
+  const stopped = await runCommand(['bun', join(import.meta.dir, 'testflight-watch-child.ts'), origin, state, marker], {
+    output: (chunk) => (chunk.includes(`hanging ${marker}`) ? 0 : undefined),
+  });
+  expect(stopped).toMatchObject({ timedOut: true });
+  // The upload was in a process group of its own, out of reach of the signal to the watcher's group.
+  expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
+  expect(existsSync(join(folder(), 'testflight.lock'))).toBe(false);
+});
+
 test('a dirtied build checkout is put back to main\'s commit, keeping installed packages and the Rust build', async () => {
   uploaded(head());
   await pass();
@@ -338,7 +351,6 @@ test("the ten newest builds' logs are kept, each with its try before", async () 
     writeFileSync(join(folder(), `urge-surfer/build-${n}.log`), 'a try\n');
     writeFileSync(join(folder(), `urge-surfer/build-${n}.log.1`), 'the try before\n');
   }
-  uploaded(head());
   await pass();
   const logs = readdirSync(join(folder(), 'urge-surfer')).filter((name) => name.startsWith('build-'));
   const numbers = [...new Set(logs.map((name) => Number(name.match(/^build-(\d+)/)![1])))].sort((a, b) => a - b);
