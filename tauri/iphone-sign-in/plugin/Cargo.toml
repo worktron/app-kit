@@ -1,0 +1,23 @@
+# app-kit's copy of tauri-plugin-web-auth 1.0.0 from crates.io, MIT (LICENSE), changed so the sign-in sheet shows over
+# the app's own window and says what it did in the log. iPhone only. Its plugin, command and permission names are the
+# original's, which iPhone builds installed before the kit had it already answer to.
+[package]
+name = "tauri-plugin-web-auth"
+version = "1.0.0"
+description = "Apple's sign-in sheet (ASWebAuthenticationSession) for app-kit's Tauri iPhone apps"
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+links = "tauri-plugin-web-auth"
+
+[dependencies]
+tauri = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[package.metadata.tauri-plugin]
+ios-src = "ios"

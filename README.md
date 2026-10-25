@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
 | `server/` | `app-kit/server/google` | Server-only pieces no kind of app owns: what a refusal from Google means. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -176,7 +176,7 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, and an iPhone Simulator that runs silent.
+What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, and an iPhone Simulator that runs silent.
 
 ### Desktop sign-in
 
@@ -185,7 +185,7 @@ What a Tauri app's page, shell and server share: desktop sign-in, iPhone notific
 1. The window opens `desktopSignInAddress(account)` in the browser: `/desktop-sign-in`, with a nonce kept in the window's own storage and the account chosen in the window: `{ account }` for Continue as that account, `'choose'` for Use a different account, which shows Google's list even when the browser is signed in, or `null` for Continue with Google with no account remembered, which takes whoever the browser is signed in as. A second click asks with the same nonce.
 2. In the browser, signed out, the app's sign-in screen goes to Google once per tab when `startGoogleHere()` says so, for `desktopSignInRequest().account` (Google's list for `'choose'` or `null`). Signed in, `useDesktopSignInBrowserPage({ session, scheme })` hands the account over; signed in as another account than the one named, or asked for Google's list, it signs out first, and the sign-in screen goes to Google; back from Google, whoever was picked there goes over. It asks the server for a one-time ticket, opens `<scheme>://sign-in?ticket=…&nonce=…`, and closes the tab once the server says the app has signed in. After a trip to Google the browser will not close the tab, so the app says the window is signed in.
 3. The shell, given that link, dispatches `DESKTOP_SIGN_IN_EVENT` with `{ ticket, nonce }` when the page has set `DESKTOP_SIGN_IN_LISTENING`, else loads the app's address with `TICKET_PARAM` and `NONCE_PARAM` in its fragment, which the browser never sends, so the ticket is in no server's log. It JSON-encodes both values into its script and checks their characters, since any app on the Mac can open the link. Each app holds its shell to these names with a test that reads its Rust.
-4. The page calls `listenForDesktopSignIn()` from its first script, and `useDesktopSignInWindow(session)` signs in with the link through the adapter's `ticket`, only when the nonce is the one the window asked with. The nonce is used up once the ticket works, so a fresh ticket after an expired one still signs in; links that come while one is being taken, or while signed in, are dropped. An iPhone app whose sign-in sheet returns the link to the page passes it to `desktopSignInArrived`.
+4. The page calls `listenForDesktopSignIn()` from its first script, and `useDesktopSignInWindow(session)` signs in with the link through the adapter's `ticket`, only when the nonce is the one the window asked with. The nonce is used up once the ticket works, so a fresh ticket after an expired one still signs in; links that come while one is being taken, or while signed in, are dropped. An iPhone app runs the browser page in Apple's sign-in sheet instead, which returns the link to the page (iPhone sign-in, below).
 
 The server mounts the routes where the kit asks for them, behind its own sign-in check:
 
@@ -251,6 +251,41 @@ for (const token of result.gone) await forgetAppleDevice(token);
 ```
 
 `topic` is the iPhone app's bundle id. The push key comes from `APPLE_PUSH_KEY_ID`, `APPLE_PUSH_TEAM_ID` and `APPLE_PUSH_KEY` (the .p8 file's contents); with any missing it sends nothing. `url` is the page a tap opens, and the payload carries only its path, query and fragment, so a debug build whose page runs on a dev server opens the same page there. A device Apple calls unregistered or bad comes back in `gone` for the app to remove; since the phone registers again on its next launch, a token removed by mistake comes back. A send that Apple has not answered in 15 seconds counts as failed.
+
+### iPhone sign-in
+
+`app-kit/tauri/iphone-sign-in` for the page, and a Tauri plugin for the shell, in `tauri/iphone-sign-in/plugin/`: Google refuses to sign in inside the app's web view, so an iPhone build runs desktop sign-in's browser page in Apple's sign-in sheet (`ASWebAuthenticationSession`) instead of the default browser. The sheet slides over the app, shares Safari's Google sign-in, and closes when that page opens the app's sign-in link, which it hands back to the page instead of to iOS: no switch to Safari, no "open this app?" question, and no page load. The server's routes and the browser page are desktop sign-in's, above. The plugin is the kit's copy of tauri-plugin-web-auth 1.0.0 (MIT), changed so the sheet shows: the original keeps no hold on the sheet and looks for a window the way scene-based apps have none, so iOS shows it in a window nobody sees. argon-watcher is the first app.
+
+The plugin keeps the original's names where the page and the shell see them, the plugin `web-auth` and its command `authenticate`, since the page comes from the app's server and the plugin from the installed build: a renamed plugin would leave every phone not reinstalled at that deploy unable to sign in with Google.
+
+In `src-tauri/Cargo.toml`, after `bun install`, with the path from `src-tauri` to the `node_modules` that holds the kit:
+
+```toml
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-web-auth = { path = "../node_modules/app-kit/tauri/iphone-sign-in/plugin" }
+```
+
+In the shell, with the permission granted to the page:
+
+```rust
+#[cfg(target_os = "ios")]
+let builder = builder.plugin(tauri_plugin_web_auth::init());
+// ...
+let page = CapabilityBuilder::new("page").remote(format!("{origin}/*")).window(MAIN)
+    .permission("web-auth:default");
+```
+
+The page, where its Continue with Google would open the browser page on the Mac; `scheme` is the app's own link scheme, the one desktop sign-in's link opens:
+
+```ts
+import { desktopSignInAddress } from 'app-kit/tauri/sign-in';
+import { signInInSheet } from 'app-kit/tauri/iphone-sign-in';
+
+const handedOver = await signInInSheet(desktopSignInAddress(account), { scheme: 'com.example.app' });
+if (!handedOver) setBusy(false);
+```
+
+It hands the link to `useDesktopSignInWindow`, which signs in only when the nonce is the window's, and answers whether it handed one over: false when the sheet was cancelled or failed, or closed on any link that is not the app's sign-in. iOS asks the person once whether the app may use the site to sign in. One sheet is open at a time; a second call while one is up is refused. Every step logs a line starting `[iphone-sign-in]`, in the page's console and in the phone's log, and a sheet that opened logs `[iphone-sign-in] sheet started for <host>`.
 
 ### A silent iPhone Simulator
 
@@ -393,7 +428,7 @@ Every reading carries Google's own `reason` and a one-line `message` for the log
 
 ## bin/, scripts/ and test/: develop
 
-`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five, then builds the iPhone notifications plugin's Rust and Swift for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
+`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium` first). `scripts/gates.sh` runs all five, then builds the Rust and Swift of the iPhone notifications and iPhone sign-in plugins for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
 
 Releases are tags, `v<version>`, matching `package.json`'s version, on the commit main lands at, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its commit messages say.
 
