@@ -55,7 +55,10 @@ describe.if(process.platform === 'darwin')('on macOS', () => {
     const run = await answer(inProcess(cache));
     expect(run.printed).toContain("made a copy of Playwright's WebKit that stays out of the Dock");
     const { executablePath } = run.options;
-    expect(executablePath).toBe(join(cache, `${installed}-1`, basename(executable)));
+    // In a folder of its own for this browsers folder, inside the cache.
+    expect(basename(dirname(executablePath))).toBe(`${installed}-1`);
+    expect(dirname(dirname(dirname(executablePath)))).toBe(cache);
+    expect(basename(executablePath)).toBe(basename(executable));
     const app = join(dirname(executablePath!), 'Playwright.app');
     expect(execFileSync('plutil', ['-extract', 'LSUIElement', 'raw', join(app, 'Contents/Info.plist')], { encoding: 'utf8' }).trim()).toBe('true');
     execFileSync('codesign', ['--verify', app]);
@@ -69,7 +72,9 @@ describe.if(process.platform === 'darwin')('on macOS', () => {
     const runs = await Promise.all([1, 2, 3, 4].map(() => answer(inProcess(cache))));
     expect(runs.map((run) => run.code)).toEqual([0, 0, 0, 0]);
     expect(new Set(runs.map((run) => run.options.executablePath)).size).toBe(1);
-    expect(readdirSync(cache)).toEqual([basename(dirname(runs[0]!.options.executablePath))]);
+    const copy = dirname(runs[0]!.options.executablePath);
+    expect(readdirSync(cache)).toEqual([basename(dirname(copy))]);
+    expect(readdirSync(dirname(copy))).toEqual([basename(copy)]);
   });
 
   test.concurrent('a WebKit Playwright has not finished installing is left to Playwright, with a line saying so', async () => {
@@ -82,11 +87,23 @@ describe.if(process.platform === 'darwin')('on macOS', () => {
     expect(existsSync(folder('half-installed-cache'))).toBe(false);
   });
 
-  test.concurrent('a new copy removes copies whose Playwright WebKit is gone, and keeps one whose WebKit is still there', async () => {
+  test.concurrent('a new copy removes copies whose Playwright WebKit is gone, and keeps one whose WebKit is still there and anything it did not make', async () => {
     const cache = folder('orphans');
-    for (const name of ['webkit-1000-1', '.making-webkit-1000-1.123.456', `${installed}-0`]) mkdirSync(join(cache, name), { recursive: true });
-    expect((await answer(inProcess(cache))).code).toBe(0);
-    expect(readdirSync(cache).sort()).toEqual([`${installed}-0`, `${installed}-1`]);
+    const first = await answer(inProcess(cache));
+    const copy = dirname(first.options.executablePath);
+    const copies = dirname(copy);
+    // Copies of a WebKit this browsers folder no longer has, a copy of the one it has made another way, and a file the kit never made.
+    for (const name of ['webkit-1000-1', '.making-webkit-1000-1.123.456', `${installed}-0`]) mkdirSync(join(copies, name));
+    writeFileSync(join(copies, 'webkit-1000-notes.txt'), '');
+    // Another browsers folder's copies sit beside this one's, measured against their own.
+    const other = join(cache, 'another-browsers-folder', 'webkit-1000-1');
+    mkdirSync(other, { recursive: true });
+    rmSync(copy, { recursive: true });
+    const second = await answer(inProcess(cache));
+    expect(second.code).toBe(0);
+    expect(second.printed).toContain('removed');
+    expect(readdirSync(copies).sort()).toEqual(['webkit-1000-notes.txt', `${installed}-0`, `${installed}-1`]);
+    expect(existsSync(other)).toBe(true);
   });
 });
 

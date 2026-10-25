@@ -5,6 +5,7 @@
 // Playwright's test runner loads nothing written in TypeScript from inside node_modules, where an app has the kit.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -15,6 +16,8 @@ const RECIPE = 1;
 /** Playwright writes this last when it installs a browser, so a folder without it is missing or half extracted. */
 const INSTALLED = 'INSTALLATION_COMPLETE';
 const MAKING = '.making-';
+/** The names this file gives a copy and a copy being made, the WebKit folder's name first; cleanup touches nothing else. */
+const COPY_NAME = /^(?:\.making-)?(webkit-\d+)-\d+(?:\.\d+\.\d+)?$/;
 
 /** @type {typeof import('./playwright-webkit').webkitWithoutDockIcon} */
 export function webkitWithoutDockIcon(cacheFolder = join(homedir(), 'Library/Caches/app-kit/playwright-webkit')) {
@@ -25,7 +28,10 @@ export function webkitWithoutDockIcon(cacheFolder = join(homedir(), 'Library/Cac
     console.error(`app-kit: Playwright's WebKit is not installed at ${source}, so Playwright starts it as it would without the kit`);
     return {};
   }
-  const copy = join(cacheFolder, `${basename(source)}-${RECIPE}`);
+  // One folder per Playwright browsers folder, which PLAYWRIGHT_BROWSERS_PATH can move per project, so a cleanup
+  // measured against one project's browsers never takes another project's copy.
+  const browsers = createHash('sha256').update(dirname(source)).digest('hex').slice(0, 12);
+  const copy = join(cacheFolder, browsers, `${basename(source)}-${RECIPE}`);
   if (!existsSync(copy) && !makeCopy(source, copy)) return {};
   return { executablePath: join(copy, basename(executable)) };
 }
@@ -70,14 +76,14 @@ function makeCopy(source, copy) {
 
 /**
  * Removes copies, and copies being made, whose Playwright original is gone: Playwright removes a browser only once no
- * installed Playwright uses it.
+ * installed Playwright uses it. Anything not named as this file names a copy is left as it is.
  * @param {string} cache
  * @param {string} browsers
  */
 function removeOrphans(cache, browsers) {
   for (const name of readdirSync(cache)) {
-    const original = name.replace(MAKING, '').replace(/\.\d+\.\d+$/, '').replace(/-\d+$/, '');
-    if (existsSync(join(browsers, original))) continue;
+    const original = name.match(COPY_NAME)?.[1];
+    if (!original || existsSync(join(browsers, original))) continue;
     rmSync(join(cache, name), { recursive: true, force: true });
     console.error(`app-kit: removed ${join(cache, name)}, whose Playwright WebKit is gone`);
   }

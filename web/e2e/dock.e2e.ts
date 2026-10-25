@@ -20,7 +20,10 @@ async function watchApplications(folder: string) {
   const seen = new Map<string, Seen>();
   const field = (line: string, key: string) => line.match(new RegExp(`"${key}"=("[^"]*"|[^,} ]+)`))?.[1]?.replace(/"/g, '');
   let heardMarker = () => {};
-  const ready = new Promise<void>((resolve) => (heardMarker = resolve));
+  const ready = new Promise<void>((resolve, reject) => {
+    heardMarker = resolve;
+    listen.on('exit', (code, signal) => reject(new Error(`lsappinfo listen ended (${code ?? signal}) before it heard its marker`)));
+  });
   let changed = () => {};
   let rest = '';
   listen.stdout.setEncoding('utf8').on('data', (chunk: string) => {
@@ -41,10 +44,21 @@ async function watchApplications(folder: string) {
     }
   });
   // The marker lives only as long as this lsappinfo, which registers it and exits.
-  const registered = () => spawnSync('lsappinfo', ['register', 'ApplicationType=BackgroundOnly', `LSDisplayName=${marker}`]);
-  registered();
-  const retry = setInterval(registered, 1000);
-  await ready.finally(() => clearInterval(retry));
+  // A marker that cannot be registered stops the listener, which fails the wait with the reason above.
+  const register = () => {
+    const done = spawnSync('lsappinfo', ['register', 'ApplicationType=BackgroundOnly', `LSDisplayName=${marker}`], { encoding: 'utf8' });
+    if (done.status !== 0) {
+      console.error(`lsappinfo register failed: ${done.stderr || done.error}`);
+      listen.kill();
+    }
+  };
+  register();
+  const retry = setInterval(register, 1000);
+  try {
+    await ready;
+  } finally {
+    clearInterval(retry);
+  }
   return {
     seen,
     /** Resolves once every application seen has ended, the event that comes after any change of its type. */
