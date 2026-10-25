@@ -261,8 +261,10 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   };
   const retry = 'trying again in an hour';
 
+  // Each try at a build starts its own log, keeping the try before it, so retries at one commit never grow it.
   const buildLog = join(folder, `build-${count}.log`);
-  appendFileSync(buildLog, `== ${new Date(now()).toISOString()} ${at}\n`);
+  if (existsSync(buildLog)) renameSync(buildLog, `${buildLog}.1`);
+  writeFileSync(buildLog, `== ${new Date(now()).toISOString()} ${at}\n`);
   pruneBuildLogs(folder);
   const toBuildLog = (chunk: string) => appendFileSync(buildLog, chunk);
 
@@ -346,11 +348,12 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   return failed('upload', `failed: the upload of ${at} exited ${uploaded.code}: ${said}; ${retry} (${logName})`);
 }
 
-/** Keeps the newest build logs, by build number. */
+/** Keeps the newest builds' logs, by build number, each with its try before. */
 function pruneBuildLogs(folder: string) {
   const logs = readdirSync(folder)
-    .map((name) => ({ name, number: Number(name.match(/^build-(\d+)\.log$/)?.[1]) }))
+    .map((name) => ({ name, number: Number(name.match(/^build-(\d+)\.log(?:\.1)?$/)?.[1]) }))
     .filter((log) => Number.isInteger(log.number))
     .sort((a, b) => b.number - a.number);
-  for (const old of logs.slice(BUILD_LOGS_KEPT)) rmSync(join(folder, old.name), { force: true });
+  const kept = new Set([...new Set(logs.map((log) => log.number))].slice(0, BUILD_LOGS_KEPT));
+  for (const old of logs.filter((log) => !kept.has(log.number))) rmSync(join(folder, old.name), { force: true });
 }

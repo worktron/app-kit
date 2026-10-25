@@ -3,7 +3,7 @@
 // lines. Real git repositories over file://, a stand-in App Store Connect, and stand-ins for bun install, the keychain,
 // 1Password and the app's own upload.
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCommand, type RunOptions, type RunResult } from '../tauri/testflight/run.ts';
 import { appKind, appName, commitForNumber, countsAsApp, decide, lock, watch, type Limits } from '../tauri/testflight/watch.ts';
@@ -306,6 +306,9 @@ test('a step that never exits is stopped at its time limit with everything it st
   expect(logLines().at(-1)).toBe(
     `${at(clock)} failed: the upload of build ${countOf(change)} (${shortOf(change)}) did not finish in 0.3 seconds and was stopped; trying again in an hour (build-${countOf(change)}.log)`,
   );
+  // The second try has its own log, and the first is kept beside it.
+  expect(readFileSync(join(folder(), `urge-surfer/build-${countOf(change)}.log`), 'utf8')).toContain('[testflight] uploading build 2');
+  expect(readFileSync(join(folder(), `urge-surfer/build-${countOf(change)}.log.1`), 'utf8')).not.toContain('[testflight] uploading build 2');
   const stopped = Bun.spawnSync(['pgrep', '-f', `touch ${marker}`]);
   expect(stopped.stdout.toString()).toBe('');
 });
@@ -325,6 +328,22 @@ test('a dirtied build checkout is put back to main\'s commit, keeping installed 
   expect(existsSync(join(checkout, 'src-tauri/target/release/cache'))).toBe(true);
   expect(existsSync(join(checkout, 'node_modules/app-kit/tauri/testflight/upload.ts'))).toBe(true);
   expect(git(checkout, 'rev-parse', 'HEAD')).toBe(head());
+});
+
+test("the ten newest builds' logs are kept, each with its try before", async () => {
+  emptyCommits(origin, 11);
+  expect(countOf(head())).toBe(12);
+  mkdirSync(join(folder(), 'urge-surfer'), { recursive: true });
+  for (let n = 1; n <= 11; n++) {
+    writeFileSync(join(folder(), `urge-surfer/build-${n}.log`), 'a try\n');
+    writeFileSync(join(folder(), `urge-surfer/build-${n}.log.1`), 'the try before\n');
+  }
+  uploaded(head());
+  await pass();
+  const logs = readdirSync(join(folder(), 'urge-surfer')).filter((name) => name.startsWith('build-'));
+  const numbers = [...new Set(logs.map((name) => Number(name.match(/^build-(\d+)/)![1])))].sort((a, b) => a - b);
+  expect(numbers).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  expect(logs).toContain('build-3.log.1');
 });
 
 test('a failing fetch writes one line when it starts and one when it works again', async () => {
