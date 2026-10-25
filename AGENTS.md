@@ -13,7 +13,8 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
 tauri/           Mac and iPhone apps built with Tauri: sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
                  and its server routes (server.ts, app-kit/tauri/sign-in/server); iphone-notifications/, notifications through
                  Apple's push service: the page half (index.ts), the sending (server.ts), the names both share with the
-                 plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds
+                 plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds;
+                 iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole
 authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk reader for the key check, server.ts),
                  stand-in/ (the stand-in sign-in provider, and the Playwright steps for apps' browser tests, playwright.js),
                  agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts)

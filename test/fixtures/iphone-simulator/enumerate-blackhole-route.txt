@@ -1,0 +1,27 @@
+Port:
+    UUID: 0118CA32-D97B-4EFF-80E5-8C42F9A493F8
+    Class: Audio
+    Port Identifier: com.apple.CoreSimulator.Audio.HostRoute
+    Power state: On
+    Guest Audio Input -> Default Host Audio Device
+    Guest Audio Output -> Host Audio Device #BlackHole2ch_UID
+    Host Audio Devices:
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000001:10,11: Studio Display XDR Speakers (0 In / 8 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000001:8,9: Studio Display XDR Microphone (1 In / 0 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000002:10,11: Studio Display XDR Speakers (0 In / 8 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000002:8,9: Studio Display XDR Microphone (1 In / 0 Out)
+        BlackHole2ch_UID: BlackHole 2ch (2 In / 2 Out)
+        BuiltInSpeakerDevice: Mac Studio Speakers (0 In / 2 Out)
+
+Port:
+    UUID: 5C98171A-2E8F-40BF-9668-F4608A94A179
+    Class: Unknown
+    Port Identifier: com.apple.gputools.service.simulator
+    Power state: On
+
+Port:
+    UUID: 6BE75D0A-E5EE-4A7B-A2F5-EE2EE5423081
+    Class: Unknown
+    Port Identifier: com.apple.gputools.GPUToolsAgentService.simulator
+    Power state: On
+

@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
-// app-kit <part> <command>: the kit's command line. Its one part with commands
-// is the extension kit, which copies the kit's worker files into an extension,
-// checks the copy, prints an extension's ID, and prints a native host's status.
+// app-kit <part> <command>: the kit's command line. The extension kit copies the
+// kit's worker files into an extension, checks the copy, prints an extension's
+// ID, and prints a native host's status. The iPhone simulator part sends a
+// simulator's sound to BlackHole so it plays nowhere.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -9,6 +10,7 @@ import { dirname, join } from 'node:path'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
 import packageJson from '../package.json'
+import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
 
 const USAGE = `app-kit <part> <command>
 
@@ -17,6 +19,11 @@ const USAGE = `app-kit <part> <command>
   extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
   extension status <socket>   the status a native host serving <socket> gives, as JSON:
                               the extension's build, commit and kept errors
+  iphone-simulator quiet <udid>
+                              send the booted simulator <udid>'s sound to BlackHole,
+                              restarting it once when it plays elsewhere; prints
+                              one line, and exits 0 even when BlackHole is missing,
+                              1 only when the simulator did not boot again
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
@@ -69,8 +76,20 @@ async function extension([command, argument, ...extra]: string[]): Promise<boole
   return true
 }
 
+function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
+  if (command !== 'quiet' || !udid || extra.length) return false
+  const { code, line } = quietSimulator(udid)
+  if (code === 0) console.log(line)
+  else {
+    console.error(line)
+    process.exit(code)
+  }
+  return true
+}
+
 async function main([part, ...rest]: string[]) {
   if (part === 'extension' && (await extension(rest))) return
+  if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
   if (part === '--version' && rest.length === 0) {
     console.log(`app-kit ${packageJson.version} (${commit()})`)
   } else if ((part === undefined || part === '--help' || part === '-h' || part === 'help') && rest.length === 0) {

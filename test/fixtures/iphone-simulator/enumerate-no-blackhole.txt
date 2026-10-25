@@ -1,0 +1,26 @@
+Port:
+    UUID: 120FD989-AA66-482B-9DAD-3CAFECCDC4BB
+    Class: Audio
+    Port Identifier: com.apple.CoreSimulator.Audio.HostRoute
+    Power state: On
+    Guest Audio Input -> Default Host Audio Device
+    Guest Audio Output -> Default Host Audio Device
+    Host Audio Devices:
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000001:10,11: Studio Display XDR Speakers (0 In / 8 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000001:8,9: Studio Display XDR Microphone (1 In / 0 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000002:10,11: Studio Display XDR Speakers (0 In / 8 Out)
+        AppleUSBAudioEngine:Apple Inc.:Studio Display XDR:00000000-0000000000000002:8,9: Studio Display XDR Microphone (1 In / 0 Out)
+        BuiltInSpeakerDevice: Mac Studio Speakers (0 In / 2 Out)
+
+Port:
+    UUID: AE407B77-C4AB-406E-936E-BD22EAF1310D
+    Class: Unknown
+    Port Identifier: com.apple.gputools.service.simulator
+    Power state: On
+
+Port:
+    UUID: CA7D9C86-6FCD-4C2D-B09C-80DB99B034DB
+    Class: Unknown
+    Port Identifier: com.apple.gputools.GPUToolsAgentService.simulator
+    Power state: On
+
