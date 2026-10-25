@@ -176,7 +176,12 @@ export async function sendToApple(
         const res = await within(deps.post({ host: APPLE_HOSTS[device.environment], path: `/3/device/${device.token}`, headers, body }), deps.timeoutMs);
         const outcome = outcomeOf(res.status, res.reason);
         if (outcome === 'sent') result.sent++;
-        else if (outcome === 'gone') result.gone.push(device.token);
+        else if (outcome === 'gone') {
+          result.gone.push(device.token);
+          // A token Apple calls bad can be one sent to the wrong service: a release build signed for development says
+          // production. Naming the service makes that visible where the device would otherwise just disappear.
+          console.error(`[iphone-notifications] Apple retired ${shortToken} (${res.status} ${res.reason ?? ''}) on its ${device.environment} service`);
+        }
         else {
           result.failed++;
           console.error(`[iphone-notifications] Apple refused (${res.status} ${res.reason ?? ''}) for ${shortToken}`);

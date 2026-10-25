@@ -239,7 +239,7 @@ startIphoneNotifications({
 });
 ```
 
-It runs only in a Tauri app on an iPhone or iPad and does nothing elsewhere, so the Mac app shares the page. It registers on every launch, which covers Apple changing the token. `device` is `{ token, environment }`: the plugin says which of Apple's services the token is for, `development` for a debug build (installed from Xcode) and `production` for a release build (TestFlight and the App Store). The app's build needs the Push Notifications capability, `aps-environment` in its entitlements.
+It runs only in a Tauri app whose user agent names an iPhone (or an iPad, which by default names a Mac and so is left out) and does nothing elsewhere, so the Mac app shares the page. It registers on every launch, which covers Apple changing the token. `device` is `{ token, environment }`: the plugin says which of Apple's services the token is for, `development` for a debug build (installed from Xcode) and `production` for a release build (TestFlight and the App Store). A release build signed for development would say production, and Apple calls its token bad; the server logs each retired token with the service it was sent to. The app's build needs the Push Notifications capability, `aps-environment` in its entitlements.
 
 The server keeps the devices and sends:
 
