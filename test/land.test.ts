@@ -19,6 +19,13 @@ const gitFolder = Bun.spawnSync(['git', '--exec-path'], { stdout: 'pipe' }).stdo
 const env = { ...process.env, PATH: `${gitFolder}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 let root: string;
 let count = 0;
+/**
+ * The bound on the test that runs two landings, some fifty git processes: the fifteen seconds a test may take, not Bun's
+ * default five. Running the real git brought it to 3.0 to 4.6 seconds beside three other runs of this file at load 30
+ * (2026-10-24), but at load 50 to 60 it overran five seconds with no assertion failing (2026-10-25). Nothing here waits on
+ * time; each step waits for its process to exit, so the bound only says how long a busy machine may take.
+ */
+const TWO_LANDINGS = 15_000;
 
 const gitIn = (cwd: string) => async (...args: string[]) => {
   const child = Bun.spawn(['git', ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' });
@@ -167,7 +174,7 @@ test.concurrent('two branches marked minor, the second landing while the first r
   expect(`${await git('show', `${main}:package.json`)}\n`).toBe(packageAt('0.7.0'));
   expect(await git('show', `${main}:README.md`)).toBe('bun add github:worktron/app-kit#v0.7.0');
   expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['README.md', 'package.json']);
-});
+}, TWO_LANDINGS);
 
 test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands', async () => {
   const { work, git } = await scratch();
