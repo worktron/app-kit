@@ -248,11 +248,13 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Account identity | `extension/worker/account.js` | The profile's signed-in account from `chrome.identity.getProfileUserInfo`, with `identity.email` an optional permission asked for when a feature needs it. |
 | Timers | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`. |
 | Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
-| Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, and answers the host's status question with its build, commit and errors. |
+| Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, answers the host's status question with its build, commit and errors, and answers every other request: with the extension's reply, a refusal when it has none, or the error it threw, so no caller waits out the host's timeout. |
 | Native host | `app-kit/extension/host` | The host Chrome starts: it serves a unix socket for callers on the Mac (a command line, an MCP server, a server) and relays their requests to the extension. Also the client callers use, the status they read, the extension's ID from its key, and the manifest that tells Chrome about the host. |
-| Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors. |
+| Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
+| Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
 | Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for unit tests of a worker built on the kit. |
+| Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
 
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
 
@@ -261,11 +263,13 @@ bun add github:worktron/app-kit#v0.13.1
 bun run app-kit extension copy extension/kit
 ```
 
-`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy:
+`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. The files land directly in the folder given, the one the worker imports them from; `copy` refuses, writing nothing, a folder that holds none of them while a folder below it holds copies, and a file of the same name that is not a copy. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy, and another checks that the worker's list for self-reload names every file it imports:
 
 ```ts
-import { workerCopyDiffers } from 'app-kit/extension/copy'
+import { unlistedImports, workerCopyDiffers } from 'app-kit/extension/copy'
+import { LOADED_FILES } from '../extension/worker.js'
 test('the kit copy is current', () => expect(workerCopyDiffers('extension/kit')).toEqual([]))
+test('the worker lists every file it loads', () => expect(unlistedImports('.', LOADED_FILES)).toEqual([]))
 ```
 
 To upgrade, run the same `bun add` at the new tag, then the copy command again.
@@ -279,13 +283,14 @@ import { watchWorkerErrors } from "./kit/errors.js";
 import { nativePort } from "./kit/port.js";
 import { checkForNewCheckout } from "./kit/self-reload.js";
 
-const LOADED_FILES = ["extension/worker.js", "extension/kit/self-reload.js" /* every file the worker loads */];
+export const LOADED_FILES = ["extension/worker.js", "extension/kit/self-reload.js" /* every file the worker loads */];
 let commit = null;
 
 const port = nativePort({
   host: "com.example.tool",
   describe: () => ({ version: buildName(commit), commit }),
-  answer: async (message) => ({ type: "answer", id: message.id /* , what the extension found */ }),
+  // The reply, without type or id, which the port adds; null for a request it has no answer for, which the port refuses.
+  answer: async (message) => (message.type === "lookup" ? { found: "what the extension found" } : null),
 });
 
 async function start() {
@@ -296,11 +301,14 @@ async function start() {
   port.connect();
 }
 
-watchWorkerErrors(self, () => buildName(commit));
-every("check", 1, start);
-chrome.runtime.onStartup.addListener(start);
-chrome.runtime.onInstalled.addListener(start);
-start();
+// Only inside Chrome: the Chrome stand-in has no runtime.id, so a unit test can import the worker without starting it.
+if (globalThis.chrome?.runtime?.id) {
+  watchWorkerErrors(self, () => buildName(commit));
+  every("check", 1, start);
+  chrome.runtime.onStartup.addListener(start);
+  chrome.runtime.onInstalled.addListener(start);
+  start();
+}
 ```
 
 `extension/test/fixture/worker.js` is a whole one, which the kit's own hidden-Chromium test loads.
@@ -312,7 +320,26 @@ import { serveHost } from 'app-kit/extension/host'
 await serveHost({ socketPath, logPath, refuse: (request) => (allowed(request) ? null : 'never sent') })
 ```
 
-A caller writes one JSON line with an `id` and a `type` to the socket and reads one line back with the same `id`; `ask(socketPath, line)` does both. The type `status` is the host's own. The socket belongs in the tool's Application Support folder (`applicationSupport(name)`), and its path must stay under 104 bytes.
+A caller writes one JSON line with an `id` and a `type` to the socket and reads one line back with the same `id`; `ask(socketPath, line)` does both. The type `status` is the host's own. The socket belongs in the tool's Application Support folder (`applicationSupport(name)`); keep its path under 104 bytes, since Bun reaches a longer one but a Node or Python caller on macOS cannot. What arrives on the socket is whatever a caller wrote, unchecked: `refuse` gets it as plain JSON and checks the fields it reads.
+
+Tell Chrome about the host from the main checkout, never a worktree, which goes away when its work lands:
+
+```sh
+bun run app-kit extension install-host com.example.tool src/host.ts . --description "Relays the tool's requests to the extension"
+```
+
+It reads the extension's ID from the key in `./manifest.json`, writes a launcher at `~/Library/Application Support/com.example.tool/host` that runs `src/host.ts` with the absolute path of the Bun running the command (Chrome started from the Dock has launchd's short `PATH`), with the host's errors appended to `host-errors.log` beside it, and writes `com.example.tool.json` into Chrome's `NativeMessagingHosts` folder. It prints both, and the folder to pick in Load unpacked. It checks the name against Chrome's rule, the description, the host, the manifest's key and the checkout before it writes anything, and refuses a worktree unless `--from-worktree` says it is meant. Chrome starts the host in the launcher's folder, so Bun reads no `.env` from the checkout.
+
+When no host answers, `app-kit extension status <socket> com.example.tool .` says why, with the fix: Chrome has no registration for the host, or one it cannot read or would ignore; the launcher, its Bun or its script is gone, as when it pointed into a worktree since removed; it runs from a worktree; the registration allows another extension than the folder's; or, with all of that right, the extension is not running, with the newest lines of the host's error log. An app's own status command calls the same check, `diagnoseHost({ name, extensionFolder })` from `app-kit/extension/host`.
+
+A host's own test runs it as Chrome would, with the test as the extension:
+
+```ts
+import { startHostAsChrome } from 'app-kit/extension/testing/host'
+const host = await startHostAsChrome({ command: [process.execPath, 'src/host.ts'], env: { TOOL_DIR: dir }, logPath: join(dir, 'host.log'), answer: (message) => ({ echoed: message.text }) })
+// ... ask(socketPath, ...) ...
+await host.stop()
+```
 
 ## tauri/: Mac and iPhone apps
 

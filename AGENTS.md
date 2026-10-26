@@ -15,7 +15,8 @@ web/             web apps (app-kit/web): fetch wrapper, connection, new build, p
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium; web/e2e/audio-output.swift, the
                  record of which processes have an output device open, for offline-audio.e2e.ts
 extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension), host/ (the Mac side),
-                 harness/ (hidden Chromium), testing/ (a chrome stand-in), copy.ts, and its own test/ and e2e/
+                 harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
+                 copy.ts, and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
                  an app's shell builds, with desktop sign-in's shell half, and the page half (index.ts) and the names
                  both share (names.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),

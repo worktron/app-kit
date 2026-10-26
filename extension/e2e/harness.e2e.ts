@@ -14,7 +14,7 @@ import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
-// Short, so the socket path stays under macOS's limit.
+// Short, as a socket path a Node or Python caller can reach on macOS is under 104 bytes.
 const hostDir = realpathSync(mkdtempSync('/tmp/ek-'))
 const socket = join(hostDir, 'host.sock')
 let ext: LoadedExtension

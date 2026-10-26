@@ -14,7 +14,7 @@ import { Relay, type RelayOptions } from './relay.ts'
 const MAX_LINE = 64 * 1024
 
 export type HostOptions = Pick<RelayOptions, 'refuse' | 'describe' | 'timeoutMs'> & {
-  /** The socket callers connect to. macOS limits its path to 103 bytes. */
+  /** The socket callers connect to. Keep its path under 104 bytes: Bun reaches a longer one, but a Node or Python caller on macOS cannot. */
   socketPath: string
   /** One line per start, stop, connection and request. */
   logPath: string

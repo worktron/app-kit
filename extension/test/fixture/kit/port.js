@@ -18,6 +18,12 @@ import { getWorkerErrors, recordWorkerError } from "./errors.js";
 /** @typedef {Record<string, unknown> | null | undefined} Answer */
 
 /**
+ * The refusal the port sends for a message the extension has no answer for.
+ * @param {unknown} type
+ */
+export const noAnswer = (type) => `The extension has no answer for ${String(type)}`;
+
+/**
  * @param {{
  *   host: string,
  *   describe: () => WorkerState | Promise<WorkerState>,
@@ -48,7 +54,7 @@ export function nativePort({ host, describe, answer, reconnectMs = 5000, open = 
     }
     try {
       const answered = await answer(message);
-      if (answered == null) return { type: "answer", id, refused: `The extension has no answer for ${String(message.type)}` };
+      if (answered == null) return { type: "answer", id, refused: noAnswer(message.type) };
       return { ...answered, type: "answer", id };
     } catch (error) {
       await recordWorkerError(error);
