@@ -184,6 +184,45 @@ test('copies are kept per person: another person never sees one, and signing out
   expect(copyKeys()).toEqual([]);
 });
 
+test("when someone else signs in while the screen is up, the last person's data is neither shown nor saved for them", async () => {
+  answers['/api/shelf'] = { items: ["Ana's milk"] };
+  const ana = signedIn(savedCopies('shop', { build: 'index-a' }), 'ana@example.com');
+  await screen.findByText("Ana's milk");
+  await waitFor(() => expect(copyKeys()).toHaveLength(1));
+
+  // The provider's session changes straight to another person, with no sign-out between.
+  delete answers['/api/shelf'];
+  act(() => ana.signInAs({ id: 'person-bea@example.com', email: 'bea@example.com' }));
+  expect(screen.getByText('Loading')).toBeTruthy();
+  expect(screen.queryByText("Ana's milk")).toBeNull();
+  // Bea's own load is out, so every effect of the switch has run.
+  await waitFor(() => expect(held['/api/shelf']).toHaveLength(1));
+  expect(copyKeys()).toEqual([]);
+
+  await answer('/api/shelf', { items: ["Bea's bread"] });
+  await screen.findByText("Bea's bread");
+  await waitFor(() => expect(copyKeys()).toEqual(['shop:copy:index-a:person-bea%40example.com:/api/shelf']));
+});
+
+test("useSaveAfterDraw never saves one person's data for the next who signs in", async () => {
+  const copies = savedCopies('shop', { build: 'index-a' });
+  const provider = standInSignIn({ person: { id: 'person-ana@example.com', email: 'ana@example.com' } });
+  const fresh = { data: { items: ["Ana's milk"] }, fetchedAt: 1 };
+  function List() {
+    useSaveAfterDraw(copies, 'list', fresh);
+    return <p>List</p>;
+  }
+  render(
+    <SignInGate provider={provider} placeholder={<p>Placeholder</p>} signedOut={<p>Signed out</p>}>
+      <List />
+    </SignInGate>,
+  );
+  await waitFor(() => expect(copyKeys()).toEqual(['shop:copy:index-a:person-ana%40example.com:list']));
+  act(() => provider.signInAs({ id: 'person-bea@example.com', email: 'bea@example.com' }));
+  await act(async () => {});
+  expect(copyKeys()).toEqual(['shop:copy:index-a:person-ana%40example.com:list']);
+});
+
 test('an answer for an address no longer shown is dropped, and the last address stays as previous while the new one loads', async () => {
   const copies = savedCopies('shop', { build: 'index-a' });
   answers['/api/shelf/a'] = { items: ['Milk'] };

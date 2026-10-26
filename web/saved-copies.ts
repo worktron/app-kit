@@ -131,8 +131,12 @@ export function useSavedCopy<T>(copies: SavedCopies, key: string): SavedCopy<T> 
  */
 export function useSaveAfterDraw<T>(copies: SavedCopies, key: string, copy: SavedCopy<T> | null): void {
   const owner = useOwner();
+  // Whose the copy is: the person signed in when it was passed. One person's data still held as another signs in is theirs.
+  const last = useRef<{ copy: SavedCopy<T> | null; owner: string }>({ copy: null, owner });
   useEffect(() => {
-    if (copy) writeCopy(copies, owner, key, copy);
+    const arrivedFor = copy === last.current.copy ? last.current.owner : owner;
+    last.current = { copy, owner: arrivedFor };
+    if (copy && arrivedFor === owner) writeCopy(copies, owner, key, copy);
   }, [copies, owner, key, copy]);
 }
 
@@ -154,8 +158,14 @@ export type ScreenData<T> = {
   reload: () => void;
 };
 
-/** `copy` is set only for data the server just sent, which is saved once it has drawn. */
-type Held<T> = { path: string; data: T | null; fetchedAt: number | null; failure: string | null; missing: boolean; copy: SavedCopy<T> | null };
+/** `copy` is set only for data the server just sent, which is saved once it has drawn. `owner` is whose data it is. */
+type Held<T> = { path: string; owner: string; data: T | null; fetchedAt: number | null; failure: string | null; missing: boolean; copy: SavedCopy<T> | null };
+
+/** A screen's state as it opens: the address's copy for the person, when there is one. */
+function fromCopy<T>(copies: SavedCopies, path: string, owner: string): Held<T> {
+  const copy = readCopy<T>(copies, owner, path);
+  return { path, owner, data: copy?.data ?? null, fetchedAt: copy?.fetchedAt ?? null, failure: null, missing: false, copy: null };
+}
 
 /**
  * One screen's data from the server, through `request`, with its saved copy. The copy paints at once, and the screen
@@ -163,43 +173,43 @@ type Held<T> = { path: string; data: T | null; fetchedAt: number | null; failure
  * shown while it loads. When the address changes, the new address's copy paints at once. Only the latest load's
  * answer counts: one for an address no longer shown, or overtaken by a later load, is dropped. A 404 deletes the
  * address's copy. An answer is saved as the copy only after it has drawn (useSaveAfterDraw), so call this in the
- * component that draws the data.
+ * component that draws the data. When someone else signs in while the screen stays up, nothing of the last person's
+ * is shown, kept as previous or saved: the screen starts again from the new person's copy.
  */
 export function useScreenData<T>(copies: SavedCopies, path: string): ScreenData<T> {
   const owner = useOwner();
-  const [state, setState] = useState<Held<T>>(() => {
-    const copy = readCopy<T>(copies, owner, path);
-    return { path, data: copy?.data ?? null, fetchedAt: copy?.fetchedAt ?? null, failure: null, missing: false, copy: null };
-  });
-  const shown = useRef(path);
+  const [state, setState] = useState<Held<T>>(() => fromCopy<T>(copies, path, owner));
+  const shown = useRef({ path, owner });
   const latest = useRef(0);
 
   useLayoutEffect(() => {
-    if (shown.current === path) return;
-    shown.current = path;
-    const copy = readCopy<T>(copies, owner, path);
-    if (copy) setState({ path, data: copy.data, fetchedAt: copy.fetchedAt, failure: null, missing: false, copy: null });
+    if (shown.current.path === path && shown.current.owner === owner) return;
+    const samePerson = shown.current.owner === owner;
+    shown.current = { path, owner };
+    const next = fromCopy<T>(copies, path, owner);
+    if (next.data !== null || !samePerson) setState(next);
     else setState((s) => ({ ...s, failure: null, missing: false }));
   }, [copies, owner, path]);
 
   const load = useCallback(async () => {
     const asked = ++latest.current;
-    const counts = () => asked === latest.current && shown.current === path;
+    const counts = () => asked === latest.current && shown.current.path === path && shown.current.owner === owner;
     try {
       const data = await request<T>(path);
       if (!counts()) return;
       const copy = { data, fetchedAt: Date.now() };
-      setState({ path, ...copy, failure: null, missing: false, copy });
+      setState({ path, owner, ...copy, failure: null, missing: false, copy });
     } catch (e) {
       if (!counts()) return;
       if (e instanceof ApiError && e.status === 404) {
         writeCopy(copies, owner, path, null);
-        setState({ path, data: null, fetchedAt: null, failure: null, missing: true, copy: null });
+        setState({ path, owner, data: null, fetchedAt: null, failure: null, missing: true, copy: null });
       } else setState((s) => ({ ...s, failure: e instanceof Error ? e.message : String(e) }));
     }
   }, [copies, owner, path]);
 
-  useSaveAfterDraw(copies, state.path, state.copy);
+  const theirs = state.owner === owner;
+  useSaveAfterDraw(copies, state.path, theirs ? state.copy : null);
 
   useEffect(() => {
     void load();
@@ -211,13 +221,13 @@ export function useScreenData<T>(copies: SavedCopies, path: string): ScreenData<
     };
   }, [load]);
 
-  const current = state.path === path;
+  const current = theirs && state.path === path;
   return {
     data: current ? state.data : null,
     fetchedAt: current ? state.fetchedAt : null,
-    failure: state.failure,
+    failure: theirs ? state.failure : null,
     missing: current && state.missing,
-    previous: current ? null : state.data,
+    previous: theirs && !current ? state.data : null,
     reload: () => void load(),
   };
 }
