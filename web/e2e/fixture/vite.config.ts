@@ -20,6 +20,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // The record of what Vite built, which serveBuiltPage reads to know which files a browser may keep.
+    manifest: true,
     rolldownOptions: {
       input: ['index.html', 'newer.html', 'text-size.html', 'pieces.html', 'fonts.html', 'tauri.html'].map((page) => join(import.meta.dirname, page)),
     },

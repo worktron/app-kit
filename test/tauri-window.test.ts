@@ -102,14 +102,26 @@ test("on the iPhone, window.open hands its address, made whole, to the opener an
     },
   };
   const opened = window.open;
+  const inPlace: unknown[][] = [];
+  window.open = (...args: unknown[]) => {
+    inPlace.push(args);
+    return window;
+  };
   try {
     new Function(script)();
     expect(window.open('https://mail.example.com/thread/1')).toBeNull();
-    expect(window.open('/settings')).toBeNull();
+    expect(window.open('/settings', '_blank')).toBeNull();
     expect(window.open()).toBeNull();
+    // A target naming this window, or one holding it, moves the app's own window, as the web view does by itself.
+    expect(window.open('/settings', '_self')).toBe(window);
+    expect(window.open('/inbox', '_TOP', 'noopener')).toBe(window);
     expect(calls).toEqual([
       ['plugin:opener|open_url', { url: 'https://mail.example.com/thread/1' }],
       ['plugin:opener|open_url', { url: new URL('/settings', location.href).href }],
+    ]);
+    expect(inPlace).toEqual([
+      ['/settings', '_self', undefined],
+      ['/inbox', '_TOP', 'noopener'],
     ]);
     // An address the opener refuses is warned about, never thrown into the page.
     refuse = true;

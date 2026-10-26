@@ -1,7 +1,7 @@
 // Steps for an app's Playwright tests that every app wrote for itself before the kit had them: counting page loads,
-// frames that never go empty, a finger that swipes, no window opened onto the person's screen, sound kept silent, and
-// the phone's largest Text Size with a check that the screen still fits. Plain JavaScript, typed by playwright.d.ts,
-// since Playwright's test runner loads nothing written in TypeScript from inside node_modules, where an app has the kit.
+// frames that never go empty, a finger that swipes, no window opened onto the person's screen, and the phone's largest
+// Text Size with a check that the screen still fits. Plain JavaScript, typed by playwright.d.ts, since Playwright's test
+// runner loads nothing written in TypeScript from inside node_modules, where an app has the kit.
 // Every init script here is sent to the page as its source, so it uses nothing from this file, and no class fields,
 // which Playwright's compiler turns into helpers that exist only in the test's own file.
 

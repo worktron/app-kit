@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,10 +13,20 @@ beforeAll(async () => {
   putPageBack = await withoutPage();
   built = await mkdtemp(join(tmpdir(), 'app-kit-built-'));
   await mkdir(join(built, 'assets'));
+  await mkdir(join(built, '.vite'));
   await writeFile(join(built, 'index.html'), '<!doctype html><title>shop</title>');
   await writeFile(join(built, 'manifest.webmanifest'), '{}');
   await writeFile(join(built, 'assets', 'index-BF93Hsvo.js'), 'console.log(1)');
+  await writeFile(join(built, 'assets', 'index-6x-pfrJZ.css'), 'body{}');
+  await writeFile(join(built, 'assets', 'bg-DWpOMg8v.png'), 'png');
   await writeFile(join(built, 'assets', 'logo.png'), 'png');
+  await writeFile(join(built, 'assets', 'brand-darkmode.png'), 'png');
+  // As Vite 8 writes it for an entry with its CSS, an image the CSS names, and a screen loaded later.
+  const manifest = {
+    'bg.png': { file: 'assets/bg-DWpOMg8v.png', src: 'bg.png' },
+    'index.html': { file: 'assets/index-BF93Hsvo.js', isEntry: true, css: ['assets/index-6x-pfrJZ.css'], assets: ['assets/bg-DWpOMg8v.png'] },
+  };
+  await writeFile(join(built, '.vite', 'manifest.json'), JSON.stringify(manifest));
   serve = serveBuiltPage(built);
 });
 
@@ -38,17 +48,42 @@ describe('serveBuiltPage', () => {
     }
   });
 
-  test('files Vite built are kept for a year, and the files beside the page are asked for again', async () => {
-    const script = await get('/assets/index-BF93Hsvo.js');
-    expect(script.status).toBe(200);
-    expect(script.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+  test("files Vite's manifest names are kept for a year, and the files beside the page are asked for again", async () => {
+    for (const path of ['/assets/index-BF93Hsvo.js', '/assets/index-6x-pfrJZ.css', '/assets/bg-DWpOMg8v.png']) {
+      const answer = await get(path);
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+    }
     expect((await get('/manifest.webmanifest')).headers.get('Cache-Control')).toBe('no-cache');
   });
 
-  test('a file the app put in public/assets/ keeps its name across deploys, so it is asked for again', async () => {
-    const logo = await get('/assets/logo.png');
-    expect(logo.status).toBe(200);
-    expect(logo.headers.get('Cache-Control')).toBe('no-cache');
+  test('a file the app put in public/assets/ keeps its name across deploys, so it is asked for again, whatever its name looks like', async () => {
+    // brand-darkmode.png ends in eight letters, as a name Vite made would.
+    for (const path of ['/assets/logo.png', '/assets/brand-darkmode.png']) {
+      const answer = await get(path);
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get('Cache-Control')).toBe('no-cache');
+    }
+  });
+
+  test('a build with no manifest keeps no file, and says so once', async () => {
+    const bare = await mkdtemp(join(tmpdir(), 'app-kit-built-'));
+    await mkdir(join(bare, 'assets'));
+    await writeFile(join(bare, 'assets', 'index-BF93Hsvo.js'), 'console.log(1)');
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const serveBare = serveBuiltPage(bare);
+      for (let i = 0; i < 2; i++) {
+        const answer = await serveBare(new Request('http://localhost/assets/index-BF93Hsvo.js'));
+        expect(answer.status).toBe(200);
+        expect(answer.headers.get('Cache-Control')).toBe('no-cache');
+      }
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('set build: { manifest: true } in the Vite config');
+    } finally {
+      warn.mockRestore();
+      await rm(bare, { recursive: true, force: true });
+    }
   });
 
   test('a missing file is a 404, never the page, so an old build asking for its gone screen code is not handed HTML', async () => {

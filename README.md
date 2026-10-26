@@ -77,9 +77,13 @@ A tab left open on one build can be handed data in a shape only the next build k
 
 The boundary sees only a crash while drawing. A screen keeps the server's answer as it came and reads it while drawing, so a shape it does not know crashes the draw, where the page can recover; reshaping the answer in the request's `.then` throws where nothing catches it, and the screen stays empty until a reload by hand.
 
-The app's server sends the index page so that a browser never keeps it: `Cache-Control: no-cache` on `/` and on every address it answers with `index.html`, which makes the browser ask again on each load. Without the header a browser may reuse the page by its own guess, from its `Last-Modified` date, and a reload lands on the old build. The files Vite builds under `/assets/` are named after what they hold, so they are sent with `Cache-Control: public, max-age=31536000, immutable`, and a deploy never changes one under an old name. A file the app put in `public/assets/` keeps its own name, so it is asked for again like the page. `serveBuiltPage` from `app-kit/web/server` sends them so, mounted after the app's own routes:
+The app's server sends the index page so that a browser never keeps it: `Cache-Control: no-cache` on `/` and on every address it answers with `index.html`, which makes the browser ask again on each load. Without the header a browser may reuse the page by its own guess, from its `Last-Modified` date, and a reload lands on the old build. The files Vite builds are named after what they hold, so they are sent with `Cache-Control: public, max-age=31536000, immutable`, and a deploy never changes one under an old name. A file the app put in `public/` keeps its own name, so it is asked for again like the page, whatever its name looks like. `serveBuiltPage` from `app-kit/web/server` tells them apart by the record of what Vite built, which the app's Vite config turns on with `build: { manifest: true }`; without it every file is asked for again, and the server's console says so once. It is mounted after the app's own routes:
 
 ```ts
+// vite.config.ts
+export default defineConfig({ build: { manifest: true } });
+
+// the server
 import { serveBuiltPage } from 'app-kit/web/server';
 
 const page = serveBuiltPage('dist');
@@ -743,7 +747,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Clerk development instance steps | `app-kit/authentication/clerk/playwright` | `throwawayUser`, `signInWithTicket`, `removeThrowawayUsers` and `withClerkBackoff`, for browser tests against a real development instance. See Browser tests above. |
 | Clerk for server tests | `app-kit/authentication/clerk/testing` | `fakeClerkApi`, a stand-in for Clerk's Backend API under Clerk's own middleware. See Server tests above. |
 | Route check | `app-kit/authentication/agent-keys/testing` | `routesLetThrough`, which says which routes nobody or a key reaches otherwise than `requireCaller` would. See Server tests above. |
-| Shared test steps | `app-kit/web/playwright`, `app-kit/tauri/playwright` | Page loads, steady frames, a finger, no new windows, silent sound, the largest Text Size and a fit check; the Tauri bridge faked for the kit's plugins and desktop sign-in. See Browser tests above. |
+| Shared test steps | `app-kit/web/playwright`, `app-kit/tauri/playwright` | Page loads, steady frames, a finger, no new windows, the largest Text Size and a fit check; the Tauri bridge faked for the kit's plugins and desktop sign-in. See Browser tests above. |
 | WebKit out of the Dock | `app-kit/web/playwright-webkit` | `webkitWithoutDockIcon`, the launch options that run Playwright's WebKit from a copy macOS keeps out of the Dock. See Browser tests above. |
 | Sound in browser tests | `app-kit/web/playwright-offline-audio` | `offlineAudio`, which runs a test page's Web Audio on the browser's offline engine, so no speaker opens. See Sound in browser tests above. |
 | Keys for agents | `app-kit/authentication/agent-keys` | `requireCaller` and `callerOf`: a person's key reads the GET routes the app lists. |

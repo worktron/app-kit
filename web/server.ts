@@ -3,7 +3,7 @@
  * reload (crash-reload.ts) and the new-build line (new-build.ts) both read which build the index page names, and a
  * browser that reused the page by its own guess, from its Last-Modified date, would answer them with the build they are
  * running. So the index page, and every address answered with it, goes out with `no-cache`, which makes the browser ask
- * again on each load; the files Vite built under /assets/ are named after what they hold and are kept for a year.
+ * again on each load; the files Vite built are named after what they hold and are kept for a year.
  *
  * A plain `(Request) => Promise<Response>`, so a Hono server and a bare Bun.serve take it the same way. No React.
  */
@@ -12,10 +12,17 @@ import { join, resolve, sep } from 'node:path';
 const KEPT = 'public, max-age=31536000, immutable';
 const ASKED_AGAIN = 'no-cache';
 /**
- * A file Vite built, named `<name>-<hash>.<ext>` with an eight-character hash of what it holds, so a deploy that changes
- * it changes its name. A file an app put in `public/assets/` keeps its own name across deploys and is asked for again.
+ * Vite's record of the files it built, which `build: { manifest: true }` writes: each is named after what it holds, so a
+ * deploy that changes one changes its name. A file an app put in `public/` is copied as it is and is not in the record,
+ * whatever its name looks like, so it is asked for again.
  */
-const BUILT_NAME = /^\/assets\/(?:.*\/)?[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/i;
+const MANIFEST = '.vite/manifest.json';
+
+interface ManifestEntry {
+  file: string;
+  css?: string[];
+  assets?: string[];
+}
 
 export interface BuiltPageOptions {
   /**
@@ -38,6 +45,7 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
   const root = resolve(folder);
   const api = options.api ?? '/api/';
   const index = join(root, 'index.html');
+  let built: Promise<Set<string>> | undefined;
 
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -59,7 +67,8 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
     if (target !== root) {
       const file = Bun.file(target);
       if (await file.exists()) {
-        return new Response(file, { headers: { 'Cache-Control': BUILT_NAME.test(pathname) ? KEPT : ASKED_AGAIN } });
+        built ??= builtFiles(root);
+        return new Response(file, { headers: { 'Cache-Control': (await built).has(path) ? KEPT : ASKED_AGAIN } });
       }
     }
     // An address with a file's extension is a file, never a screen: an old build asking for screen code a deploy
@@ -69,6 +78,19 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
       headers: { 'Cache-Control': ASKED_AGAIN, 'Content-Type': 'text/html; charset=utf-8' },
     });
   };
+}
+
+/** The addresses of the files Vite built, from its manifest, read once, at the first file asked for. */
+async function builtFiles(root: string): Promise<Set<string>> {
+  const at = join(root, MANIFEST);
+  let manifest: Record<string, ManifestEntry>;
+  try {
+    manifest = (await Bun.file(at).json()) as Record<string, ManifestEntry>;
+  } catch (error) {
+    console.warn(`[app-kit] serve: could not read ${at} (${(error as Error).message}), so every file is asked for again; set build: { manifest: true } in the Vite config`);
+    return new Set();
+  }
+  return new Set(Object.values(manifest).flatMap((entry) => [entry.file, ...(entry.css ?? []), ...(entry.assets ?? [])]).map((name) => `/${name}`));
 }
 
 function notFound(): Response {
