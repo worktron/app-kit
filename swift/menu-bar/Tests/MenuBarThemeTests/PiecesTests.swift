@@ -31,6 +31,23 @@ import Testing
         #expect(try height(ItemGroup("bravo", age: "2h ago") { ItemLine("apply stopped on share-page", copy: "bun bin/apply.ts") }) == CGFloat(36 + 26 + 6 + 1))
     }
 
+    @Test func aLongNameStaysInItsColumn() throws {
+        let png = try snapshot(width: 400) {
+            Row("a-mac-with-a-very-long-name", status: Words("fine", .ok), age: "4m") {}
+        }
+        let rep = try #require(NSBitmapImageRep(data: png))
+        // The 12 point gap between the name's column (14 to 106 points in, after the 1 point border) and the status.
+        var drawn = 0
+        for x in (2 * (1 + 14 + 92 + 1))..<(2 * (1 + 14 + 92 + 11)) {
+            for y in 2..<(rep.pixelsHigh - 4) {
+                var pixel = [Int](repeating: 0, count: 4)
+                rep.getPixel(&pixel, atX: x, y: y)
+                if pixel[0] > 0x20 { drawn += 1 }
+            }
+        }
+        #expect(drawn == 0)
+    }
+
     @Test func theBundledFontIsTheOneDrawn() {
         #expect(Typeface.register())
         #expect(Typeface.loaded)

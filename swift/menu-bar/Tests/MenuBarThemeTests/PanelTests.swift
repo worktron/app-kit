@@ -98,6 +98,25 @@ import Testing
         #expect(acted == ["bravo"])
     }
 
+    @Test func theSameProblemUnderTwoMacsIsTwoLines() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let panel = MenuBarPanel(width: 420, state: PanelState(pasteboard: pasteboard)) {
+            ItemGroup("alpha", age: "never reported") { ItemLine("has never reported", copy: "on alpha: bun bin/sync.ts install") }
+            ItemGroup("bravo", age: "2h ago") { ItemLine("has never reported", copy: "on bravo: bun bin/sync.ts install") }
+            ItemGroup("charlie", age: "2m ago") { ItemLine("apply stopped on share-page", copy: "bun bin/apply.ts") }
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(Set(panel.state.lines.map(\.id)).count == 3)
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key("\r", code: 36))
+        #expect(pasteboard.string(forType: .string) == "on bravo: bun bin/sync.ts install")
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == panel.state.lines.last?.id)
+    }
+
     @Test func upFromNothingSelectsTheLastLine() {
         let panel = panel()
         panel.sendEvent(key(Self.up, code: 126))

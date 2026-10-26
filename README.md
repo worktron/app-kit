@@ -749,13 +749,15 @@ The console family's look for a menu bar app, the look of metamax and the consol
 | `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, and its age on the right. A click anywhere on it acts. |
 | `SubLine(_:)` | A line of detail under a header, in secondary. |
 | `ProblemBlock(_:hint:copy:)` | A problem on a page: its title in red, what to do in secondary, and the exact command or line in a `CodeBox`. |
-| `CodeBox(_:)` | The thing to copy, wrapped to show all of it, with "copy" in blue that turns to "copied" in green once it is on the pasteboard. A click anywhere on the box copies. |
-| `ItemGroup(_:age:items:)`, `ItemLine(_:copy:)` | G's group: a 36 point heading with the age, and a 26 point line for each problem in red, with "copy" on the right, or "by hand" in muted when there is nothing to copy. |
+| `CodeBox(_:id:)` | The thing to copy, wrapped to show all of it, with "copy" in blue that turns to "copied" in green once it is on the pasteboard. A click anywhere on the box copies. |
+| `ItemGroup(_:age:items:)`, `ItemLine(_:copy:id:)` | G's group: a 36 point heading with the age, and a 26 point line for each problem in red, with "copy" on the right, or "by hand" in muted when there is nothing to copy. |
 | `GroupLine(_:status:age:)` | A group with nothing under it, such as a Mac that is fine. |
 | `Footer(_:trailing:)`, `FooterItem(_:key:action:)` | The 36 point last line: its actions with their ⌘ keys, the last ones (Quit) on the right. A menu bar app's are Settings… (⌘,), Check for Updates…, About and Quit (⌘Q), as practices' desktop app rule lists. |
 | `Words`, `Tone` | Status in colored words: `Words("has never reported", .error).then("+1", .muted)`. |
 | `Palette`, `Metrics`, `Typeface` | The tokens: the twelve colors metamax's web client and the console tools share, the heights and sizes, and the bundled JetBrains Mono 2.304 (Regular, SemiBold and Bold, under the SIL Open Font License in `Fonts/OFL.txt`). |
 | `snapshot(width:scale:state:content:)` | Any screen drawn to a PNG with nothing on the screen, through the same hosting view the panel uses, for an app's headless checks. It throws when the bundled font is not loaded, rather than draw in another. A `PanelState` given to it shows a row as selected or a box as copied. |
+
+Each line the arrow keys stop on has an id, unique in its panel: a row's is its name, an item line's its group, text and command, a code box's its block's title and text, and `id:` sets one where those could repeat.
 
 Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. A click always acts at once.
 

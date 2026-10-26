@@ -28,6 +28,18 @@ public struct Words: Sendable, ExpressibleByStringLiteral {
     }
 }
 
+/// The group or block a copy line sits in, part of its selection id, so the same text under two Macs is two lines.
+struct LineScope: EnvironmentKey {
+    static let defaultValue = ""
+}
+
+extension EnvironmentValues {
+    var lineScope: String {
+        get { self[LineScope.self] }
+        set { self[LineScope.self] = newValue }
+    }
+}
+
 /// A line of `height` with the 1 point border below it, inside that height.
 struct Lined<Content: View>: View {
     let height: CGFloat?
@@ -93,7 +105,7 @@ public struct Row: View {
 
     public var body: some View {
         Lined(height: Metrics.row, content: HStack(spacing: 12) {
-            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).fixedSize()
+            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).truncationMode(.tail)
                 .frame(width: Metrics.nameColumn, alignment: .leading)
             Text(status.attributed).console(Metrics.small).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,17 +147,24 @@ public struct ProblemBlock: View {
             Text(hint).console(Metrics.small, tone: .secondary).padding(.top, 2).padding(.bottom, copy == nil ? 0 : 8)
             if let copy { CodeBox(copy) }
         }
-        .padding(.horizontal, Metrics.inset).padding(.vertical, 12))
+        .padding(.horizontal, Metrics.inset).padding(.vertical, 12)
+        .environment(\.lineScope, title))
     }
 }
 
 /// The exact command or line to copy, wrapped wherever it must be to show all of it, with "copy" on the right that
-/// turns to "copied" once it is on the pasteboard. A click anywhere on the box copies.
+/// turns to "copied" once it is on the pasteboard. A click anywhere on the box copies. Its id, for the arrow keys, is its
+/// block's title and its text unless `id` is given: no two lines in a panel may share one.
 public struct CodeBox: View {
     let text: String
+    let id: AnyHashable?
     @Environment(PanelState.self) private var state: PanelState?
+    @Environment(\.lineScope) private var scope
 
-    public init(_ text: String) { self.text = text }
+    public init(_ text: String, id: AnyHashable? = nil) {
+        self.text = text
+        self.id = id
+    }
 
     public var body: some View {
         let copied = state?.copied == text
@@ -158,7 +177,7 @@ public struct CodeBox: View {
         .background(Palette.surface.color)
         .overlay(RoundedRectangle(cornerRadius: Metrics.cornerInside).strokeBorder(Palette.border.color, lineWidth: Metrics.line))
         .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerInside))
-        .modifier(Selectable(id: "copy \(text)", action: { state?.copy(text) }))
+        .modifier(Selectable(id: id ?? AnyHashable(["copy", scope, text]), action: { state?.copy(text) }))
     }
 }
 
@@ -178,10 +197,10 @@ public struct GroupLine: View {
 
     public var body: some View {
         let line = HStack(spacing: 10) {
-            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).fixedSize()
+            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).truncationMode(.tail)
             if let status { Text(status.attributed).console(Metrics.small).lineLimit(1) }
             Spacer(minLength: 0)
-            Text(age).console(Metrics.small, tone: .secondary).lineLimit(1).fixedSize()
+            Text(age).console(Metrics.small, tone: .secondary).lineLimit(1).fixedSize().layoutPriority(1)
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity)
@@ -194,15 +213,19 @@ public struct GroupLine: View {
 }
 
 /// One thing under a group's heading, in red, with "copy" on the right when there is something to copy, or "by hand"
-/// in muted when there is not.
+/// in muted when there is not. Its id, for the arrow keys, is its group's name, its text and what it copies unless `id` is
+/// given: no two lines in a panel may share one.
 public struct ItemLine: View {
     let text: String
     let copy: String?
+    let id: AnyHashable?
     @Environment(PanelState.self) private var state: PanelState?
+    @Environment(\.lineScope) private var scope
 
-    public init(_ text: String, copy: String?) {
+    public init(_ text: String, copy: String?, id: AnyHashable? = nil) {
         self.text = text
         self.copy = copy
+        self.id = id
     }
 
     public var body: some View {
@@ -215,7 +238,7 @@ public struct ItemLine: View {
         .padding(.trailing, Metrics.inset)
         .frame(height: Metrics.itemLine)
         if let copy {
-            line.modifier(Selectable(id: "item \(text)", action: { state?.copy(copy) }))
+            line.modifier(Selectable(id: id ?? AnyHashable(["item", scope, text, copy]), action: { state?.copy(copy) }))
         } else {
             line
         }
@@ -224,6 +247,7 @@ public struct ItemLine: View {
 
 /// A group: its heading, its item lines, and room below them before the group's bottom line.
 public struct ItemGroup<Items: View>: View {
+    let name: String
     let heading: GroupLine
     let items: Items
 
@@ -231,6 +255,7 @@ public struct ItemGroup<Items: View>: View {
         var heading = GroupLine(name, age: age)
         heading.lined = false
         self.heading = heading
+        self.name = name
         self.items = items()
     }
 
@@ -239,7 +264,8 @@ public struct ItemGroup<Items: View>: View {
             heading
             items
         }
-        .padding(.bottom, 6))
+        .padding(.bottom, 6)
+        .environment(\.lineScope, name))
     }
 }
 

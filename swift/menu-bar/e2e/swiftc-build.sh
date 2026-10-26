@@ -9,8 +9,9 @@ rm -rf "$out"
 mkdir -p "$out/Fonts"
 log="$out/swiftc.log"
 swiftc -parse-as-library -emit-library -static -emit-module -module-name MenuBarTheme \
-  -emit-module-path "$out/MenuBarTheme.swiftmodule" -o "$out/libMenuBarTheme.a" Sources/MenuBarTheme/*.swift 2>"$log"
-swiftc -I "$out" -L "$out" -lMenuBarTheme e2e/swiftc-app.swift -o "$out/app" 2>>"$log"
+  -emit-module-path "$out/MenuBarTheme.swiftmodule" -o "$out/libMenuBarTheme.a" Sources/MenuBarTheme/*.swift 2>"$log" \
+  || { cat "$log" >&2; exit 1; }
+swiftc -I "$out" -L "$out" -lMenuBarTheme e2e/swiftc-app.swift -o "$out/app" 2>>"$log" || { cat "$log" >&2; exit 1; }
 if grep -q 'warning:' "$log"; then cat "$log" >&2; exit 1; fi
 cp Sources/MenuBarTheme/Fonts/*.ttf "$out/Fonts/"
 "$out/app" "$out/screen.png"
