@@ -4,10 +4,10 @@ The baseline every app of ours ships with, written once instead of copied from t
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
-| `web/` | `app-kit/web`, `.../server`, `.../first-paint` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, and a Vite plugin for the first frame. |
+| `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
-| `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../server-sign-in` | Who is calling: Clerk's adapter, the test stand-in, keys for agents with their API reference, and whether a server requires sign-in. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
+| `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
 
@@ -118,10 +118,12 @@ An app that holds its own state, such as edits shown before the server confirms 
 
 The kit's own tests prove how each piece behaves: that the unreachable line comes and goes, that a newer deploy is found when the page comes back in front, that sign-in lands on the address asked for. An app's tests prove only its wiring: that it mounted the piece, where it shows, in its own words, and with which options, such as `reloadsItself: false`. An app does not test the kit's behavior again.
 
-Three steps depend on how the kit works inside, so an app takes them from the kit rather than writing its own, from `app-kit/authentication/stand-in/playwright` beside the stand-in:
+These steps depend on how the kit works inside, so an app takes them from the kit rather than writing its own, from `app-kit/authentication/stand-in/playwright` beside the stand-in:
 
 - `showPage(page)` brings the page back in front, as a phone does when the home-screen app returns. After `hidePage`, it makes the page visible again, since the kit looks only from a visible page.
-- `hidePage(page)` hides the page, as when the person switches to another tab.
+- `hidePage(page)` hides the page, as when the person switches to another tab: `document.visibilityState` reads `hidden` and `document.hidden` reads true, for code that asks either way.
+- `lockFor(page, ms)` is the phone locked for `ms` and unlocked: the page hides, its clock jumps that far past the page's own time with no timer fired, as a locked phone runs none, and it shows again. It needs `page.clock.install()` before the page loads, and throws without it. `performance.now()` and audio time do not move.
+- `signInByCode(page, email, options)` signs in on the app's own screen by emailed code: it types the address in the textbox named Email and presses Enter, then `STAND_IN_CODE` in the one named Code and presses Enter. `emailField` and `codeField` take the app's own fields, `code` another code, and `submit: false` leaves out the last Enter, for a field that signs in at its last digit. Clerk's development instance takes the same code, 424242, for an address with +clerk_test in it, once the page has Clerk's testing token, and only a few times a minute.
 - `serveNewerBuild(page)` serves the index page as a newer deploy would, naming another built entry, and returns `{ stop }`, which serves the real page again. It throws at once if the page names no module script under `/assets/`, which is how the kit tells a page's build.
 
 ```ts
@@ -153,6 +155,62 @@ export default defineConfig({
 
 Playwright's WebKit is a Mac app whose Info.plist does not say it is a background app, so macOS puts it in the Dock as it starts, and a moment later WebKit turns itself into one; no launch option or environment setting changes that. `webkitWithoutDockIcon()` makes a copy-on-write clone of the WebKit Playwright installed, in `~/Library/Caches/app-kit/playwright-webkit/`, once per WebKit version, says in its Info.plist that it is a background app, signs it again ad hoc as Playwright's own is, and returns its path as the launch's `executablePath`. Playwright's own folder is never changed. A copy whose WebKit Playwright has since removed is removed with it. Off macOS, or with WebKit not installed, it returns no options, and Playwright starts its own WebKit, or says to install it; a step of making the copy that fails throws with that command's error.
 
+#### Steps every app's tests wrote for themselves
+
+`app-kit/web/playwright` holds the steps the apps each wrote, and the traps each one relearned:
+
+- `countLoads(page)` returns `{ loads }`, the page loads from then on, for holding sign-in and sign-out to none.
+- `watchFrames(context, { root })`, before the page loads, notes every frame's background and whether the app's root (`#root` by default) has any text; `takeFrames(page)` returns the frames since the last call, and `expectSteady(frames, background)` fails unless every one is drawn, all in that one background. A page load paints an empty page, and a page whose first frame is not in its own colors flashes.
+- `finger(page)` is a finger, through Chrome's debugging protocol, since Playwright's own touch is taps alone; Chromium only. `slide(from, to, { holdMs, steps })` lands, holds (a quarter second or more is a long press), moves and lifts. Without a hold the landing and the first moves go together, since on a busy machine a round trip each would leave the finger still long enough to be a long press, and the finger settles before it lifts, since a lift at speed leaves Chromium a fling that takes the next tap as its stop. A tap within about a quarter second of a lift still makes no click in Chromium, so a test clicks there instead, as a finger is slower than a test. A page that takes swipes says so with `touch-action`, or Chromium pans it instead.
+- `noNewWindows`, a fixture for `test.extend({ noNewWindows })` that runs for every test, fails any test that opens a new window. It refuses `window.open` and a link to a new window in the page, before the browser sees them: Playwright's WebKit on a Mac hands such a link to the Mac's own app, such as Maps, in front of the person's work. A window opened any other way fails the test too, after it opened.
+- `muteAudio(pageOrContext, { startsOnTap })`, before the page loads, keeps a test silent: every audio context ends in a gain of zero, so its sound runs its whole path unheard, and every audio and video element is muted as it plays. Playwright mutes headless Chromium and not WebKit, where parallel iPhone runs otherwise chime aloud. With `startsOnTap`, an audio context also follows the iPhone's rule: it starts suspended, and `resume()` works only during a tap until a tap has started it once. Playwright runs `page.evaluate` as a tap, so a test asks for sound the way the app does, from the page's own code.
+- `largestTextSize(pageOrContext)`, before the page loads, is the phone's largest Text Size for an app that calls `followTextSize()`: the kit's reading answers 3.12, as an iPhone at its largest accessibility size does, so the root size, `--text-scale` and `useTextScale()` grow together. The page also reads the screen as taking touch.
+- `expectFits(page)` fails when anything reaches past the screen's right edge, unless it is inside a box that scrolls sideways, or when the page is wider than the screen, naming each element and the start of its text. It measures against the viewport's width, since a phone's browser widens its layout to fit what overflows.
+
+```ts
+import { test as base, expect } from '@playwright/test';
+import { expectFits, largestTextSize, muteAudio, noNewWindows } from 'app-kit/web/playwright';
+
+export const test = base.extend<{ noNewWindows: void }>({ noNewWindows });
+test.beforeEach(({ page }) => muteAudio(page));
+
+test('the home screen fits at the largest Text Size', async ({ page }) => {
+  await largestTextSize(page);
+  await page.goto('/');
+  await expectFits(page);
+});
+```
+
+Every init script in these steps reaches the page as its source, so it holds no class fields, which Playwright's compiler turns into helpers that exist only in the test's own file; an app's own init scripts take the same care.
+
+#### A Tauri build's page
+
+`app-kit/tauri/playwright` runs a page as the app's Tauri build, for the parts of the kit that run only there, with names copied from the kit's names files and held to them by a test:
+
+- `fakeTauri(page, options)`, before the page loads, puts a stand-in for the shell's bridge (`window.__TAURI_INTERNALS__`) in the page, answering the kit's plugins as they answer: `iphoneNotifications: { granted, token, environment }`, `iphoneSignIn: { ticket, nonce }` with the nonce `asked`, `other` or `cancel`, `macApp: true` for the Mac app, whose `window.open` goes to the default browser and so only records the address here, and `answers` for an app's own plugins' commands. Any other command is refused with "no <command> here". The iPhone plugins need `test.use({ userAgent: IPHONE_USER_AGENT })`, since the kit's iPhone halves run only in an iPhone's app, and throw without it. `tauriCalls(page)` lists the commands the page sent.
+- `tapNotification(page, address)` is a notification tapped with the app open; `launchedByTap(page, address)` one that launched the app, which the next load of the page takes.
+- `windowAsksForSignIn(page, click)` presses the app's Continue with Google and returns the nonce the window asked the browser's sign-in page with. With `macApp` it reads the address the page asked the shell to open; otherwise the sign-in page's load is cancelled, in the page or a window it opened, so the page stays put. Cancelled, never answered with No Content: Playwright 1.64 reports a 204 for a page load in Chromium as finished, and the click then waits for a page that never comes (microsoft/playwright#43279, fixed for 1.65).
+- `handOverSignIn(page, { ticket, nonce })` is the shell handing the browser's sign-in to a page that listens for it; `loadWithSignIn(page, { ticket, nonce }, path)` is the shell loading a page still on its way with the sign-in in its fragment.
+
+#### Against Clerk's development instance
+
+`app-kit/authentication/clerk/playwright`, with `@clerk/testing` installed beside it, signs a browser test in to a real Clerk development instance:
+
+- `throwawayUser({ secretKey, domain, prefix })` makes a user at `<prefix>-<10 hex>+clerk_test@<domain>`, with a random password for an instance that asks one, and returns its `email`, `userId`, `ticket()`, a one-time sign-in ticket made from its id, and `remove()`. A test's fixture removes it when the test ends, so the instance, capped at 100 users, holds only the users of tests still running.
+- `signInWithTicket(page, ticket)` signs a page of the app in, once it has loaded Clerk, through Clerk's testing library, and waits until the page has a signed-in user. It logs every answer of 400 or more from Clerk with the page it came from, and when Clerk refuses for too many requests it waits as the refusal's Retry-After says and adds the wait to the test's time limit.
+- `removeThrowawayUsers({ secretKey, domain, prefix, olderThanMs })` removes the users of that shape older than an hour, the ones a run stopped before its fixtures could, for a global setup or teardown. It never touches a user at any other address, such as a fixed `owner+clerk_test@example.com`, or one young enough to belong to another run still going.
+- `withClerkBackoff(what, call, options)` runs a call to Clerk's Backend API and waits as long as a 429 asks, up to 20 seconds unless told more, as every step above does: the instance counts requests across every run on the machine.
+
+Clerk's testing library needs `clerkSetup()` in the suite's global setup, which reads the instance's keys and sets the testing token the sign-in sends; without it the sign-in throws saying so:
+
+```ts
+// e2e/global-setup.ts, named as globalSetup in playwright.config.ts
+import { clerkSetup } from '@clerk/testing/playwright';
+export default () => clerkSetup();
+```
+
+The development instance answers every sign-in from Playwright's WebKit with "Too many requests", so sign-ins run in Chromium.
+
 ### Sound in browser tests
 
 A page's Web Audio in an app's browser tests plays on the browser's offline engine, so the tests never open the Mac's speakers. A gain of zero before the speakers is not enough: a running AudioContext opens the output device whatever it plays, in Chromium and in WebKit, and what reaches it is heard. Sending the test browsers to BlackHole, as a silent iPhone Simulator does, is no answer here, since macOS chooses one output device for the whole Mac and the person's own sound would go with it. An app installs the step from `app-kit/web/playwright-offline-audio` before its pages load:
@@ -171,6 +229,30 @@ test.beforeEach(async ({ context }) => {
 A context holds ten minutes of stereo sound, at 48,000 samples a second unless the page asks for another rate; past that its graph stops and `currentTime` holds. Both engines take memory only as the sound renders, about 380 KB for each second a context runs (ten contexts that each ran a second and closed added 18 MB to Chromium), and a closed context keeps what it rendered until its page goes away. What only a speaker has is missing: `createMediaElementSource` and the media stream nodes, while `baseLatency` and `outputLatency` read 0 and `setSinkId` changes nothing. An `<audio>` or `<video>` element plays outside Web Audio and is not covered.
 
 `web/e2e/offline-audio.e2e.ts` holds it. While a page plays a graph through the step, in Chromium and in the kit's WebKit, it records macOS's audio service, which says of each process whether it has an output device open (Core Audio's list of processes, which needs no permission, read by `web/e2e/audio-output.swift`), and fails if the test's own browser opens one. The same page without the step must be seen opening one, played through a gain of zero so it is silent, so a record that hears nothing cannot pass. Other sessions playing sound at the same time are told apart by process: Chromium's audio process descends from the test's own process, and WebKit's GPU process, which macOS starts with no parent of the browser's, runs from the test's own copy of WebKit.
+
+### Server tests
+
+Two pieces let an app's server tests under Bun ask its real routes as a real caller:
+
+- `fakeClerkApi()` from `app-kit/authentication/clerk/testing` answers Clerk's Backend API for Clerk's own middleware, so the middleware and `clerkCaller` run as they do in production. It sets `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` for the middleware, and gives `signedIn(personId, { authorizedParty })`, headers with a session token signed by a key it serves as Clerk's, `withKey('valid' | 'notFound')`, headers with a key for agents answered from Clerk's recorded answers, `key`, the person, id and name of the valid one, and `restore()`, called after each test, which puts back the fetch and the environment. Nothing is put in place of a module: Bun keeps a module replaced with `mock.module` replaced for every test file after it in the same run, which would hand the stand-in to files testing the real thing.
+- `routesLetThrough({ app, prefix, openPaths, readableByKey, as })` from `app-kit/authentication/agent-keys/testing` walks every route the app registered under `prefix` and returns a line for each that answered otherwise than `requireCaller` would: nobody gets 401 everywhere but the open paths, and a key gets past the check only on the routes listed for it, GET or ALL, and 403 on everything else. `as('nobody' | 'key')` gives each request's headers. No route under the prefix is a line too.
+
+```ts
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { fakeClerkApi, type FakeClerkApi } from 'app-kit/authentication/clerk/testing';
+import { routesLetThrough } from 'app-kit/authentication/agent-keys/testing';
+import { app, READABLE_BY_KEY } from './app';
+
+// Clerk's middleware reads its keys on each request, so the stand-in can start after the app is made.
+let clerk: FakeClerkApi;
+beforeEach(() => (clerk = fakeClerkApi()));
+afterEach(() => clerk.restore());
+
+test('every API route is guarded, and a key reads only the routes listed for it', async () => {
+  const as = (who: 'nobody' | 'key') => (who === 'key' ? clerk.withKey() : {});
+  expect(await routesLetThrough({ app, prefix: '/api', openPaths: ['/api/health'], readableByKey: READABLE_BY_KEY, as })).toEqual([]);
+});
+```
 
 ### The phone's Text Size
 
@@ -657,7 +739,11 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`; `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail`; and `clerkServerSignIn`, the server check below with Clerk's keys. |
 | Sign-in when hosted | `app-kit/authentication/server-sign-in` | `serverSignIn`: a server refuses to start hosted without its sign-in settings, and without any of them on the dev Mac runs open to this machine only. See below. |
 | Stand-in | `app-kit/authentication/stand-in` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
-| Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage` and `serveNewerBuild`, for an app's browser tests. See Browser tests above. |
+| Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage`, `lockFor`, `serveNewerBuild`, `signInByCode` and `STAND_IN_CODE`, for an app's browser tests. See Browser tests above. |
+| Clerk development instance steps | `app-kit/authentication/clerk/playwright` | `throwawayUser`, `signInWithTicket`, `removeThrowawayUsers` and `withClerkBackoff`, for browser tests against a real development instance. See Browser tests above. |
+| Clerk for server tests | `app-kit/authentication/clerk/testing` | `fakeClerkApi`, a stand-in for Clerk's Backend API under Clerk's own middleware. See Server tests above. |
+| Route check | `app-kit/authentication/agent-keys/testing` | `routesLetThrough`, which says which routes nobody or a key reaches otherwise than `requireCaller` would. See Server tests above. |
+| Shared test steps | `app-kit/web/playwright`, `app-kit/tauri/playwright` | Page loads, steady frames, a finger, no new windows, silent sound, the largest Text Size and a fit check; the Tauri bridge faked for the kit's plugins and desktop sign-in. See Browser tests above. |
 | WebKit out of the Dock | `app-kit/web/playwright-webkit` | `webkitWithoutDockIcon`, the launch options that run Playwright's WebKit from a copy macOS keeps out of the Dock. See Browser tests above. |
 | Sound in browser tests | `app-kit/web/playwright-offline-audio` | `offlineAudio`, which runs a test page's Web Audio on the browser's offline engine, so no speaker opens. See Sound in browser tests above. |
 | Keys for agents | `app-kit/authentication/agent-keys` | `requireCaller` and `callerOf`: a person's key reads the GET routes the app lists. |

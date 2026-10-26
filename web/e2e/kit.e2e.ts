@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { hidePage, serveNewerBuild, showPage } from '../../authentication/stand-in/playwright';
+import { hidePage, serveNewerBuild, showPage, signInByCode } from '../../authentication/stand-in/playwright';
+import { countLoads } from '../playwright';
 
 // The fixture app (e2e/fixture) built on the kit with the stand-in sign-in, served built, in Chromium. The app's server
 // is played by page.route, so each test says what the server answers.
@@ -50,21 +51,7 @@ function crashLog(page: Page) {
   return lines;
 }
 
-/** Counts the page's loads after the first, a new page in the same tab included. */
-function countLoads(page: Page) {
-  const count = { loads: 0 };
-  page.on('load', () => count.loads++);
-  return count;
-}
-
 const heading = (page: Page) => page.getByRole('heading', { level: 1 });
-
-async function signInByCode(page: Page, email = 'ana@example.com') {
-  await page.getByLabel('Email').fill(email);
-  await page.getByRole('button', { name: 'Email me a code' }).click();
-  await page.getByLabel('Code').fill('424242');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-}
 
 test('signing in by emailed code and signing out load no page, and sign-in lands on the asked address', async ({ page }) => {
   await serve(page);
@@ -72,7 +59,7 @@ test('signing in by emailed code and signing out load no page, and sign-in lands
   await expect(heading(page)).toHaveText('Sign in');
   const count = countLoads(page);
 
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(heading(page)).toHaveText('The app at /items/2?from=mail');
 
   await page.getByRole('button', { name: 'Sign out' }).click();
@@ -114,7 +101,7 @@ test('a session the server refuses brings sign-in up over the current address, a
   await page.clock.install();
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   const count = countLoads(page);
   // Past the window after a sign-in in which a refusal is taken for a server that refuses every session.
@@ -130,7 +117,7 @@ test('a session the server refuses brings sign-in up over the current address, a
   expect(new URL(page.url()).pathname).toBe('/');
 
   server.status = 200;
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   expect(count.loads).toBe(0);
 });
@@ -139,7 +126,7 @@ test('a server that refuses a session just made says so, rather than offering si
   const server = await serve(page);
   server.status = 401;
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByText('The server refused the session.')).toBeVisible();
   await expect(heading(page)).toHaveText('The app at /');
 });
@@ -147,7 +134,7 @@ test('a server that refuses a session just made says so, rather than offering si
 test('a row is a real link: a plain click moves in the page, ⌘-click opens a new tab', async ({ page, context }) => {
   await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   const count = countLoads(page);
   const row = page.getByRole('link', { name: 'Renew the passport' });
 
@@ -167,12 +154,12 @@ test('the server-unreachable line comes and goes by itself', async ({ page }) =>
   await page.clock.install();
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
 
   server.down = true;
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('status')).toHaveText('Cannot reach the server. This page reconnects by itself.');
 
   server.down = false;
@@ -199,7 +186,7 @@ test('an answer this build cannot draw is never saved, so the next load draws fr
   await serve(page);
   const shelf = await serveShelf(page);
   await page.goto('/shelf');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Milk');
   await expect.poll(() => copyKeys(page)).toHaveLength(1);
 
@@ -221,7 +208,7 @@ test('copies saved by another build are deleted and never drawn', async ({ page 
   await serve(page);
   const shelf = await serveShelf(page);
   await page.goto('/shelf');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Milk');
   await expect.poll(() => copyKeys(page)).toHaveLength(1);
   const [mine] = await copyKeys(page);
@@ -249,7 +236,7 @@ test('copies saved by another build are deleted and never drawn', async ({ page 
 test('a screen whose code is gone after a deploy reloads the page once, and never loops', async ({ page }) => {
   await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Later' })).toBeVisible();
   await page.route('**/assets/Later-*.js', (route) => route.fulfill({ status: 404, body: '' }));
   const count = countLoads(page);
@@ -266,7 +253,7 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
   await page.clock.install();
   await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   const newer = await serveNewerBuild(page);
   const line = page.getByRole('status').filter({ hasText: 'the fixture has changed since this page loaded.' });
@@ -293,7 +280,7 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
   await page.clock.install();
   await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await serveNewerBuild(page);
   await page.clock.fastForward('01:01');
   await showPage(page);
@@ -308,7 +295,7 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
 test("a screen that crashes on a newer server's data reloads once onto the newer build", async ({ page }) => {
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   const older = await runningEntry(page);
   const log = crashLog(page);
@@ -333,7 +320,7 @@ test("a screen that crashes on a newer server's data reloads once onto the newer
 test('a crash with no newer build shows the crash screen and does not reload', async ({ page }) => {
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   const log = crashLog(page);
   const count = countLoads(page);
@@ -352,7 +339,7 @@ test('a crash with no newer build shows the crash screen and does not reload', a
 test('a reload that lands back on the older build shows the crash screen instead of reloading again', async ({ page }) => {
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   const log = crashLog(page);
   await deployNewer(page, { cachedPage: true });
@@ -377,7 +364,7 @@ test('a server that does not answer the build check shows the crash screen', asy
   await page.clock.install();
   const server = await serve(page);
   await page.goto('/');
-  await signInByCode(page);
+  await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   // The look at the index page is never answered; the page gives up on it at its deadline.
   let asked: () => void = () => {};

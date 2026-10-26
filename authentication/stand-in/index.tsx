@@ -1,9 +1,9 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { noAccountFor, TICKET_FAILED, type GoogleReturnProps, type Outcome, type ProviderSession, type SignedInPerson, type SignInProvider } from '../../web/sign-in/provider';
 import type { KeyValueStore } from '../../web/storage';
+import { STAND_IN_CODE } from './code.js';
 
-/** The code the stand-in takes, as Clerk's development instance takes 424242 for a +clerk_test address. */
-export const STAND_IN_CODE = '424242';
+export { STAND_IN_CODE };
 export const WRONG_CODE = 'That code did not match. Use the newest email, or send a new code.';
 
 const PERSON_KEY = 'stand-in.person';
