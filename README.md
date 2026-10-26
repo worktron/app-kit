@@ -587,7 +587,7 @@ export const db = await openDb(process.env.DATABASE_URL ?? '.data/db', {
 | A folder | PGlite kept on disk in that folder, for local use |
 | `:memory:` | PGlite in memory, gone when it closes |
 
-Every database it gives has `close()`, which ends the connection or shuts PGlite down. Migrations are only ever drizzle-kit's: `bunx drizzle-kit generate` writes them from the schema, and the next open runs them, on Railway as on the laptop.
+Every database it gives has `close()`, which ends the connection or shuts PGlite down; an open whose migration fails closes it before it throws. Migrations are only ever drizzle-kit's: `bunx drizzle-kit generate` writes them from the schema, and the next open runs them, on Railway as on the laptop. Drizzle applies the pending ones in one transaction and takes no lock, so two instances opening the same database at once can both try a pending migration: one applies it, the other fails to start with nothing half done, and its restart finds the migration applied. An app run as one Railway instance never meets this.
 
 In tests, `openTestDb({ schema, migrationsFolder })` gives an empty, migrated in-memory database, one per call. Migrating takes most of a second, so the first call in a test process migrates one database and keeps its files, and every later call for the same folder starts from a copy of them. Each one holds a few hundred megabytes, and `bun test` runs every file in one process, so a test file closes them all after each test:
 

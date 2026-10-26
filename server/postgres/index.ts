@@ -27,14 +27,24 @@ export async function openDb<TSchema extends Schema>(
 ): Promise<Db<TSchema>> {
   if (/^postgres(ql)?:\/\//.test(location)) {
     const client = postgres(location, { onnotice: () => {} });
-    const db = drizzlePostgres(client, { schema });
-    await migratePostgres(db, { migrationsFolder });
-    return Object.assign(db, { close: () => client.end() });
+    const db = Object.assign(drizzlePostgres(client, { schema }), { close: () => client.end() });
+    await migrateOrClose(db, () => migratePostgres(db, { migrationsFolder }));
+    return db;
   }
   const client = location === ':memory:' ? new PGlite() : new PGlite(location);
-  const db = drizzlePglite(client, { schema });
-  await migratePglite(db, { migrationsFolder });
-  return Object.assign(db, { close: () => client.close() });
+  const db = Object.assign(drizzlePglite(client, { schema }), { close: () => client.close() });
+  await migrateOrClose(db, () => migratePglite(db, { migrationsFolder }));
+  return db;
+}
+
+/** Runs the migration, and closes the database when it fails, so an open that throws leaves nothing open behind it. */
+async function migrateOrClose(db: { close: () => Promise<void> }, migrate: () => Promise<void>) {
+  try {
+    await migrate();
+  } catch (error) {
+    await db.close();
+    throw error;
+  }
 }
 
 /** The files of one database migrated once per test process, for each migrations folder. */
@@ -53,11 +63,15 @@ export async function openTestDb<TSchema extends Schema>({
   if (!files) {
     files = (async () => {
       const template = new PGlite();
-      await migratePglite(drizzlePglite(template), { migrationsFolder });
-      const dump = await template.dumpDataDir('none');
-      await template.close();
-      return dump;
+      try {
+        await migratePglite(drizzlePglite(template), { migrationsFolder });
+        return await template.dumpDataDir('none');
+      } finally {
+        await template.close();
+      }
     })();
+    // A migration that failed is tried again by the next test, so a fixed migration needs no new test process.
+    files.catch(() => migrated.delete(migrationsFolder));
     migrated.set(migrationsFolder, files);
   }
   const client = new PGlite({ loadDataDir: await files });
