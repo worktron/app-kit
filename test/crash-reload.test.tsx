@@ -51,9 +51,15 @@ test('a crash on an older build reloads once toward the newer one, and a second 
 
 test('the server serving the running build, or a page from the dev server, never reloads', () => {
   const store = () => memory();
-  expect(crashReload({ running: NEWER, served: NEWER, typed: false, store }).reload).toBe(false);
+  expect(crashReload({ running: NEWER, served: NEWER, typed: false, store })).toEqual({ reload: false, reason: `the server serves this build, ${NEWER}` });
   expect(crashReload({ running: null, served: NEWER, typed: false, store }).reload).toBe(false);
-  expect(crashReload({ running: OLDER, served: null, typed: false, store }).reload).toBe(false);
+});
+
+test('an index page naming no build, as a proxy\'s error page mid-deploy, does not reload and says so', () => {
+  expect(crashReload({ running: OLDER, served: null, typed: false, store: () => memory() })).toEqual({
+    reload: false,
+    reason: 'the index page the server sent names no built entry',
+  });
 });
 
 test('two builds answering in turn reload once, then show the crash within the guard', () => {
@@ -131,6 +137,26 @@ test('a built page draws the placeholder while it asks, never the crash, then th
     answer(`<script type="module" crossorigin src="${OLDER}"></script>`);
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Cannot read properties of undefined'));
     expect(screen.queryByText('fixture')).toBeNull();
+  } finally {
+    globalThis.fetch = realFetch;
+    [console.error, console.info] = quiet;
+  }
+});
+
+test('a built page given no placeholder draws the crash at once while it asks', () => {
+  runBuild(OLDER);
+  const quiet = [console.error, console.info];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = Object.assign(() => new Promise<Response>(() => {}), { preconnect: realFetch.preconnect });
+  console.error = () => {};
+  console.info = () => {};
+  try {
+    render(
+      <ErrorBoundary>
+        <Broken />
+      </ErrorBoundary>,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Cannot read properties of undefined');
   } finally {
     globalThis.fetch = realFetch;
     [console.error, console.info] = quiet;

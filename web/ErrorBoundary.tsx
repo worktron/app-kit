@@ -10,7 +10,7 @@ interface Props {
   /**
    * What to draw while a crashed page asks the server whether a newer build is out, at most a few seconds: the same
    * placeholder the app gives the sign-in gate, so one steady screen stands through the crash, the reload and sign-in.
-   * Nothing is drawn without one.
+   * Without one, the crash is drawn while it asks, and the page may still reload from under it.
    */
   placeholder?: ReactNode;
 }
@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
   override render() {
     const { error, checking } = this.state;
     if (!error) return this.props.children;
-    if (checking) return this.props.placeholder ?? null;
+    if (checking && this.props.placeholder !== undefined) return this.props.placeholder;
     if (this.props.fallback) return this.props.fallback(error, reload);
     return (
       <Box role="alert" sx={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', px: 3, textAlign: 'center' }}>

@@ -12,10 +12,11 @@ export type CrashDecision = { reload: boolean; reason: string };
 
 /**
  * Whether a page that crashed reloads onto the build the server serves now. A page left open across a deploy, or a
- * rollback, crashes on data in a shape its build does not know, and a reload onto the served build mends it. It reloads
- * at most once toward any one build in this tab, and never twice within RELOAD_GUARD_MS, so a crash the served build
- * has too, a reload that a cache answers with the old page, or two builds answering in turn ends on the crash screen
- * rather than in a loop. A reload it cannot remember, with storage blocked, is not made. When it reloads, it remembers.
+ * rollback, crashes on data in a shape its build does not know, and a reload onto the served build mends it. It never
+ * reloads toward the build it last reloaded toward in this tab, nor within RELOAD_GUARD_MS of its last reload, so a
+ * crash the served build has too, a reload that a cache answers with the old page, or two builds answering in turn
+ * ends on the crash screen rather than in a loop. A reload it cannot remember, with storage blocked, is not made. When
+ * it reloads, it remembers.
  */
 export function crashReload({
   running,
@@ -31,6 +32,7 @@ export function crashReload({
   store?: () => KeyValueStore;
   now?: number;
 }): CrashDecision {
+  if (served === null) return { reload: false, reason: 'the index page the server sent names no built entry' };
   if (!isNewBuild(running, served)) return { reload: false, reason: `the server serves this build, ${String(running)}` };
   if (typed) return { reload: false, reason: 'the page holds typed text a reload would lose' };
   const last = lastReload(store);
