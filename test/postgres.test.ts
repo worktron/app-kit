@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -25,6 +25,9 @@ async function brokenMigrations() {
 }
 
 describe('openTestDb', () => {
+  // The process's one-time work, making an empty database and migrating the template from it, is done here, held to
+  // the fifteen seconds a test may take, so no one test pays it inside Bun's five.
+  beforeAll(async () => (await openTestDb(options)).close(), 15_000);
   afterEach(closeTestDbs);
 
   test('gives a migrated database a row can be written to and read back from', async () => {
@@ -75,6 +78,8 @@ describe('openDb', () => {
     await db.close();
   });
 
+  // A real database folder: the first open writes 981 files and the second reads them back, so it is held to the
+  // fifteen seconds a test may take, not Bun's five.
   test('keeps a PGlite folder across opens, migrating it only once', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'app-kit-postgres-'));
     try {
@@ -87,7 +92,7 @@ describe('openDb', () => {
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   test('opens a postgres:// URL through postgres-js and migrates it', async () => {
     // PGlite served over Postgres's own wire protocol stands in for Railway's Postgres, on a port the system picks.
@@ -113,7 +118,10 @@ describe('openDb', () => {
     const broken = await brokenMigrations();
     try {
       const url = `postgres://postgres@${server.getServerConn()}/postgres`;
-      await expect(openDb(url, { schema, migrationsFolder: broken.migrationsFolder })).rejects.toThrow();
+      // Waited for here, not handed to expect's rejects: bun's wait on a pending promise slowed the traffic between
+      // the client and the server in this same process from 25 milliseconds to 2 seconds.
+      const failed = await openDb(url, { schema, migrationsFolder: broken.migrationsFolder }).catch((error) => error);
+      expect(failed).toBeInstanceOf(Error);
       const db = await openDb(url, options);
       expect(await db.select().from(schema.notes)).toEqual([]);
       await db.close();

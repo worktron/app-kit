@@ -47,9 +47,36 @@ async function migrateOrClose(db: { close: () => Promise<void> }, migrate: () =>
   }
 }
 
+/**
+ * The files of an empty database, made once per test process. PGlite starts from files in about a tenth of the time
+ * it takes to make a new database, so each migrations folder's template starts from these.
+ */
+let empty: Promise<File | Blob> | undefined;
 /** The files of one database migrated once per test process, for each migrations folder. */
 const migrated = new Map<string, Promise<File | Blob>>();
 const testDbs = new Set<PGlite>();
+
+function emptyFiles() {
+  if (!empty) {
+    empty = dumpAndClose(new PGlite(), async () => {});
+    empty.catch(() => (empty = undefined));
+  }
+  return empty;
+}
+
+/**
+ * Runs a step on a database, then gives its files and closes it, whether or not the step threw. Saving the files of
+ * a database not yet ready never finishes, so it waits for that first.
+ */
+async function dumpAndClose(client: PGlite, step: (client: PGlite) => Promise<void>) {
+  try {
+    await client.waitReady;
+    await step(client);
+    return await client.dumpDataDir('none');
+  } finally {
+    await client.close();
+  }
+}
 
 /**
  * An empty in-memory database with the schema, for a test: loaded from the files of one migrated once per test
@@ -61,15 +88,11 @@ export async function openTestDb<TSchema extends Schema>({
 }: DbOptions<TSchema>): Promise<Db<TSchema>> {
   let files = migrated.get(migrationsFolder);
   if (!files) {
-    files = (async () => {
-      const template = new PGlite();
-      try {
-        await migratePglite(drizzlePglite(template), { migrationsFolder });
-        return await template.dumpDataDir('none');
-      } finally {
-        await template.close();
-      }
-    })();
+    files = emptyFiles().then((empty) =>
+      dumpAndClose(new PGlite({ loadDataDir: empty }), (template) =>
+        migratePglite(drizzlePglite(template), { migrationsFolder }),
+      ),
+    );
     // A migration that failed is tried again by the next test, so a fixed migration needs no new test process.
     files.catch(() => migrated.delete(migrationsFolder));
     migrated.set(migrationsFolder, files);
