@@ -4,12 +4,16 @@
 // stays out of the Dock is web/e2e/dock.e2e.ts's to show, since only a launch tells. The kit runs in its own
 // process each time, as in an app's Playwright run: @playwright/test, which it imports, throws an AggregateError from a
 // socket when it loads beside the simulated page every unit test here has.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { execFileSync } from 'child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 import { webkit } from 'playwright';
+
+// The tests run at once and each starts the kit in a bun process or more, up to nine together, so each is held to
+// the fifteen seconds a test may take, not Bun's five, which a busy machine passed while they took 3.5 on main.
+setDefaultTimeout(15_000);
 
 const root = join(import.meta.dir, '..');
 const scratch = mkdtempSync(join(tmpdir(), 'app-kit-webkit-'));
