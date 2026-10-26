@@ -7,11 +7,13 @@ import { standInSignIn } from '../../../authentication/stand-in';
 
 // The pieces an installed app adds: pull to refresh, a field that never zooms, and a request sent as the page is left.
 // It counts its loads in the tab, for the test to see a reload. With ?leave=<id> it deletes /api/left/<id> as the page
-// is hidden or left, as an app sends what it must not lose, and the fixture's server records it.
+// is hidden or left, as an app sends what it must not lose, and the fixture's server records it. With ?pull=fails a pull
+// refreshes in place, and the refresh fails.
 
 const loads = Number(sessionStorage.getItem('pieces-loads') ?? 0) + 1;
 sessionStorage.setItem('pieces-loads', String(loads));
 const leave = new URLSearchParams(location.search).get('leave');
+const pullFails = new URLSearchParams(location.search).get('pull') === 'fails';
 
 const standIn = standInSignIn({ person: { id: 'person-1', email: 'pat@example.com' } });
 // Asked for a token, this provider never answers, as one still asking while the page goes; the one it holds is the stand-in's.
@@ -52,7 +54,7 @@ createRoot(document.getElementById('root')!).render(
       <SignInGate provider={provider} placeholder={<p>fixture</p>} signedOut={<p>Signed out</p>}>
         <Pieces />
       </SignInGate>
-      <PullToRefresh />
+      <PullToRefresh onPull={pullFails ? () => Promise.reject(new Error('the server did not answer')) : undefined} />
     </ThemeProvider>
   </StrictMode>,
 );

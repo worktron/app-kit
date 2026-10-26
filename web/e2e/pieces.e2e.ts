@@ -24,6 +24,24 @@ test('in an installed app, a pull down from the top of the page reloads it', asy
   await expect(loads(page)).toHaveText('2');
 });
 
+test('a refresh that fails says so in words on the screen, within the narrowest phone at its largest Text Size, and reloads nothing', async ({ page }, testInfo) => {
+  await asInstalledApp(page);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/pieces.html?pull=fails');
+  await expect(loads(page)).toHaveText('1');
+  // The root size followTextSize sets at the largest accessibility size, about 3.12 times the default.
+  await page.evaluate(() => (document.documentElement.style.fontSize = '312%'));
+  await (await finger(page)).slide({ x: 160, y: 30 }, { x: 160, y: 330 });
+  const words = page.getByText('Refresh failed. Pull down to try again.');
+  await expect(words).toBeVisible();
+  const box = (await words.boundingBox())!;
+  const width = page.viewportSize()!.width;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: testInfo.outputPath('refresh-failed.png') });
+  await expect(loads(page)).toHaveText('1');
+});
+
 test('a sideways swipe, and a pull inside a scrolled list, never reload', async ({ page }) => {
   await asInstalledApp(page);
   await page.goto('/pieces.html');

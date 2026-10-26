@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, CircularProgress } from '@mui/material';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import { isInstalledApp } from './installed-app';
 import { lookForNewBuild, unsavedInput } from './new-build';
 
@@ -69,17 +69,21 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
     let refreshing = false;
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
-    /** A mark that says why a pull did nothing, held for a moment. */
-    const notice = (state: 'kept' | 'failed') => {
-      setShown({ pull: PULL_DISTANCE, state });
+    /** Whatever the mark shows next ends a notice, so a notice's timer never hides a pull or a refresh after it. */
+    const show = (next: Shown | null) => {
       clearTimeout(noticeTimer);
+      setShown(next);
+    };
+    /** A mark that says why a pull did nothing, in words under it, held for a moment. */
+    const notice = (state: 'kept' | 'failed') => {
+      show({ pull: PULL_DISTANCE, state });
       noticeTimer = setTimeout(() => setShown(null), state === 'failed' ? 4_000 : 2_000);
     };
     const reset = () => {
       start = null;
       pulling = null;
       travel = 0;
-      if (!refreshing) setShown(null);
+      if (!refreshing) show(null);
     };
     const reload = () => {
       if (unsavedInput()) {
@@ -88,19 +92,19 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
         return;
       }
       console.log('[app-kit] pull: released past the line, reloading');
-      setShown({ pull: PULL_DISTANCE, state: 'reloading' });
+      show({ pull: PULL_DISTANCE, state: 'reloading' });
       window.location.reload();
     };
     const refresh = (onPull: () => unknown) => {
       console.log('[app-kit] pull: released past the line, refreshing in place');
       refreshing = true;
-      setShown({ pull: PULL_DISTANCE, state: 'refreshing' });
+      show({ pull: PULL_DISTANCE, state: 'refreshing' });
       lookForNewBuild();
       // Run in the promise's executor, so the app's refresh starts at once and a throw from it is a failure like any other.
       void new Promise((resolve) => resolve(onPull())).then(
         () => {
           refreshing = false;
-          setShown(null);
+          show(null);
         },
         (error: unknown) => {
           console.log('[app-kit] pull: the refresh failed', error);
@@ -133,7 +137,7 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
         if (!pulling) return;
       }
       travel = Math.min(MAX_PULL, Math.max(0, dy * RESISTANCE));
-      if (!refreshing) setShown({ pull: travel, state: 'pulling' });
+      if (!refreshing) show({ pull: travel, state: 'pulling' });
     };
     const onEnd = () => {
       const past = pulling === true && travel >= PULL_DISTANCE;
@@ -199,6 +203,31 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
         value={Math.min(100, (pull / PULL_DISTANCE) * 100)}
         sx={{ color: armed ? 'text.primary' : 'text.secondary' }}
       />
+      {(state === 'kept' || state === 'failed') && (
+        // A notice says what happened in words, under the mark: a phone shows no title.
+        <Typography
+          variant="body2"
+          sx={{
+            position: 'absolute',
+            top: 40,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 'max-content',
+            // Wraps within the screen at the phone's largest Text Size, rather than running off it.
+            maxWidth: 'calc(100vw - 32px)',
+            textAlign: 'center',
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 1,
+            border: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+            color: 'text.primary',
+          }}
+        >
+          {label}
+        </Typography>
+      )}
     </Box>
   );
 }

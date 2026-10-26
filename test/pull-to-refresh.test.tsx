@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { PULL_DISTANCE, PullToRefresh, pullMayStart } from '../web/PullToRefresh';
 
@@ -91,6 +91,7 @@ test('a pull never reloads over text typed into a field, and the mark says why',
   pull(holder.querySelector('#row')!, PAST);
   expect(reload).not.toHaveBeenCalled();
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Not reloaded: a field holds typed text');
+  expect(screen.getByText('Not reloaded: a field holds typed text')).toBeTruthy();
 });
 
 test("a pull while the app's drag is on never pulls", () => {
@@ -150,11 +151,34 @@ test('a refresh that fails says so on the mark, and pulling again tries again', 
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refreshing');
   await act(async () => fail(new Error('network')));
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refresh failed. Pull down to try again.');
+  // In words a phone shows, not only in the label a screen reader reads.
+  expect(screen.getByText('Refresh failed. Pull down to try again.')).toBeTruthy();
   pull(row, PAST);
   expect(refresh).toHaveBeenCalledTimes(2);
   expect(reload).not.toHaveBeenCalled();
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refreshing');
   await act(async () => fail(new Error('network')));
+});
+
+test("a failed refresh's notice never hides the spinner of the pull that tries again", async () => {
+  jest.useFakeTimers();
+  try {
+    let settle: { fail: (error: Error) => void; finish: () => void } = { fail: () => undefined, finish: () => undefined };
+    const refresh = mock(() => new Promise<void>((finish, fail) => (settle = { fail, finish })));
+    render(<PullToRefresh onPull={refresh} />);
+    const row = page().querySelector('#row')!;
+    pull(row, PAST);
+    await act(async () => settle.fail(new Error('network')));
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refresh failed. Pull down to try again.');
+    pull(row, PAST);
+    // Past the end of the failure's notice, with the second refresh still out.
+    act(() => jest.advanceTimersByTime(5_000));
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refreshing');
+    await act(async () => settle.finish());
+    expect(screen.queryByRole('status')).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('in a browser tab it listens to nothing', () => {
