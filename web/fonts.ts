@@ -15,13 +15,17 @@ export const FONT_WAIT_MS = 1500;
  */
 export function waitForFonts(faces: readonly string[], { atMostMs = FONT_WAIT_MS }: { atMostMs?: number } = {}): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
-  const loaded = Promise.all(
+  // Every face settles before the draw, so one that fails at once never lets the draw go out while another still loads.
+  const loaded = Promise.allSettled(
     faces.map((face) =>
-      document.fonts.load(face).then((found) => {
-        if (found.length === 0) console.log(`[app-kit] fonts: no @font-face matches ${face}, so nothing waits for it`);
-      }),
+      document.fonts.load(face).then(
+        (found) => {
+          if (found.length === 0) console.log(`[app-kit] fonts: no @font-face matches ${face}, so nothing waits for it`);
+        },
+        (error: unknown) => console.log(`[app-kit] fonts: ${face} failed to load, so it draws in its fallback`, error),
+      ),
     ),
-  ).catch((error: unknown) => console.log('[app-kit] fonts: a face failed to load, drawing in the fallbacks', error));
+  );
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<void>((resolve) => {
     timer = setTimeout(() => {

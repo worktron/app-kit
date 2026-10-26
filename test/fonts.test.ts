@@ -58,9 +58,11 @@ test('gives up after FONT_WAIT_MS, so a slow connection still gets the page', as
   expect(await settled(waited)).toBe(true);
 });
 
-test('a face that fails to load draws in the fallbacks rather than failing', async () => {
-  const waited = waitForFonts(['500 1em "Display"']);
+test('a face that fails to load draws in its fallback, and the wait still holds for the faces still loading', async () => {
+  const waited = waitForFonts(['500 1em "Display"', '400 1em "Body"']);
   loads[0]!.fail(new Error('network'));
+  expect(await settled(waited)).toBe(false);
+  loads[1]!.settle([{}]);
   expect(await settled(waited)).toBe(true);
 });
 
