@@ -7,11 +7,11 @@
 // Playwright's Chromium: `bunx playwright install chromium`.
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, type BrowserContext, type Worker } from 'playwright'
-import { extensionId, writeHostManifest } from '../host/install.ts'
+import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install.ts'
 
 export type HarnessOptions = {
   /** The folder whose tracked and untracked-but-not-ignored files become the checkout's root, where manifest.json is. */
@@ -87,10 +87,7 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
 
   if (options.nativeHost) {
     const { name, command, env = {} } = options.nativeHost
-    const host = join(scratch, 'host')
-    const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
-    const exports = Object.entries(env).map(([key, value]) => `export ${key}=${quote(value)}\n`).join('')
-    writeFileSync(host, `#!/bin/sh\n${exports}exec ${command(checkout).map(quote).join(' ')} "$@"\n`, { mode: 0o755 })
+    const host = writeHostLauncher(join(scratch, 'host'), command(checkout), { env })
     // Chrome finds a native host through the profile's own NativeMessagingHosts folder too.
     writeHostManifest(join(profile, 'NativeMessagingHosts'), { name, description: 'harness', path: host, extensionId: id })
   }

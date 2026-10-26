@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // app-kit <part> <command>: the kit's command line. The extension kit copies the
 // kit's worker files into an extension, checks the copy, prints an extension's
-// ID, and prints a native host's status. The iPhone part builds a Tauri app and
-// starts it on a Simulator or a paired iPhone. The iPhone simulator part sends a
+// ID, tells Chrome about a native host, and prints a native host's status, or
+// why nothing is connected. The iPhone part builds a Tauri app and starts it on
+// a Simulator or a paired iPhone. The iPhone simulator part sends a
 // simulator's sound to BlackHole so it plays nowhere. The TestFlight part uploads
 // an iPhone build, and watches apps' main to upload after each landing.
 
@@ -10,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
-import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
+import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import packageJson from '../package.json'
 import { runIphone } from '../tauri/iphone-run/index.ts'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
@@ -19,11 +20,22 @@ import { watch } from '../tauri/testflight/watch.ts'
 
 const USAGE = `app-kit <part> <command>
 
-  extension copy <folder>     write the kit's worker files into the extension's <folder>
+  extension copy <folder>     write the kit's worker files directly into <folder>, the
+                              folder the worker imports them from, as extension/kit;
+                              refuses a folder whose copies live in a folder below it
   extension check <folder>    exit 3 when <folder>'s worker files differ from this kit's
   extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
-  extension status <socket>   the status a native host serving <socket> gives, as JSON:
-                              the extension's build, commit and kept errors
+  extension install-host <name> <host> [<folder>] --description <text> [--from-worktree]
+                              tell Chrome about the native host <name>: a launcher that
+                              runs <host> (a program, or a TypeScript or JavaScript file
+                              run by this Bun) and the manifest Chrome reads, allowing
+                              the extension whose manifest.json is in <folder>, . by
+                              default; refuses a worktree unless --from-worktree
+  extension status <socket> [<name> [<folder>]]
+                              the status a native host serving <socket> gives, as JSON:
+                              the extension's build, commit and kept errors; when no
+                              host answers, why and the fix, checking how Chrome is
+                              told of the host <name> and the extension in <folder>
   iphone run sim [<udid>]     from a Tauri app's checkout: build its iPhone app and start
                               it on this checkout's own Simulator (made once, an iPhone 17,
                               named after the app, and in a worktree after its folder too),
@@ -75,7 +87,44 @@ function commit(): string {
   return 'commit unknown: no checkout of its own and no bun.lock naming it'
 }
 
-async function extension([command, argument, ...extra]: string[]): Promise<boolean> {
+/** install-host's arguments: three words at most, and its two flags. Null for wrong usage. */
+function installHostArguments(args: string[]) {
+  const words: string[] = []
+  let description: string | undefined
+  let fromWorktree = false
+  for (let at = 0; at < args.length; at++) {
+    if (args[at] === '--description' && at + 1 < args.length) description = args[++at]
+    else if (args[at] === '--from-worktree') fromWorktree = true
+    else if (args[at]!.startsWith('-')) return null
+    else words.push(args[at]!)
+  }
+  const [name, host, folder = '.', ...extra] = words
+  if (!name || !host || extra.length || description === undefined) return null
+  return { name, host, extensionFolder: folder, description, fromWorktree }
+}
+
+async function extension([command, ...args]: string[]): Promise<boolean> {
+  if (command === 'install-host') {
+    const options = installHostArguments(args)
+    if (!options) return false
+    const installed = installHost(options)
+    console.log(`Wrote ${installed.manifest}, which tells Chrome to start ${installed.launcher} for the extension ${installed.extensionId}.`)
+    console.log(`The host's errors go to ${installed.errorLog}.`)
+    console.log(`Load the extension in Chrome from: ${installed.extensionFolder}`)
+    return true
+  }
+  if (command === 'status' && args.length >= 1 && args.length <= 3) {
+    const [socket, name, folder] = args as [string, string?, string?]
+    try {
+      console.log(JSON.stringify(await hostStatus(socket), null, 2))
+    } catch (error) {
+      if (!(error instanceof NotConnected)) throw error
+      console.log(JSON.stringify({ connected: false, ...diagnoseHost({ name, extensionFolder: folder }) }, null, 2))
+      process.exit(4)
+    }
+    return true
+  }
+  const [argument, ...extra] = args
   if (extra.length) return false
   if (command === 'copy' && argument) {
     console.log(`Copied ${copyWorker(argument).join(', ')} into ${argument}`)
@@ -89,14 +138,6 @@ async function extension([command, argument, ...extra]: string[]): Promise<boole
     const manifest = JSON.parse(readFileSync(join(argument ?? '.', 'manifest.json'), 'utf8'))
     if (!manifest.key) throw new Error('The manifest has no key, so its ID changes from profile to profile')
     console.log(extensionId(manifest.key))
-  } else if (command === 'status' && argument) {
-    try {
-      console.log(JSON.stringify(await hostStatus(argument), null, 2))
-    } catch (error) {
-      if (!(error instanceof NotConnected)) throw error
-      console.log(JSON.stringify({ connected: false, reason: error.message }, null, 2))
-      process.exit(4)
-    }
   } else {
     return false
   }
