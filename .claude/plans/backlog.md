@@ -43,3 +43,9 @@ Done when: app-kit/tauri holds the page half (poller and first-launch notice) wi
 Goal: a window that loads its remote address directly stays blank offline. timescale's desktop/start/index.html:1-136 probes /api/health with no-cors, goes to the hosted app on any answer, otherwise says it cannot reach it with Try again, and retries on online and every 30 seconds (451b522; e2e/mac-app-start.e2e.ts). It holds a copy of the palette that a cargo test checks against palette.ts (main.rs:872-908): the kit's version takes colors and origin as inputs. Found by the harvest thread, 2026-10-26.
 
 Done when: the kit ships the start page (or a generator for it) taking the origin, health path and colors, the hosted-window crate can point the window at it, and a browser test proves the page waits, retries and moves on.
+
+## google-retry · server/google retries what it reads as later, with Retry-After and jitter
+
+Goal: readGoogleResponse says `later` with retryAfterMs and leaves the loop to each app. argon-watcher's server/gmail/client.ts:123-200 parses Retry-After in both forms and retries with jitter (two tries for 5xx and network errors, five with doubling from 2s for rate limits), and never retries a send that is not idempotent (:206-209). A rate-limit 403 once read as dead auth failed whole production runs twice (387b9b1). Found by the harvest thread, 2026-10-26.
+
+Done when: app-kit/server/google exports a retrying call that takes the request and whether it is safe to repeat, held by tests on a fake clock with recorded answers, and the README's Google section shows it.
