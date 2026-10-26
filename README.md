@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, and the server's sending of the built page. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -253,7 +253,97 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+What a Tauri app's page, shell and server share: a window onto the hosted site, desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+
+### A window onto the hosted site
+
+A Tauri plugin for the shell, in `tauri/window/plugin/` (`tauri-plugin-app-kit-window`), and `app-kit/tauri/window` for the page: a Mac or iPhone app whose window loads its own hosted site gets what every such shell wrote by hand. The window loads the site, so sign-in, data and every deploy are the site's. The plugin adds:
+
+- Desktop sign-in's shell half (step 3 below). It reads the browser's `<scheme>://sign-in` link off Tauri's own open event, takes only a ticket and a nonce in the characters they are written in, and hands both to the page as JSON in a window event, or, while the window is still on a start page, loads the site with them in its fragment. The kit holds the names, so an app keeps no copy of them and no test that reads its Rust.
+- Links. The site and its subdomains stay in the window; other sites go to the default browser, and mail, phone and text links to their apps; files, scripts and other schemes do nothing; desktop sign-in's browser page always goes out. A request for a new window (a link with target=_blank, `window.open`) goes out the same way, on the iPhone too, whose web view otherwise drops it.
+- The page's grant, named as local and remote. A built app counts a page under `frontendDist` as local, and a grant for remote pages alone left an installed app's page with no permissions at all, which a debug build hid.
+- On the Mac: closing hides the window and the app runs on; a Dock click brings it back; the page is not suspended while hidden (WebKit suspends a hidden page after about five minutes, which stops its polls); the window opens centered, back where it was, and maximized without the zoom animation; View's Actual Size, Zoom In and Zoom Out are kept across launches; and the page hears when the window goes into or out of full screen and when a newer build has been installed over the running one, for it to offer Restart.
+
+Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be.
+
+In `src-tauri/Cargo.toml`, after `bun install`, with the path from `src-tauri` to the `node_modules` that holds the kit. Tauri 2.12.5 or later, whose restart opens the app through macOS, so it comes back in front as itself:
+
+```toml
+[dependencies]
+tauri = "2.12.5"
+tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-window-state = "2"
+```
+
+The shell, for the Mac and the iPhone, which `main` (or `run`) runs with `shell(tauri::Builder::default()).run(tauri::generate_context!())`:
+
+```rust
+use tauri::window::Color;
+use tauri::{Manager, Runtime, WebviewUrl};
+use tauri_plugin_app_kit_window::{log_to_file, show_once_placed, Site};
+
+/// The site this build loads: a dev server's address when the build is given one, else the site.
+const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
+    Some(address) => address,
+    None => "https://app.example.com",
+};
+
+fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    let site = Site::new(PAGE.parse().expect("PAGE is an address")).scheme("com.example.app");
+    let builder = builder
+        .plugin(log_to_file("example_app"))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
+            .build(),
+    );
+    let builder = builder.plugin(site.plugin());
+    builder.setup(move |app| {
+        app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;
+        let start = WebviewUrl::External(site.address().clone());
+        let window = site
+            .window(app, start)
+            .title("Example")
+            .inner_size(1280.0, 860.0)
+            .background_color(Color(5, 5, 5, 255))
+            .build()?;
+        show_once_placed(&window);
+        Ok(())
+    })
+}
+```
+
+- The order matters. The opener comes before the window plugin, which otherwise stops the app at launch saying so; on the Mac, window-state comes before it too, registered without `StateFlags::VISIBLE`, since that flag shows the window before it zooms.
+- `scheme` is the app's own link scheme, which the deep-link plugin registers from `tauri.conf.json`. Desktop sign-in's link arrives on it and the page restarts the app through it; an app with no sign-in and no Restart leaves it out, and then needs no deep-link plugin.
+- `start` is the site, or a page the app bundles that goes on to it: the window keeps `tauri://localhost`. The background color is the page's own first frame, so a load is never a white flash.
+- The address comes in at build time. An iPhone build compiles inside an Xcode step that Tauri passes only variables whose names start with `TAURI_`, so the variable is named that way for the Mac too.
+- A frame the page embeds from another site (a video, a map) goes to the browser on every load, since WebKit asks about every frame, unless `.keep_in_window(host)` keeps its host. Each address sent out is logged with a reminder of this. Cloudflare's bot check, which Clerk's sign-up shows, is kept already. An app's own `on_navigation` on the window runs first and can only refuse an address, never keep one.
+- `log_to_file("example_app")`, with the app's crate name as Rust writes it, logs the app's and the kit's decisions to `~/Library/Logs/<identifier>/`, one file of up to a megabyte, and warnings from anything else.
+- On the Mac, `zoom_items(app)` gives View's three zoom items for the app's menu, and `show(app)` brings the window to the front, as for a global shortcut.
+- An iPhone page with a service worker: `.limit_navigations_to_app_bound_domains(true)` on the window, with the site and `localhost` in `WKAppBoundDomains` in `Info.ios.plist`, since an iPhone web view runs a service worker only for app-bound domains.
+
+The page:
+
+```tsx
+import { restartLink, useNewerBuildInstalled, useWindowFullScreen } from 'app-kit/tauri/window';
+
+const fullScreen = useWindowFullScreen(); // the window's buttons are hidden: the top bar starts at its usual margin
+const newer = useNewerBuildInstalled();
+{newer && <a href={restartLink('com.example.app')}>Restart</a>}
+```
+
+Restart works only once a newer build is installed, so no page or frame can restart the app at will. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows.
+
+An app moving onto the plugin drops its own copy of the sign-in Rust and the test that held it to the kit's names. An app that had its own names for full screen or a newer build ships its shell on the plugin first and moves its page to these hooks once that build is installed, or the first install misses its Restart offer.
+
+The decisions are tested in Rust (`cargo test` in `tauri/window/plugin/`) and the shared names, the page hooks and the iPhone's `window.open` script in `test/tauri-window.test.ts`; `plugin/tests/readme.rs` compiles the shell above. What needs a screen is checked in the first app that takes the plugin, by its log: `the window was closed, so it is hidden`, `a newer build is installed`, `sent a link for https://… out of the window`.
 
 ### Desktop sign-in
 
@@ -261,7 +351,7 @@ What a Tauri app's page, shell and server share: desktop sign-in, iPhone notific
 
 1. The window opens `desktopSignInAddress(account)` in the browser: `/desktop-sign-in`, with a nonce kept in the window's own storage and the account chosen in the window: `{ account }` for Continue as that account, `'choose'` for Use a different account, which shows Google's list even when the browser is signed in, or `null` for Continue with Google with no account remembered, which takes whoever the browser is signed in as. A second click asks with the same nonce.
 2. In the browser, signed out, the app's sign-in screen goes to Google once per tab when `startGoogleHere()` says so, for `desktopSignInRequest().account` (Google's list for `'choose'` or `null`). Signed in, `useDesktopSignInBrowserPage({ session, scheme })` hands the account over; signed in as another account than the one named, or asked for Google's list, it signs out first, and the sign-in screen goes to Google; back from Google, whoever was picked there goes over. It asks the server for a one-time ticket, opens `<scheme>://sign-in?ticket=…&nonce=…`, and closes the tab once the server says the app has signed in. After a trip to Google the browser will not close the tab, so the app says the window is signed in.
-3. The shell, given that link, dispatches `DESKTOP_SIGN_IN_EVENT` with `{ ticket, nonce }` when the page has set `DESKTOP_SIGN_IN_LISTENING`, else loads the app's address with `TICKET_PARAM` and `NONCE_PARAM` in its fragment, which the browser never sends, so the ticket is in no server's log. It JSON-encodes both values into its script and checks their characters, since any app on the Mac can open the link. Each app holds its shell to these names with a test that reads its Rust.
+3. The shell, given that link, dispatches `DESKTOP_SIGN_IN_EVENT` with `{ ticket, nonce }` when the page has set `DESKTOP_SIGN_IN_LISTENING`, else loads the app's address with `TICKET_PARAM` and `NONCE_PARAM` in its fragment, which the browser never sends, so the ticket is in no server's log. It JSON-encodes both values into its script and checks their characters, since any app on the Mac can open the link. The kit's window plugin does all of this (A window onto the hosted site, above), held to these names by the kit's own test; an app that writes its own shell instead holds it to them with a test that reads its Rust.
 4. The page calls `listenForDesktopSignIn()` from its first script, and `useDesktopSignInWindow(session)` signs in with the link through the adapter's `ticket`, only when the nonce is the one the window asked with. The nonce is used up once the ticket works, so a fresh ticket after an expired one still signs in; links that come while one is being taken, or while signed in, are dropped. An iPhone app runs the browser page in Apple's sign-in sheet instead, which returns the link to the page (iPhone sign-in, below).
 
 A later Google consent, such as asking for calendar access after sign-in, starts in the browser the same way: Google refuses it in the window, and Clerk refuses to finish a trip to Google that the window started (`authorization_invalid`), since Google returns to Clerk in the browser.

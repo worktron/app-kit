@@ -1,7 +1,8 @@
 /*
- * The names the desktop sign-in shares with each app's shell, which is Rust and cannot import them. Each app holds its
- * shell to these with a test that reads its Rust and looks for each one, so a rename here fails that app's tests
- * rather than its sign-in.
+ * The names the desktop sign-in shares with the app's shell, which is Rust and cannot import them. The kit's window
+ * plugin (tauri/window/plugin) is that shell, and test/tauri-window.test.ts reads its Rust and holds it to each one, so
+ * a rename here fails the kit's tests rather than a sign-in. An app that writes its own shell holds it to these with a
+ * test of its own.
  */
 
 /** The browser page that signs the desktop app in. The app's window opens it in the default browser, never in itself. */

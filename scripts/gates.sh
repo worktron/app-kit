@@ -2,7 +2,8 @@
 # The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium, the kit's
 # WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, and the Rust and Swift of the iPhone notifications
-# and iPhone sign-in plugins built for the iPhone simulator.
+# and iPhone sign-in plugins built for the iPhone simulator, and the window plugin's Rust tests and its lint, for the Mac
+# and the iPhone simulator, with no warnings, since its warnings would show in every app's build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bun install --frozen-lockfile >/dev/null
@@ -24,3 +25,7 @@ export CARGO_TARGET_DIR="$HOME/Library/Caches/app-kit/cargo-target"
 for plugin in tauri/iphone-notifications/plugin tauri/iphone-sign-in/plugin; do
   (cd "$plugin" && cargo build --locked --quiet --target aarch64-apple-ios-sim && cargo check --locked --quiet)
 done
+(cd tauri/window/plugin \
+  && cargo clippy --locked --quiet --all-targets -- -D warnings \
+  && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
+  && cargo test --locked --quiet)
