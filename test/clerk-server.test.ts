@@ -3,11 +3,12 @@
  * recorded against a real development instance (fixtures/clerk-api-key-verify.json). What these do not cover, a
  * session token, was checked live against the same instance: a session reaches every route.
  */
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { Hono } from 'hono';
-import { clerkMiddleware } from '@clerk/hono';
+import { clerkMiddleware, getAuth } from '@clerk/hono';
 import { callerOf, requireCaller } from '../authentication/agent-keys';
-import { clerkCaller } from '../authentication/clerk/server';
+import { clerkCaller, clerkServerSignIn } from '../authentication/clerk/server';
 import recorded from './fixtures/clerk-api-key-verify.json';
 
 const SECRET = `ak_${'s'.repeat(32)}`;
@@ -20,7 +21,7 @@ beforeEach(() => {
   // Clerk reads the global fetch on each call while NODE_ENV is test, which bun test sets.
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url !== 'https://api.clerk.com/api_keys/verify') throw new Error(`unexpected request to ${url}`);
+    if (url !== 'https://api.clerk.com/api_keys/verify' && url !== 'https://api.clerk.com/v1/jwks') throw new Error(`unexpected request to ${url}`);
     return clerkAnswer();
   }) as typeof fetch;
 });
@@ -94,4 +95,55 @@ test('no sign-in at all is nobody, and is not logged', async () => {
   const res = await app().request('/api/items/abc');
   expect(res.status).toBe(401);
   expect(logged).toEqual([]);
+});
+
+describe('clerkServerSignIn', () => {
+  // Clerk checks a session token against the keys it fetches from its Backend API; here that answer is a key made for
+  // the test, so the real middleware takes a session signed below with no network.
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 65537 });
+  // Clerk keeps the keys it fetched for the life of the process, by id, so each key made here has an id of its own.
+  const KID = `ins_stand_in_session_key_${crypto.randomUUID()}`;
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: KID, alg: 'RS256', use: 'sig' };
+  const ENV = { CLERK_SECRET_KEY: 'sk_test_stand_in', CLERK_PUBLISHABLE_KEY: `pk_test_${btoa('example.clerk.accounts.dev$')}` };
+
+  const base64url = (data: string | Buffer) => Buffer.from(data).toString('base64url');
+  function sessionToken(azp: string) {
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64url(JSON.stringify({ alg: 'RS256', kid: KID, typ: 'JWT' }));
+    const payload = base64url(
+      JSON.stringify({ sub: 'user_stand_in_person', sid: 'sess_stand_in', azp, iss: 'https://example.clerk.accounts.dev', iat: now - 5, nbf: now - 5, exp: now + 60 }),
+    );
+    return `${header}.${payload}.${base64url(sign('RSA-SHA256', Buffer.from(`${header}.${payload}`), privateKey))}`;
+  }
+
+  function server(env: Record<string, string>) {
+    const signIn = clerkServerSignIn({ env, log: () => {} });
+    const a = new Hono();
+    a.use('/api/*', signIn.middleware);
+    a.get('/api/me', (c) => c.json({ userId: getAuth(c).userId ?? null }));
+    return a;
+  }
+  const asSession = (azp: string) => ({ headers: { Authorization: `Bearer ${sessionToken(azp)}` } });
+
+  beforeEach(() => {
+    clerkAnswer = () => Response.json({ keys: [jwk] });
+  });
+
+  test('with APP_ORIGIN set, a session made for the app is taken and one made for another site is not', async () => {
+    const app = server({ ...ENV, APP_ORIGIN: 'https://app.example.com/' });
+    expect(await (await app.request('/api/me', asSession('https://app.example.com'))).json()).toEqual({ userId: 'user_stand_in_person' });
+    expect(await (await app.request('/api/me', asSession('https://other.example.com'))).json()).toEqual({ userId: null });
+  });
+
+  test('without APP_ORIGIN, a session from any site is taken', async () => {
+    const app = server(ENV);
+    expect(await (await app.request('/api/me', asSession('https://other.example.com'))).json()).toEqual({ userId: 'user_stand_in_person' });
+  });
+
+  test('with none of its settings on the dev Mac, it runs open behind the this-machine check', async () => {
+    const signIn = clerkServerSignIn({ env: {}, also: ['OWNER_EMAIL'], log: () => {} });
+    expect(signIn.required).toBe(false);
+    expect(signIn.hostname).toBe('127.0.0.1');
+    expect(() => clerkServerSignIn({ env: { ...ENV, NODE_ENV: 'production' }, also: ['OWNER_EMAIL'] })).toThrow('A hosted server needs OWNER_EMAIL.');
+  });
 });

@@ -81,6 +81,17 @@ test('signing in by emailed code and signing out load no page, and sign-in lands
   expect(count.loads).toBe(0);
 });
 
+test('signing up by emailed code loads no page, and lands on the asked address', async ({ page }) => {
+  await serve(page);
+  await page.goto('/items/1?sign-up');
+  await expect(heading(page)).toHaveText('Sign in');
+  const count = countLoads(page);
+
+  await signInByCode(page, 'new@example.com');
+  await expect(heading(page)).toHaveText('The app at /items/1?sign-up');
+  expect(count.loads).toBe(0);
+});
+
 test("Google costs only the provider's own trip, and lands on the asked address", async ({ page }) => {
   await serve(page);
   await page.goto('/items/1');

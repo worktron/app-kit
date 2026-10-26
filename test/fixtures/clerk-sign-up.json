@@ -1,0 +1,95 @@
+{
+  "_about": "Clerk Frontend API answers for an emailed code to an address with no account, recorded on 2026-10-26 against the development instance of one of the apps, through a fresh development browser and a Clerk testing token, so no bot check came between. The instance: sign-up mode public, enumeration protection bulk, smart bot protection on, email code for sign-in and for verifying at sign-up, and a password required at sign-up. Kept to the fields the kit reads, with each answer's client left out, the address replaced with a stand-in and ids with stand-ins. signInUnknown: a plain sign-in, as with sign-up off. signInSignUpIfMissing and prepareEmailCode: the sign-in started to sign up if missing goes on to an emailed code as if the account existed. wrongCode: a wrong code. Not recorded, so taken from Clerk's documentation (clerk.com/docs, sign-in-or-up custom flow, read 2026-10-26) and its types and never asserted as Clerk's behavior: the right code's answer for an address with no account (the error sign_up_if_missing_transfer), which the instance did not give for the test code 424242, and the sign-up that the transfer then makes. On this instance that sign-up would stop at missing_requirements for the password.",
+  "signInUnknown": {
+    "status": 422,
+    "body": {
+      "errors": [
+        {
+          "message": "Couldn't find your account.",
+          "long_message": "Couldn't find your account.",
+          "code": "form_identifier_not_found",
+          "meta": {
+            "param_name": "identifier"
+          }
+        }
+      ]
+    }
+  },
+  "signInSignUpIfMissing": {
+    "status": 200,
+    "body": {
+      "response": {
+        "object": "sign_in_attempt",
+        "id": "sia_stand_in_sign_in",
+        "status": "needs_first_factor",
+        "identifier": "new-person+clerk_test@example.com",
+        "supported_first_factors": [
+          {
+            "strategy": "password"
+          },
+          {
+            "strategy": "email_code",
+            "safe_identifier": "new-person+clerk_test@example.com",
+            "email_address_id": "idn_stand_in_email",
+            "primary": true
+          },
+          {
+            "strategy": "reset_password_email_code",
+            "safe_identifier": "new-person+clerk_test@example.com",
+            "email_address_id": "idn_stand_in_email",
+            "primary": true
+          }
+        ],
+        "first_factor_verification": null
+      }
+    }
+  },
+  "prepareEmailCode": {
+    "status": 200,
+    "body": {
+      "response": {
+        "object": "sign_in_attempt",
+        "id": "sia_stand_in_sign_in",
+        "status": "needs_first_factor",
+        "identifier": "new-person+clerk_test@example.com",
+        "supported_first_factors": [
+          {
+            "strategy": "password"
+          },
+          {
+            "strategy": "email_code",
+            "safe_identifier": "new-person+clerk_test@example.com",
+            "email_address_id": "idn_stand_in_email",
+            "primary": true
+          },
+          {
+            "strategy": "reset_password_email_code",
+            "safe_identifier": "new-person+clerk_test@example.com",
+            "email_address_id": "idn_stand_in_email",
+            "primary": true
+          }
+        ],
+        "first_factor_verification": {
+          "object": "verification_otp",
+          "status": "unverified",
+          "strategy": "email_code"
+        }
+      }
+    }
+  },
+  "wrongCode": {
+    "status": 422,
+    "body": {
+      "errors": [
+        {
+          "message": "is incorrect",
+          "long_message": "Incorrect code",
+          "code": "form_code_incorrect",
+          "meta": {
+            "param_name": "code"
+          }
+        }
+      ]
+    }
+  }
+}

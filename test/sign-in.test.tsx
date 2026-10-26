@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { request } from '../web/fetch';
 import { resetConnection } from '../web/connection';
-import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, useSignIn, useSignOut } from '../web/sign-in/SignInGate';
+import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, usePerson, useSignIn, useSignOut } from '../web/sign-in/SignInGate';
 import { lastAccount, rememberAccount, rememberSignedIn } from '../web/sign-in/remembered';
 import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../authentication/stand-in';
+import { noAccountFor } from '../web/sign-in/provider';
 
 const realFetch = globalThis.fetch;
 
@@ -269,4 +270,90 @@ test('outside the gate there is no Sign out, so the app draws none', () => {
   }
   render(<Bar />);
   expect(screen.getByText('no sign-in here')).toBeTruthy();
+});
+
+describe('sign-up by emailed code', () => {
+  const NEW = 'new@example.com';
+
+  /** A sign-in screen that sends the code to an address with no account, then checks it. */
+  function NewAddressScreen() {
+    const signIn = useSignIn();
+    const [message, setMessage] = useState<string>();
+    return (
+      <main>
+        <h1>Sign in</h1>
+        {message && <p role="alert">{message}</p>}
+        <button
+          onClick={async () => {
+            const sent = await signIn.sendEmailCode(NEW);
+            if (!sent.ok) return setMessage(sent.message);
+            const checked = await signIn.checkEmailCode(STAND_IN_CODE, NEW);
+            if (!checked.ok) setMessage(checked.message);
+          }}
+        >
+          Email code
+        </button>
+      </main>
+    );
+  }
+
+  function drawWith(provider: StandInSignIn, signUp: boolean) {
+    return render(
+      <SignInGate provider={provider} placeholder={<div role="progressbar" />} signedOut={<NewAddressScreen />} signUp={signUp}>
+        <App />
+      </SignInGate>,
+    );
+  }
+
+  test("with the gate's sign-up on, an address with no account gets a code that makes the account and signs in", async () => {
+    const provider = standInSignIn({ accounts: ['ana@example.com'] });
+    drawWith(provider, true);
+    await press('Email code');
+    expect(heading()).toBe('The app at /');
+    expect(provider.calls.signUps).toEqual([NEW]);
+  });
+
+  test('with it off, the address is told it has no account and nothing is made', async () => {
+    const provider = standInSignIn({ accounts: ['ana@example.com'] });
+    drawWith(provider, false);
+    await press('Email code');
+    expect(screen.getByRole('alert').textContent).toBe(noAccountFor(NEW));
+    expect(provider.calls.signUps).toEqual([]);
+  });
+
+  test('the stand-in makes the account only when the code is checked, and a later send without sign-up does not', async () => {
+    const provider = standInSignIn({ accounts: [] });
+    let current: ReturnType<StandInSignIn['useSession']> | null = null;
+    function Read() {
+      current = provider.useSession();
+      return null;
+    }
+    render(<Read />);
+    expect(await current!.sendEmailCode(NEW, { signUp: true })).toEqual({ ok: true });
+    expect(provider.calls.signUps).toEqual([]);
+    // Abandoned: a send without sign-up drops the sign-up it had started.
+    expect(await current!.sendEmailCode(NEW)).toEqual({ ok: false, message: noAccountFor(NEW) });
+    expect(await current!.checkEmailCode(STAND_IN_CODE, NEW)).toEqual({ ok: false, message: noAccountFor(NEW) });
+    expect(provider.calls.signUps).toEqual([]);
+  });
+});
+
+test('with no provider, the gate draws the app with no sign-in, no sign-out and nobody signed in', () => {
+  let person: unknown = 'unread';
+  let signOut: unknown = 'unread';
+  function Who() {
+    person = usePerson();
+    signOut = useSignOut();
+    return null;
+  }
+  render(
+    <SignInGate provider={null} placeholder={<div role="progressbar" />} signedOut={<SignInScreen />}>
+      <App />
+      <Who />
+    </SignInGate>,
+  );
+  expect(heading()).toBe('The app at /');
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(person).toBeNull();
+  expect(signOut).toBeNull();
 });

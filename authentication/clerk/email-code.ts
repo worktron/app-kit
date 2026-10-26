@@ -1,4 +1,4 @@
-import type { Outcome } from '../../web/sign-in/provider';
+import { noAccountFor, type Outcome } from '../../web/sign-in/provider';
 
 /** Clerk's emailed codes are six digits. */
 export const CODE_LENGTH = 6;
@@ -13,13 +13,27 @@ type Result = Promise<{ error: unknown }>;
 /** The part of Clerk's sign-in object the email code flow uses, so tests can pass a fake. */
 export interface EmailCodeSignIn {
   readonly status: string;
-  create(params: { identifier: string }): Result;
+  create(params: { identifier: string; signUpIfMissing?: boolean }): Result;
   emailCode: {
     sendCode(params: { emailAddress: string }): Result;
     verifyCode(params: { code: string }): Result;
   };
   finalize(): Result;
 }
+
+/** The part of Clerk's sign-up object that makes the account once a sign-in's code shows the address has none. */
+export interface EmailCodeSignUp {
+  readonly status: string | null;
+  readonly missingFields: readonly string[];
+  create(params: { transfer: true }): Result;
+  finalize(): Result;
+}
+
+/** What the person is told when the account was started but Clerk wants more than the email to finish it. */
+export const SIGN_UP_UNFINISHED = 'Making your account did not finish. Try again.';
+
+/** Clerk's answer to a right code for an address with no account, when the sign-in was started to sign up if missing. */
+const TRANSFER_TO_SIGN_UP = 'sign_up_if_missing_transfer';
 
 /** Clerk puts the reason in the first of its API errors, or on the error itself. */
 function errorCode(error: unknown): string | undefined {
@@ -32,7 +46,11 @@ function errorCode(error: unknown): string | undefined {
 export function messageFor(error: unknown, email: string): string {
   switch (errorCode(error)) {
     case 'form_identifier_not_found':
-      return `There is no account for ${email}.`;
+      return noAccountFor(email);
+    case 'sign_up_mode_restricted':
+    case 'sign_up_restricted_waitlist':
+    case 'not_allowed_access':
+      return `This app is not taking new accounts for ${email}.`;
     case 'form_param_format_invalid':
       return 'That is not an email address.';
     case 'form_code_incorrect':
@@ -47,21 +65,49 @@ export function messageFor(error: unknown, email: string): string {
   }
 }
 
-/** Starts a sign-in for the address and emails it a code. */
-export async function sendEmailCode(signIn: EmailCodeSignIn, email: string): Promise<Outcome> {
-  const created = await signIn.create({ identifier: email });
+/**
+ * Starts a sign-in for the address and emails it a code. With `signUp`, Clerk's sign-in goes on to the code whether
+ * the address has an account or not, and only the checked code says which, so nobody learns from this step who has one.
+ */
+export async function sendEmailCode(signIn: EmailCodeSignIn, email: string, options: { signUp?: boolean } = {}): Promise<Outcome> {
+  const created = await signIn.create(options.signUp ? { identifier: email, signUpIfMissing: true } : { identifier: email });
   if (created.error) return { ok: false, message: messageFor(created.error, email) };
   const sent = await signIn.emailCode.sendCode({ emailAddress: email });
   if (sent.error) return { ok: false, message: messageFor(sent.error, email) };
   return { ok: true };
 }
 
-/** Checks the code and, once Clerk says the sign-in is complete, makes its session the active one. */
-export async function checkEmailCode(signIn: EmailCodeSignIn, code: string, email: string): Promise<Outcome> {
+/**
+ * Checks the code and, once Clerk says the sign-in is complete, makes its session the active one. A right code for an
+ * address with no account, on a sign-in started with sign-up on, makes the account through `signUp` and signs in to it.
+ */
+export async function checkEmailCode(
+  signIn: EmailCodeSignIn,
+  code: string,
+  email: string,
+  signUp?: EmailCodeSignUp,
+  log: (line: string) => void = console.log,
+): Promise<Outcome> {
   const verified = await signIn.emailCode.verifyCode({ code });
+  if (verified.error && signUp && errorCode(verified.error) === TRANSFER_TO_SIGN_UP) return makeAccount(signUp, email, log);
   if (verified.error) return { ok: false, message: messageFor(verified.error, email) };
   if (signIn.status !== 'complete') return { ok: false, message: messageFor(undefined, email) };
   const finalized = await signIn.finalize();
+  if (finalized.error) return { ok: false, message: messageFor(finalized.error, email) };
+  return { ok: true };
+}
+
+/** Makes the account the checked code was for, and makes its session the active one. */
+async function makeAccount(signUp: EmailCodeSignUp, email: string, log: (line: string) => void): Promise<Outcome> {
+  const created = await signUp.create({ transfer: true });
+  if (created.error) return { ok: false, message: messageFor(created.error, email) };
+  if (signUp.status !== 'complete') {
+    // The instance asks for more than an email, such as a name or a password, or its bot check wants a challenge
+    // (protect_check): the kit's sign-up collects only the address.
+    log(`[sign-in] sign-up for a new account did not finish: Clerk is ${signUp.status} and still wants ${signUp.missingFields.join(', ') || 'nothing it names'}`);
+    return { ok: false, message: SIGN_UP_UNFINISHED };
+  }
+  const finalized = await signUp.finalize();
   if (finalized.error) return { ok: false, message: messageFor(finalized.error, email) };
   return { ok: true };
 }

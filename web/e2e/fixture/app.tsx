@@ -20,8 +20,11 @@ import {
 } from '../..';
 import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
 
+// Opened with ?sign-up, only ana@example.com has an account and the gate makes one for any other address.
+const signUp = new URLSearchParams(window.location.search).has('sign-up');
+
 // Who is signed in lasts across page loads in this tab, as a provider's cookie would.
-const provider = standInSignIn({ store: sessionStorage });
+const provider = standInSignIn({ store: sessionStorage, accounts: signUp ? ['ana@example.com'] : undefined });
 
 const Later = lazy(() => import('./Later'));
 
@@ -178,7 +181,7 @@ export function start(itemsOf: (answer: Answer) => Item[]) {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ErrorBoundary placeholder={placeholder}>
-        <SignInGate provider={provider} placeholder={placeholder} signedOut={<SignInScreen />} waitForFirstDraw>
+        <SignInGate provider={provider} placeholder={placeholder} signedOut={<SignInScreen />} waitForFirstDraw signUp={signUp}>
           <App itemsOf={itemsOf} />
         </SignInGate>
       </ErrorBoundary>

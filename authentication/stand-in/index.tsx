@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import { TICKET_FAILED, type GoogleReturnProps, type Outcome, type ProviderSession, type SignedInPerson, type SignInProvider } from '../../web/sign-in/provider';
+import { noAccountFor, TICKET_FAILED, type GoogleReturnProps, type Outcome, type ProviderSession, type SignedInPerson, type SignInProvider } from '../../web/sign-in/provider';
 import type { KeyValueStore } from '../../web/storage';
 
 /** The code the stand-in takes, as Clerk's development instance takes 424242 for a +clerk_test address. */
@@ -20,6 +20,8 @@ export interface StandInCalls {
   google: { callbackPath: string; account: string | null }[];
   sendEmailCode: string[];
   checkEmailCode: string[];
+  /** Each address whose account an emailed code made. */
+  signUps: string[];
   tickets: string[];
   signOut: number;
   tokens: { fresh: boolean }[];
@@ -47,16 +49,24 @@ export interface StandInOptions {
   store?: KeyValueStore;
   /** What a Google sign-in does. The default leaves the page for the callback path, as the real trip does. */
   leaveForGoogle?: (callbackPath: string) => void;
+  /**
+   * The addresses that have an account, for an emailed code. Every address has one when this is left out. Accounts an
+   * emailed code makes are kept in memory only, so a page load forgets them, as a test's fresh stand-in would.
+   */
+  accounts?: string[];
 }
 
 /** A sign-in provider with no network, for tests of the kit and of apps built on it. */
-export function standInSignIn({ person = null, loaded = true, store, leaveForGoogle = (path) => window.location.assign(path) }: StandInOptions = {}): StandInSignIn {
+export function standInSignIn({ person = null, loaded = true, store, leaveForGoogle = (path) => window.location.assign(path), accounts }: StandInOptions = {}): StandInSignIn {
   const stored = store?.getItem(PERSON_KEY);
   let state = { loaded, person: stored ? (JSON.parse(stored) as SignedInPerson) : stored === '' ? null : person };
   let tokenCount = 0;
   const usedTickets = new Set<string>();
+  const known = accounts ? new Set(accounts) : null;
+  // Addresses sent a code with sign-up on and no account yet: the right code makes the account, as Clerk's does.
+  const signingUp = new Set<string>();
   const listeners = new Set<() => void>();
-  const calls: StandInCalls = { google: [], sendEmailCode: [], checkEmailCode: [], tickets: [], signOut: 0, tokens: [] };
+  const calls: StandInCalls = { google: [], sendEmailCode: [], checkEmailCode: [], signUps: [], tickets: [], signOut: 0, tokens: [] };
 
   const set = (next: Partial<typeof state>) => {
     state = { ...state, ...next };
@@ -83,13 +93,23 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
       leaveForGoogle(callbackPath);
       return ok;
     },
-    sendEmailCode: async (email: string) => {
+    sendEmailCode: async (email: string, options?: { signUp?: boolean }): Promise<Outcome> => {
       calls.sendEmailCode.push(email);
+      signingUp.delete(email);
+      if (known && !known.has(email)) {
+        if (!options?.signUp) return { ok: false, message: noAccountFor(email) };
+        signingUp.add(email);
+      }
       return ok;
     },
     checkEmailCode: async (code: string, email: string): Promise<Outcome> => {
       calls.checkEmailCode.push(code);
       if (code !== STAND_IN_CODE) return { ok: false, message: WRONG_CODE };
+      if (known && !known.has(email)) {
+        if (!signingUp.delete(email)) return { ok: false, message: noAccountFor(email) };
+        known.add(email);
+        calls.signUps.push(email);
+      }
       set({ person: { id: `person-${email}`, email } });
       return ok;
     },

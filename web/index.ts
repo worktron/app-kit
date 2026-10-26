@@ -26,5 +26,5 @@ export {
   type GoogleAccount,
   type SignInGateProps,
 } from './sign-in/SignInGate';
-export { TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome } from './sign-in/provider';
+export { noAccountFor, TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome } from './sign-in/provider';
 export { lastAccount } from './sign-in/remembered';

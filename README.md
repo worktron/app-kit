@@ -7,7 +7,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, and a Vite plugin for the first frame. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
-| `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
+| `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../server-sign-in` | Who is calling: Clerk's adapter, the test stand-in, keys for agents with their API reference, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
 
@@ -41,7 +41,7 @@ bun add github:worktron/app-kit#v0.13.1
 | Pull to refresh | `PullToRefresh`, `isInstalledApp`, `isIphoneApp` | In an installed app, the iPhone app or a web app opened from the home screen, a pull down from the top of the page reloads it, or runs the app's own refresh and looks for a newer deploy. Never over typed text, and never from a field, a menu, a dialog, a scrolled list or a sideways swipe. See below. |
 | The first frame | `firstPaint`, from `app-kit/web/first-paint` | A Vite plugin that paints the page in the app's colors, light or dark or the app's own choice, with the phone's bar to match, before any of the app's code loads. See below. |
 | The first draw after the fonts | `waitForFonts` | Holds the first draw until the app's faces are in, at most a second and a half, so no text swaps from a fallback face. See below. |
-| Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
+| Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. With `signUp`, an emailed code to an address with no account makes the account once the code is checked; without, the address is told it has none (`noAccountFor`). Given a null provider, it draws the app with no sign-in. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
 | The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, built files kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
 
@@ -49,12 +49,12 @@ bun add github:worktron/app-kit#v0.13.1
 
 ```tsx
 import { ErrorBoundary, SignInGate, reloadOnFailedLoad, configureConnection, followTextSize } from 'app-kit/web';
-import { clerkSignIn } from 'app-kit/authentication/clerk';
+import { signInFromEnvironment } from 'app-kit/authentication/clerk';
 
 reloadOnFailedLoad();
 configureConnection({ probePath: '/api/health' });
 followTextSize();
-const provider = clerkSignIn({ publishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY });
+const provider = signInFromEnvironment(import.meta.env);
 
 createRoot(root).render(
   <ErrorBoundary placeholder={<Wordmark />}>
@@ -64,6 +64,8 @@ createRoot(root).render(
   </ErrorBoundary>,
 );
 ```
+
+`signInFromEnvironment` picks who signs in from the build's settings: the stand-in under `VITE_SIGN_IN=stand-in`, for browser tests; Clerk with `VITE_CLERK_PUBLISHABLE_KEY`; and nobody with neither, for a server that runs open on this machine (see Sign-in when hosted, below), where the gate draws the app straight away. A hosted build that lost its key is not left open by this: its server refuses to start without its own keys. Pass `clerkSignIn({ publishableKey })` instead to pick Clerk outright.
 
 The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account, `google('remembered')`, `google('choose')` and `google({ account })` for an account chosen in another window, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. With `waitForFirstDraw`, the app is rendered from the start, so its requests go out, but none of it shows until it calls `useAppDrawn()`'s function, so the whole screen appears at once. Every screen calls it once its first data is in or has failed to come, and a screen with nothing to load calls it at once: a screen that never calls it stays hidden. Every request goes through `request`.
 
@@ -624,8 +626,9 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 
 | Piece | Import | What it does |
 | --- | --- | --- |
-| Clerk | `app-kit/authentication/clerk` | `clerkSignIn({ publishableKey })`, the first adapter for the web kit's sign-in gate. |
-| Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`, and `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail`. |
+| Clerk | `app-kit/authentication/clerk` | `clerkSignIn({ publishableKey })`, the first adapter for the web kit's sign-in gate; `signInFromEnvironment(import.meta.env)`, which picks Clerk, the stand-in or nobody from the page's build settings; and `useClerkSession`, the adapter's session inside an app's own ClerkProvider. |
+| Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`; `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail`; and `clerkServerSignIn`, the server check below with Clerk's keys. |
+| Sign-in when hosted | `app-kit/authentication/server-sign-in` | `serverSignIn`: a server refuses to start hosted without its sign-in settings, and without any of them on the dev Mac runs open to this machine only. See below. |
 | Stand-in | `app-kit/authentication/stand-in` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
 | Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage` and `serveNewerBuild`, for an app's browser tests. See Browser tests above. |
 | WebKit out of the Dock | `app-kit/web/playwright-webkit` | `webkitWithoutDockIcon`, the launch options that run Playwright's WebKit from a copy macOS keeps out of the Dock. See Browser tests above. |
@@ -638,9 +641,42 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 
 A provider is `{ Root, useSession, GoogleReturn }` (`web/sign-in/provider.ts`): its own context around the app; a hook giving whether it has loaded, who is signed in, a token (fresh on demand), Google sign-in to a callback path naming an account or asking for the list, an emailed code sent and checked, a sign-in with a one-time ticket from the app's server, and sign-out that stays on the page; and a component that finishes the return from Google. Another provider is another adapter, and the apps change only which one they pass to the gate.
 
-Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for uses Clerk's own hooks inside the gate, whose provider is Clerk's. An app with its own `ClerkProvider` and no gate reads the adapter's session with `clerkSignIn({ publishableKey }).useSession()` inside it.
+Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for uses Clerk's own hooks inside the gate, whose provider is Clerk's. An app with its own `ClerkProvider` and no gate reads the adapter's session with `useClerkSession()` inside it. While nobody is signed in, the adapter keeps the place where Clerk's bot check draws its challenge (`<div id="clerk-captcha" />`) after the app, so a sign-up Clerk suspects can still prove it is a person.
+
+**Sign-up by emailed code**, with the gate's `signUp`, goes through Clerk's sign-in-or-sign-up flow: the sign-in is started with `signUpIfMissing`, so an address with or without an account gets a code alike and nobody learns from the first step who has one; a right code for an address with no account then makes the account (`signUp.create({ transfer: true })`) and signs in to it. The instance must take sign-ups (sign-up mode public, not restricted or waitlist), and must need nothing at sign-up beyond the verified email: no password, no required name, no legal consent. Otherwise the account is left unfinished, the person is told "Making your account did not finish", and the server log names the fields Clerk still wants. An instance that takes no new accounts answers with a line saying so. What Clerk answers was recorded against a development instance (`test/fixtures/clerk-sign-up.json`), except the right code's answer for a new address, which comes from Clerk's documentation.
 
 The Clerk instance needs Google on for sign-in and emailed codes as an email sign-in strategy, since the adapter signs in with both. In the settings Clerk's command line tool reads and writes (`clerk config patch`), that is `connection_oauth_google` with `enabled` and `authenticatable` true, and `auth_email` with `used_for_sign_in` true and `email_code` among its `sign_in_strategies`. A production instance copies them from development when it is created as a clone, and Google there also needs the app's own Google OAuth client.
+
+### Sign-in when hosted
+
+`app-kit/authentication/server-sign-in`: a server decides from its environment whether it requires sign-in, and can never come up open where others reach it.
+
+```ts
+import { getAuth } from '@clerk/hono';
+import { clerkServerSignIn, clerkVerifiedEmails } from 'app-kit/authentication/clerk/server';
+import { ownerCheckByEmail, requireOwner } from 'app-kit/authentication/owner';
+
+const port = Number(process.env.PORT ?? 6301);
+const signIn = clerkServerSignIn({ env: process.env, also: ['OWNER_EMAIL'], port });
+app.use('/api/*', signIn.middleware);
+if (signIn.required) {
+  const isOwner = ownerCheckByEmail(signIn.values.OWNER_EMAIL, clerkVerifiedEmails({ secretKey: signIn.values.CLERK_SECRET_KEY }));
+  app.use('/api/*', requireOwner({ identify: (c) => getAuth(c).userId ?? null, isOwner, appName: 'Getter' }));
+} else {
+  // Open on this machine: every request is the local owner.
+  app.use('/api/*', async (c, next) => {
+    c.set('userId', 'local');
+    await next();
+  });
+}
+Bun.serve({ hostname: signIn.hostname, port, fetch: app.fetch });
+```
+
+- **Every setting set** (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` and the app's `also`): sign-in is required, the server listens on every interface, and `middleware` is Clerk's. With `APP_ORIGIN` set, Clerk takes only sessions made for that site.
+- **None set, on the dev Mac**: the server runs open. It listens on 127.0.0.1 only, and `middleware` answers 403 to a request from any other machine, read from the socket and from the `X-Forwarded-For` a proxy on this machine such as Caddy adds, so a forgotten `hostname` or a local proxy fails closed. Open means none of the settings is in the server's environment. Anything that reaches the open server, a Vite proxy or a test's health check, names `127.0.0.1`, not `localhost`, which can resolve to the IPv6 address first; the log line names the address.
+- **Hosted** (any of `RAILWAY_ENVIRONMENT`, `RAILWAY_ENVIRONMENT_NAME`, `RAILWAY_PROJECT_ID`, or `NODE_ENV=production`) **without every setting**, or **only some set anywhere**: it refuses to start, naming each missing setting.
+
+Each decision logs one `[sign-in]` line with its reason. Another provider calls `serverSignIn({ env, settings })` with its own settings and puts its own middleware in front when sign-in is required; nothing in `app-kit/authentication/server-sign-in` imports Clerk.
 
 ### Owner only
 

@@ -1,7 +1,40 @@
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { createClerkClient } from '@clerk/backend';
-import { getAuth } from '@clerk/hono';
+import { clerkMiddleware, getAuth } from '@clerk/hono';
 import type { Caller } from '../agent-keys';
+import { serverSignIn, type EVERY_INTERFACE, type THIS_MACHINE } from '../server-sign-in';
+
+export type ClerkServerSignIn =
+  | { required: true; values: Record<string, string>; hostname: typeof EVERY_INTERFACE; middleware: MiddlewareHandler }
+  | { required: false; hostname: typeof THIS_MACHINE; middleware: MiddlewareHandler };
+
+export interface ClerkServerSignInOptions {
+  /** The server's environment, `process.env`. */
+  env: Record<string, string | undefined>;
+  /** The app's own settings sign-in needs beside Clerk's keys, as `['OWNER_EMAIL']`. */
+  also?: string[];
+  log?: (line: string) => void;
+  /** The port the server listens on, for the log line that names the open server's address. */
+  port?: number;
+}
+
+/**
+ * `serverSignIn` from `app-kit/authentication/server-sign-in` with Clerk's keys, `CLERK_SECRET_KEY` and
+ * `CLERK_PUBLISHABLE_KEY`, and the app's `also`. Mount `middleware` in front of the routes either way: with sign-in
+ * required it is Clerk's, which takes sessions made for `APP_ORIGIN` only when that is set; open, it lets in only this
+ * machine. Pass `hostname` to the server.
+ */
+export function clerkServerSignIn({ env, also = [], log, port }: ClerkServerSignInOptions): ClerkServerSignIn {
+  const decision = serverSignIn({ env, settings: ['CLERK_SECRET_KEY', 'CLERK_PUBLISHABLE_KEY', ...also], log, port });
+  if (!decision.required) return decision;
+  const origin = env.APP_ORIGIN?.trim().replace(/\/+$/, '');
+  const middleware = clerkMiddleware({
+    secretKey: decision.values.CLERK_SECRET_KEY,
+    publishableKey: decision.values.CLERK_PUBLISHABLE_KEY,
+    authorizedParties: origin ? [origin] : undefined,
+  });
+  return { ...decision, middleware };
+}
 
 /**
  * A user's verified email addresses as Clerk holds them, for `ownerCheckByEmail` from `app-kit/authentication/owner`.

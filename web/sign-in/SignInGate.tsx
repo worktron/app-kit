@@ -31,6 +31,7 @@ export interface SignIn {
    * account named outright is for a choice made elsewhere, as in a desktop app's window that hands sign-in to the browser.
    */
   google(account: GoogleAccount): Promise<Outcome>;
+  /** Emails the address a code; with the gate's `signUp`, an address with no account gets one too, to make it. */
   sendEmailCode(email: string): Promise<Outcome>;
   checkEmailCode(code: string, email: string): Promise<Outcome>;
 }
@@ -57,7 +58,8 @@ export const usePerson = () => useContext(PersonContext);
 export const useAppDrawn = () => useContext(AppDrawnContext);
 
 export interface SignInGateProps {
-  provider: SignInProvider;
+  /** Null draws the app with no sign-in, for a server that runs open on this machine: `signInFromEnvironment` gives it. */
+  provider: SignInProvider | null;
   /** The one steady placeholder: the app's wordmark on its own background. */
   placeholder: ReactNode;
   /** The app's sign-in screen, which uses `useSignIn`. */
@@ -73,6 +75,11 @@ export interface SignInGateProps {
    * sign-in, so the whole screen appears at once. Every screen calls it once its first data is in or has failed.
    */
   waitForFirstDraw?: boolean;
+  /**
+   * An emailed code to an address with no account makes the account once the code is checked. Off, such an address is
+   * told it has none, as an app that serves only its owner wants.
+   */
+  signUp?: boolean;
   callbackPath?: string;
   children: ReactNode;
 }
@@ -83,6 +90,7 @@ export interface SignInGateProps {
  * A request the server refuses brings sign-in up over the current address.
  */
 export function SignInGate({ provider, ...props }: SignInGateProps) {
+  if (!provider) return <>{props.children}</>;
   const { Root } = provider;
   return (
     <Root>
@@ -91,7 +99,16 @@ export function SignInGate({ provider, ...props }: SignInGateProps) {
   );
 }
 
-function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, waitForFirstDraw = false, callbackPath = GOOGLE_CALLBACK_PATH, children }: SignInGateProps) {
+function Gate({
+  provider,
+  placeholder,
+  signedOut,
+  whileReturning = placeholder,
+  waitForFirstDraw = false,
+  signUp = false,
+  callbackPath = GOOGLE_CALLBACK_PATH,
+  children,
+}: SignInGateProps & { provider: SignInProvider }) {
   const session = provider.useSession();
   const { loaded, person } = session;
   const { GoogleReturn } = provider;
@@ -167,11 +184,11 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
       },
       sendEmailCode: (address) => {
         setNotice(null);
-        return latest.current.sendEmailCode(address);
+        return latest.current.sendEmailCode(address, { signUp });
       },
       checkEmailCode: (code, address) => latest.current.checkEmailCode(code, address),
     }),
-    [remembered, notice, callbackPath],
+    [remembered, notice, callbackPath, signUp],
   );
 
   if (signingOut || !loaded) return <>{signingOut || lastSignedIn() !== true ? placeholder : whileReturning}</>;

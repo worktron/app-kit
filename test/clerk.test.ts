@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from '../authentication/clerk/email-code';
+import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, SIGN_UP_UNFINISHED, type EmailCodeSignIn, type EmailCodeSignUp } from '../authentication/clerk/email-code';
 import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
 import { TICKET_FAILED } from '../web/sign-in/provider';
+import recorded from './fixtures/clerk-sign-up.json';
 
 const apiError = (code: string) => ({ errors: [{ code, message: 'from Clerk' }] });
 
@@ -10,8 +11,8 @@ function fakeSignIn(fail: Partial<Record<'create' | 'sendCode' | 'verifyCode' | 
   const calls: string[] = [];
   const signIn: EmailCodeSignIn & { status: string } = {
     status: 'needs_identifier',
-    async create({ identifier }) {
-      calls.push(`create ${identifier}`);
+    async create({ identifier, signUpIfMissing }) {
+      calls.push(`create ${identifier}${signUpIfMissing ? ' signUpIfMissing' : ''}`);
       if (!fail.create) signIn.status = 'needs_first_factor';
       return { error: fail.create ?? null };
     },
@@ -116,5 +117,79 @@ describe('a one-time ticket from the browser', () => {
   test('a sign-in left unfinished, or a session that will not become active, says the same', async () => {
     expect(await signInWithTicket(fakeTicketSignIn({}, false).signIn, 'tkt_1')).toEqual({ ok: false, message: TICKET_FAILED });
     expect(await signInWithTicket(fakeTicketSignIn({ finalize: apiError('session_exists') }).signIn, 'tkt_1')).toEqual({ ok: false, message: TICKET_FAILED });
+  });
+});
+
+describe('sign-up by emailed code', () => {
+  const NEW = 'new-person+clerk_test@example.com';
+  /** Clerk's errors as its SDK hands them over: the API's list, with each one's code. */
+  const fromApi = (answer: { body: { errors?: unknown[] } }) => ({ errors: answer.body.errors });
+  // Clerk's documented answer to a right code for an address with no account; the instance recorded against did not
+  // give it for the test code, so it is Clerk's documentation here, not a recording (fixtures/clerk-sign-up.json).
+  const transfer = apiError('sign_up_if_missing_transfer');
+
+  /** Clerk's sign-up object as the transfer uses it, ending at the status it is told. */
+  function fakeSignUp(ends: { status: string; missingFields?: string[] } = { status: 'complete' }) {
+    const calls: string[] = [];
+    const signUp: EmailCodeSignUp & { status: string | null; missingFields: string[] } = {
+      status: null,
+      missingFields: [],
+      async create(params) {
+        calls.push(`signUp.create ${JSON.stringify(params)}`);
+        signUp.status = ends.status;
+        signUp.missingFields = ends.missingFields ?? [];
+        return { error: null };
+      },
+      async finalize() {
+        calls.push('signUp.finalize');
+        return { error: null };
+      },
+    };
+    return { signUp, calls };
+  }
+
+  test("with sign-up off, an address with no account stops at Clerk's recorded answer and is told it has none", async () => {
+    expect(recorded.signInUnknown.body.errors?.[0]?.code).toBe('form_identifier_not_found');
+    const { signIn, calls } = fakeSignIn({ create: fromApi(recorded.signInUnknown) });
+    expect(await sendEmailCode(signIn, NEW)).toEqual({ ok: false, message: `There is no account for ${NEW}.` });
+    expect(calls).toEqual([`create ${NEW}`]);
+  });
+
+  test('with sign-up on, the sign-in is started to sign up if missing and goes on to the code, as Clerk answered it', async () => {
+    // Recorded: an address with no account is offered an emailed code just as one with an account is.
+    expect(recorded.signInSignUpIfMissing.body.response?.status).toBe('needs_first_factor');
+    expect(recorded.signInSignUpIfMissing.body.response?.supported_first_factors.map((f) => f.strategy)).toContain('email_code');
+    const { signIn, calls } = fakeSignIn();
+    expect(await sendEmailCode(signIn, NEW, { signUp: true })).toEqual({ ok: true });
+    expect(calls).toEqual([`create ${NEW} signUpIfMissing`, `sendCode ${NEW}`]);
+  });
+
+  test("a wrong code, as Clerk recorded it, says so and makes no account", async () => {
+    const { signIn } = fakeSignIn({ verifyCode: fromApi(recorded.wrongCode) });
+    const { signUp, calls } = fakeSignUp();
+    expect(await checkEmailCode(signIn, '000000', NEW, signUp)).toEqual({ ok: false, message: 'That code did not match. Use the newest email, or send a new code.' });
+    expect(calls).toEqual([]);
+  });
+
+  test("on Clerk's documented answer to a right code for a new address (not recorded), the account is made and signed in to", async () => {
+    const { signIn } = fakeSignIn({ verifyCode: transfer });
+    const { signUp, calls } = fakeSignUp();
+    expect(await checkEmailCode(signIn, '424242', NEW, signUp)).toEqual({ ok: true });
+    expect(calls).toEqual(['signUp.create {"transfer":true}', 'signUp.finalize']);
+  });
+
+  test('an account Clerk wants more for, such as a password, is told it did not finish, and the log names what is missing', async () => {
+    const logged: string[] = [];
+    const { signIn } = fakeSignIn({ verifyCode: transfer });
+    const { signUp, calls } = fakeSignUp({ status: 'missing_requirements', missingFields: ['password'] });
+    expect(await checkEmailCode(signIn, '424242', NEW, signUp, (line) => logged.push(line))).toEqual({ ok: false, message: SIGN_UP_UNFINISHED });
+    expect(calls).toEqual(['signUp.create {"transfer":true}']);
+    expect(logged).toEqual(['[sign-in] sign-up for a new account did not finish: Clerk is missing_requirements and still wants password']);
+  });
+
+  test('an app that takes no new accounts says so, rather than to try again', () => {
+    for (const code of ['sign_up_mode_restricted', 'sign_up_restricted_waitlist', 'not_allowed_access']) {
+      expect(messageFor(apiError(code), NEW)).toBe(`This app is not taking new accounts for ${NEW}.`);
+    }
   });
 });

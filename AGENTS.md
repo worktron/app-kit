@@ -33,7 +33,8 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
 authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts),
                  stand-in/ (the stand-in sign-in provider, and the Playwright steps for apps' browser tests, playwright.js),
                  agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts),
-                 owner/ (the server check that lets in only the one person an app serves)
+                 owner/ (the server check that lets in only the one person an app serves),
+                 server-sign-in/ (whether a server requires sign-in, from its environment: refused hosted without it, open on this machine only)
 server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
                  migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration)
