@@ -49,3 +49,9 @@ Done when: the kit ships the start page (or a generator for it) taking the origi
 Goal: readGoogleResponse says `later` with retryAfterMs and leaves the loop to each app. argon-watcher's server/gmail/client.ts:123-200 parses Retry-After in both forms and retries with jitter (two tries for 5xx and network errors, five with doubling from 2s for rate limits), and never retries a send that is not idempotent (:206-209). A rate-limit 403 once read as dead auth failed whole production runs twice (387b9b1). Found by the harvest thread, 2026-10-26.
 
 Done when: app-kit/server/google exports a retrying call that takes the request and whether it is safe to repeat, held by tests on a fake clock with recorded answers, and the README's Google section shows it.
+
+## claude-answers · server/anthropic reads a Claude API refusal and pulls JSON out of an answer
+
+Goal: argon-watcher's server/anthropic/refusal.ts:16-29 tells a refusal for the whole account (spend limit, credit balance, billing, 401, 402, 403) from a refusal of one prompt; on 2026-10-25 retrying per item wiped every title. json.ts:17-25 pulls the JSON object out of fenced output with trailing words (c80af4f); cache-warm.ts holds later calls of a kind until the first returns so they read the prompt cache (production showed about 17k tokens of cache creation and zero reads); usage.ts adds up token counts. The stack names Claude, so other apps call it too. Check the current Claude API docs for structured output before carrying json.ts over: it may be the better answer. Found by the harvest thread, 2026-10-26.
+
+Done when: app-kit/server/anthropic exports the refusal reading and whatever of the rest the current API still needs, held by tests on recorded answers, with a README section beside the Google one.
