@@ -3,7 +3,8 @@
 // A caller writes one JSON line per request to the host's socket, with an `id`
 // of its own and a `type`; the host answers with one line carrying that id.
 // The type `status` is the host's own; every other type goes to the extension,
-// whose reply has the type `answer`.
+// whose port (worker/port.js) answers each one with the type `answer`: the
+// extension's reply, a refusal when it has none, or the error it threw.
 
 /** A line a caller sends the host over its socket. */
 export type CallerLine = { id: string; type: string } & Record<string, unknown>

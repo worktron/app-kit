@@ -1,4 +1,4 @@
-// Copied from app-kit 0.4.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.11.0 by `app-kit extension copy`. Change it in the kit.
 // Which build is this profile running, and since when?
 //
 // Chrome shows a build's identity only inside chrome://extensions, which

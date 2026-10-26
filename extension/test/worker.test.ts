@@ -101,6 +101,11 @@ describe('alarms', () => {
   })
 })
 
+/** Resolves once `done` holds; a test that never sees it fails on bun's own timeout. */
+async function until(done: () => boolean) {
+  while (!done()) await Bun.sleep(1)
+}
+
 /** A stand-in for the port Chrome opens to a native host. */
 function fakePort() {
   const onMessage: ((message: unknown) => void)[] = []
@@ -124,20 +129,44 @@ describe('native port', () => {
     const { connect } = nativePort({
       host: 'com.example.test',
       describe: () => ({ version: '0.1.0-src (abc1234)', commit: 'abc1234' }),
-      answer: (message: any) => (message.type === 'echo' ? { type: 'answer', id: message.id, echoed: message.text } : null),
+      answer: (message: any) => (message.type === 'echo' ? { echoed: message.text } : null),
       open: () => fake.port as never,
     })
     await recordWorkerError(new Error('kept'), { now: 0 })
     connect()
     fake.send({ type: 'state', id: 'r1' })
     fake.send({ type: 'echo', id: 'r2', text: 'hi' })
-    fake.send({ type: 'unknown', id: 'r3' })
-    await Bun.sleep(10)
+    await until(() => fake.posted.length === 3)
     // Each reply is posted when it is ready, so they come in any order.
-    expect(fake.posted).toHaveLength(3)
     expect(fake.posted).toContainEqual({ type: 'hello', version: '0.1.0-src (abc1234)', commit: 'abc1234' })
     expect(fake.posted).toContainEqual({ type: 'state', id: 'r1', version: '0.1.0-src (abc1234)', commit: 'abc1234', errors: [expect.objectContaining({ message: 'kept' })] })
     expect(fake.posted).toContainEqual({ type: 'answer', id: 'r2', echoed: 'hi' })
+  })
+
+  test('answers every message with an id: no answer is a refusal, a thrown error is answered and kept, and type and id are its own', async () => {
+    const fake = fakePort()
+    const { connect } = nativePort({
+      host: 'com.example.test',
+      describe: () => ({ version: '1', commit: null }),
+      answer: async (message: any) => {
+        if (message.type === 'echo') return { type: 'mine', id: 'not this one', echoed: message.text }
+        if (message.type === 'broken') throw new Error('it broke')
+        return null
+      },
+      open: () => fake.port as never,
+    })
+    connect()
+    // First: it awaits nothing, so it is settled before the three after it.
+    fake.send({ type: 'no id' })
+    fake.send({ type: 'echo', id: 'r1', text: 'hi' })
+    fake.send({ type: 'unknown', id: 'r2' })
+    fake.send({ type: 'broken', id: 'r3' })
+    await until(() => fake.posted.length === 4)
+    expect(fake.posted).toHaveLength(4)
+    expect(fake.posted).toContainEqual({ type: 'answer', id: 'r1', echoed: 'hi' })
+    expect(fake.posted).toContainEqual({ type: 'answer', id: 'r2', refused: 'The extension has no answer for unknown' })
+    expect(fake.posted).toContainEqual({ type: 'answer', id: 'r3', error: 'it broke' })
+    expect(await getWorkerErrors()).toMatchObject([{ message: 'it broke' }])
   })
 
   test('connects again after the port closes', async () => {

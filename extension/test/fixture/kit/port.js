@@ -1,4 +1,4 @@
-// Copied from app-kit 0.4.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.11.0 by `app-kit extension copy`. Change it in the kit.
 // The worker's native messaging port to a host on this Mac.
 //
 // Chrome starts the host named in the port when the worker connects, and stops
@@ -7,23 +7,27 @@
 // the build it runs, which the host logs. A `state` message is answered here
 // with the worker's build, commit and kept errors (errors.js), which is what
 // the host's status line prints; every other message goes to the extension's
-// own `answer`.
+// own `answer`. Every message with an id is answered, so no caller waits out
+// the host's timeout: the port adds the answer's type and id itself, answers
+// null with a refusal naming the message's type, and answers a thrown error
+// with its message, which it also keeps for the status.
 
-import { getWorkerErrors } from "./errors.js";
+import { getWorkerErrors, recordWorkerError } from "./errors.js";
 
 /** @typedef {{ version: string, commit: string | null } & Record<string, unknown>} WorkerState */
+/** @typedef {Record<string, unknown> | null | undefined} Answer */
 
 /**
  * @param {{
  *   host: string,
  *   describe: () => WorkerState | Promise<WorkerState>,
- *   answer: (message: any) => unknown,
+ *   answer: (message: any) => Answer | Promise<Answer>,
  *   reconnectMs?: number,
  *   open?: () => chrome.runtime.Port,
  * }} options `host` is the native host's name; `describe` says the build and
  *   commit this worker runs, and anything else the status should carry;
- *   `answer` resolves to the reply to one message, or null for none; `open` is
- *   for tests.
+ *   `answer` resolves to the reply to one message, without its type or id, or
+ *   null when the extension has none; `open` is for tests.
  */
 export function nativePort({ host, describe, answer, reconnectMs = 5000, open = () => chrome.runtime.connectNative(host) }) {
   /** @type {chrome.runtime.Port | null} */
@@ -31,12 +35,25 @@ export function nativePort({ host, describe, answer, reconnectMs = 5000, open = 
   /** @type {ReturnType<typeof setTimeout> | null} */
   let reconnectTimer = null;
 
-  /** @param {any} message */
+  /**
+   * The reply to one message from the host, or null for a message with no id,
+   * which nobody waits on.
+   * @param {any} message
+   */
   async function reply(message) {
-    if (message?.type === "state" && typeof message.id === "string") {
-      return { ...(await describe()), errors: await getWorkerErrors(), type: "state", id: message.id };
+    if (typeof message?.id !== "string") return null;
+    const { id } = message;
+    if (message.type === "state") {
+      return { ...(await describe()), errors: await getWorkerErrors(), type: "state", id };
     }
-    return answer(message);
+    try {
+      const answered = await answer(message);
+      if (answered == null) return { type: "answer", id, refused: `The extension has no answer for ${String(message.type)}` };
+      return { ...answered, type: "answer", id };
+    } catch (error) {
+      await recordWorkerError(error);
+      return { type: "answer", id, error: String(/** @type {any} */ (error)?.message ?? error) };
+    }
   }
 
   function scheduleReconnect() {

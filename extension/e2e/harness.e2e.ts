@@ -48,6 +48,8 @@ test('the worker loads under the ID its key gives, connects its host, and answer
   expect(connected).toMatchObject({ connected: true, extension: { version: `0.1.0-src (${first.slice(0, 7)})`, commit: first, errors: [], account: { accountId: '', email: '' } } })
   expect(await ask(socket, { type: 'echo', text: 'through the port' })).toEqual({ echoed: 'through the port' })
   expect(await ask(socket, { type: 'forbidden' })).toEqual({ refused: 'forbidden is never sent' })
+  // The worker's answer returns null for it; the port refuses it, where the host would otherwise time out.
+  expect(await ask(socket, { type: 'unknown' })).toEqual({ refused: 'The extension has no answer for unknown' })
 }, 60_000)
 
 test("the worker's uncaught error reaches the status with its build", async () => {

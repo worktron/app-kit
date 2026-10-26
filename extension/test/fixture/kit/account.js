@@ -1,4 +1,4 @@
-// Copied from app-kit 0.4.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.11.0 by `app-kit extension copy`. Change it in the kit.
 // The browser account this profile is signed into.
 //
 // chrome.identity.getProfileUserInfo needs the "identity" permission, which
