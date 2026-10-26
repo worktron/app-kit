@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ask, hostStatus, NotConnected } from '../host/client.ts'
 import { startHostAsChrome, type HostAsChrome } from '../testing/host.ts'
 
 // The real host, started the way Chrome starts it, with this test as the extension.
-const dir = realpathSync(mkdtempSync('/tmp/ek-'))
+// In the test process's own folder (test/temporary-folder.ts), whose path stays short enough for a socket.
+const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ek-')))
 const socket = join(dir, 'host.sock')
 const logPath = join(dir, 'host.log')
 let host: HostAsChrome
@@ -28,6 +30,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await host.stop()
   rmSync(dir, { recursive: true, force: true })
+})
+
+test("the socket sits in the test process's own folder, under the 104 bytes a socket path may have on macOS", () => {
+  // /tmp is a link on macOS, which realpathSync follows.
+  expect(socket.startsWith(realpathSync(`/tmp/app-kit-tests/${process.pid}`) + '/')).toBe(true)
+  expect(Buffer.byteLength(socket)).toBeLessThan(104)
 })
 
 test('a host that runs but never starts listening is stopped, and the start fails saying so', async () => {

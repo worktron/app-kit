@@ -9,13 +9,15 @@
 
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
-// Short, as a socket path a Node or Python caller can reach on macOS is under 104 bytes.
-const hostDir = realpathSync(mkdtempSync('/tmp/ek-'))
+// In the test process's own folder (test/temporary-folder.ts), whose path stays short: a socket path a Node or Python
+// caller can reach on macOS is under 104 bytes, which the test holds.
+const hostDir = realpathSync(mkdtempSync(join(tmpdir(), 'ek-')))
 const socket = join(hostDir, 'host.sock')
 let ext: LoadedExtension
 let pagesAtStart = 0
