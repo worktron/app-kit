@@ -5,7 +5,7 @@ The app baseline as one public package, which apps install from GitHub at a tag.
 ## Layout
 
 ```
-web/             web apps (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary, row links,
+web/             web apps (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary and its reload after a crash, row links,
                  the phone's Text Size, the sign-in gate and the provider interface it takes (sign-in/provider.ts);
                  playwright-webkit.js, Playwright's WebKit run from a copy macOS keeps out of the Dock (app-kit/web/playwright-webkit);
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium

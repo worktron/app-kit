@@ -4,21 +4,50 @@ import { hidePage, serveNewerBuild, showPage } from '../../authentication/stand-
 // The fixture app (e2e/fixture) built on the kit with the stand-in sign-in, served built, in Chromium. The app's server
 // is played by page.route, so each test says what the server answers.
 
-const ITEMS = { items: [{ id: '1', title: 'Dentist on Tuesday' }, { id: '2', title: 'Renew the passport' }] };
+const ITEMS = [{ id: '1', title: 'Dentist on Tuesday' }, { id: '2', title: 'Renew the passport' }];
 
-type Server = { status: number; down: boolean };
+/** `field` is where the answer holds the items: `items` for the build a page opens on, `rows` for the newer one. */
+type Server = { status: number; down: boolean; field: 'items' | 'rows' };
 
 /** Answers the app's requests: the items, or the status set, or nothing at all while down. */
 async function serve(page: Page): Promise<Server> {
-  const server: Server = { status: 200, down: false };
+  const server: Server = { status: 200, down: false, field: 'items' };
   await page.route('**/api/**', async (route) => {
     if (server.down) return route.abort('connectionrefused');
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/health') return route.fulfill({ body: 'ok' });
     if (server.status !== 200) return route.fulfill({ status: server.status, body: '' });
-    return route.fulfill({ json: ITEMS });
+    return route.fulfill({ json: { [server.field]: ITEMS } });
   });
   return server;
+}
+
+/**
+ * Plays a deploy of the newer build: the index page names newer.html's entry from now on. With `cachedPage`, the page
+ * itself still comes back as the older one, as from a cache that holds it, and only a look past every cache sees the
+ * newer one.
+ */
+async function deployNewer(page: Page, { cachedPage = false } = {}) {
+  await page.route(
+    (url) => url.pathname === '/',
+    async (route) => {
+      const older = cachedPage && route.request().resourceType() === 'document';
+      const response = await route.fetch({ url: new URL(older ? '/index.html' : '/newer.html', route.request().url()).href });
+      await route.fulfill({ response });
+    },
+  );
+}
+
+/** The built entry the page is running. */
+const runningEntry = (page: Page) => page.locator('script[type="module"][src^="/assets/"]').getAttribute('src');
+
+/** What the kit logs about a crash, in order. */
+function crashLog(page: Page) {
+  const lines: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().startsWith('[app-kit] crash')) lines.push(message.text());
+  });
+  return lines;
 }
 
 /** Counts the page's loads after the first, a new page in the same tab included. */
@@ -199,6 +228,101 @@ test('with a newer deploy waiting, a page that is hidden loads it by itself', as
   // The person switches to another tab.
   await hidePage(page);
   await expect.poll(() => count.loads).toBe(1);
+});
+
+test("a screen that crashes on a newer server's data reloads once onto the newer build", async ({ page }) => {
+  const server = await serve(page);
+  await page.goto('/');
+  await signInByCode(page);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  const older = await runningEntry(page);
+  const log = crashLog(page);
+
+  // The newer build goes out, and its server names the items differently.
+  await deployNewer(page);
+  server.field = 'rows';
+  const count = countLoads(page);
+  // The person comes back to the tab: the list loads again, and the older build crashes drawing the answer.
+  await hidePage(page);
+  await showPage(page);
+
+  await expect.poll(() => count.loads).toBe(1);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  expect(await runningEntry(page)).toMatch(/^\/assets\/newer-/);
+  expect(await runningEntry(page)).not.toBe(older);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(log).toEqual([expect.stringMatching(/^\[app-kit\] crash on an older build, reloading: the server serves a newer build, \/assets\/newer-/)]);
+  expect(count.loads).toBe(1);
+});
+
+test('a crash with no newer build shows the crash screen and does not reload', async ({ page }) => {
+  const server = await serve(page);
+  await page.goto('/');
+  await signInByCode(page);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  const log = crashLog(page);
+  const count = countLoads(page);
+
+  // Only the server changed: no build to reload onto.
+  server.field = 'rows';
+  await hidePage(page);
+  await showPage(page);
+
+  // The crash screen is drawn only once the page has decided not to reload.
+  await expect(page.getByRole('alert')).toContainText('Something went wrong');
+  expect(log).toEqual([expect.stringMatching(/^\[app-kit\] crash, not reloading: the server serves this build/)]);
+  expect(count.loads).toBe(0);
+});
+
+test('a reload that lands back on the older build shows the crash screen instead of reloading again', async ({ page }) => {
+  const server = await serve(page);
+  await page.goto('/');
+  await signInByCode(page);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  const log = crashLog(page);
+  await deployNewer(page, { cachedPage: true });
+  server.field = 'rows';
+  const count = countLoads(page);
+
+  await hidePage(page);
+  await showPage(page);
+
+  // One reload, which a cache answers with the older page; it crashes again and stops there.
+  await expect.poll(() => count.loads).toBe(1);
+  await expect(page.getByRole('alert')).toContainText('Something went wrong');
+  expect(await runningEntry(page)).toMatch(/^\/assets\/index-/);
+  expect(log).toEqual([
+    expect.stringMatching(/^\[app-kit\] crash on an older build, reloading/),
+    expect.stringMatching(/^\[app-kit\] crash, not reloading: the page already reloaded once toward \/assets\/newer-/),
+  ]);
+  expect(count.loads).toBe(1);
+});
+
+test('a server that does not answer the build check shows the crash screen', async ({ page }) => {
+  await page.clock.install();
+  const server = await serve(page);
+  await page.goto('/');
+  await signInByCode(page);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  // The look at the index page is never answered; the page gives up on it at its deadline.
+  let asked: () => void = () => {};
+  const looked = new Promise<void>((resolve) => (asked = resolve));
+  await page.route(
+    (url) => url.pathname === '/',
+    () => asked(),
+  );
+  const count = countLoads(page);
+  server.field = 'rows';
+  await hidePage(page);
+  await showPage(page);
+
+  await looked;
+  // While it asks, the app's placeholder stands, never the crash.
+  await expect(page.getByRole('progressbar')).toHaveText('fixture');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.clock.fastForward(3_000);
+  await expect(page.getByRole('alert')).toContainText('Something went wrong');
+  expect(count.loads).toBe(0);
 });
 
 test("off an iPhone the text size is 1 and the page's root size is left alone", async ({ page }) => {

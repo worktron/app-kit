@@ -33,7 +33,7 @@ bun add github:worktron/app-kit#v0.10.0
 | Server-unreachable line | `ConnectionLine`, `useServerReachable`, `onReconnect` | No answer, or a proxy's 502, 503 or 504, shows a line until the server answers again. While down it looks every five seconds and when the browser comes back online or the page back in front. |
 | New-deploy line | `NewBuildLine`, `useNewBuild`, `lookForNewBuild` | An open page looks for a newer build when it comes back in front, at most once a minute, or at once on a pull to refresh, and shows a quiet line with Reload. It reloads by itself only once hidden, or after ten idle minutes, with nothing entered, unless the app passes `reloadsItself: false` to `useNewBuild`, or `reloadsItself={false}` to `NewBuildLine`, because its view holds something only in memory. |
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
-| Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. |
+| Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. A built page first asks the server which build it serves, and when that is a newer one, as after a deploy or a rollback that changed what an answer holds, it reloads by itself onto it, once. Give it the app's `placeholder`, which it draws while it asks. See below. |
 | Links for rows and cards | `RowLink`, `NavigateProvider` | A whole row as a real `<a href>`: ⌘-click and middle-click open a new tab, a plain click moves through the app's navigate. |
 | The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
@@ -51,7 +51,7 @@ followTextSize();
 const provider = clerkSignIn({ publishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY });
 
 createRoot(root).render(
-  <ErrorBoundary>
+  <ErrorBoundary placeholder={<Wordmark />}>
     <SignInGate provider={provider} placeholder={<Wordmark />} signedOut={<SignInScreen />} waitForFirstDraw>
       <App />
     </SignInGate>
@@ -62,6 +62,14 @@ createRoot(root).render(
 The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account, `google('remembered')`, `google('choose')` and `google({ account })` for an account chosen in another window, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. With `waitForFirstDraw`, the app is rendered from the start, so its requests go out, but none of it shows until it calls `useAppDrawn()`'s function, so the whole screen appears at once. Every screen calls it once its first data is in or has failed to come, and a screen with nothing to load calls it at once: a screen that never calls it stays hidden. Every request goes through `request`.
 
 `web/e2e/fixture` is a whole one, which the kit's own browser test runs.
+
+### A page open across a deploy
+
+A tab left open on one build can be handed data in a shape only the next build knows: the server was deployed, or rolled back, while the page stayed. Drawing it crashes, and the kit mends that by itself. When a screen crashes on a built page, the error boundary asks the server for its index page, past every cache, and reads which built entry it names. When that is another build than the one running, the page reloads onto it, and the crash screen never shows. The same build means a real crash, which shows. While it asks, at most three seconds, it draws the `placeholder` it was given, the same one the sign-in gate has, so the person sees one steady screen through the crash, the reload and the sign-in gate. The page reloads at most once toward any one build in a tab, and not again within 30 seconds, so a crash the newer build has too, a reload that a cache answers with the old page, or two builds answering in turn mid-rollout ends on the crash screen rather than in a loop. With storage blocked the reload could not be remembered, so none is made. A boundary around one part of a page does not reload over text typed outside it. The console says what was decided and why, in lines starting `[app-kit] crash`.
+
+The boundary sees only a crash while drawing. A screen keeps the server's answer as it came and reads it while drawing, so a shape it does not know crashes the draw, where the page can recover; reshaping the answer in the request's `.then` throws where nothing catches it, and the screen stays empty until a reload by hand.
+
+The app's server sends the index page so that a browser never keeps it: `Cache-Control: no-cache` on `/` and on every address it answers with `index.html`, which makes the browser ask again on each load. Without the header a browser may reuse the page by its own guess, from its `Last-Modified` date, and a reload lands on the old build. The built files under `/assets/` are named after what they hold, so they are sent with `Cache-Control: public, max-age=31536000, immutable`, and a deploy never changes one under an old name.
 
 ### Browser tests
 

@@ -33,6 +33,12 @@ export function isNewBuild(running: string | null, served: string | null): boole
   return running !== null && served !== null && running !== served;
 }
 
+/** The built entry the index page names now, asked past every cache. Throws when the server cannot be reached. */
+export async function servedEntry(signal?: AbortSignal): Promise<string | null> {
+  const res = await fetch('/', { cache: 'no-store', signal });
+  return res.ok ? builtEntry(await res.text()) : null;
+}
+
 /** The looks of every page using useNewBuild, for lookForNewBuild. */
 const lookNow = new Set<() => void>();
 
@@ -58,10 +64,9 @@ export function useNewBuild({ reloadsItself = true }: { reloadsItself?: boolean 
     const look = (now = false) => {
       if (!now && Date.now() - lastLook < BUILD_CHECK_MS) return;
       lastLook = Date.now();
-      fetch('/', { cache: 'no-store' })
-        .then((res) => (res.ok ? res.text() : ''))
-        .then((html) => {
-          if (isNewBuild(running, builtEntry(html))) setNewBuild(true);
+      servedEntry()
+        .then((served) => {
+          if (isNewBuild(running, served)) setNewBuild(true);
         })
         // Offline, or the server is mid-deploy: the next return looks again.
         .catch(() => undefined);
