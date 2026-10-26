@@ -25,7 +25,7 @@ beforeEach(() => {
     const path = String(input);
     asked.push(path);
     const answer = path in answers ? answers[path] : 'hold';
-    if (answer === 'hold') return new Promise<Response>((resolve) => (held[path] ??= []).push((body) => resolve(Response.json(body))));
+    if (answer === 'hold') return new Promise<Response>((resolve) => (held[path] ??= []).push((body) => resolve(typeof body === 'number' ? new Response('', { status: body }) : Response.json(body))));
     if (typeof answer === 'number') return new Response('', { status: answer });
     return Response.json(answer);
   }) as typeof fetch;
@@ -221,6 +221,24 @@ test("useSaveAfterDraw never saves one person's data for the next who signs in",
   act(() => provider.signInAs({ id: 'person-bea@example.com', email: 'bea@example.com' }));
   await act(async () => {});
   expect(copyKeys()).toEqual(['shop:copy:index-a:person-ana%40example.com:list']);
+});
+
+test("a load still out when its screen goes counts for nothing, so its late 404 deletes nobody's copy", async () => {
+  const ana = signedIn(savedCopies('shop', { build: 'index-a' }), 'ana@example.com');
+  await waitFor(() => expect(held['/api/shelf']).toHaveLength(1));
+  // Ana signs out with her load still out, and Bea signs in and sees her shelf.
+  act(() => ana.endSession());
+  await screen.findByText('Signed out');
+  act(() => ana.signInAs({ id: 'person-bea@example.com', email: 'bea@example.com' }));
+  await waitFor(() => expect(held['/api/shelf']).toHaveLength(2));
+  await act(async () => held['/api/shelf']![1]!({ items: ["Bea's bread"] }));
+  await screen.findByText("Bea's bread");
+  await waitFor(() => expect(copyKeys()).toEqual(['shop:copy:index-a:person-bea%40example.com:/api/shelf']));
+
+  // Ana's load comes back at last: her item is gone.
+  await act(async () => held['/api/shelf']![0]!(404));
+  expect(screen.getByText("Bea's bread")).toBeTruthy();
+  expect(copyKeys()).toEqual(['shop:copy:index-a:person-bea%40example.com:/api/shelf']);
 });
 
 test("useSaveAfterDraw never saves one screen's data under the next screen's key", async () => {

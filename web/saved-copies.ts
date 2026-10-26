@@ -219,6 +219,8 @@ export function useScreenData<T>(copies: SavedCopies, path: string): ScreenData<
     return () => {
       stopReturn();
       stopReconnect();
+      // Loads still out no longer count: the screen is gone, or loading another address or for another person.
+      latest.current++;
     };
   }, [load]);
 
