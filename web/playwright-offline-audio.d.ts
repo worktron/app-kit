@@ -5,7 +5,8 @@ import type { BrowserContext, Page } from '@playwright/test';
 /**
  * Makes every AudioContext the pages of `target` create run on the browser's offline audio engine, paced to the clock,
  * so a page's sound plays through its whole graph and no audio device is ever opened. Call it before the page loads,
- * as with any init script. A context holds ten minutes of sound; past that its graph stops and currentTime holds.
+ * as with any init script. A context holds ten minutes of sound; past that its graph stops and currentTime holds. Its
+ * memory grows with what it renders, about 380 KB a second, and a closed context keeps it until its page goes away.
  */
 export function offlineAudio(
   target: Page | BrowserContext,

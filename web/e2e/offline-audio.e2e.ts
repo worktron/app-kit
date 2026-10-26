@@ -105,6 +105,8 @@ type Output = { pid: number; executable: string; parents: number[] };
 async function recordOutputs() {
   const recorder = spawn(recorderProgram, [], { stdio: ['pipe', 'pipe', 'inherit'] });
   const outputs: Output[] = [];
+  /** Each mark asked of the recorder and not yet answered, oldest first, resolved with how many outputs came before its answer. */
+  const marks: ((before: number) => void)[] = [];
   let heard = () => {};
   let rest = '';
   const ready = new Promise<void>((resolve, reject) => {
@@ -114,6 +116,7 @@ async function recordOutputs() {
       rest = lines.pop()!;
       for (const line of lines) {
         if (line === 'ready') resolve();
+        else if (line === 'mark') marks.shift()?.(outputs.length);
         else if (line) outputs.push(JSON.parse(line) as Output);
       }
       heard();
@@ -122,6 +125,12 @@ async function recordOutputs() {
   await ready;
   return {
     outputs,
+    /** Resolves with how many outputs the recorder has reported once it has polled after this call. */
+    mark: () =>
+      new Promise<number>((resolve) => {
+        marks.push(resolve);
+        recorder.stdin.write('mark\n');
+      }),
     /** Resolves with the first output after the first `after` that `matches`. */
     next: (after: number, matches: (output: Output) => boolean) =>
       new Promise<Output>((resolve) => {
@@ -147,21 +156,21 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
       test.skip(process.platform !== 'darwin', "the recorder reads macOS's audio service");
       const recorder = await recordOutputs();
       try {
-        // Through the kit: the browser is closed before the next starts, so its output, had it opened one, is in the
-        // record before anything the next browser opens.
+        // Through the kit: the browser is closed before the next starts.
         const withKit = await launch();
         const { page } = await openPage(withKit, { startsOnTap: true });
         await page.getByRole('button', { name: 'Play' }).click();
         await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
         const played = await page.evaluate(() => window.play(window.contexts[0]!));
         await withKit.close();
+        // Everything the recorder saw while that browser ran is reported before the answer to a mark sent after it closed.
+        const before = await recorder.mark();
         // The graph ran: the analyser heard the sources through the filter at full swell, and the tone ended on time.
         expect(played.peak).toBeGreaterThan(0.1);
         expect(played.swell).toBe(1);
         expect(played.ended).toBe(true);
         // Paced to the clock: the engine renders a step of 20ms ahead at most, never the whole sound at once.
         expect(played.audio).toBeLessThan(played.clock + 0.03);
-        const before = recorder.outputs.length;
 
         // The same page with the browser's own audio, which opens the output device, and the record sees it.
         const withoutKit = await launch();

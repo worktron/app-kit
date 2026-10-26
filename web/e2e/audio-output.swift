@@ -2,7 +2,9 @@
 // that uses it, and says of each whether it is running output, which is a process with an output device open. Reading
 // it needs no permission. Prints "ready" once it has read the list, then one line of JSON the first time each process
 // is seen running output: its pid, its executable and the pids of its parents, read while it is still running, so a
-// test can tell its own browser from any other. Polls every 20ms, and exits when its input closes.
+// test can tell its own browser from any other. Polls every 20ms, and exits when its input closes. A line "mark" on its
+// input is answered with "mark" once a whole poll that began after it has been printed, so every process that was
+// running output before the mark was sent is in the lines before the answer.
 import CoreAudio
 import Foundation
 
@@ -50,14 +52,26 @@ guard processObjects() != nil else {
   FileHandle.standardError.write("audio-output: macOS's audio service gave no list of processes\n".data(using: .utf8)!)
   exit(1)
 }
+let marks = NSLock()
+var marksAsked = 0
 DispatchQueue.global().async {
-  while FileHandle.standardInput.availableData.count > 0 {}
+  while let line = readLine() {
+    if line == "mark" {
+      marks.lock()
+      marksAsked += 1
+      marks.unlock()
+    }
+  }
   exit(0)
 }
 print("ready")
 fflush(stdout)
 var seen = Set<pid_t>()
 while true {
+  marks.lock()
+  let answering = marksAsked
+  marksAsked = 0
+  marks.unlock()
   for object in processObjects() ?? [] {
     guard number(object, kAudioProcessPropertyIsRunningOutput) == 1, let pid = number(object, kAudioProcessPropertyPID), !seen.contains(pid) else { continue }
     seen.insert(pid)
@@ -65,5 +79,7 @@ while true {
     print(String(data: try! JSONSerialization.data(withJSONObject: line), encoding: .utf8)!)
     fflush(stdout)
   }
+  for _ in 0..<answering { print("mark") }
+  fflush(stdout)
   usleep(20_000)
 }
