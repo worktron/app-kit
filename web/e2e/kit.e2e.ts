@@ -171,6 +171,70 @@ test('the server-unreachable line comes and goes by itself', async ({ page }) =>
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
 });
 
+/** The shelf screen's server: its answer, set by the test, or held until the test lets it go. */
+async function serveShelf(page: Page) {
+  const shelf: { answer: unknown; asked: number; held: (() => void) | null } = { answer: { items: ['Milk'] }, asked: 0, held: null };
+  await page.route('**/api/shelf', async (route) => {
+    shelf.asked++;
+    if (shelf.answer === 'hold') await new Promise<void>((resolve) => (shelf.held = resolve));
+    return route.fulfill({ json: shelf.answer === 'hold' ? { items: ['Bread'] } : shelf.answer });
+  });
+  return shelf;
+}
+
+const copyKeys = (page: Page) => page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('fixture:copy:')));
+
+test('an answer this build cannot draw is never saved, so the next load draws from the network', async ({ page }) => {
+  await serve(page);
+  const shelf = await serveShelf(page);
+  await page.goto('/shelf');
+  await signInByCode(page);
+  await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Milk');
+  await expect.poll(() => copyKeys(page)).toHaveLength(1);
+
+  // A newer server's answer, as an open page gets while a deploy goes out or is rolled back.
+  shelf.answer = { at: '2026-10-25T20:00:00Z' };
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Something went wrong');
+
+  // Rolled back: the next load draws the server's answer.
+  shelf.answer = { items: ['Milk', 'Bread'] };
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  await page.reload();
+  await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('MilkBread');
+  expect(errors).toBe(0);
+});
+
+test('copies saved by another build are deleted and never drawn', async ({ page }) => {
+  await serve(page);
+  const shelf = await serveShelf(page);
+  await page.goto('/shelf');
+  await signInByCode(page);
+  await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Milk');
+  await expect.poll(() => copyKeys(page)).toHaveLength(1);
+  const [mine] = await copyKeys(page);
+  // This build's copy, named by its built entry.
+  expect(mine).toMatch(/^fixture:copy:index-[\w-]+:\/api\/shelf$/);
+
+  // Only an older build's copy is left, as after a rollback to this build.
+  await page.evaluate((key) => {
+    localStorage.removeItem(key);
+    localStorage.setItem('fixture:copy:index-older:/api/shelf', JSON.stringify({ data: { items: ['From the older build'] }, fetchedAt: Date.now() }));
+  }, mine!);
+  shelf.answer = 'hold';
+  const asked = shelf.asked;
+  await page.reload();
+  // The screen asks the server only once it has drawn, so by now a copy it read would show.
+  await expect.poll(() => shelf.asked).toBe(asked + 1);
+  await expect(page.getByText('From the older build')).toHaveCount(0);
+  expect(await copyKeys(page)).toEqual([]);
+
+  shelf.held!();
+  await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Bread');
+  await expect.poll(() => copyKeys(page)).toEqual([mine]);
+});
+
 test('a screen whose code is gone after a deploy reloads the page once, and never loops', async ({ page }) => {
   await serve(page);
   await page.goto('/');

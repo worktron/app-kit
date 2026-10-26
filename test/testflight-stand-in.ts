@@ -189,7 +189,17 @@ export function standInRunner(answer: Answer, real: string[] = ['git', 'plutil',
     if (real.includes(command[0])) return runCommand(command, options);
     return { code: 127, out: `no stand-in for ${command.join(' ')}`, timedOut: false };
   };
-  return { run, calls, named: (program: string) => calls.filter((c) => c.command.join(' ').includes(program)) };
+  return { run, calls, named: (program: string) => calls.filter((c) => runs(c.command, program)) };
+}
+
+/**
+ * Whether a command holds `program`'s words as whole arguments in a row, such as `op item get` or `testflight upload`.
+ * Matching on the joined text took any path with the letters in it for the program: a checkout under `saved-copies`
+ * read as a call to `op`.
+ */
+function runs(command: string[], program: string): boolean {
+  const words = program.split(' ');
+  return command.some((_, start) => words.every((word, i) => command[start + i] === word));
 }
 
 export const ok = (out = ''): RunResult => ({ code: 0, out, timedOut: false });

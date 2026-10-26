@@ -12,7 +12,9 @@ import {
   onReconnect,
   reloadOnFailedLoad,
   request,
+  savedCopies,
   useAppDrawn,
+  useScreenData,
   useSignIn,
   useSignOut,
 } from '../..';
@@ -22,6 +24,8 @@ import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
 const provider = standInSignIn({ store: sessionStorage });
 
 const Later = lazy(() => import('./Later'));
+
+const copies = savedCopies('fixture');
 
 function SignInScreen() {
   const signIn = useSignIn();
@@ -122,13 +126,30 @@ function Items({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   );
 }
 
+/** A screen painted first from its saved copy, which crashes on an answer in any other shape, as a screen does. */
+function Shelf() {
+  const shelf = useScreenData<{ items: string[] }>(copies, '/api/shelf');
+  const appDrawn = useAppDrawn();
+  useLayoutEffect(() => {
+    if (shelf.data || shelf.failure) appDrawn();
+  }, [shelf.data, shelf.failure, appDrawn]);
+  if (!shelf.data) return shelf.failure ? <p>{shelf.failure}</p> : null;
+  return (
+    <ul aria-label="Shelf">
+      {shelf.data.items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
 function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const [address, navigate] = useAddress();
   const signOut = useSignOut();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
   // Only the list waits for data; every other screen is drawn at once.
   const appDrawn = useAppDrawn();
-  const waitsForList = !item && address !== '/later';
+  const waitsForList = !item && address !== '/later' && address !== '/shelf';
   useLayoutEffect(() => {
     if (!waitsForList) appDrawn();
   }, [waitsForList, appDrawn]);
@@ -141,7 +162,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
       </header>
       <main>
         <h1>The app at {address}</h1>
-        {item ? <p>Item {item}</p> : address === '/later' ? <Suspense fallback={null}><Later /></Suspense> : <Items itemsOf={itemsOf} />}
+        {item ? <p>Item {item}</p> : address === '/later' ? <Suspense fallback={null}><Later /></Suspense> : address === '/shelf' ? <Shelf /> : <Items itemsOf={itemsOf} />}
         <RowLink href="/later">Later</RowLink>
       </main>
     </NavigateProvider>

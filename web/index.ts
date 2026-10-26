@@ -2,6 +2,7 @@ export { request, ApiError, SIGN_IN_LOOP_MS } from './fetch';
 export { configureConnection, onReconnect, serverReachable, useServerReachable, PROBE_MS } from './connection';
 export { useNewBuild, lookForNewBuild, builtEntry, runningEntry, isNewBuild, unsavedInput, watchChoices, BUILD_CHECK_MS, IDLE_MS } from './new-build';
 export { onPageReturn, type PageEvents } from './page-return';
+export { savedCopies, useSaveAfterDraw, useScreenData, thisBuild, type SavedCopies, type SavedCopy, type CopyStore, type ScreenData } from './saved-copies';
 export { followTextSize, useTextScale } from './text-size';
 export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';
 export { ErrorBoundary } from './ErrorBoundary';
