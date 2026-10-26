@@ -4,6 +4,7 @@ import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator';
+import { resolve } from 'node:path';
 import postgres from 'postgres';
 
 /** An app's Drizzle schema, every table it exports, as `import * as schema from './schema'` gives it. */
@@ -19,7 +20,8 @@ export type Db<TSchema extends Schema> = PgDatabase<PgQueryResultHKT, TSchema> &
 
 /**
  * Opens the database and brings its schema up to date. A postgres:// URL is a Postgres server, as on Railway.
- * Anything else is an embedded Postgres (PGlite): a folder on disk for local use, or `:memory:`.
+ * Anything else is an embedded Postgres (PGlite): a folder on disk for local use, or `:memory:`. It logs which one it
+ * opened, since a server on Railway whose URL went missing would otherwise run on a folder its next deploy throws away.
  */
 export async function openDb<TSchema extends Schema>(
   location: string,
@@ -29,11 +31,14 @@ export async function openDb<TSchema extends Schema>(
     const client = postgres(location, { onnotice: () => {} });
     const db = Object.assign(drizzlePostgres(client, { schema }), { close: () => client.end() });
     await migrateOrClose(db, () => migratePostgres(db, { migrationsFolder }));
+    const { host, pathname } = new URL(location);
+    console.log(`database: opened Postgres at ${host}${pathname}, migrated`);
     return db;
   }
   const client = location === ':memory:' ? new PGlite() : new PGlite(location);
   const db = Object.assign(drizzlePglite(client, { schema }), { close: () => client.close() });
   await migrateOrClose(db, () => migratePglite(db, { migrationsFolder }));
+  console.log(`database: opened PGlite ${location === ':memory:' ? 'in memory' : `in ${resolve(location)}`}, migrated`);
   return db;
 }
 

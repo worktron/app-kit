@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -71,10 +71,18 @@ describe('openTestDb', () => {
 });
 
 describe('openDb', () => {
-  test('migrates an in-memory PGlite', async () => {
+  let logged: string[];
+  beforeEach(() => {
+    logged = [];
+    spyOn(console, 'log').mockImplementation((line: string) => void logged.push(line));
+  });
+  afterEach(() => mock.restore());
+
+  test('migrates an in-memory PGlite and says so', async () => {
     const db = await openDb(':memory:', options);
     await db.insert(schema.notes).values({ body: 'in memory', length: 9 });
     expect(await db.select({ body: schema.notes.body }).from(schema.notes)).toEqual([{ body: 'in memory' }]);
+    expect(logged).toEqual(['database: opened PGlite in memory, migrated']);
     await db.close();
   });
 
@@ -88,19 +96,22 @@ describe('openDb', () => {
       await first.close();
       const again = await openDb(folder, options);
       expect(await again.select({ body: schema.notes.body }).from(schema.notes)).toEqual([{ body: 'kept' }]);
+      expect(logged).toEqual(Array(2).fill(`database: opened PGlite in ${folder}, migrated`));
       await again.close();
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
   }, 15_000);
 
-  test('opens a postgres:// URL through postgres-js and migrates it', async () => {
+  test('opens a postgres:// URL through postgres-js, migrates it and says where, without the password', async () => {
     // PGlite served over Postgres's own wire protocol stands in for Railway's Postgres, on a port the system picks.
     const served = new PGlite();
     const server = new PGLiteSocketServer({ db: served, port: 0, maxConnections: 10 });
     await server.start();
     try {
-      const db = await openDb(`postgres://postgres@${server.getServerConn()}/postgres`, options);
+      const db = await openDb(`postgres://postgres:not-a-real-password@${server.getServerConn()}/postgres`, options);
+      // The line names the server and the database, never the password.
+      expect(logged).toEqual([`database: opened Postgres at ${server.getServerConn()}/postgres, migrated`]);
       await db.insert(schema.notes).values({ body: 'over the wire', length: 13 });
       await db.close();
       expect((await served.query('select body from notes')).rows).toEqual([{ body: 'over the wire' }]);
