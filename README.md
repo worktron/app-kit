@@ -4,7 +4,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
-| `web/` | `app-kit/web` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes. |
+| `web/` | `app-kit/web`, `.../server` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, and the server's sending of the built page. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
@@ -30,7 +30,7 @@ bun add github:worktron/app-kit#v0.13.1
 | Piece | Import | What it does |
 | --- | --- | --- |
 | Fetch wrapper | `request` | Sends the session's token, reads the status before the body, and returns the parsed JSON. A 401 is asked once more with a fresh token; refused again, sign-in comes up over the current address, once, never in a loop. |
-| Server-unreachable line | `ConnectionLine`, `useServerReachable`, `onReconnect` | No answer, or a proxy's 502, 503 or 504, shows a line until the server answers again. While down it looks every five seconds and when the browser comes back online or the page back in front. |
+| Server-unreachable line | `ConnectionLine`, `useServerReachable`, `onReconnect` | No answer, or a proxy's 502, 503 or 504, shows a line until the server answers again. While down it looks every five seconds and when the browser comes back online or the page back in front. So the app's own server never answers 502, 503 or 504 for a failure past it, such as a call to Google that failed: that is a 500, or the line says the app cannot be reached and every screen loads again. |
 | New-deploy line | `NewBuildLine`, `useNewBuild`, `lookForNewBuild` | An open page looks for a newer build when it comes back in front, at most once a minute, or at once on a pull to refresh, and shows a quiet line with Reload. It reloads by itself only once hidden, or after ten idle minutes, with nothing entered, unless the app passes `reloadsItself: false` to `useNewBuild`, or `reloadsItself={false}` to `NewBuildLine`, because its view holds something only in memory. |
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
 | Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. A built page first asks the server which build it serves, and when that is a newer one, as after a deploy or a rollback that changed what an answer holds, it reloads by itself onto it, once. Give it the app's `placeholder`, which it draws while it asks. See below. |
@@ -39,6 +39,7 @@ bun add github:worktron/app-kit#v0.13.1
 | The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
+| The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, built files kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
 
 ### An app built on it
 
@@ -70,7 +71,16 @@ A tab left open on one build can be handed data in a shape only the next build k
 
 The boundary sees only a crash while drawing. A screen keeps the server's answer as it came and reads it while drawing, so a shape it does not know crashes the draw, where the page can recover; reshaping the answer in the request's `.then` throws where nothing catches it, and the screen stays empty until a reload by hand.
 
-The app's server sends the index page so that a browser never keeps it: `Cache-Control: no-cache` on `/` and on every address it answers with `index.html`, which makes the browser ask again on each load. Without the header a browser may reuse the page by its own guess, from its `Last-Modified` date, and a reload lands on the old build. The built files under `/assets/` are named after what they hold, so they are sent with `Cache-Control: public, max-age=31536000, immutable`, and a deploy never changes one under an old name.
+The app's server sends the index page so that a browser never keeps it: `Cache-Control: no-cache` on `/` and on every address it answers with `index.html`, which makes the browser ask again on each load. Without the header a browser may reuse the page by its own guess, from its `Last-Modified` date, and a reload lands on the old build. The built files under `/assets/` are named after what they hold, so they are sent with `Cache-Control: public, max-age=31536000, immutable`, and a deploy never changes one under an old name. `serveBuiltPage` from `app-kit/web/server` sends them so, mounted after the app's own routes:
+
+```ts
+import { serveBuiltPage } from 'app-kit/web/server';
+
+const page = serveBuiltPage('dist');
+app.get('*', (c) => page(c.req.raw)); // Hono; a bare Bun.serve passes it as its fetch
+```
+
+A missing file, any address with a file's extension, is a 404 rather than the page, so an old build asking for screen code a deploy removed gets an answer `reloadOnFailedLoad` reads, never HTML it would try to run. An address under `/api/` that no route took is a JSON 404, `{ "error": "Not found" }`; an app whose API is elsewhere passes `{ api: '/v1/' }`. Only GET and HEAD are answered, and an escaped `..` never leaves the folder. It is a plain `(Request) => Promise<Response>` with no React, so the server imports it without the web part's peers. The kit's own browser tests serve their fixture through it.
 
 ### Saved copies of screens
 
@@ -253,6 +263,8 @@ What a Tauri app's page, shell and server share: desktop sign-in, iPhone notific
 2. In the browser, signed out, the app's sign-in screen goes to Google once per tab when `startGoogleHere()` says so, for `desktopSignInRequest().account` (Google's list for `'choose'` or `null`). Signed in, `useDesktopSignInBrowserPage({ session, scheme })` hands the account over; signed in as another account than the one named, or asked for Google's list, it signs out first, and the sign-in screen goes to Google; back from Google, whoever was picked there goes over. It asks the server for a one-time ticket, opens `<scheme>://sign-in?ticket=…&nonce=…`, and closes the tab once the server says the app has signed in. After a trip to Google the browser will not close the tab, so the app says the window is signed in.
 3. The shell, given that link, dispatches `DESKTOP_SIGN_IN_EVENT` with `{ ticket, nonce }` when the page has set `DESKTOP_SIGN_IN_LISTENING`, else loads the app's address with `TICKET_PARAM` and `NONCE_PARAM` in its fragment, which the browser never sends, so the ticket is in no server's log. It JSON-encodes both values into its script and checks their characters, since any app on the Mac can open the link. Each app holds its shell to these names with a test that reads its Rust.
 4. The page calls `listenForDesktopSignIn()` from its first script, and `useDesktopSignInWindow(session)` signs in with the link through the adapter's `ticket`, only when the nonce is the one the window asked with. The nonce is used up once the ticket works, so a fresh ticket after an expired one still signs in; links that come while one is being taken, or while signed in, are dropped. An iPhone app runs the browser page in Apple's sign-in sheet instead, which returns the link to the page (iPhone sign-in, below).
+
+A later Google consent, such as asking for calendar access after sign-in, starts in the browser the same way: Google refuses it in the window, and Clerk refuses to finish a trip to Google that the window started (`authorization_invalid`), since Google returns to Clerk in the browser.
 
 The server mounts the routes where the kit asks for them, behind its own sign-in check:
 
@@ -586,7 +598,7 @@ if (refusal?.kind === 'freshToken') {
 | `rateLimitExceeded`, `userRateLimitExceeded`, `quotaExceeded` or `RATE_LIMIT_EXCEEDED` (sent as a 403 as often as a 429), a 429, or a 500, 502, 503 or 504 | `later`, with `retryAfterMs` from Retry-After |
 | Anything else: an API the Google Cloud project has not switched on (`accessNotConfigured`), a permission on the item itself, a 404, a 410 `fullSyncRequired`, the token endpoint's `invalid_client` | `failed` |
 
-Every reading carries Google's own `reason` and a one-line `message` for the log. Only answers with a recorded or Google-documented sample have a meaning; anything else reads as `failed` until one is recorded. What the person sees is the app's: its server sends the words with the status, a reconnect names the service ("Reconnect Google Calendar"), says how old what is shown is, and for `missingAccess` says to tick the box on Google's screen.
+A permission is known to be missing only from Google's own answer, `missingAccess` above: the list of permissions Clerk reports for a token it holds has been seen to name one the grant no longer carries. Every reading carries Google's own `reason` and a one-line `message` for the log. Only answers with a recorded or Google-documented sample have a meaning; anything else reads as `failed` until one is recorded. What the person sees is the app's: its server sends the words with the status, a reconnect names the service ("Reconnect Google Calendar"), says how old what is shown is, and for `missingAccess` says to tick the box on Google's screen.
 
 ### The Postgres database
 

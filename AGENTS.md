@@ -7,6 +7,7 @@ The app baseline as one public package, which apps install from GitHub at a tag.
 ```
 web/             web apps (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary and its reload after a crash, saved copies, row links,
                  the phone's Text Size, the sign-in gate and the provider interface it takes (sign-in/provider.ts);
+                 server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;
                  playwright-webkit.js, Playwright's WebKit run from a copy macOS keeps out of the Dock (app-kit/web/playwright-webkit);
                  playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens
                  (app-kit/web/playwright-offline-audio);

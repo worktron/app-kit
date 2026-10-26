@@ -12,7 +12,7 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${port}` },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `bunx vite preview --config fixture/vite.config.ts --port ${port} --strictPort`,
+    command: 'bun serve.ts',
     url: `http://localhost:${port}`,
     reuseExistingServer: false,
   },
