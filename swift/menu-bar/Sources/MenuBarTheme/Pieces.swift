@@ -1,0 +1,312 @@
+import AppKit
+import SwiftUI
+
+// The pieces options F and G of the Fleet Menu Studies page are built from, each the height its `.oc` rule gives,
+// its bottom line included. Status is said in colored words, never chips.
+
+/// Words in tones, said on one line: "has never reported" in error, then "+1" in muted.
+public struct Words: Sendable, ExpressibleByStringLiteral {
+    public var runs: [(text: String, tone: Tone)]
+
+    public init(_ text: String, _ tone: Tone = .text) { runs = [(text, tone)] }
+    public init(stringLiteral text: String) { self.init(text) }
+
+    /// These words, then `text` in `tone` after a space.
+    public func then(_ text: String, _ tone: Tone) -> Words {
+        var next = self
+        next.runs.append((" ", .text))
+        next.runs.append((text, tone))
+        return next
+    }
+
+    var attributed: AttributedString {
+        runs.reduce(into: AttributedString()) { all, run in
+            var part = AttributedString(run.text)
+            part.foregroundColor = run.tone.palette.color
+            all += part
+        }
+    }
+}
+
+/// A line of `height` with the 1 point border below it, inside that height.
+struct Lined<Content: View>: View {
+    let height: CGFloat?
+    let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content.frame(maxWidth: .infinity, minHeight: height.map { $0 - Metrics.line }, maxHeight: height.map { $0 - Metrics.line }, alignment: .leading)
+            Palette.border.color.frame(height: Metrics.line)
+        }
+    }
+}
+
+/// The panel's top line: an optional back mark, the title in bold, its status in words, and a note on the right.
+/// With `back`, the whole line takes the click.
+public struct Header: View {
+    let title: String
+    let status: Words?
+    let note: String
+    let back: (() -> Void)?
+
+    public init(_ title: String, status: Words? = nil, note: String = "", back: (() -> Void)? = nil) {
+        self.title = title
+        self.status = status
+        self.note = note
+        self.back = back
+    }
+
+    public var body: some View {
+        let line = Lined(height: Metrics.header, content: HStack(spacing: 10) {
+            if back != nil { Text("‹").console(Metrics.body, tone: .secondary) }
+            Text(title).console(Metrics.body, weight: .bold)
+            if let status { Text(status.attributed).console(Metrics.body).lineLimit(1) }
+            Spacer(minLength: 0)
+            Text(note).console(Metrics.note, tone: .muted).lineLimit(1)
+        }
+        .padding(.horizontal, Metrics.inset)
+        .frame(maxHeight: .infinity)
+        .background(Palette.surface.color))
+        if let back {
+            line.contentShape(Rectangle()).onTapGesture(perform: back)
+        } else {
+            line
+        }
+    }
+}
+
+/// A 44 point row: the name in its column, its status in words, cut short with an ellipsis, and its age on the right.
+public struct Row: View {
+    let name: String
+    let status: Words
+    let age: String
+    let id: AnyHashable
+    let action: () -> Void
+
+    public init(_ name: String, status: Words, age: String, id: AnyHashable? = nil, action: @escaping () -> Void) {
+        self.name = name
+        self.status = status
+        self.age = age
+        self.id = id ?? AnyHashable(name)
+        self.action = action
+    }
+
+    public var body: some View {
+        Lined(height: Metrics.row, content: HStack(spacing: 12) {
+            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).fixedSize()
+                .frame(width: Metrics.nameColumn, alignment: .leading)
+            Text(status.attributed).console(Metrics.small).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(age).console(Metrics.small, tone: .secondary).monospacedDigit().lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, Metrics.inset)
+        .frame(maxHeight: .infinity))
+        .modifier(Selectable(id: id, action: action))
+    }
+}
+
+/// A line of detail under a header, in secondary.
+public struct SubLine: View {
+    let text: String
+
+    public init(_ text: String) { self.text = text }
+
+    public var body: some View {
+        Lined(height: nil, content: Text(text).console(Metrics.small, tone: .secondary)
+            .padding(.horizontal, Metrics.inset).padding(.top, 8).padding(.bottom, 10))
+    }
+}
+
+/// A problem on a page: its title in red, what to do in secondary, and the thing to copy in a code box.
+public struct ProblemBlock: View {
+    let title: String
+    let hint: String
+    let copy: String?
+
+    public init(_ title: String, hint: String, copy: String? = nil) {
+        self.title = title
+        self.hint = hint
+        self.copy = copy
+    }
+
+    public var body: some View {
+        Lined(height: nil, content: VStack(alignment: .leading, spacing: 0) {
+            Text(title).console(Metrics.body, weight: .semibold, tone: .error)
+            Text(hint).console(Metrics.small, tone: .secondary).padding(.top, 2).padding(.bottom, copy == nil ? 0 : 8)
+            if let copy { CodeBox(copy) }
+        }
+        .padding(.horizontal, Metrics.inset).padding(.vertical, 12))
+    }
+}
+
+/// The exact command or line to copy, wrapped wherever it must be to show all of it, with "copy" on the right that
+/// turns to "copied" once it is on the pasteboard. A click anywhere on the box copies.
+public struct CodeBox: View {
+    let text: String
+    @Environment(PanelState.self) private var state: PanelState?
+
+    public init(_ text: String) { self.text = text }
+
+    public var body: some View {
+        let copied = state?.copied == text
+        HStack(alignment: .top, spacing: 12) {
+            Text(text).console(Metrics.small).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            Text(copied ? "copied" : "copy").console(Metrics.small, tone: copied ? .ok : .info).fixedSize()
+        }
+        .padding(.vertical, 6 + Metrics.line)
+        .padding(.horizontal, 8 + Metrics.line)
+        .background(Palette.surface.color)
+        .overlay(RoundedRectangle(cornerRadius: Metrics.cornerInside).strokeBorder(Palette.border.color, lineWidth: Metrics.line))
+        .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerInside))
+        .modifier(Selectable(id: "copy \(text)", action: { state?.copy(text) }))
+    }
+}
+
+/// A group's heading line: the name in bold, an optional status in words, and the age on the right. Alone, as a group
+/// with nothing under it, it has its bottom line; as an `ItemGroup`'s heading, the group has it.
+public struct GroupLine: View {
+    let name: String
+    let status: Words?
+    let age: String
+    var lined = true
+
+    public init(_ name: String, status: Words? = nil, age: String) {
+        self.name = name
+        self.status = status
+        self.age = age
+    }
+
+    public var body: some View {
+        let line = HStack(spacing: 10) {
+            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).fixedSize()
+            if let status { Text(status.attributed).console(Metrics.small).lineLimit(1) }
+            Spacer(minLength: 0)
+            Text(age).console(Metrics.small, tone: .secondary).lineLimit(1).fixedSize()
+        }
+        .padding(.horizontal, Metrics.inset)
+        .frame(maxHeight: .infinity)
+        if lined {
+            Lined(height: Metrics.groupLine, content: line)
+        } else {
+            line.frame(height: Metrics.groupLine)
+        }
+    }
+}
+
+/// One thing under a group's heading, in red, with "copy" on the right when there is something to copy, or "by hand"
+/// in muted when there is not.
+public struct ItemLine: View {
+    let text: String
+    let copy: String?
+    @Environment(PanelState.self) private var state: PanelState?
+
+    public init(_ text: String, copy: String?) {
+        self.text = text
+        self.copy = copy
+    }
+
+    public var body: some View {
+        let copied = copy != nil && state?.copied == copy
+        let line = HStack(spacing: 10) {
+            Text(text).console(Metrics.small, tone: .error).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+            Text(copy == nil ? "by hand" : copied ? "copied" : "copy").console(Metrics.small, tone: copy == nil ? .muted : copied ? .ok : .info).fixedSize()
+        }
+        .padding(.leading, Metrics.itemInset)
+        .padding(.trailing, Metrics.inset)
+        .frame(height: Metrics.itemLine)
+        if let copy {
+            line.modifier(Selectable(id: "item \(text)", action: { state?.copy(copy) }))
+        } else {
+            line
+        }
+    }
+}
+
+/// A group: its heading, its item lines, and room below them before the group's bottom line.
+public struct ItemGroup<Items: View>: View {
+    let heading: GroupLine
+    let items: Items
+
+    public init(_ name: String, age: String, @ViewBuilder items: () -> Items) {
+        var heading = GroupLine(name, age: age)
+        heading.lined = false
+        self.heading = heading
+        self.items = items()
+    }
+
+    public var body: some View {
+        Lined(height: nil, content: VStack(spacing: 0) {
+            heading
+            items
+        }
+        .padding(.bottom, 6))
+    }
+}
+
+/// An action in the footer, with the ⌘ shortcut it answers to.
+public struct FooterItem {
+    let label: String
+    let key: Character?
+    let action: () -> Void
+
+    public init(_ label: String, key: Character? = nil, action: @escaping () -> Void) {
+        self.label = label
+        self.key = key
+        self.action = action
+    }
+
+    @MainActor var view: some View {
+        HStack(spacing: 6) {
+            Text(label).console(Metrics.small, tone: .secondary)
+            if let key { Text("⌘\(String(key).uppercased())").console(Metrics.small, tone: .muted) }
+        }
+        .fixedSize()
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+    }
+}
+
+/// The panel's last line: its actions on the left and the last ones (Quit) on the right.
+public struct Footer: View {
+    let leading: [FooterItem]
+    let trailing: [FooterItem]
+
+    public init(_ leading: [FooterItem], trailing: [FooterItem] = []) {
+        self.leading = leading
+        self.trailing = trailing
+    }
+
+    public var body: some View {
+        HStack(spacing: 18) {
+            ForEach(leading.indices, id: \.self) { leading[$0].view }
+            Spacer(minLength: 0)
+            ForEach(trailing.indices, id: \.self) { trailing[$0].view }
+        }
+        .padding(.horizontal, Metrics.inset)
+        .frame(height: Metrics.footer)
+        .preference(key: Shortcuts.self, value: (leading + trailing).compactMap { item in
+            item.key.map { Shortcut(key: Character($0.lowercased()), action: item.action) }
+        })
+    }
+}
+
+/// The panel's frame: the content on the background, inside a 1 point border with 8 point corners, `width` wide in all.
+public struct PanelFrame<Content: View>: View {
+    let width: CGFloat
+    let content: Content
+
+    public init(width: CGFloat, @ViewBuilder content: () -> Content) {
+        self.width = width
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .frame(width: width - 2 * Metrics.line)
+            .foregroundStyle(Palette.text.color)
+            .background(Palette.bg.color)
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerPanel - Metrics.line))
+            .padding(Metrics.line)
+            .background(RoundedRectangle(cornerRadius: Metrics.cornerPanel).fill(Palette.borderHi.color))
+    }
+}

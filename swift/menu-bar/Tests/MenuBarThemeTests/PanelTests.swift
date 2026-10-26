@@ -1,0 +1,142 @@
+import AppKit
+import SwiftUI
+import Testing
+@testable import MenuBarTheme
+
+/// The panel is never put on the screen here: `staysOffScreen` places it and marks it open, and events are handed to it
+/// directly, the way the window server would.
+@MainActor
+@Suite struct PanelTests {
+    init() {
+        _ = NSApplication.shared
+        MenuBarPanel.staysOffScreen = true
+    }
+
+    static let icon = NSRect(x: 1200, y: 1000, width: 24, height: 24)
+    static let screen = NSRect(x: 0, y: 0, width: 1440, height: 1000)
+
+    func key(_ characters: String, code: UInt16, command: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: command ? .command : [], timestamp: 0, windowNumber: 0, context: nil,
+                         characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+
+    static let up = String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!)
+    static let down = String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!)
+
+    /// A panel of three rows and a footer, laid out so its lines and shortcuts are known, with what each did.
+    func panel(acted: @escaping (String) -> Void = { _ in }) -> MenuBarPanel {
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            Header("fleet", status: Words("all 3 fine", .ok), note: "read just now")
+            Row("alpha", status: Words("fine", .ok), age: "4m") { acted("alpha") }
+            Row("bravo", status: Words("fine", .ok), age: "9m") { acted("bravo") }
+            Row("charlie", status: Words("fine", .ok), age: "2m") { acted("charlie") }
+            Footer([FooterItem("settings", key: ",") { acted("settings") }], trailing: [FooterItem("quit", key: "q") { acted("quit") }])
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        return panel
+    }
+
+    @Test func takesTheKeysWithoutMakingTheAppActive() {
+        let panel = panel()
+        #expect(panel.styleMask.contains(.nonactivatingPanel))
+        #expect(panel.styleMask.contains(.borderless) || !panel.styleMask.contains(.titled))
+        #expect(panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+        #expect(panel.level == .statusBar)
+        #expect(panel.collectionBehavior.isSuperset(of: [.moveToActiveSpace, .fullScreenAuxiliary, .auxiliary]))
+        #expect(!panel.hidesOnDeactivate)
+    }
+
+    @Test func escapeClosesThePanel() {
+        let panel = panel()
+        var closed = 0
+        panel.onClose = { closed += 1 }
+        panel.sendEvent(key("\u{1b}", code: 53))
+        #expect(!panel.isOpen)
+        #expect(closed == 1)
+    }
+
+    @Test func escapeGoesBackAPageBeforeItCloses() {
+        let panel = panel()
+        var onPage = true
+        panel.onEscape = {
+            guard onPage else { return false }
+            onPage = false
+            return true
+        }
+        panel.sendEvent(key("\u{1b}", code: 53))
+        #expect(panel.isOpen)
+        #expect(!onPage)
+        panel.sendEvent(key("\u{1b}", code: 53))
+        #expect(!panel.isOpen)
+    }
+
+    @Test func aClickOutsideClosesAndAClickOnThePanelOrTheIconDoesNot() {
+        let panel = panel()
+        #expect(MenuBarPanel.closes(onClickAt: NSPoint(x: 10, y: 10), panel: panel.frame, button: Self.icon))
+        #expect(!MenuBarPanel.closes(onClickAt: NSPoint(x: panel.frame.midX, y: panel.frame.midY), panel: panel.frame, button: Self.icon))
+        #expect(!MenuBarPanel.closes(onClickAt: NSPoint(x: Self.icon.midX, y: Self.icon.midY), panel: panel.frame, button: Self.icon))
+        panel.clicked(at: NSPoint(x: Self.icon.midX, y: Self.icon.midY))
+        #expect(panel.isOpen)
+        panel.clicked(at: NSPoint(x: 10, y: 10))
+        #expect(!panel.isOpen)
+    }
+
+    @Test func arrowKeysMoveThroughTheLinesAndReturnActs() {
+        var acted: [String] = []
+        let panel = panel { acted.append($0) }
+        #expect(panel.state.lines.map(\.id) == ["alpha", "bravo", "charlie"])
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == AnyHashable("alpha"))
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == AnyHashable("charlie"))
+        panel.sendEvent(key(Self.up, code: 126))
+        panel.sendEvent(key("\r", code: 36))
+        #expect(acted == ["bravo"])
+    }
+
+    @Test func upFromNothingSelectsTheLastLine() {
+        let panel = panel()
+        panel.sendEvent(key(Self.up, code: 126))
+        #expect(panel.state.selected == AnyHashable("charlie"))
+    }
+
+    @Test func commandAndAFooterItemsKeyRunIt() {
+        var acted: [String] = []
+        let panel = panel { acted.append($0) }
+        panel.sendEvent(key(",", code: 43, command: true))
+        panel.sendEvent(key("q", code: 12, command: true))
+        #expect(acted == ["settings", "quit"])
+    }
+
+    @Test func closingForgetsTheSelectionAndTheCopy() {
+        let panel = panel()
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.state.copy("bun bin/apply.ts")
+        panel.close()
+        #expect(panel.state.selected == nil)
+        #expect(panel.state.copied == nil)
+    }
+
+    @Test func thePanelSitsUnderTheIconAndInsideTheScreen() {
+        let size = NSSize(width: 400, height: 300)
+        let under = MenuBarPanel.place(below: NSRect(x: 600, y: 1000, width: 24, height: 24), size: size, in: Self.screen)
+        #expect(under == NSRect(x: 600, y: 696, width: 400, height: 300))
+        // An icon near the right edge: the panel moves left to stay on the screen.
+        let right = MenuBarPanel.place(below: Self.icon, size: size, in: Self.screen)
+        #expect(right.maxX == Self.screen.maxX - MenuBarPanel.gap)
+        #expect(right.maxY == Self.icon.minY - MenuBarPanel.gap)
+        #expect(MenuBarPanel.maxHeight(below: Self.icon, in: Self.screen) == CGFloat(1000 - 4 - 4))
+    }
+
+    @Test func theOpenPanelFitsItsContent() {
+        let panel = panel()
+        // A 40 point header, three 44 point rows, a 36 point footer and the 1 point border above and below.
+        let expected: CGFloat = 40 + 3 * 44 + 36 + 2
+        #expect(panel.frame.height == expected)
+        #expect(panel.frame.maxY == Self.icon.minY - MenuBarPanel.gap)
+    }
+}

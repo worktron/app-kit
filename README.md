@@ -7,6 +7,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
+| `swift/` | the Swift files of `swift/menu-bar`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -733,6 +734,83 @@ The watcher reads the key without Touch ID through a 1Password service account t
 
 The token is handed only to the `op` call, never to the build's programs. Until it is in the keychain, the watcher logs "waiting for the 1Password token" each hour and uploads nothing; an upload run by hand without it uses the signed-in `op`, which asks for Touch ID. The first build from the background job may show macOS's "codesign wants to access key" dialog; choose Always Allow, or the build stops at its time limit and the log says so.
 
+## swift/: Mac apps built in Swift
+
+What a Mac app written in Swift takes from the kit: the menu bar theme. A Swift app builds the kit's Swift files as they are at a tag, from the copy bun installs, or from any copy of the folder at that tag.
+
+### Menu bar theme
+
+The console family's look for a menu bar app, the look of metamax and the console tools: their colors, JetBrains Mono at 13 points, 44 point rows, 3 point corners inside and 8 on the panel, and status said in colored words, never chips. Its pieces are SwiftUI views; they sit in a panel under the menu bar icon that behaves as a menu does. It is the Fleet Menu Studies page's options F and G: F is a list with a page for each item, G lists every problem at once.
+
+| Piece | What it draws |
+| --- | --- |
+| `MenuBarPanel(width:state:content:)` | The panel under the icon: Escape closes it (after its `onEscape`, which a page uses to go back to its list), as does a click anywhere outside it; up and down move through the rows and Return acts; ⌘ with a footer item's key runs that item. It takes the keys without making the app active, so the app in front stays in front, and opens on the Space in front, over a full-screen app too. `attach(to:)` hooks it to a status item: on macOS 27 and later through the item's expanded interface session, as Apple's header asks, and before that through the icon's button. It fits its content, and scrolls only when the screen is too short. |
+| `Header(_:status:note:back:)` | The 40 point top line: a back mark when `back` is given (then the whole line goes back), the title in bold, its status in words, and a note on the right in muted, such as how old the status is. |
+| `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, and its age on the right. A click anywhere on it acts. |
+| `SubLine(_:)` | A line of detail under a header, in secondary. |
+| `ProblemBlock(_:hint:copy:)` | A problem on a page: its title in red, what to do in secondary, and the exact command or line in a `CodeBox`. |
+| `CodeBox(_:)` | The thing to copy, wrapped to show all of it, with "copy" in blue that turns to "copied" in green once it is on the pasteboard. A click anywhere on the box copies. |
+| `ItemGroup(_:age:items:)`, `ItemLine(_:copy:)` | G's group: a 36 point heading with the age, and a 26 point line for each problem in red, with "copy" on the right, or "by hand" in muted when there is nothing to copy. |
+| `GroupLine(_:status:age:)` | A group with nothing under it, such as a Mac that is fine. |
+| `Footer(_:trailing:)`, `FooterItem(_:key:action:)` | The 36 point last line: its actions with their ⌘ keys, the last ones (Quit) on the right. A menu bar app's are Settings… (⌘,), Check for Updates…, About and Quit (⌘Q), as practices' desktop app rule lists. |
+| `Words`, `Tone` | Status in colored words: `Words("has never reported", .error).then("+1", .muted)`. |
+| `Palette`, `Metrics`, `Typeface` | The tokens: the twelve colors metamax's web client and the console tools share, the heights and sizes, and the bundled JetBrains Mono 2.304 (Regular, SemiBold and Bold, under the SIL Open Font License in `Fonts/OFL.txt`). |
+| `snapshot(width:scale:state:content:)` | Any screen drawn to a PNG with nothing on the screen, through the same hosting view the panel uses, for an app's headless checks. It throws when the bundled font is not loaded, rather than draw in another. A `PanelState` given to it shows a row as selected or a box as copied. |
+
+Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. A click always acts at once.
+
+An app takes it in in three steps. First the kit, at a release tag:
+
+```sh
+bun add github:worktron/app-kit#v0.14.0
+```
+
+Then the build. An Xcode project or a Swift package adds `node_modules/app-kit/swift/menu-bar` as a local package (in Xcode, Add Package Dependencies, then Add Local; in a Package.swift, `.package(path: "node_modules/app-kit/swift/menu-bar")`) and depends on its `MenuBarTheme` product, whose fonts come with it. A bare `swiftc` build compiles the theme into a module of its own first, so its names never meet the app's (Fleet has a `Row` of its own), and copies the fonts into the app's resources:
+
+```sh
+kit=node_modules/app-kit/swift/menu-bar
+swiftc -parse-as-library -emit-library -static -emit-module -module-name MenuBarTheme \
+  -emit-module-path build/MenuBarTheme.swiftmodule -o build/libMenuBarTheme.a "$kit"/Sources/MenuBarTheme/*.swift
+swiftc -I build -L build -lMenuBarTheme Sources/*.swift -o My.app/Contents/MacOS/My
+cp -R "$kit/Sources/MenuBarTheme/Fonts" My.app/Contents/Resources/
+```
+
+A build that decides whether to rebuild from a hash of its sources, as Fleet's does, puts the kit's version in that hash too. Last, the app's Info.plist sets `LSUIElement` to true, so the app has no Dock icon. The theme runs on macOS 14 and later and builds with Xcode's macOS 27 SDK, which has the status item session.
+
+```swift
+import AppKit
+import MenuBarTheme
+import SwiftUI
+
+struct Menu: View {
+    let model: Fleet   // the app's own @Observable model
+    var body: some View {
+        if let mac = model.page {
+            Header(mac.name, status: Words("\(mac.problems.count) problems", .error), note: mac.age) { model.page = nil }
+            ForEach(mac.problems) { ProblemBlock($0.title, hint: $0.hint, copy: $0.copy) }
+        } else {
+            Header("fleet", status: model.summary, note: model.readAt)
+            ForEach(model.macs) { mac in Row(mac.name, status: mac.worst, age: mac.age) { model.page = mac } }
+        }
+        Footer([FooterItem("settings", key: ",") { openSettings() }, FooterItem("about") { openAbout() }],
+               trailing: [FooterItem("quit", key: "q") { NSApp.terminate(nil) }])
+    }
+}
+
+if !Typeface.register() { log("menu bar font: \(Typeface.problem ?? "unknown")") }
+let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+item.button?.image = NSImage(named: "MenuBarIcon")
+let panel = MenuBarPanel(width: 400) { Menu(model: model) }
+panel.onEscape = {
+    guard model.page != nil else { return false }
+    model.page = nil
+    return true
+}
+panel.attach(to: item)
+```
+
+`swift/menu-bar/e2e/compare-mockups.ts` checks the theme against the Studies page: a headless Chromium draws the five screens of `e2e/mockups.html` (the page's own CSS and markup, with stand-in names, since this repository is public), the theme draws the same five, and each is held to the mockup's size, backgrounds, lines and the place and color of every run of text, within 2 points. It writes the pairs side by side to `test-results/menu-bar/side-by-side`. It is run by hand after a change to the look, not by the gates, since it holds one text engine's letters to another's. The gates run the theme's Swift tests (`swift test` in `swift/menu-bar`) and build it the bare `swiftc` way (`e2e/swiftc-build.sh`). What no test reaches is a real click on a real menu bar icon: the session's start and end call the same open and close the tests drive.
+
 ## authentication/: who is calling
 
 A person signed in through a sign-in provider, or an agent with a person's key. Nothing outside `authentication/clerk/` imports Clerk, which `test/clerk-imports.test.ts` holds, so every other part works with another provider.
@@ -970,7 +1048,7 @@ Needs `drizzle-orm` 0.45, `@electric-sql/pglite` 0.5 and `postgres` 3.4, which t
 
 ## bin/, scripts/ and test/: develop
 
-`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium and the kit's WebKit kept out of the Dock, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium webkit` first). `scripts/gates.sh` runs all five, then builds the Rust and Swift of the iPhone notifications and iPhone sign-in plugins for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
+`bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium and the kit's WebKit kept out of the Dock, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium webkit` first). `scripts/gates.sh` runs all five, then builds the Rust and Swift of the iPhone notifications and iPhone sign-in plugins for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share, and runs the menu bar theme's Swift tests and its bare swiftc build. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
 
 Releases are tags, `v<version>`, matching `package.json`'s version, on the commit main lands at, so a release is always a commit main holds. A tag never moves; a fix is a new tag. While the version is 0.x, a patch release needs no change in the apps and a minor one may, which its commit messages say.
 

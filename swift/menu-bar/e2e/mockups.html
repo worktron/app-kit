@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- The five screens of the Fleet Menu Studies page, rev 3, that the menu bar theme is checked against
+     (compare-mockups.ts): the page's `.oc` rules as it has them, its markup, and its text, except that the Macs,
+     commands and key are stand-ins, since the repository is public. Sources/menu-bar-snapshots/Samples.swift holds the
+     same text. The page embedded JetBrains Mono; this one loads the theme's own copy. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family:"JetBrains Mono"; font-weight:400; src:url(../Sources/MenuBarTheme/Fonts/JetBrainsMono-Regular.ttf); }
+@font-face { font-family:"JetBrains Mono"; font-weight:600; src:url(../Sources/MenuBarTheme/Fonts/JetBrainsMono-SemiBold.ttf); }
+@font-face { font-family:"JetBrains Mono"; font-weight:700; src:url(../Sources/MenuBarTheme/Fonts/JetBrainsMono-Bold.ttf); }
+* { box-sizing:border-box; }
+body { margin:0; padding:24px; background:#08080a; display:flex; flex-direction:column; align-items:flex-start; gap:24px; }
+.oc { --text:#d4d4d4; --secondary:#888888; --muted:#555555; --ok:#89d185; --warn:#e2c08d; --error:#f48771; --info:#6cb6ff;
+  --bg:#050505; --surface:#0e0e0e; --surfaceHi:#141414; --border:#1c1c1c; --borderHi:#282828;
+  font-family:"JetBrains Mono","SF Mono","Cascadia Code","Fira Code",Menlo,monospace; font-size:13px; line-height:1.5;
+  background:var(--bg); color:var(--text); border:1px solid var(--borderHi); border-radius:8px; overflow:hidden;
+  box-shadow:0 16px 40px rgba(0,0,0,.5); -webkit-font-smoothing:antialiased; }
+.oc .hd { height:40px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--border); background:var(--surface); }
+.oc .hd b { font-weight:700; }
+.oc .hd .r { margin-left:auto; color:var(--muted); font-size:11px; }
+.oc .row { height:44px; display:grid; grid-template-columns:92px minmax(0,1fr) auto; align-items:center; gap:12px; padding:0 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.oc .row.hov { background:var(--surface); }
+.oc .row .n { font-weight:600; }
+.oc .row .st { overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+.oc .row .age { color:var(--secondary); font-size:12px; font-variant-numeric:tabular-nums; }
+.oc .more { color:var(--muted); }
+.oc .e { color:var(--error); } .oc .o { color:var(--ok); } .oc .w { color:var(--warn); } .oc .s { color:var(--secondary); } .oc .m { color:var(--muted); } .oc .i { color:var(--info); }
+.oc .ft { height:36px; display:flex; align-items:center; gap:18px; padding:0 14px; color:var(--secondary); font-size:12px; }
+.oc .ft .k { color:var(--muted); margin-left:6px; }
+.oc .ft .r { margin-left:auto; }
+.oc .sub { padding:8px 14px 10px; color:var(--secondary); font-size:12px; border-bottom:1px solid var(--border); }
+.oc .pb { padding:12px 14px; border-bottom:1px solid var(--border); }
+.oc .pb .t { color:var(--error); font-weight:600; }
+.oc .pb .h { color:var(--secondary); font-size:12px; margin:2px 0 8px; }
+.oc .cmd { display:flex; gap:12px; align-items:flex-start; background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:6px 8px; font-size:12px; }
+.oc .cmd code { flex:1; min-width:0; font-family:inherit; color:var(--text); overflow-wrap:anywhere; }
+.oc .cmd .c { flex:none; color:var(--info); }
+.oc .cmd .c.done { color:var(--ok); }
+.oc .mac { height:36px; display:flex; align-items:center; gap:10px; padding:0 14px; }
+.oc .mac .n { font-weight:600; }
+.oc .mac .age { margin-left:auto; color:var(--secondary); font-size:12px; }
+.oc .pl { height:26px; display:flex; align-items:center; gap:10px; padding:0 14px 0 28px; font-size:12px; white-space:nowrap; }
+.oc .pl .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--error); }
+.oc .pl .c { color:var(--info); } .oc .pl .c.hand { color:var(--muted); }
+.oc .grp { padding-bottom:6px; border-bottom:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="oc" data-screen="f-list" style="width:400px"><div class="hd"><b>fleet</b><span class="e">3 of 4 need you</span><span class="r">read just now</span></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span></div>
+  <div class="row hov"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span></div>
+  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span></div>
+  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div>
+  <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+<div class="oc" data-screen="f-page" style="width:400px"><div class="hd"><span class="s">‹</span><b>bravo</b><span class="e">3 problems</span><span class="r">2h ago</span></div>
+  <div class="sub">MacBook Air · reachable from charlie-2, delta</div>
+  <div class="pb"><div class="t">nudged, but sent no new report</div><div class="h">on bravo, read its sync log</div><div class="cmd"><code>bun bin/sync.ts log</code><span class="c">copy</span></div></div>
+  <div class="pb"><div class="t">its fleet key isn't in machines.yaml</div><div class="h">land this under bravo</div><div class="cmd"><code>ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyExampleKeyExampleKeyExampleKeyEx fleet:bravo"</code><span class="c done">copied</span></div></div>
+  <div class="pb"><div class="t">apply stopped on share-page</div><div class="h">on bravo, see why</div><div class="cmd"><code>bun bin/apply.ts</code><span class="c">copy</span></div></div>
+  <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+<div class="oc" data-screen="g" style="width:420px"><div class="hd"><b>fleet</b><span class="e">3 of 4 need you</span><span class="r">read just now</span></div>
+  <div class="grp"><div class="mac"><span class="n">alpha</span><span class="age">never reported</span></div><div class="pl"><span class="t">has never reported</span><span class="c">copy</span></div><div class="pl"><span class="t">online, but won't let the other Macs in</span><span class="c hand">by hand</span></div></div>
+  <div class="grp"><div class="mac"><span class="n">bravo</span><span class="age">2h ago</span></div><div class="pl"><span class="t">nudged, sent no new report</span><span class="c">copy</span></div><div class="pl"><span class="t">fleet key isn't in machines.yaml</span><span class="c">copy</span></div><div class="pl"><span class="t">apply stopped on share-page</span><span class="c">copy</span></div></div>
+  <div class="grp"><div class="mac"><span class="n">charlie-2</span><span class="age">2m ago</span></div><div class="pl"><span class="t">apply stopped on the settings key model</span><span class="c">copy</span></div></div>
+  <div class="mac" style="border-bottom:1px solid var(--border)"><span class="n">delta</span><span class="o" style="font-size:12px">fine</span><span class="age">16m ago</span></div>
+  <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+<div class="oc" data-screen="fine" style="width:400px"><div class="hd"><b>fleet</b><span class="o">all 4 fine</span><span class="r">read just now</span></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="o">fine</span></span><span class="age">4m</span></div><div class="row"><span class="n">bravo</span><span class="st"><span class="o">fine</span></span><span class="age">9m</span></div><div class="row"><span class="n">charlie-2</span><span class="st"><span class="o">fine</span></span><span class="age">2m</span></div><div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div><div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+<div class="oc" data-screen="unreadable" style="width:400px"><div class="hd"><b>fleet</b><span class="w">couldn't read status</span><span class="r">as of 12m ago</span></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span></div>
+  <div class="row"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span></div>
+  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span></div>
+  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div>
+  <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+</body>
+</html>
