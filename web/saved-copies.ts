@@ -131,12 +131,13 @@ export function useSavedCopy<T>(copies: SavedCopies, key: string): SavedCopy<T> 
  */
 export function useSaveAfterDraw<T>(copies: SavedCopies, key: string, copy: SavedCopy<T> | null): void {
   const owner = useOwner();
-  // Whose the copy is: the person signed in when it was passed. One person's data still held as another signs in is theirs.
-  const last = useRef<{ copy: SavedCopy<T> | null; owner: string }>({ copy: null, owner });
+  // Whose and which the copy is: the person signed in and the key when it was passed. Data still held as another person
+  // signs in, or as the screen moves to another key, belongs where it arrived.
+  const last = useRef<{ copy: SavedCopy<T> | null; owner: string; key: string }>({ copy: null, owner, key });
   useEffect(() => {
-    const arrivedFor = copy === last.current.copy ? last.current.owner : owner;
-    last.current = { copy, owner: arrivedFor };
-    if (copy && arrivedFor === owner) writeCopy(copies, owner, key, copy);
+    const arrived = copy === last.current.copy ? last.current : { copy, owner, key };
+    last.current = arrived;
+    if (copy && arrived.owner === owner && arrived.key === key) writeCopy(copies, owner, key, copy);
   }, [copies, owner, key, copy]);
 }
 

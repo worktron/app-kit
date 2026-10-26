@@ -223,6 +223,22 @@ test("useSaveAfterDraw never saves one person's data for the next who signs in",
   expect(copyKeys()).toEqual(['shop:copy:index-a:person-ana%40example.com:list']);
 });
 
+test("useSaveAfterDraw never saves one screen's data under the next screen's key", async () => {
+  const copies = savedCopies('shop', { build: 'index-a' });
+  const fresh = { data: { items: ['Milk'] }, fetchedAt: 1 };
+  // An app that keeps the last screen's data up while the next one loads.
+  function List({ which }: { which: string }) {
+    useSaveAfterDraw(copies, which, fresh);
+    return <p>{which}</p>;
+  }
+  const { rerender } = render(<List which="dairy" />);
+  await waitFor(() => expect(copyKeys()).toEqual(['shop:copy:index-a:anyone:dairy']));
+  rerender(<List which="bakery" />);
+  await screen.findByText('bakery');
+  await act(async () => {});
+  expect(copyKeys()).toEqual(['shop:copy:index-a:anyone:dairy']);
+});
+
 test('an answer for an address no longer shown is dropped, and the last address stays as previous while the new one loads', async () => {
   const copies = savedCopies('shop', { build: 'index-a' });
   answers['/api/shelf/a'] = { items: ['Milk'] };
