@@ -103,7 +103,11 @@ export const noNewWindows = [
     // opens it in the Mac's own app, such as Maps, in front of whatever the person is doing.
     await context.addInitScript((binding) => {
       const report = /** @type {(url: string) => void} */ (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))[binding]);
-      window.open = (url) => {
+      /** A target that names this window or one holding it, which a page moves to rather than opening another. */
+      const thisWindow = (/** @type {string} */ target) => ['_self', '_parent', '_top'].includes(target.toLowerCase());
+      const open = window.open.bind(window);
+      window.open = (url, target, features) => {
+        if (target !== undefined && thisWindow(target)) return open(url, target, features);
         report(String(url ?? ''));
         return null;
       };
@@ -111,8 +115,7 @@ export const noNewWindows = [
       const refuse = (event) => {
         const link = event.target instanceof Element ? event.target.closest('a[href], area[href]') : null;
         if (!(link instanceof HTMLAnchorElement || link instanceof HTMLAreaElement)) return;
-        const target = link.target.toLowerCase();
-        const newWindow = (target !== '' && !['_self', '_parent', '_top'].includes(target)) || event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1;
+        const newWindow = (link.target !== '' && !thisWindow(link.target)) || event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1;
         if (!newWindow) return;
         event.preventDefault();
         report(link.href);

@@ -44,10 +44,10 @@ export function finger(page: Page): Promise<{
 
 /**
  * A Playwright fixture that fails any test that opens a new window, for `test.extend({ noNewWindows })`. It runs for
- * every test without being named. In the page it refuses `window.open` and a link that opens a new window (a target of
- * its own, or a click with a modifier key or the middle button) before the browser sees them, since Playwright's WebKit
- * on a Mac hands such a link to the Mac's own app, such as Maps, in front of the person's work. A window opened any
- * other way still fails the test, after it opened.
+ * every test without being named. In the page it refuses a `window.open` and a link that open a new window (a target
+ * other than `_self`, `_parent` or `_top`, or a click with a modifier key or the middle button) before the browser sees
+ * them, since Playwright's WebKit on a Mac hands such a link to the Mac's own app, such as Maps, in front of the
+ * person's work. A window opened any other way still fails the test, after it opened.
  */
 export const noNewWindows: [({ context }: { context: BrowserContext }, use: () => Promise<void>) => Promise<void>, { auto: true }];
 

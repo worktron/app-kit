@@ -145,6 +145,9 @@ test.describe('no new windows', () => {
       await page.route('https://maps.example.com/**', (route) => route.fulfill({ body: 'Maps' }));
       await page.getByRole('link', { name: 'The place in Maps' }).click();
       await expect(page).toHaveURL('https://maps.example.com/place');
+      // window.open into this same window moves the page, as it does without the fixture.
+      await page.evaluate(() => window.open('https://maps.example.com/other', '_self'));
+      await expect(page).toHaveURL('https://maps.example.com/other');
     });
     await context.close();
   });
