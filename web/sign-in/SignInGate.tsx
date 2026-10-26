@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { setCurrentSession } from './current';
+import { announceSignedOut, setCurrentSession } from './current';
 import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
 import { currentAddress, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
 
@@ -144,7 +144,8 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
       setReturningFromGoogle(false);
     } else {
       // Signed out here, in another tab or by the session ending: the sign-in screen is next, and a later sign-in
-      // holds the placeholder up again until the app has drawn.
+      // holds the placeholder up again until the app has drawn. What the page kept for the person goes.
+      announceSignedOut();
       setCameThroughSignIn(true);
       setSigningOut(false);
       setAppDrawn(false);

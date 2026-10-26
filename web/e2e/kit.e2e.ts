@@ -214,13 +214,13 @@ test('copies saved by another build are deleted and never drawn', async ({ page 
   await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Milk');
   await expect.poll(() => copyKeys(page)).toHaveLength(1);
   const [mine] = await copyKeys(page);
-  // This build's copy, named by its built entry.
-  expect(mine).toMatch(/^fixture:copy:index-[\w-]+:\/api\/shelf$/);
+  // This build's copy, named by its built entry and the person signed in.
+  expect(mine).toMatch(/^fixture:copy:index-[\w-]+:person-ana%40example.com:\/api\/shelf$/);
 
   // Only an older build's copy is left, as after a rollback to this build.
   await page.evaluate((key) => {
     localStorage.removeItem(key);
-    localStorage.setItem('fixture:copy:index-older:/api/shelf', JSON.stringify({ data: { items: ['From the older build'] }, fetchedAt: Date.now() }));
+    localStorage.setItem('fixture:copy:index-older:person-ana%40example.com:/api/shelf', JSON.stringify({ data: { items: ['From the older build'] }, fetchedAt: Date.now() }));
   }, mine!);
   shelf.answer = 'hold';
   const asked = shelf.asked;

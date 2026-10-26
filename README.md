@@ -34,7 +34,7 @@ bun add github:worktron/app-kit#v0.10.1
 | New-deploy line | `NewBuildLine`, `useNewBuild`, `lookForNewBuild` | An open page looks for a newer build when it comes back in front, at most once a minute, or at once on a pull to refresh, and shows a quiet line with Reload. It reloads by itself only once hidden, or after ten idle minutes, with nothing entered, unless the app passes `reloadsItself: false` to `useNewBuild`, or `reloadsItself={false}` to `NewBuildLine`, because its view holds something only in memory. |
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
 | Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. A built page first asks the server which build it serves, and when that is a newer one, as after a deploy or a rollback that changed what an answer holds, it reloads by itself onto it, once. Give it the app's `placeholder`, which it draws while it asks. See below. |
-| Saved copies of screens | `savedCopies`, `useScreenData`, `useSaveAfterDraw` | A screen seen before paints at once from the copy this browser saved, then from the server. Copies are kept per build and saved only after they have drawn, so a deploy that changes an answer's shape, or is rolled back, never leaves a copy that crashes every load. See below. |
+| Saved copies of screens | `savedCopies`, `useScreenData`, `useSavedCopy`, `useSaveAfterDraw` | A screen seen before paints at once from the copy this browser saved, then from the server. Copies are kept per build and per person, deleted at sign-out, and saved only after they have drawn, so a deploy that changes an answer's shape, or is rolled back, never leaves a copy that crashes every load. See below. |
 | Links for rows and cards | `RowLink`, `NavigateProvider` | A whole row as a real `<a href>`: ⌘-click and middle-click open a new tab, a plain click moves through the app's navigate. |
 | The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
@@ -74,12 +74,14 @@ The app's server sends the index page so that a browser never keeps it: `Cache-C
 
 ### Saved copies of screens
 
-A screen that paints first from the last answer it saw keeps that answer in the browser's storage, and a copy the running page cannot draw would crash every load before the screen could ask the server again; a hard reload does not clear it. Two rules keep that from happening. A copy is saved only after its screen has drawn it, in an effect, which React runs only for a draw that did not throw, so an answer in a newer shape, as an open page gets while a deploy goes out or is rolled back, crashes that one draw and is never saved. And copies are kept per build of the page, named by its built entry (`dev` on the dev server), so a copy saved by another build is never read; the other builds' copies are deleted as the app's copies are made.
+A screen that paints first from the last answer it saw keeps that answer in the browser's storage, and a copy the running page cannot draw would crash every load before the screen could ask the server again; a hard reload does not clear it. Two rules keep that from happening. A copy is saved only after its screen has drawn it, in an effect, which React runs only for a draw that did not throw, so an answer in a newer shape, as an open page gets while a deploy goes out or is rolled back, crashes that one draw and is never saved. And copies are kept per build of the page, named by its built entry, so a copy saved by another build is never read; the other builds' copies are deleted as the app's copies are made. The dev server has no built entry to tell one version of the code from the next, so there nothing is kept.
+
+Copies are kept per person too, the one the sign-in gate says is signed in (or `anyone` in an app without the gate), so nobody is drawn what another person saw on the same browser. Another person's copies are deleted the first time someone else's are read, and every copy is deleted as soon as the gate learns nobody is signed in.
 
 ```tsx
 import { savedCopies, useScreenData } from 'app-kit/web';
 
-// Once, as the app's code loads. Keys are `shop:copy:<build>:<path>`; the app's other keys under `shop:` are left alone.
+// Once, as the app's code loads. Keys are `shop:copy:<build>:<person>:<path>`; the app's other keys under `shop:` are left alone.
 const copies = savedCopies('shop');
 
 function Shelf() {
@@ -90,11 +92,11 @@ function Shelf() {
 }
 ```
 
-`useScreenData` loads through `request`, again when the page comes back in front or the server can be reached again, and keeps what is shown while it loads. `missing` is a 404. `failure` says why the last load failed, beside the data still shown. When the path changes, the new path's copy paints at once, an answer for a path no longer shown is dropped, and `previous` holds the last path's data while the new one loads, for a screen to keep its frame from, never to show as the new path's data.
+`useScreenData` loads through `request`, again when the page comes back in front or the server can be reached again, and keeps what is shown while it loads. Only the latest load counts: an earlier answer that comes after a later one is dropped. `missing` is a 404, which also deletes that path's copy. `failure` says why the last load failed, beside the data still shown. When the path changes, the new path's copy paints at once, an answer for a path no longer shown is dropped, and `previous` holds the last path's data while the new one loads, for a screen to keep its frame from, never to show as the new path's data.
 
 Call it in the component that draws the data, inside the error boundary that would catch its crash. A boundary below the caller lets the caller's draw finish, and the copy is saved though its screen crashed.
 
-An app that holds its own state, such as edits shown before the server confirms them, takes only the storage half: `copies.read(key)` for the copy as it loads, and `useSaveAfterDraw(copies, key, copy)` with a new `{ data, fetchedAt }` each time the server sends data, never one rebuilt on every draw, since each new object is saved again.
+An app that holds its own state, such as edits shown before the server confirms them, takes only the storage half: `useSavedCopy(copies, key)` for the copy as it loads, and `useSaveAfterDraw(copies, key, copy)` with a new `{ data, fetchedAt }` each time the server sends data, never one rebuilt on every draw, since each new object is saved again.
 
 ### Browser tests
 

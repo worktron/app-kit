@@ -19,3 +19,16 @@ export function setCurrentSession(session: CurrentSession | null): void {
 export function currentSession(): CurrentSession | null {
   return current;
 }
+
+const signedOutListeners = new Set<() => void>();
+
+/** Calls `listener` each time the gate learns nobody is signed in, for what the page keeps that belongs to a person. */
+export function onSignedOut(listener: () => void): () => void {
+  signedOutListeners.add(listener);
+  return () => signedOutListeners.delete(listener);
+}
+
+/** The gate has learned nobody is signed in: signed out here, in another tab or by the session ending. */
+export function announceSignedOut(): void {
+  for (const listener of signedOutListeners) listener();
+}
