@@ -1,0 +1,63 @@
+{
+  "SPAudioDataType": [
+    {
+      "_items": [
+        {
+          "_name": "Studio Display XDR Speakers",
+          "_properties": "coreaudio_default_audio_system_device",
+          "coreaudio_default_audio_output_device": "spaudio_yes",
+          "coreaudio_default_audio_system_device": "spaudio_yes",
+          "coreaudio_device_manufacturer": "Apple Inc.",
+          "coreaudio_device_output": 8,
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_usb",
+          "coreaudio_output_source": "spaudio_default"
+        },
+        {
+          "_name": "Studio Display XDR Microphone",
+          "coreaudio_default_audio_input_device": "spaudio_yes",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_manufacturer": "Apple Inc.",
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_usb",
+          "coreaudio_input_source": "spaudio_default"
+        },
+        {
+          "_name": "Studio Display XDR Speakers",
+          "coreaudio_device_manufacturer": "Apple Inc.",
+          "coreaudio_device_output": 8,
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_usb",
+          "coreaudio_output_source": "spaudio_default"
+        },
+        {
+          "_name": "Studio Display XDR Microphone",
+          "coreaudio_device_input": 1,
+          "coreaudio_device_manufacturer": "Apple Inc.",
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_usb",
+          "coreaudio_input_source": "spaudio_default"
+        },
+        {
+          "_name": "BlackHole 2ch",
+          "coreaudio_device_input": 2,
+          "coreaudio_device_manufacturer": "Existential Audio Inc.",
+          "coreaudio_device_output": 2,
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_virtual",
+          "coreaudio_input_source": "spaudio_default",
+          "coreaudio_output_source": "spaudio_default"
+        },
+        {
+          "_name": "Mac Studio Speakers",
+          "coreaudio_device_manufacturer": "Apple Inc.",
+          "coreaudio_device_output": 2,
+          "coreaudio_device_srate": 48000,
+          "coreaudio_device_transport": "coreaudio_device_type_builtin",
+          "coreaudio_output_source": "Mac Studio Speakers"
+        }
+      ],
+      "_name": "coreaudio_device"
+    }
+  ]
+}

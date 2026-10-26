@@ -302,7 +302,7 @@ It hands the link to `useDesktopSignInWindow`, which signs in only when the nonc
 
 ### A silent iPhone Simulator
 
-`app-kit iphone-simulator quiet <udid>`: a simulator booted with `xcrun simctl boot`, with no window, plays its notification tones and keyboard clicks on the Mac's speakers, and Apple gives no command to mute it; silent mode still plays the notification tone at full volume. The step sends the simulator's sound to BlackHole, a free virtual audio device that plays nowhere, the same setting as Xcode's Sound Output menu. The simulator reads that setting only at boot, so when its sound goes anywhere else the step shuts it down, saves BlackHole in its audio settings file and boots it again, once; a later run finds it silent and touches nothing.
+`app-kit iphone-simulator quiet <udid>`: a simulator booted with `xcrun simctl boot`, with no window, plays its notification tones and keyboard clicks on the Mac's speakers, and Apple gives no command to mute it; silent mode still plays the notification tone at full volume. The step sends the simulator's sound to BlackHole, a free virtual audio device that plays nowhere, the same setting as Xcode's Sound Output menu. The simulator reads that setting only at boot, so when a booted simulator's sound goes anywhere else the step shuts it down, saves BlackHole in its audio settings file and boots it again, once; a later run finds it silent and touches nothing. On a simulator that is shut down, the step only saves the setting, so its next boot already plays nowhere, with no boot of its own.
 
 An app's simulator script runs it after the boot and before the install:
 
@@ -310,6 +310,15 @@ An app's simulator script runs it after the boot and before the install:
 xcrun simctl bootstatus "$udid" -b >/dev/null
 bun run app-kit iphone-simulator quiet "$udid"
 xcrun simctl install "$udid" "$app"
+```
+
+A script that erases its simulator on every run runs it between the erase and the boot instead, since `simctl erase` deletes the saved setting and running the step after the boot would cost a second boot each time:
+
+```sh
+xcrun simctl erase "$udid"
+bun run app-kit iphone-simulator quiet "$udid"
+xcrun simctl boot "$udid"
+xcrun simctl bootstatus "$udid" -b >/dev/null
 ```
 
 It prints one line starting `[iphone-simulator]` and exits 0 whatever it finds, so a Mac without BlackHole still runs the app, with a line saying how to install it (`brew install --cask blackhole-2ch`, then `sudo killall coreaudiod` so macOS's audio service sees it). It exits 1 only when the simulator did not boot again after its own restart, since the device is then down. When the setting is saved but the simulator still plays elsewhere, it says so and does not restart again.

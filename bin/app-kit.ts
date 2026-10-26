@@ -23,8 +23,9 @@ const USAGE = `app-kit <part> <command>
   extension status <socket>   the status a native host serving <socket> gives, as JSON:
                               the extension's build, commit and kept errors
   iphone-simulator quiet <udid>
-                              send the booted simulator <udid>'s sound to BlackHole,
-                              restarting it once when it plays elsewhere; prints
+                              send the simulator <udid>'s sound to BlackHole: a booted
+                              one restarts once when it plays elsewhere, a shut-down
+                              one has the setting saved for its next boot; prints
                               one line, and exits 0 even when BlackHole is missing,
                               1 only when the simulator did not boot again
   testflight upload [--token-only]
