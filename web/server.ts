@@ -44,7 +44,7 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
       return new Response('Not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
     }
     const { pathname } = new URL(request.url);
-    if (pathname.startsWith(api)) return Response.json({ error: 'Not found' }, { status: 404 });
+    if (pathname.startsWith(api) || pathname === api.replace(/\/$/, '')) return Response.json({ error: 'Not found' }, { status: 404 });
 
     let path: string;
     try {

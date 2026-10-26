@@ -30,6 +30,12 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('a host that runs but never starts listening is stopped, and the start fails saying so', async () => {
+  const silent = join(dir, 'silent.log')
+  const started = startHostAsChrome({ command: [process.execPath, '-e', 'setInterval(() => {}, 1000)'], logPath: silent, startWithinMs: 200 })
+  await expect(started).rejects.toThrow('The host did not log its start within 200 ms, so it was stopped')
+})
+
 test('a caller reaches the extension through the socket and hears its answer', async () => {
   expect(await ask(socket, { type: 'echo', text: 'hello' })).toEqual({ echoed: 'hello' })
   expect(host.seen.at(-1)).toMatchObject({ type: 'echo', text: 'hello' })

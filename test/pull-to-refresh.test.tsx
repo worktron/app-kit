@@ -141,6 +141,22 @@ test("a refresh in place runs the app's refresh, looks for a newer build, and a 
   }
 });
 
+test('a refresh that fails says so on the mark, and pulling again tries again', async () => {
+  let fail: (error: Error) => void = () => undefined;
+  const refresh = mock(() => new Promise<void>((_resolve, reject) => (fail = reject)));
+  render(<PullToRefresh onPull={refresh} />);
+  const row = page().querySelector('#row')!;
+  pull(row, PAST);
+  expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refreshing');
+  await act(async () => fail(new Error('network')));
+  expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refresh failed. Pull down to try again.');
+  pull(row, PAST);
+  expect(refresh).toHaveBeenCalledTimes(2);
+  expect(reload).not.toHaveBeenCalled();
+  expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Refreshing');
+  await act(async () => fail(new Error('network')));
+});
+
 test('in a browser tab it listens to nothing', () => {
   delete (navigator as { standalone?: unknown }).standalone;
   render(<PullToRefresh />);

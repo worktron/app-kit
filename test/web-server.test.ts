@@ -60,9 +60,12 @@ describe('serveBuiltPage', () => {
   });
 
   test('an address under /api/ that no route took is a JSON 404, never the page', async () => {
-    const answer = await get('/api/nothing-here');
-    expect(answer.status).toBe(404);
-    expect(await answer.json()).toEqual({ error: 'Not found' });
+    for (const path of ['/api/nothing-here', '/api']) {
+      const answer = await get(path);
+      expect(answer.status).toBe(404);
+      expect(await answer.json()).toEqual({ error: 'Not found' });
+    }
+    expect((await get('/apiary')).status).toBe(200);
   });
 
   test('an app whose API sits elsewhere names it', async () => {

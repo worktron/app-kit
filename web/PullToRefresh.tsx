@@ -38,7 +38,8 @@ export interface PullToRefreshProps {
   /**
    * What a pull does instead of reloading the page, for an app that fetches everything again in place. The mark spins
    * until a promise it returns settles, and the page is looked at for a newer deploy at once. A second pull while it
-   * has not settled reloads, so a refresh that hangs never leaves the page without one.
+   * has not settled reloads, so a refresh that hangs never leaves the page without one. A promise that rejects, or a
+   * throw, leaves the mark saying the refresh failed, for a few seconds, so the person knows to pull again.
    */
   onPull?: () => unknown;
   /** Where the mark sits below the top of the page: the height of the app's bar. The top safe area is added. */
@@ -47,7 +48,7 @@ export interface PullToRefreshProps {
   ignoreWhile?: () => boolean;
 }
 
-type Shown = { pull: number; state: 'pulling' | 'refreshing' | 'reloading' | 'kept' };
+type Shown = { pull: number; state: 'pulling' | 'refreshing' | 'reloading' | 'kept' | 'failed' };
 
 /**
  * Pull to refresh for an installed app. Mount it once, outside the app's ErrorBoundary, so a crashed page can still be
@@ -66,8 +67,14 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
     let pulling: boolean | null = null;
     let travel = 0;
     let refreshing = false;
-    let keptTimer: ReturnType<typeof setTimeout> | undefined;
+    let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
+    /** A mark that says why a pull did nothing, held for a moment. */
+    const notice = (state: 'kept' | 'failed') => {
+      setShown({ pull: PULL_DISTANCE, state });
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => setShown(null), state === 'failed' ? 4_000 : 2_000);
+    };
     const reset = () => {
       start = null;
       pulling = null;
@@ -77,9 +84,7 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
     const reload = () => {
       if (unsavedInput()) {
         console.log('[app-kit] pull: released past the line, not reloaded, since a field holds typed text');
-        setShown({ pull: PULL_DISTANCE, state: 'kept' });
-        clearTimeout(keptTimer);
-        keptTimer = setTimeout(() => setShown(null), 2_000);
+        notice('kept');
         return;
       }
       console.log('[app-kit] pull: released past the line, reloading');
@@ -92,12 +97,17 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
       setShown({ pull: PULL_DISTANCE, state: 'refreshing' });
       lookForNewBuild();
       // Run in the promise's executor, so the app's refresh starts at once and a throw from it is a failure like any other.
-      void new Promise((resolve) => resolve(onPull()))
-        .catch((error: unknown) => console.log('[app-kit] pull: the refresh failed', error))
-        .finally(() => {
+      void new Promise((resolve) => resolve(onPull())).then(
+        () => {
           refreshing = false;
           setShown(null);
-        });
+        },
+        (error: unknown) => {
+          console.log('[app-kit] pull: the refresh failed', error);
+          refreshing = false;
+          notice('failed');
+        },
+      );
     };
 
     const onStart = (e: TouchEvent) => {
@@ -140,7 +150,7 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
     window.addEventListener('touchend', onEnd);
     window.addEventListener('touchcancel', reset);
     return () => {
-      clearTimeout(keptTimer);
+      clearTimeout(noticeTimer);
       window.removeEventListener('touchstart', onStart);
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onEnd);
@@ -156,6 +166,7 @@ export function PullToRefresh({ onPull, top = 0, ignoreWhile }: PullToRefreshPro
     refreshing: 'Refreshing',
     reloading: 'Reloading',
     kept: 'Not reloaded: a field holds typed text',
+    failed: 'Refresh failed. Pull down to try again.',
   }[state];
   return (
     <Box
