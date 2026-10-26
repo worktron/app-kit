@@ -1,14 +1,15 @@
 import { afterAll, expect, test } from 'bun:test'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copyWorker, workerCopyDiffers, workerFiles } from '../copy.ts'
+import { copyWorker, unlistedImports, workerCopyDiffers, workerFiles } from '../copy.ts'
+import { LOADED_FILES } from './fixture/worker.js'
 import packageJson from '../../package.json'
 
 const dir = mkdtempSync(join(tmpdir(), 'app-kit-extension-copy-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const cli = (...args: string[]) => Bun.spawnSync(['bun', join(import.meta.dir, '../../bin/app-kit.ts'), 'extension', ...args], { stdout: 'pipe', stderr: 'pipe' })
+const cli = (...args: string[]) => Bun.spawnSync([process.execPath, join(import.meta.dir, '../../bin/app-kit.ts'), 'extension', ...args], { stdout: 'pipe', stderr: 'pipe' })
 
 test('copy writes every worker file, each naming the kit version it came from', () => {
   const folder = join(dir, 'kit')
@@ -37,6 +38,54 @@ test('a copy made by another release of the kit, with the same code, does not di
   expect(workerCopyDiffers(folder)).toEqual([])
 })
 
+test('copy refuses an extension folder whose copies live in kit/, at the root or one folder up, and writes nothing', () => {
+  // amazon-connector's layout: the manifest at the root, the worker in extension/, its copies in extension/kit/.
+  const root = join(dir, 'amazon-layout')
+  mkdirSync(join(root, 'extension'), { recursive: true })
+  writeFileSync(join(root, 'manifest.json'), '{}')
+  writeFileSync(join(root, 'extension', 'worker.js'), '')
+  copyWorker(join(root, 'extension', 'kit'))
+  const before = (folder: string) => readdirSync(folder).sort()
+  const rootFiles = before(root)
+  const extensionFiles = before(join(root, 'extension'))
+  for (const folder of [join(root, 'extension'), root]) {
+    const run = cli('copy', folder)
+    expect(run.exitCode).toBe(1)
+    expect(run.stderr.toString()).toContain(`but ${join(root, 'extension', 'kit')} holds copies of them`)
+  }
+  expect(before(root)).toEqual(rootFiles)
+  expect(before(join(root, 'extension'))).toEqual(extensionFiles)
+})
+
+test("copy refuses to overwrite a file of the same name that is the extension's own", () => {
+  const folder = join(dir, 'own-errors')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'errors.js'), 'export const mine = true\n')
+  expect(() => copyWorker(folder)).toThrow("errors.js in")
+  expect(readdirSync(folder)).toEqual(['errors.js'])
+})
+
+test('copy on a fresh folder, empty or not there yet, writes the files, and the usage says where they land', () => {
+  const empty = join(dir, 'empty')
+  mkdirSync(empty)
+  expect(cli('copy', empty).exitCode).toBe(0)
+  expect(readdirSync(empty).sort()).toEqual(workerFiles())
+  expect(copyWorker(join(dir, 'not-there-yet', 'kit'))).toEqual(workerFiles())
+  expect(cli('copy').stderr.toString()).toContain("write the kit's worker files directly into <folder>, the\n                              folder the worker imports them from")
+})
+
+test('every file the fixture worker loads is in its list for self-reload, and one left out is named', () => {
+  expect(unlistedImports(join(import.meta.dir, 'fixture'), LOADED_FILES)).toEqual([])
+  const folder = join(dir, 'imports')
+  mkdirSync(join(folder, 'lib'), { recursive: true })
+  writeFileSync(join(folder, 'manifest.json'), JSON.stringify({ background: { service_worker: 'worker.js', type: 'module' } }))
+  writeFileSync(join(folder, 'worker.js'), 'import { a } from "./lib/a.js";\nimport {\n  b,\n} from "./lib/b.js";\n')
+  writeFileSync(join(folder, 'lib', 'a.js'), 'export { c } from "../c.js";\nexport const a = 1;\n')
+  writeFileSync(join(folder, 'lib', 'b.js'), 'import "./a.js";\nexport const b = 2;\n')
+  writeFileSync(join(folder, 'c.js'), 'export const c = 3;\n')
+  expect(unlistedImports(folder, ['worker.js', 'lib/a.js'])).toEqual(['c.js', 'lib/b.js'])
+})
+
 test("the kit's own fixture extension carries the current copy", () => {
   expect(workerCopyDiffers(join(import.meta.dir, 'fixture/kit'))).toEqual([])
   expect(cli('check', join(import.meta.dir, 'fixture/kit')).exitCode).toBe(0)
@@ -48,7 +97,7 @@ test('id prints the extension ID from the manifest key', () => {
   expect(run.stdout.toString().trim()).toMatch(/^[a-p]{32}$/)
 })
 
-test('status with no host listening says so and exits 4', () => {
+test('status with no host listening says why and exits 4', () => {
   const run = cli('status', join(dir, 'nowhere.sock'))
   expect(run.exitCode).toBe(4)
   expect(JSON.parse(run.stdout.toString())).toMatchObject({ connected: false })
