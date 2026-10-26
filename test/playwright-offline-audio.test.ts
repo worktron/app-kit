@@ -12,7 +12,7 @@ const root = join(import.meta.dir, '..');
 const app = mkdtempSync(join(tmpdir(), 'app-kit-offline-audio-'));
 afterAll(() => rmSync(app, { recursive: true, force: true }));
 
-test('an app loads the offline audio step by its import name with Node, from inside node_modules, and it hands the page an init script with its options', () => {
+test('an app loads the offline audio step by its import name with Node, from inside node_modules, and it hands the page an init script with its options, and makes a test that adds it to every context', () => {
   const kit = join(app, 'node_modules', 'app-kit');
   mkdirSync(join(kit, 'web'), { recursive: true });
   cpSync(join(root, 'package.json'), join(kit, 'package.json'));
@@ -22,16 +22,23 @@ test('an app loads the offline audio step by its import name with Node, from ins
 
   // A stand-in for a page or browser context, which records the init script it is given.
   const load = `
-    const { offlineAudio } = await import('app-kit/web/playwright-offline-audio');
+    const { offlineAudio, testWithOfflineAudio } = await import('app-kit/web/playwright-offline-audio');
     const given = [];
     const target = { addInitScript: async (script, arg) => given.push({ source: String(script), arg }) };
     await offlineAudio(target);
     await offlineAudio(target, { startsOnTap: true });
-    console.log(JSON.stringify(given.map(({ source, arg }) => ({ installs: source.includes('OfflineAudioContext'), arg }))));`;
+    const made = testWithOfflineAudio({ startsOnTap: true });
+    console.log(JSON.stringify({
+      given: given.map(({ source, arg }) => ({ installs: source.includes('OfflineAudioContext'), arg })),
+      test: ['describe', 'beforeEach', 'extend', 'use'].every((name) => typeof made[name] === 'function'),
+    }));`;
   const done = Bun.spawnSync(['node', '--input-type=module', '-e', load], { cwd: app, stdout: 'pipe', stderr: 'pipe' });
   expect(done.stderr.toString()).toBe('');
-  expect(JSON.parse(done.stdout.toString())).toEqual([
-    { installs: true, arg: { startsOnTap: false } },
-    { installs: true, arg: { startsOnTap: true } },
-  ]);
+  expect(JSON.parse(done.stdout.toString())).toEqual({
+    given: [
+      { installs: true, arg: { startsOnTap: false } },
+      { installs: true, arg: { startsOnTap: true } },
+    ],
+    test: true,
+  });
 });

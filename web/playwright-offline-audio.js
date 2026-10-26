@@ -7,9 +7,25 @@
 // playwright-offline-audio.d.ts, since Playwright's test runner loads nothing written in TypeScript from inside
 // node_modules, where an app has the kit.
 
+import { test as playwrightTest } from '@playwright/test';
+
 /** @type {typeof import('./playwright-offline-audio').offlineAudio} */
 export async function offlineAudio(target, options = {}) {
   await target.addInitScript(installOfflineAudio, { startsOnTap: options.startsOnTap === true });
+}
+
+/**
+ * Playwright's test with offlineAudio on every browser context it gives a test, and so on its `page`: a test file that
+ * imports it has no step of its own to forget.
+ * @type {typeof import('./playwright-offline-audio').testWithOfflineAudio}
+ */
+export function testWithOfflineAudio(options = {}) {
+  return playwrightTest.extend({
+    context: async ({ context }, use) => {
+      await offlineAudio(context, options);
+      await use(context);
+    },
+  });
 }
 
 /**

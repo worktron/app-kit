@@ -10,8 +10,8 @@ web/             web apps (app-kit/web): fetch wrapper, connection, new build, p
                  provider interface it takes (sign-in/provider.ts); first-paint.js, the Vite plugin for the first frame (app-kit/web/first-paint);
                  server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;
                  playwright-webkit.js, Playwright's WebKit run from a copy macOS keeps out of the Dock (app-kit/web/playwright-webkit);
-                 playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens
-                 (app-kit/web/playwright-offline-audio);
+                 playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens,
+                 and Playwright's test with it on every context (app-kit/web/playwright-offline-audio);
                  playwright.js, the browser test steps every app shares (app-kit/web/playwright);
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium; web/e2e/audio-output.swift, the
                  record of which processes have an output device open, for offline-audio.e2e.ts

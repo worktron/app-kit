@@ -171,12 +171,11 @@ Playwright's WebKit is a Mac app whose Info.plist does not say it is a backgroun
 - `expectFits(page)` fails when anything reaches past the screen's right edge, unless it is inside a box that scrolls sideways, or when the page is wider than the screen, naming each element and the start of its text. It measures against the viewport's width, since a phone's browser widens its layout to fit what overflows.
 
 ```ts
-import { test as base, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { expectFits, largestTextSize, noNewWindows } from 'app-kit/web/playwright';
-import { offlineAudio } from 'app-kit/web/playwright-offline-audio';
+import { testWithOfflineAudio } from 'app-kit/web/playwright-offline-audio';
 
-export const test = base.extend<{ noNewWindows: void }>({ noNewWindows });
-test.beforeEach(({ context }) => offlineAudio(context, { startsOnTap: true }));
+export const test = testWithOfflineAudio({ startsOnTap: true }).extend<{ noNewWindows: void }>({ noNewWindows });
 
 test('the home screen fits at the largest Text Size', async ({ page }) => {
   await largestTextSize(page);
@@ -217,22 +216,23 @@ The development instance answers every sign-in from Playwright's WebKit with "To
 
 ### Sound in browser tests
 
-A page's Web Audio in an app's browser tests plays on the browser's offline engine, so the tests never open the Mac's speakers. A gain of zero before the speakers is not enough: a running AudioContext opens the output device whatever it plays, in Chromium and in WebKit, and what reaches it is heard. Sending the test browsers to BlackHole, as a silent iPhone Simulator does, is no answer here, since macOS chooses one output device for the whole Mac and the person's own sound would go with it. An app installs the step from `app-kit/web/playwright-offline-audio` before its pages load:
+A page's Web Audio in an app's browser tests plays on the browser's offline engine, so the tests never open the Mac's speakers. A gain of zero before the speakers is not enough: a running AudioContext opens the output device whatever it plays, in Chromium and in WebKit, and what reaches it is heard. Sending the test browsers to BlackHole, as a silent iPhone Simulator does, is no answer here, since macOS chooses one output device for the whole Mac and the person's own sound would go with it. An app makes its tests' `test` once, in one file its specs share, from `app-kit/web/playwright-offline-audio`:
 
 ```ts
-import { test } from '@playwright/test';
-import { offlineAudio } from 'app-kit/web/playwright-offline-audio';
+// e2e/test.ts
+import { testWithOfflineAudio } from 'app-kit/web/playwright-offline-audio';
 
-test.beforeEach(async ({ context }) => {
-  await offlineAudio(context, { startsOnTap: true });
-});
+export const test = testWithOfflineAudio({ startsOnTap: true });
+export { expect } from '@playwright/test';
 ```
+
+Every spec imports `test` from that file, never from `@playwright/test`, which a lint rule can hold (oxlint's or eslint's `no-restricted-imports`, naming `test` from `@playwright/test` in the specs). A step in one spec's `beforeEach` covers that spec alone: an app that had it in one file still played the sea aloud from another spec that took a call. `testWithOfflineAudio(options)` returns Playwright's `test` with `offlineAudio` on every browser context it gives a test, and so on its `page`; an app with fixtures of its own adds them with `.extend` on what it returns. A context a test makes itself with `browser.newContext()` is not covered and takes `offlineAudio` by hand.
 
 `offlineAudio(contextOrPage, options)` adds an init script that makes every AudioContext the pages create, and `webkitAudioContext` where the browser has one, an OfflineAudioContext, the engine that renders into memory, paced to the clock: it renders 20ms ahead, suspends itself and goes on once the clock catches up. Sources, filters, gains, scheduled ramps and analysers run as they would on a speaker, `onended` fires, and `currentTime` moves with time. `state`, `statechange`, `resume()`, `suspend()` and `close()` behave as a page sees them on a speaker; the engine's own suspension at each step never reaches the page. They settle whatever the page's timers do, as a browser's do, so they work under Playwright's clock installed and paused; the sound itself is paced by the page's clock, so under Playwright's clock `currentTime` moves only as that clock does. Without options, a context starts running on its own a moment after it is made, as in a browser that lets a page play sound. With `startsOnTap: true` it follows an iPhone's rule: it starts suspended, and `resume()` starts it only during a tap, rejecting with NotAllowedError otherwise, until it has started once. Playwright runs `page.evaluate` as a tap, so a test of the rule itself makes its context from the page's own script.
 
 A context holds ten minutes of stereo sound, at 48,000 samples a second unless the page asks for another rate; past that its graph stops and `currentTime` holds. Both engines take memory only as the sound renders, about 380 KB for each second a context runs (ten contexts that each ran a second and closed added 18 MB to Chromium), and a closed context keeps what it rendered until its page goes away. What only a speaker has is missing: `createMediaElementSource` and the media stream nodes, while `baseLatency` and `outputLatency` read 0 and `setSinkId` changes nothing. An `<audio>` or `<video>` element plays outside Web Audio and is not covered.
 
-`web/e2e/offline-audio.e2e.ts` holds it. While a page plays a graph through the step, in Chromium and in the kit's WebKit, it records macOS's audio service, which says of each process whether it has an output device open (Core Audio's list of processes, which needs no permission, read by `web/e2e/audio-output.swift`), and fails if the test's own browser opens one. The same page without the step must be seen opening one, played through a gain of zero so it is silent, so a record that hears nothing cannot pass. Other sessions playing sound at the same time are told apart by process: Chromium's audio process descends from the test's own process, and WebKit's GPU process, which macOS starts with no parent of the browser's, runs from the test's own copy of WebKit.
+`web/e2e/offline-audio.e2e.ts` holds it. A test made by `testWithOfflineAudio`, with no step of its own, plays a graph and opens no device, while a context it makes by hand opens one. While a page plays a graph through the step, in Chromium and in the kit's WebKit, it records macOS's audio service, which says of each process whether it has an output device open (Core Audio's list of processes, which needs no permission, read by `web/e2e/audio-output.swift`), and fails if the test's own browser opens one. The same page without the step must be seen opening one, played through a gain of zero so it is silent, so a record that hears nothing cannot pass. Other sessions playing sound at the same time are told apart by process: Chromium's audio process descends from the test's own process, and WebKit's GPU process, which macOS starts with no parent of the browser's, runs from the test's own copy of WebKit.
 
 ### Server tests
 
@@ -749,7 +749,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Route check | `app-kit/authentication/agent-keys/testing` | `routesLetThrough`, which says which routes nobody or a key reaches otherwise than `requireCaller` would. See Server tests above. |
 | Shared test steps | `app-kit/web/playwright`, `app-kit/tauri/playwright` | Page loads, steady frames, a finger, no new windows, the largest Text Size and a fit check; the Tauri bridge faked for the kit's plugins and desktop sign-in. See Browser tests above. |
 | WebKit out of the Dock | `app-kit/web/playwright-webkit` | `webkitWithoutDockIcon`, the launch options that run Playwright's WebKit from a copy macOS keeps out of the Dock. See Browser tests above. |
-| Sound in browser tests | `app-kit/web/playwright-offline-audio` | `offlineAudio`, which runs a test page's Web Audio on the browser's offline engine, so no speaker opens. See Sound in browser tests above. |
+| Sound in browser tests | `app-kit/web/playwright-offline-audio` | `testWithOfflineAudio`, Playwright's `test` with every context's Web Audio on the browser's offline engine, so no speaker opens, and `offlineAudio`, the step it adds to each context. See Sound in browser tests above. |
 | Keys for agents | `app-kit/authentication/agent-keys` | `requireCaller` and `callerOf`: a person's key reads the GET routes the app lists. |
 | API reference | `app-kit/authentication/agent-keys/openapi` | The OpenAPI descriptions and reference page that show a key those routes. |
 | Owner only | `app-kit/authentication/owner` | `requireOwner` and `ownerCheckByEmail`: a server that serves one person lets only them in. |

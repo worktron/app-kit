@@ -1,9 +1,9 @@
-import { chromium, expect, test, webkit, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, expect, test, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { offlineAudio } from '../playwright-offline-audio.js';
+import { offlineAudio, testWithOfflineAudio } from '../playwright-offline-audio.js';
 import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 
 // A page's Web Audio run through the kit, in Chromium and in the kit's WebKit, with macOS's audio service recorded by
@@ -83,10 +83,12 @@ const PAGE = `<!doctype html><button>Play</button><script>
   });
 </script>`;
 
+/** Playwright's browser types, which a fixture is given as `playwright`. */
+type BrowserTypes = { chromium: BrowserType; webkit: BrowserType };
 const BROWSERS = {
-  chromium: () => chromium.launch(),
-  webkit: () => webkit.launch(webkitWithoutDockIcon(join(scratch, 'webkit'))),
-} satisfies Record<string, () => Promise<Browser>>;
+  chromium: (types: BrowserTypes = { chromium, webkit }) => types.chromium.launch(),
+  webkit: (types: BrowserTypes = { chromium, webkit }) => types.webkit.launch(webkitWithoutDockIcon(join(scratch, 'webkit'))),
+} satisfies Record<string, (types?: BrowserTypes) => Promise<Browser>>;
 
 /** A page of `browser` on the test's own page, with the kit's offline audio when `options` are given. */
 async function openPage(browser: Browser, options?: Parameters<typeof offlineAudio>[1]): Promise<{ context: BrowserContext; page: Page }> {
@@ -151,7 +153,51 @@ async function recordOutputs() {
 const ours = (output: Output) => output.parents.includes(process.pid) || output.executable.startsWith(scratch);
 
 for (const [name, launch] of Object.entries(BROWSERS)) {
+  // An app's test, as a spec gets it from the one file that makes it: no step of its own, on this file's browser.
+  const appTest = testWithOfflineAudio({ startsOnTap: true }).extend<object, { browser: Browser }>({
+    browser: [
+      async ({ playwright }, use) => {
+        const browser = await launch(playwright);
+        await use(browser);
+        await browser.close();
+      },
+      { scope: 'worker' },
+    ],
+  });
+
   test.describe(name, () => {
+    appTest("a test from testWithOfflineAudio plays through the kit with no step of its own, and a context it makes by hand, which it does not cover, opens a device", async ({ browser, context, page }) => {
+      appTest.skip(process.platform !== 'darwin', "the recorder reads macOS's audio service");
+      const recorder = await recordOutputs();
+      try {
+        await context.route(ADDRESS, (route) => route.fulfill({ contentType: 'text/html', body: PAGE }));
+        await page.goto(ADDRESS);
+        expect(await page.evaluate(() => window.early instanceof OfflineAudioContext)).toBe(true);
+        // The options reach the page: made outside a tap, a context refuses to start.
+        expect(await page.evaluate(() => window.earlyStart)).toBe('NotAllowedError');
+        await page.getByRole('button', { name: 'Play' }).click();
+        await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
+        const played = await page.evaluate(() => window.play(window.contexts[0]!));
+        expect(played.peak).toBeGreaterThan(0.1);
+        // The context still runs, so a device it had opened would still be open when the mark is answered.
+        const before = await recorder.mark();
+        expect(recorder.outputs.slice(0, before).filter(ours)).toEqual([]);
+
+        const byHand = await browser.newContext();
+        try {
+          await byHand.route(ADDRESS, (route) => route.fulfill({ contentType: 'text/html', body: PAGE }));
+          const plain = await byHand.newPage();
+          await plain.goto(ADDRESS);
+          await plain.getByRole('button', { name: 'Play' }).click();
+          await recorder.next(before, ours);
+        } finally {
+          await byHand.close();
+        }
+      } finally {
+        recorder.stop();
+      }
+    });
+
     test('a page plays its whole graph through the kit and no output device opens, which it does without the kit', async () => {
       test.skip(process.platform !== 'darwin', "the recorder reads macOS's audio service");
       const recorder = await recordOutputs();
