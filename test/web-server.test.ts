@@ -15,7 +15,8 @@ beforeAll(async () => {
   await mkdir(join(built, 'assets'));
   await writeFile(join(built, 'index.html'), '<!doctype html><title>shop</title>');
   await writeFile(join(built, 'manifest.webmanifest'), '{}');
-  await writeFile(join(built, 'assets', 'index-abc123.js'), 'console.log(1)');
+  await writeFile(join(built, 'assets', 'index-BF93Hsvo.js'), 'console.log(1)');
+  await writeFile(join(built, 'assets', 'logo.png'), 'png');
   serve = serveBuiltPage(built);
 });
 
@@ -37,11 +38,17 @@ describe('serveBuiltPage', () => {
     }
   });
 
-  test('built files are kept for a year, and the files beside the page are asked for again', async () => {
-    const script = await get('/assets/index-abc123.js');
+  test('files Vite built are kept for a year, and the files beside the page are asked for again', async () => {
+    const script = await get('/assets/index-BF93Hsvo.js');
     expect(script.status).toBe(200);
     expect(script.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
     expect((await get('/manifest.webmanifest')).headers.get('Cache-Control')).toBe('no-cache');
+  });
+
+  test('a file the app put in public/assets/ keeps its name across deploys, so it is asked for again', async () => {
+    const logo = await get('/assets/logo.png');
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get('Cache-Control')).toBe('no-cache');
   });
 
   test('a missing file is a 404, never the page, so an old build asking for its gone screen code is not handed HTML', async () => {

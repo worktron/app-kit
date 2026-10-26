@@ -3,7 +3,7 @@
  * reload (crash-reload.ts) and the new-build line (new-build.ts) both read which build the index page names, and a
  * browser that reused the page by its own guess, from its Last-Modified date, would answer them with the build they are
  * running. So the index page, and every address answered with it, goes out with `no-cache`, which makes the browser ask
- * again on each load; the built files under /assets/ are named after what they hold and are kept for a year.
+ * again on each load; the files Vite built under /assets/ are named after what they hold and are kept for a year.
  *
  * A plain `(Request) => Promise<Response>`, so a Hono server and a bare Bun.serve take it the same way. No React.
  */
@@ -11,6 +11,11 @@ import { join, resolve, sep } from 'node:path';
 
 const KEPT = 'public, max-age=31536000, immutable';
 const ASKED_AGAIN = 'no-cache';
+/**
+ * A file Vite built, named `<name>-<hash>.<ext>` with an eight-character hash of what it holds, so a deploy that changes
+ * it changes its name. A file an app put in `public/assets/` keeps its own name across deploys and is asked for again.
+ */
+const BUILT_NAME = /^\/assets\/(?:.*\/)?[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/i;
 
 export interface BuiltPageOptions {
   /**
@@ -54,7 +59,7 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
     if (target !== root) {
       const file = Bun.file(target);
       if (await file.exists()) {
-        return new Response(file, { headers: { 'Cache-Control': pathname.startsWith('/assets/') ? KEPT : ASKED_AGAIN } });
+        return new Response(file, { headers: { 'Cache-Control': BUILT_NAME.test(pathname) ? KEPT : ASKED_AGAIN } });
       }
     }
     // An address with a file's extension is a file, never a screen: an old build asking for screen code a deploy
