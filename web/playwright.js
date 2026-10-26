@@ -134,69 +134,6 @@ export const noNewWindows = [
   { auto: true },
 ];
 
-/** @type {typeof import('./playwright').muteAudio} */
-export async function muteAudio(target, { startsOnTap = false } = {}) {
-  await target.addInitScript((tapRule) => {
-    const Native = window.AudioContext;
-    // Applied once, however many times a test or its fixtures ask.
-    if (!Native || /** @type {{ appKitMuted?: boolean }} */ (/** @type {unknown} */ (Native)).appKitMuted) return;
-    // A media element is muted whenever it plays, by play() or by autoplay.
-    const play = HTMLMediaElement.prototype.play;
-    HTMLMediaElement.prototype.play = function () {
-      this.muted = true;
-      return play.call(this);
-    };
-    document.addEventListener('play', (event) => {
-      if (event.target instanceof HTMLMediaElement) event.target.muted = true;
-    }, true);
-    const Muted = class extends Native {
-      /** @param {AudioContextOptions} [options] */
-      constructor(options) {
-        super(options);
-        // Every sound runs its whole path and ends in a gain of zero before the speakers.
-        const silent = super.createGain();
-        silent.gain.value = 0;
-        silent.connect(super.destination);
-        Object.defineProperty(this, 'destination', { value: silent, configurable: true });
-        if (!tapRule) return;
-        // The iPhone's rule: sound starts paused, and asking it to play works only during a tap, until a tap has
-        // started it once. The browser's own audio is started and paused along with it, without waiting on it.
-        /** @type {AudioContextState} */
-        let state = 'suspended';
-        let started = false;
-        /** @param {AudioContextState} next */
-        const become = (next) => {
-          if (state === next) return;
-          state = next;
-          this.dispatchEvent(new Event('statechange'));
-        };
-        const native = { resume: super.resume.bind(this), suspend: super.suspend.bind(this), close: super.close.bind(this) };
-        Object.defineProperty(this, 'state', { get: () => state, configurable: true });
-        Object.defineProperty(this, 'resume', {
-          configurable: true,
-          value: () => {
-            if (state === 'closed') return Promise.reject(new DOMException('closed', 'InvalidStateError'));
-            if (!started && !navigator.userActivation?.isActive) return Promise.reject(new DOMException('a tap is needed to start sound', 'NotAllowedError'));
-            started = true;
-            native.resume().catch(() => {});
-            return Promise.resolve().then(() => become('running'));
-          },
-        });
-        Object.defineProperty(this, 'suspend', {
-          configurable: true,
-          value: () => {
-            native.suspend().catch(() => {});
-            return Promise.resolve().then(() => become('suspended'));
-          },
-        });
-        Object.defineProperty(this, 'close', { configurable: true, value: () => native.close().then(() => become('closed')) });
-      }
-    };
-    Object.defineProperty(Muted, 'appKitMuted', { value: true });
-    window.AudioContext = Muted;
-  }, startsOnTap);
-}
-
 /** @type {typeof import('./playwright').largestTextSize} */
 export async function largestTextSize(target) {
   await target.addInitScript(() => {

@@ -1,12 +1,11 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { expect, test, webkit, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { hidePage, lockFor, serveNewerBuild, showPage } from '../../authentication/stand-in/playwright';
 import { standInTicket } from '../../authentication/stand-in';
 import { NOT_FROM_THIS_WINDOW } from '../../tauri/sign-in';
 import { fakeTauri, handOverSignIn, IPHONE_USER_AGENT, launchedByTap, loadWithSignIn, tapNotification, tauriCalls, windowAsksForSignIn } from '../../tauri/playwright';
-import { countLoads, expectFits, expectSteady, finger, largestTextSize, muteAudio, noNewWindows, takeFrames, watchFrames } from '../playwright';
-import { webkitWithoutDockIcon } from '../playwright-webkit.js';
+import { countLoads, expectFits, expectSteady, finger, largestTextSize, noNewWindows, takeFrames, watchFrames } from '../playwright';
 
 // The Playwright steps' own behavior, each against a page of the fixture or a page the test writes; kit.e2e.ts drives
 // the steps against the fixture app.
@@ -151,60 +150,6 @@ test.describe('no new windows', () => {
     });
     await context.close();
   });
-});
-
-/** What the muted page's sound reads: the destination's gain, a played element's mute, and an audio context's state. */
-async function soundOf(page: Page) {
-  return page.evaluate(async () => {
-    const context = new AudioContext();
-    const destination = context.destination as unknown as GainNode;
-    const audio = document.createElement('audio');
-    void audio.play().catch(() => {});
-    return { gain: destination.gain?.value ?? null, elementMuted: audio.muted, state: context.state };
-  });
-}
-
-test('muted sound ends in a gain of zero and mutes what plays, and muting twice is the same as once', async ({ page }) => {
-  await muteAudio(page);
-  await muteAudio(page);
-  await page.goto(plainPage);
-  expect(await soundOf(page)).toMatchObject({ gain: 0, elementMuted: true });
-});
-
-test('with the iPhone\'s rule, sound asked for with no tap stays off, and starts during a tap', async ({ page }) => {
-  await muteAudio(page, { startsOnTap: true });
-  // Asked by the page's own script as it loads: Playwright runs page.evaluate as a tap, so a test cannot ask from there.
-  await page.addInitScript(() =>
-    document.addEventListener('DOMContentLoaded', () => {
-      const context = new AudioContext();
-      const results: string[] = [];
-      Object.assign(window, { results });
-      const button = Object.assign(document.createElement('button'), { textContent: 'Start the sound' });
-      button.addEventListener('click', () => void context.resume().then(() => results.push(`tap: ${context.state}`)));
-      document.body.append(button);
-      context.resume().then(
-        () => results.push(`no tap: ${context.state}`),
-        (error: DOMException) => results.push(`no tap: ${error.name}`),
-      );
-    }),
-  );
-  await page.goto(plainPage);
-  const results = () => page.evaluate(() => (window as unknown as { results: string[] }).results);
-  await expect.poll(results).toEqual(['no tap: NotAllowedError']);
-  await page.getByRole('button', { name: 'Start the sound' }).click();
-  await expect.poll(results).toEqual(['no tap: NotAllowedError', 'tap: running']);
-});
-
-test('muted sound is muted in the kit\'s WebKit too, which Playwright does not mute', async ({ baseURL }) => {
-  const browser = await webkit.launch(webkitWithoutDockIcon());
-  try {
-    const page = await browser.newPage({ baseURL });
-    await muteAudio(page);
-    await page.goto(plainPage);
-    expect(await soundOf(page)).toMatchObject({ gain: 0, elementMuted: true });
-  } finally {
-    await browser.close();
-  }
 });
 
 test('the largest Text Size reads 3.12 through the kit\'s own reading: the root size, --text-scale and the page that shows it', async ({ page }) => {

@@ -52,15 +52,6 @@ export function finger(page: Page): Promise<{
 export const noNewWindows: [({ context }: { context: BrowserContext }, use: () => Promise<void>) => Promise<void>, { auto: true }];
 
 /**
- * Keeps the page's sound silent, called before the page loads: every audio context ends in a gain of zero before the
- * speakers, so its sound runs its whole path unheard, and every audio and video element is muted as it plays. Playwright
- * mutes headless Chromium but not WebKit, where parallel runs otherwise play aloud. With `startsOnTap`, an audio context
- * also follows the iPhone's rule: it starts suspended, and `resume()` works only during a tap until a tap has started
- * it once. Calling it twice is the same as once.
- */
-export function muteAudio(target: Page | BrowserContext, options?: { startsOnTap?: boolean }): Promise<void>;
-
-/**
  * The phone's largest Text Size, for an app that calls `followTextSize()`, called before the page loads. The kit's
  * reading answers 3.12, as an iPhone at its largest accessibility size does, so the root font size, `--text-scale` and
  * `useTextScale()` all grow together. The page also reads the screen as taking touch (`navigator.maxTouchPoints` 5).
