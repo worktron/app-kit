@@ -27,6 +27,8 @@ export async function openDb<TSchema extends Schema>(
   location: string,
   { schema, migrationsFolder }: DbOptions<TSchema>,
 ): Promise<Db<TSchema>> {
+  // A blank variable, as a broken reference on Railway gives, would otherwise open PGlite in the working folder.
+  if (!location.trim()) throw new Error('openDb was given no location: pass a postgres:// URL, a folder or :memory:');
   if (/^postgres(ql)?:\/\//.test(location)) {
     const client = postgres(location, { onnotice: () => {} });
     const db = Object.assign(drizzlePostgres(client, { schema }), { close: () => client.end() });

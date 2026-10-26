@@ -78,6 +78,11 @@ describe('openDb', () => {
   });
   afterEach(() => mock.restore());
 
+  test('refuses an empty location, as a blank variable gives, instead of opening a folder', async () => {
+    for (const location of ['', '  ']) await expect(openDb(location, options)).rejects.toThrow('no location');
+    expect(logged).toEqual([]);
+  });
+
   test('migrates an in-memory PGlite and says so', async () => {
     const db = await openDb(':memory:', options);
     await db.insert(schema.notes).values({ body: 'in memory', length: 9 });
