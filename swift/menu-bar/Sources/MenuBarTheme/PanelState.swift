@@ -11,9 +11,10 @@ public final class PanelState {
     public var selected: AnyHashable?
     /// The text last copied from this panel, whose copy says "copied" until another copy or the panel closes.
     public internal(set) var copied: String?
-    /// The lines the arrow keys move through, and the footer's shortcuts, in the order the panel shows them.
-    var lines: [SelectableLine] = []
-    var shortcuts: [Shortcut] = []
+    /// The lines the arrow keys move through, and the footer's shortcuts, in the order the panel shows them. Handed
+    /// over on every update and read only on a key, so no view redraws for them.
+    @ObservationIgnored var lines: [SelectableLine] = []
+    @ObservationIgnored var shortcuts: [Shortcut] = []
     /// The line under the pointer, which becomes the selection once the pointer means it.
     var pointerOver: AnyHashable?
     /// How tall the content is, and how tall the screen lets the panel be.
@@ -70,17 +71,18 @@ public final class PanelState {
 }
 
 /// A line the arrow keys stop on, and what Return does there.
-// Unchecked: preferences carry them only on the main actor, where SwiftUI reads them.
+// Unchecked: preferences carry them only on the main actor, where SwiftUI reads them. Never equal: an update that
+// keeps a line's id can change what it does (a row's status refreshed), and an equal value would keep the old action.
 struct SelectableLine: Equatable, @unchecked Sendable {
     let id: AnyHashable
     let action: () -> Void
-    static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+    static func == (a: Self, b: Self) -> Bool { false }
 }
 
 struct Shortcut: Equatable, @unchecked Sendable {
     let key: Character
     let action: () -> Void
-    static func == (a: Self, b: Self) -> Bool { a.key == b.key }
+    static func == (a: Self, b: Self) -> Bool { false }
 }
 
 struct SelectableLines: PreferenceKey {

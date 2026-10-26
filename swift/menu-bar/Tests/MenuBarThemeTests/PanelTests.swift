@@ -117,6 +117,37 @@ import Testing
         #expect(panel.state.selected == panel.state.lines.last?.id)
     }
 
+    @Observable final class Status {
+        var age = "4m"
+    }
+
+    struct StatusRows: View {
+        let status: Status
+        let opened: (String) -> Void
+        var body: some View {
+            let age = status.age
+            Row("alpha", status: Words("fine", .ok), age: age) { opened(age) }
+            Footer([FooterItem("refresh", key: "r") { opened("refresh at \(age)") }])
+        }
+    }
+
+    @Test func returnAndShortcutsRunWhatTheLatestUpdateDrew() {
+        let status = Status()
+        var opened: [String] = []
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            StatusRows(status: status) { opened.append($0) }
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        // A refresh: the same row, by the same id, with newer data.
+        status.age = "1m"
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key("\r", code: 36))
+        panel.sendEvent(key("r", code: 15, command: true))
+        #expect(opened == ["1m", "refresh at 1m"])
+    }
+
     @Test func upFromNothingSelectsTheLastLine() {
         let panel = panel()
         panel.sendEvent(key(Self.up, code: 126))
