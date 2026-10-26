@@ -42,7 +42,7 @@ function installOfflineAudio({ startsOnTap }) {
   };
 
   /**
-   * Sets the page's state and sends statechange, as the browser does, in a task of its own after the promise resolves.
+   * Sets the page's state and sends statechange, before the page's own callbacks on the promise run.
    * @param {OfflineAudioContext} context
    * @param {AudioContextState} state
    */
@@ -75,6 +75,7 @@ function installOfflineAudio({ startsOnTap }) {
 
   /**
    * The engine has suspended itself: it goes on once the clock reaches where it is, if the page still has it running.
+   * The clock is the page's own, so under Playwright's clock the sound moves only as that clock does.
    * @param {OfflineAudioContext} context
    */
   const arrived = (context) => {
@@ -104,18 +105,12 @@ function installOfflineAudio({ startsOnTap }) {
   };
 
   /**
-   * Settles in a task of its own, as the browser does, with the state set before the page's own callbacks run.
+   * Settles soon after the call, with the state set before the page's own callbacks run. In a microtask, not a timer:
+   * a browser settles these whatever the page's timers do, and Playwright's clock, installed and paused, holds every
+   * timer the page sets.
    * @param {() => void} change
    */
-  const later = (change) =>
-    /** @type {Promise<void>} */ (
-      new Promise((resolve) =>
-        setTimeout(() => {
-          change();
-          resolve();
-        }),
-      )
-    );
+  const later = (change) => Promise.resolve().then(change);
 
   const AudioContext = class AudioContext extends Offline {
     /** @param {AudioContextOptions} [options] */
@@ -127,9 +122,10 @@ function installOfflineAudio({ startsOnTap }) {
       native.addEventListener.call(this, 'statechange', (event) => {
         if (event !== record(this).event) event.stopImmediatePropagation();
       });
-      // A browser that lets a page play sound starts the context on its own, a moment after it is made.
+      // A browser that lets a page play sound starts the context on its own, a moment after it is made, whatever the
+      // page's timers do.
       if (!startsOnTap) {
-        setTimeout(() => {
+        queueMicrotask(() => {
           const own = record(this);
           if (own.state !== 'suspended' || own.started) return;
           own.started = true;

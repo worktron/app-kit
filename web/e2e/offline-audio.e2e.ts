@@ -253,6 +253,38 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         await browser.close();
       }
     });
+
+    test("under Playwright's paused clock a context still starts, suspends, resumes and closes, as a browser's does whatever the page's timers do", async () => {
+      const browser = await launch();
+      try {
+        const paused = async (options: Parameters<typeof offlineAudio>[1]) => {
+          const { page } = await openPage(browser, options);
+          await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
+          await page.clock.pauseAt(new Date('2026-01-01T09:00:10'));
+          return page;
+        };
+        // Each promise records when it settles, so a promise that never does fails the poll rather than hanging the test.
+        const page = await paused({ startsOnTap: true });
+        await page.getByRole('button', { name: 'Play' }).click();
+        const seen = () => page.evaluate(() => ({ states: window.states[0], settled: window.settled }));
+        await page.evaluate(() => (window.settled = []));
+        await expect.poll(seen).toEqual({ states: ['running'], settled: [] });
+        for (const [step, states] of [
+          ['suspend', ['running', 'suspended']],
+          ['resume', ['running', 'suspended', 'running']],
+          ['close', ['running', 'suspended', 'running', 'closed']],
+        ] as const) {
+          await page.evaluate((step) => void window.contexts[0]![step]().then(() => window.settled.push(step)), step);
+          await expect.poll(seen).toEqual({ states, settled: states.slice(1).map((_, i) => (['suspend', 'resume', 'close'] as const)[i]) });
+        }
+
+        const onItsOwn = await paused({});
+        await onItsOwn.evaluate(() => (window.contexts = [new AudioContext()]));
+        await expect.poll(() => onItsOwn.evaluate(() => window.contexts[0]!.state)).toBe('running');
+      } finally {
+        await browser.close();
+      }
+    });
   });
 }
 
@@ -262,6 +294,7 @@ declare global {
     earlyStart: Promise<string>;
     contexts: AudioContext[];
     states: AudioContextState[][];
+    settled: string[];
     play: (context: AudioContext) => Promise<{ audio: number; clock: number; peak: number; swell: number; ended: boolean }>;
   }
 }
