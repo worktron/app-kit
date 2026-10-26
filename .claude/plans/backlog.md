@@ -37,3 +37,9 @@ Done when: bin/app-kit.ts has a release command and a key command, run through t
 Goal: argon-watcher's src/lib/desktop.ts:27-51 polls with a cursor that starts at launch, only moves forward and lets one request run at a time, and :62-76 sends one introductory notification at first launch so macOS's permission prompt does not land on, and dismiss, the first real alert. Tauri's notification plugin always answers "granted" on macOS, so an app cannot show a permission state (0b9282f). Background throttling must be off for it to keep running (460b9b4), which the hosted-window crate covers. Found by the harvest thread, 2026-10-26.
 
 Done when: app-kit/tauri holds the page half (poller and first-launch notice) with unit tests on a fake clock, the server's side is a documented route shape, and the README says what macOS's permission answer can and cannot be trusted for.
+
+## offline-start · A Tauri window onto a hosted site opens on a bundled start page that waits for the site
+
+Goal: a window that loads its remote address directly stays blank offline. timescale's desktop/start/index.html:1-136 probes /api/health with no-cors, goes to the hosted app on any answer, otherwise says it cannot reach it with Try again, and retries on online and every 30 seconds (451b522; e2e/mac-app-start.e2e.ts). It holds a copy of the palette that a cargo test checks against palette.ts (main.rs:872-908): the kit's version takes colors and origin as inputs. Found by the harvest thread, 2026-10-26.
+
+Done when: the kit ships the start page (or a generator for it) taking the origin, health path and colors, the hosted-window crate can point the window at it, and a browser test proves the page waits, retries and moves on.
