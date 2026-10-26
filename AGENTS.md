@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`) and two for what several kinds share (`authentication/`, `server/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/authentication/...`, `app-kit/server/google`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`) and two for what several kinds share (`authentication/`, `server/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -25,7 +25,9 @@ authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the C
                  stand-in/ (the stand-in sign-in provider, and the Playwright steps for apps' browser tests, playwright.js),
                  agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts),
                  owner/ (the server check that lets in only the one person an app serves)
-server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React)
+server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
+                 postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
+                 migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration)
 bin/             the app-kit command
 scripts/         the gates (gates.sh), and the landing (land-main.sh, which runs land.ts), which sets the version and tags it
 test/            every unit test, in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced,

@@ -8,7 +8,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
-| `server/` | `app-kit/server/google` | Server-only pieces no kind of app owns: what a refusal from Google means. |
+| `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
 
 A piece with a browser half keeps its server half beside it (`tauri/sign-in/server.ts`); a piece that is server only goes in `server/`. No vendor names a top folder.
@@ -539,7 +539,9 @@ app.get('/api/reference', Scalar({ ...REFERENCE_PAGE_SETTINGS, pageTitle: 'Argon
 
 Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page.
 
-## server/: the Google part
+## server/: for an app's server
+
+### What a refusal from Google means
 
 `app-kit/server/google`, for an app's server: what a refusal from Google means, read the same way in every app. It takes the answer to a call made with a grant the app holds, whether the token came from Clerk or from the app's own Google sign-in: any Google API (Gmail, Calendar, Drive), or a refresh at Google's token endpoint. A sign-in's first exchange of its code is not one: Google answers `invalid_grant` there too, for a code that is stale or used, and the sign-in starts again. It has no React and no packages.
 
@@ -563,6 +565,45 @@ if (refusal?.kind === 'freshToken') {
 | Anything else: an API the Google Cloud project has not switched on (`accessNotConfigured`), a permission on the item itself, a 404, a 410 `fullSyncRequired`, the token endpoint's `invalid_client` | `failed` |
 
 Every reading carries Google's own `reason` and a one-line `message` for the log. Only answers with a recorded or Google-documented sample have a meaning; anything else reads as `failed` until one is recorded. What the person sees is the app's: its server sends the words with the status, a reconnect names the service ("Reconnect Google Calendar"), says how old what is shown is, and for `missingAccess` says to tick the box on Google's screen.
+
+### The Postgres database
+
+`app-kit/server/postgres`, for an app's server on Drizzle: one way to open its database, Railway's Postgres in production and PGlite, Postgres compiled to WebAssembly and run in the process, everywhere else. Each call takes the app's own schema and the folder drizzle-kit generates its migrations into, and brings the database up to date with Drizzle's migrator before it returns.
+
+```ts
+import { openDb } from 'app-kit/server/postgres';
+import { join } from 'node:path';
+import * as schema from './schema';
+
+export const db = await openDb(process.env.DATABASE_URL ?? '.data/db', {
+  schema,
+  migrationsFolder: join(import.meta.dir, '../drizzle'),
+});
+```
+
+| `openDb(location, ...)` with | Opens |
+| --- | --- |
+| A `postgres://` or `postgresql://` URL, such as Railway's `DATABASE_URL` | A Postgres server, through postgres-js |
+| A folder | PGlite kept on disk in that folder, for local use |
+| `:memory:` | PGlite in memory, gone when it closes |
+
+Every database it gives has `close()`, which ends the connection or shuts PGlite down. Migrations are only ever drizzle-kit's: `bunx drizzle-kit generate` writes them from the schema, and the next open runs them, on Railway as on the laptop.
+
+In tests, `openTestDb({ schema, migrationsFolder })` gives an empty, migrated in-memory database, one per call. Migrating takes most of a second, so the first call in a test process migrates one database and keeps its files, and every later call for the same folder starts from a copy of them. Each one holds a few hundred megabytes, and `bun test` runs every file in one process, so a test file closes them all after each test:
+
+```ts
+import { afterEach, test } from 'bun:test';
+import { closeTestDbs, openTestDb } from 'app-kit/server/postgres';
+
+afterEach(closeTestDbs);
+
+test('records a visit', async () => {
+  const db = await openTestDb({ schema, migrationsFolder });
+  // ...
+});
+```
+
+Needs `drizzle-orm` 0.45, `@electric-sql/pglite` 0.5 and `postgres` 3.4, which the kit names as optional peers, so an app without a database installs none of them. An app that runs only on PGlite still installs `postgres`, since the one module imports both drivers.
 
 ## bin/, scripts/ and test/: develop
 
