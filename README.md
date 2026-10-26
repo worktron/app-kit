@@ -4,7 +4,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
-| `web/` | `app-kit/web`, `.../server` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, and the server's sending of the built page. |
+| `web/` | `app-kit/web`, `.../server`, `.../first-paint` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, and a Vite plugin for the first frame. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
@@ -29,7 +29,7 @@ bun add github:worktron/app-kit#v0.13.1
 
 | Piece | Import | What it does |
 | --- | --- | --- |
-| Fetch wrapper | `request` | Sends the session's token, reads the status before the body, and returns the parsed JSON. A 401 is asked once more with a fresh token; refused again, sign-in comes up over the current address, once, never in a loop. |
+| Fetch wrapper | `request` | Sends the session's token, reads the status before the body, and returns the parsed JSON. A 401 is asked once more with a fresh token; refused again, sign-in comes up over the current address, once, never in a loop. A request marked `keepalive`, as one sent while the page is being left, starts at once. See below. |
 | Server-unreachable line | `ConnectionLine`, `useServerReachable`, `onReconnect` | No answer, or a proxy's 502, 503 or 504, shows a line until the server answers again. While down it looks every five seconds and when the browser comes back online or the page back in front. So the app's own server never answers 502, 503 or 504 for a failure past it, such as a call to Google that failed: that is a 500, or the line says the app cannot be reached and every screen loads again. |
 | New-deploy line | `NewBuildLine`, `useNewBuild`, `lookForNewBuild` | An open page looks for a newer build when it comes back in front, at most once a minute, or at once on a pull to refresh, and shows a quiet line with Reload. It reloads by itself only once hidden, or after ten idle minutes, with nothing entered, unless the app passes `reloadsItself: false` to `useNewBuild`, or `reloadsItself={false}` to `NewBuildLine`, because its view holds something only in memory. |
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
@@ -37,6 +37,10 @@ bun add github:worktron/app-kit#v0.13.1
 | Saved copies of screens | `savedCopies`, `useScreenData`, `useSavedCopy`, `useSaveAfterDraw` | A screen seen before paints at once from the copy this browser saved, then from the server. Copies are kept per build and per person, deleted at sign-out, and saved only after they have drawn, so a deploy that changes an answer's shape, or is rolled back, never leaves a copy that crashes every load. See below. |
 | Links for rows and cards | `RowLink`, `NavigateProvider` | A whole row as a real `<a href>`: ⌘-click and middle-click open a new tab, a plain click moves through the app's navigate. |
 | The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
+| Fields that never zoom | `fieldsNeverZoom`, `FIELD_FONT_SIZE`, `rem` | A text field's size is 16 pixels or the Text Size's size, whichever is larger, so iPhone Safari never zooms into it at a small Text Size and it still grows at a large one. `rem(px)` writes a pixel size as one that follows Text Size. See below. |
+| Pull to refresh | `PullToRefresh`, `isInstalledApp`, `isIphoneApp` | In an installed app, the iPhone app or a web app opened from the home screen, a pull down from the top of the page reloads it, or runs the app's own refresh and looks for a newer deploy. Never over typed text, and never from a field, a menu, a dialog, a scrolled list or a sideways swipe. See below. |
+| The first frame | `firstPaint`, from `app-kit/web/first-paint` | A Vite plugin that paints the page in the app's colors, light or dark or the app's own choice, with the phone's bar to match, before any of the app's code loads. See below. |
+| The first draw after the fonts | `waitForFonts` | Holds the first draw until the app's faces are in, at most a second and a half, so no text swaps from a fallback face. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
 | The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, built files kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
@@ -173,6 +177,63 @@ An iPhone's web view, Safari's and the one a Tauri app runs in, ignores the Text
 - **Size text in rem.** MUI's theme does by default, so its typography follows with nothing more. A size in pixels follows only when the app multiplies it: `calc(14px * var(--text-scale, 1))`, the variable the kit sets beside the root size. Spacing in pixels stays as it is, as in Apple's own apps.
 - **Lay screens out for the largest sizes.** At three times the default, a row of buttons or a fixed-height card no longer fits. `useTextScale()` gives the scale to code that changes a layout at large sizes, and re-renders when it changes; it follows the setting too, so an app using only the hook needs no `followTextSize()` call.
 - **Off an iPhone or iPad the scale is 1**, and the root size is left alone. A Mac's Safari knows Apple's style but answers 13 pixels, its own fixed size, so the kit reads only on a touch device that answers at least 14, the smallest iPhone size. Playwright's WebKit, with an iPhone profile or without, is a Mac's and reads 1 too; only the iPhone Simulator shows the setting, as `web/text-size.ts` says how.
+- **Text fields stay at 16 pixels or more.** At the smallest Text Size a field sized 1rem is about 13 pixels, and iPhone Safari zooms the page into a field under 16 as it takes focus, and stays zoomed. `FIELD_FONT_SIZE` is `max(16px, 1rem)`; for MUI's fields, every one built on InputBase, pass `fieldsNeverZoom` as `createTheme`'s second argument, `createTheme(appTheme, { components: fieldsNeverZoom })`, which merges it into the app's own `MuiInputBase` settings. A font size the app sets on the input slot overrides it, so set none there. Turning zoom off in the viewport tag instead would also stop pinch zoom on Android and in the iPhone app.
+- **`rem(px)`** turns a size in pixels at the default root of 16 into rem, for a theme written in pixels, where MUI's own `theme.typography.pxToRem` does not exist yet.
+
+### Pull to refresh
+
+An installed app has no browser controls, so without a pull a stuck page or a new deploy means killing the app. `<PullToRefresh />`, mounted once outside the app's `ErrorBoundary` so a crashed page can still be pulled, reloads the page on a pull past the line from the top. `isInstalledApp()` says where it runs: the Tauri iPhone app, or a web app opened from the home screen; a browser tab keeps its own reload and Safari's own pull, and a Tauri app's Mac window has no touch.
+
+```tsx
+<ErrorBoundary placeholder={<Wordmark />}>…</ErrorBoundary>
+<PullToRefresh top={BAR_HEIGHT} onPull={refetchEverything} ignoreWhile={() => dragging.current} />
+```
+
+- `onPull` refreshes in place instead, for an app that fetches everything again without losing its view. The mark spins until a promise it returns settles, and the page looks for a newer deploy at once (`lookForNewBuild`). A second pull while it has not settled reloads, so a refresh that hangs never leaves the app without one.
+- A pull never reloads over text typed into a field; the mark says why and nothing happens.
+- It starts only with the page at its top, outside a field, a menu, a dialog or a scrolled element, and only when the finger moves down more than sideways, so a row swipe never turns into one. `ignoreWhile` holds it off during a drag of the app's own.
+- `top` places the mark below the app's bar; the top safe area is added. The mark draws in the theme's paper, divider and text colors.
+- The default reload loads a newer build only where no service worker holds the old page. An app with one passes an `onPull` that updates the worker first.
+
+### The first frame and the fonts
+
+Until the app's code loads, a page with no background paints white, or in the wrong scheme, on every load, and text drawn before its font file arrives swaps a moment later. `firstPaint`, in the app's `vite.config.ts`, puts a style and a few lines of script at the end of `index.html`'s head that set the page's colors before the first paint:
+
+```ts
+import { firstPaint } from 'app-kit/web/first-paint';
+
+plugins: [
+  react(),
+  firstPaint({ schemes: { light: { background: '#fff8f0', color: '#2c2420' }, dark: { background: '#14110f', color: '#efe6dc', dark: true } } }),
+],
+```
+
+- The script sets `--page-background` and `--page-color` on the root (or the names given in `variables`), `color-scheme`, `data-scheme`, and every `theme-color` tag, making one if the page has none; the style paints `html, body` in those variables. The app's styles read the same variables, and its own code changes them later.
+- Without `choose` it follows the system's light or dark setting, and follows it again when that changes. `choose` is a JavaScript expression run in the head that names the scheme, for a choice of the app's own, such as the hour of day: `choose: "new Date().getHours() >= 20 ? 'night' : 'day'"`.
+- It is plain JavaScript, since a Vite config loads it in Node, which refuses TypeScript from inside `node_modules`.
+
+`waitForFonts(faces)` resolves once each face is in, or after `FONT_WAIT_MS`, 1.5 seconds, and never rejects. Draw the app in its `then`, and let `index.html` show the app's wordmark until then, so the page is never blank: `#root:empty::before { content: 'Shop'; … }`.
+
+```tsx
+void waitForFonts(['500 1em "Cormorant Variable"', '400 1em "DM Sans Variable"']).then(() => createRoot(root).render(<App />));
+```
+
+Each face's `@font-face` must already be in a stylesheet the page has, or there is nothing to wait for; the console says so. It asks with `document.fonts.load`, since WebKit's `document.fonts.check()` answers true for a face not yet loaded.
+
+### A request sent as the page is left
+
+`request` waits for the sign-in provider's token before it sends, and a page being left may be gone before the token arrives, so what it sent never leaves: a deleted item is back on the next load. Marked `keepalive`, a request starts at once, with the token the provider holds now, and goes on after the page is gone:
+
+```ts
+const send = () => void request(`/api/tasks/${id}`, { method: 'DELETE', keepalive: true });
+window.addEventListener('pagehide', send);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && send());
+```
+
+- Send on the page being hidden as well as on `pagehide`: iOS fires no `pagehide` when an app is swiped away. A send on both reaches the server twice, so it must be one the server takes twice.
+- A token that expired while the phone slept is not sent, and the session cookie holds the same expired token, so the server refuses it; the retry then waits for a fresh token, which works while the page is still open. A page already gone loses that request, and the console says a keepalive request went without a token.
+- The browser holds all keepalive requests in flight to 64 KB of body between them; over that it refuses the request, which reads as the server being unreachable.
+- A provider gives that token through `tokenNow()` on its session; the Clerk adapter and the stand-in have it.
 
 ## extension/: the extension kit
 

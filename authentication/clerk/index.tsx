@@ -3,6 +3,7 @@ import { ClerkProvider, useAuth, useClerk, useSignIn, useUser } from '@clerk/rea
 import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../../web/sign-in/provider';
 import { checkEmailCode, googleAccountParams, messageFor, sendEmailCode } from './email-code';
 import { signInWithTicket } from './ticket';
+import { tokenStillGood } from './token-now';
 
 export { CODE_LENGTH, cleanCode, checkEmailCode, googleAccountParams, messageFor, sendEmailCode, type EmailCodeSignIn } from './email-code';
 export { signInWithTicket, type TicketSignIn } from './ticket';
@@ -32,6 +33,7 @@ function useSession(): ProviderSession {
     loaded: isLoaded,
     person,
     token: (options) => getToken(options?.fresh ? { skipCache: true } : undefined),
+    tokenNow: () => tokenStillGood(clerk.session?.lastActiveToken),
     google: async ({ callbackPath, account }): Promise<Outcome> => {
       const back = `${window.location.origin}${callbackPath}`;
       // Clerk's newer sign-in object takes no account for Google to sign in as, so this trip goes through its classic

@@ -120,6 +120,7 @@ function Gate({ provider, placeholder, signedOut, whileReturning = placeholder, 
   useLayoutEffect(() => {
     setCurrentSession({
       token: (options) => latest.current.token(options),
+      tokenNow: () => latest.current.tokenNow(),
       refused: () => {
         // Already signed out, as when a second request in flight is refused after the first: the sign-in screen is up.
         if (!latest.current.person) return;

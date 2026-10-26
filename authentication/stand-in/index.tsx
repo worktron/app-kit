@@ -76,6 +76,7 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
       if (options?.fresh) tokenCount++;
       return `stand-in-token-${tokenCount}`;
     },
+    tokenNow: () => (state.person ? `stand-in-token-${tokenCount}` : null),
     google: async ({ callbackPath, account }: { callbackPath: string; account: string | null }) => {
       calls.google.push({ callbackPath, account });
       store?.setItem(GOOGLE_KEY, account ?? 'chosen@example.com');

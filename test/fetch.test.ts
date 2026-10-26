@@ -34,6 +34,7 @@ function session(overrides: Partial<CurrentSession> = {}): CurrentSession & { re
     refusals: 0,
     signedInAt: 0,
     token: async (options?: { fresh?: boolean }) => (options?.fresh ? 'fresh-token' : 'cached-token'),
+    tokenNow: (): string | null => 'held-token',
     refused() {
       s.refusals++;
     },
@@ -67,6 +68,37 @@ test('a proxy page with an error keeps its status rather than failing to parse',
 test("the server's own error message is the error's", async () => {
   answer({ status: 422, body: '{"error":"Title is required"}' });
   await expect(request('/api/tasks')).rejects.toThrow('Title is required');
+});
+
+test('a keepalive request starts its fetch before anything is awaited, with the token the provider holds now', () => {
+  // A provider that never answers, as one still asking for a token while the page is being left.
+  setCurrentSession(session({ token: () => new Promise<string | null>(() => undefined) }));
+  answer({ status: 204, body: '' });
+  void request('/api/tasks/t1', { method: 'DELETE', keepalive: true });
+  // Nothing has been awaited yet: the test has not given up its task.
+  expect(sent.map((r) => [r.url, r.headers.get('Authorization')])).toEqual([['/api/tasks/t1', 'Bearer held-token']]);
+});
+
+test('a keepalive request with no token still good goes without one, and a 401 then waits for a fresh one', async () => {
+  const s = session({ tokenNow: () => null });
+  setCurrentSession(s);
+  answer({ status: 401, body: '' }, { status: 204, body: '' });
+  const asked = request('/api/tasks/t1', { method: 'DELETE', keepalive: true });
+  expect(sent).toHaveLength(1);
+  expect(await asked).toBeNull();
+  expect(sent.map((r) => r.headers.get('Authorization'))).toEqual([null, 'Bearer fresh-token']);
+  expect(s.refusals).toBe(0);
+});
+
+test('a request not marked keepalive waits for the provider, as before', async () => {
+  let give: (token: string) => void = () => undefined;
+  setCurrentSession(session({ token: () => new Promise<string | null>((resolve) => (give = resolve)) }));
+  answer({ status: 200, body: '{}' });
+  const asked = request('/api/tasks');
+  expect(sent).toHaveLength(0);
+  give('asked-token');
+  await asked;
+  expect(sent[0]!.headers.get('Authorization')).toBe('Bearer asked-token');
 });
 
 test('a 401 asks again with a fresh token, and an answer then is the answer', async () => {

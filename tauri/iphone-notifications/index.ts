@@ -6,6 +6,7 @@
  * and when the plugin's event says a tap came in (a tap on a banner with the app in front). Only a page on the app's
  * own site opens. Anywhere but an iPhone app none of this runs.
  */
+import { isIphoneApp } from '../../web/installed-app';
 import { COMMANDS, LOG_PREFIX, PLUGIN, TAPPED_EVENT } from './names';
 
 export { ADDRESS_KEY, COMMANDS, LOG_PREFIX, PLUGIN, TAPPED_EVENT } from './names';
@@ -27,10 +28,8 @@ export interface IphoneNotificationsOptions {
   invoke?: Invoke;
 }
 
-/** Whether this page runs in a Tauri app on an iPhone or iPad, the only place the plugin is. */
-export function isIphoneApp(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && /\b(iPhone|iPad)\b/.test(navigator.userAgent);
-}
+// Whether this page runs in a Tauri app on an iPhone or iPad, the only place the plugin is.
+export { isIphoneApp };
 
 /**
  * The page a tapped notification's address names, as a path, query and fragment, or null when it is on another site

@@ -24,6 +24,11 @@ export interface ProviderSession {
   /** A token for a request to the app's server. `fresh` asks the provider for a new one rather than its cached one. */
   token(options?: { fresh?: boolean }): Promise<string | null>;
   /**
+   * The token the provider holds now, without asking anyone, or null when it holds none that is still good. A request
+   * sent as the page is left (`keepalive`) takes it, since the page may be gone before an asked-for token arrives.
+   */
+  tokenNow(): string | null;
+  /**
    * Sends the browser to Google. Google returns to `callbackPath`, where the gate draws the provider's
    * `GoogleReturn`. `account` names the account to sign in as, so Google shows no page while it is still signed in to
    * it; null has Google list its accounts. On success the browser is already leaving, so only a failure comes back.

@@ -4,6 +4,8 @@
  */
 export interface CurrentSession {
   token(options?: { fresh?: boolean }): Promise<string | null>;
+  /** The token the provider holds now, without waiting, or null when it holds none still good. */
+  tokenNow(): string | null;
   /** The server refused the session: the gate brings sign-in up over the current address. */
   refused(): void;
   /** When the person last signed in on this page, or 0 when the page loaded already signed in. */

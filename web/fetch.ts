@@ -34,13 +34,33 @@ function messageIn(body: unknown): string | null {
   return null;
 }
 
-async function send(path: string, init: RequestInit, fresh: boolean): Promise<Response> {
-  const token = await currentSession()?.token(fresh ? { fresh: true } : undefined);
+/**
+ * The token for a send. A keepalive request's first send takes the one the provider holds now, without waiting, so its
+ * fetch starts in the same task: a page being left may be gone before a token that has to be asked for arrives. Its
+ * retry after a 401 waits for a fresh one, as any request does, since a page that got an answer is still there.
+ */
+function tokenFor(init: RequestInit, fresh: boolean): string | null | Promise<string | null> {
+  const session = currentSession();
+  if (!session) return null;
+  if (!init.keepalive || fresh) return session.token(fresh ? { fresh: true } : undefined);
+  const now = session.tokenNow();
+  if (!now) console.log('[app-kit] keepalive: no token held that is still good, sent without one', init.method ?? 'GET');
+  return now;
+}
+
+function fetchWith(path: string, init: RequestInit, token: string | null | undefined): Promise<Response> {
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  return fetch(path, { ...init, headers });
+}
+
+async function send(path: string, init: RequestInit, fresh: boolean): Promise<Response> {
+  const token = tokenFor(init, fresh);
+  // A token already in hand, as a keepalive request's first send has it, starts the fetch before any await.
+  const response = token instanceof Promise ? fetchWith(path, init, await token) : fetchWith(path, init, token);
   try {
-    return await fetch(path, { ...init, headers });
+    return await response;
   } catch (error) {
     // Aborted on purpose: not the server's fault.
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
@@ -54,6 +74,9 @@ async function send(path: string, init: RequestInit, fresh: boolean): Promise<Re
  * and returns the parsed JSON (null for an empty body). A 401 is asked once more with a fresh token, since the cached
  * one may have just expired; refused again, the sign-in gate brings sign-in up over the current address. A server
  * that cannot be reached, or a proxy saying it is down, shows the server-unreachable line until it is back.
+ *
+ * A request marked `keepalive`, as one sent while the page is being left, starts at once, with the token the provider
+ * holds now: see tokenFor.
  */
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let res = await send(path, init, false);

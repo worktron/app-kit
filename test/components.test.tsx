@@ -1,6 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import { CacheProvider } from '@emotion/react';
+import createCache from '@emotion/cache';
+import { markUnreachable, resetConnection } from '../web/connection';
 import { ErrorBoundary } from '../web/ErrorBoundary';
+import { ConnectionLine } from '../web/lines';
+import { PullToRefresh } from '../web/PullToRefresh';
 import { NavigateProvider, RowLink } from '../web/RowLink';
 
 afterEach(cleanup);
@@ -76,4 +82,57 @@ test("an app's own fallback is drawn in place of the default", () => {
   }
   expect(screen.getByText('timescale stopped: Cannot read the calendar')).toBeTruthy();
   fireEvent.click(document.body);
+});
+
+/** A theme whose colors are CSS variables, which an app changes at run time, as getter's are with the time of day. */
+const variableTheme = () =>
+  createTheme({
+    // Without native color, MUI throws working out a shade of a variable as it draws a Button or a Link.
+    cssVariables: { nativeColor: true },
+    palette: {
+      primary: { main: 'var(--ink)', contrastText: 'var(--paper)' },
+      background: { default: 'var(--paper)', paper: 'var(--paper)' },
+      text: { primary: 'var(--ink)', secondary: 'var(--ink-soft)' },
+      divider: 'var(--rule)',
+    },
+  });
+
+test("the kit's own pieces draw under a theme whose colors are CSS variables", () => {
+  const quiet = console.error;
+  console.error = () => {};
+  Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+  markUnreachable();
+  try {
+    // Its own style cache: other tests replace the page's head, taking the shared cache's style tags with it.
+    render(
+      <CacheProvider value={createCache({ key: 'variables' })}>
+        <ThemeProvider theme={variableTheme()}>
+          <ConnectionLine />
+          <RowLink href="/events/42">Dentist on Tuesday</RowLink>
+          <PullToRefresh />
+          <ErrorBoundary>
+            <Broken />
+          </ErrorBoundary>
+        </ThemeProvider>
+      </CacheProvider>,
+    );
+    // The pull's mark, drawn mid-pull.
+    for (const [type, y] of [['touchstart', 100], ['touchmove', 160], ['touchmove', 240]] as const) {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, 'touches', { value: [{ clientX: 100, clientY: y }] });
+      act(() => {
+        document.body.dispatchEvent(event);
+      });
+    }
+  } finally {
+    console.error = quiet;
+    delete (navigator as { standalone?: unknown }).standalone;
+    resetConnection();
+  }
+  expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Dentist on Tuesday' })).toBeTruthy();
+  expect(screen.getAllByRole('status').map((s) => s.getAttribute('aria-label') ?? s.textContent)).toEqual([
+    'Cannot reach the server. This page reconnects by itself.',
+    'Release to refresh',
+  ]);
 });
