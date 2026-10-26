@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium and the kit's
-# WebKit kept out of the Dock (web/e2e), the extension
+# The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium, the kit's
+# WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, and the Rust and Swift of the iPhone notifications
 # and iPhone sign-in plugins built for the iPhone simulator.
 set -euo pipefail

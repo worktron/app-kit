@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The browser tests (web/e2e/kit.e2e.ts): the fixture app, built as a deploy builds it, in a hidden Chromium on a free port.
-# dock.e2e.ts starts the kit's WebKit too. Needs Playwright's Chromium and WebKit: bunx playwright install chromium webkit.
+# dock.e2e.ts starts the kit's WebKit too, and offline-audio.e2e.ts starts Chromium and the kit's WebKit with macOS's audio
+# service recorded, which needs swiftc (Xcode's command line tools). Needs Playwright's Chromium and WebKit: bunx playwright install chromium webkit.
 # Arguments go to Playwright.
 set -euo pipefail
 cd "$(dirname "$0")/.."
