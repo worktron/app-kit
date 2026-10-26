@@ -21,10 +21,12 @@ tauri/           Mac and iPhone apps built with Tauri: sign-in/, desktop sign-in
                  plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds;
                  iphone-sign-in/, Google sign-in in Apple's sign-in sheet: the page half (index.ts), the names it shares
                  with the plugin (names.ts), and plugin/;
+                 iphone-run/, `app-kit iphone run sim|phone`, which builds an app and starts it on a Simulator or a paired iPhone;
                  iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole;
                  testflight/, `app-kit testflight upload` (upload.ts) and `app-kit testflight watch` (watch.ts), with the
                  App Store Connect calls, the key read from 1Password, and the runner every outside program goes through;
-                 apple-token.ts, the ES256 token Apple's push service and App Store Connect both take
+                 apple-token.ts, the ES256 token Apple's push service and App Store Connect both take;
+                 build-env.ts, the environment every iPhone build runs in, with no FORCE_COLOR
 authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts),
                  stand-in/ (the stand-in sign-in provider, and the Playwright steps for apps' browser tests, playwright.js),
                  agent-keys/ (the server check that lets a person's key read the GET routes an app lists, and its API reference, openapi.ts),

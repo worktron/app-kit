@@ -31,6 +31,8 @@ export type Run = (command: string[], options?: RunOptions) => Promise<RunResult
 const KEPT_OUTPUT = 1_000_000;
 /** How long a stopped process group has between the polite signal and the forced one. */
 const GRACE_MS = 5_000;
+/** The signals that stop a command that runs programs here (the upload, the watcher, `iphone run`), as launchd and a terminal send them. */
+export const STOP_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 /** Every program this process started through `runCommand` that has not ended. */
 const running = new Set<ChildProcess>();
 

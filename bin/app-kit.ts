@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 // app-kit <part> <command>: the kit's command line. The extension kit copies the
 // kit's worker files into an extension, checks the copy, prints an extension's
-// ID, and prints a native host's status. The iPhone simulator part sends a
+// ID, and prints a native host's status. The iPhone part builds a Tauri app and
+// starts it on a Simulator or a paired iPhone. The iPhone simulator part sends a
 // simulator's sound to BlackHole so it plays nowhere. The TestFlight part uploads
 // an iPhone build, and watches apps' main to upload after each landing.
 
@@ -11,6 +12,7 @@ import { dirname, join } from 'node:path'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { extensionId, hostStatus, NotConnected } from '../extension/host/index.ts'
 import packageJson from '../package.json'
+import { runIphone } from '../tauri/iphone-run/index.ts'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
 import { upload } from '../tauri/testflight/upload.ts'
 import { watch } from '../tauri/testflight/watch.ts'
@@ -22,6 +24,14 @@ const USAGE = `app-kit <part> <command>
   extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
   extension status <socket>   the status a native host serving <socket> gives, as JSON:
                               the extension's build, commit and kept errors
+  iphone run sim [<udid>]     from a Tauri app's checkout: build its iPhone app and start
+                              it on this checkout's own Simulator (made once, an iPhone 17,
+                              named after the app, and in a worktree after its folder too),
+                              with no window and its sound sent to BlackHole; <udid> picks
+                              another Simulator
+  iphone run phone [<udid>]   build it signed for development and start it on the paired
+                              iPhone, first adding the phone to the team's development
+                              profile when none holds it; <udid> picks the phone
   iphone-simulator quiet <udid>
                               send the simulator <udid>'s sound to BlackHole: a booted
                               one restarts once when it plays elsewhere, a shut-down
@@ -106,6 +116,13 @@ async function testflight([command, ...args]: string[]): Promise<boolean> {
   return true
 }
 
+async function iphone([command, target, udid, ...extra]: string[]): Promise<boolean> {
+  if (command !== 'run' || (target !== 'sim' && target !== 'phone') || udid?.startsWith('-') || extra.length) return false
+  const code = await runIphone({ target, udid, cwd: process.cwd() })
+  if (code !== 0) process.exit(code)
+  return true
+}
+
 function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
   if (command !== 'quiet' || !udid || extra.length) return false
   const { code, line } = quietSimulator(udid)
@@ -119,6 +136,7 @@ function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
 
 async function main([part, ...rest]: string[]) {
   if (part === 'extension' && (await extension(rest))) return
+  if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
   if (part === 'testflight' && (await testflight(rest))) return
   if (part === '--version' && rest.length === 0) {

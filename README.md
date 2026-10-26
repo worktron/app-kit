@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, and the server's sending of the built page. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in` | Mac and iPhone apps built with Tauri: desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi` | Who is calling: Clerk's adapter, the test stand-in, and keys for agents with their API reference. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -253,7 +253,7 @@ A caller writes one JSON line with an `id` and a `type` to the socket and reads 
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+What a Tauri app's page, shell and server share: desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
 
 ### Desktop sign-in
 
@@ -366,11 +366,31 @@ if (!handedOver) setBusy(false);
 
 It hands the link to `useDesktopSignInWindow`, which signs in only when the nonce is the window's, and answers whether it handed one over: false when the sheet was cancelled or failed, or closed on any link that is not the app's sign-in. iOS asks the person once whether the app may use the site to sign in. One sheet is open at a time; a second call while one is up is refused. Every step logs a line starting `[iphone-sign-in]`, in the page's console and in the phone's log, and a sheet that opened logs `[iphone-sign-in] sheet started for <host>`.
 
+### Running on the Simulator or an iPhone
+
+`app-kit iphone run sim` and `app-kit iphone run phone`, run from a Tauri app's checkout, build its iPhone app and start it, in place of the `scripts/iphone.sh` each app carried:
+
+- **sim** builds for the Simulator and starts the app on the checkout's own Simulator: one named after the app's `productName`, or in a linked worktree `<productName> (<worktree folder>)`, so two threads on the same app never install over each other's build or screenshot the other's. It is made once, as an iPhone 17 with no runtime named, so simctl takes the newest runtime that runs one; naming the newest runtime failed with "Incompatible device" once a runtime made for a single new model was installed. The sound step of [A silent iPhone Simulator](#a-silent-iphone-simulator) runs before the boot, and booting through simctl opens no Simulator window. It then stops the copy running, installs, starts the app, and prints the `xcrun simctl io <udid> screenshot` line for a look without a window.
+- **phone** takes the iPhone paired with this Mac, a connected one first, and prints its name. Signing needs the phone in the team's development profile for the app; Xcode adds it only during a build for that phone, and Tauri's build never is one, so when no profile holds the phone, one `xcodebuild -allowProvisioningDeviceRegistration` of the project's scheme runs first, with Xcode signed in to the team (Xcode, Settings, Accounts). Then it builds signed for development, installs and starts the app. A locked phone installs it but opens nothing, and the command exits 1 with Apple's reason and says to unlock it.
+- Every build and Xcode call runs without the terminal's `FORCE_COLOR`, the 1Password token and the App Store Connect key, with Rust's folder first on the path (`tauri/build-env.ts`, the environment the TestFlight upload builds in too): Tauri's Xcode project passes `${FORCE_COLOR}` to its Rust step as a flag, where a terminal's `3` reads as a chip architecture. A project that already has a value written there, by a regeneration outside the kit, is refused before the build, with the line to fix.
+- A `<udid>` after `sim` or `phone` picks another Simulator or phone. Ctrl-C stops the build with the command. Each choice prints one line starting `[iphone]`; the exit code is 0 when the app is running, 1 otherwise.
+
+Tauri's own `tauri ios run` opens the Simulator's window and never registers a phone, so the kit does not use it.
+
+An app replaces its script with two lines in its package.json, and deletes `scripts/iphone.sh` and its test:
+
+```json
+"iphone": "app-kit iphone run sim",
+"iphone:phone": "app-kit iphone run phone"
+```
+
+The script's `SIMULATOR=`, `PHONE=` or `ARGON_PHONE=` becomes the udid argument, `bun run iphone <udid>`. An app that sets something before the build keeps a short script that ends with `exec bun run app-kit iphone run sim "$@"`, as Argon does for its page's address from its dev server (Tauri passes only `TAURI_`-prefixed variables into the Xcode step). The Simulator the old script made, such as `argon`, is no longer used; `xcrun simctl delete argon` removes it.
+
 ### A silent iPhone Simulator
 
 `app-kit iphone-simulator quiet <udid>`: a simulator booted with `xcrun simctl boot`, with no window, plays its notification tones and keyboard clicks on the Mac's speakers, and Apple gives no command to mute it; silent mode still plays the notification tone at full volume. The step sends the simulator's sound to BlackHole, a free virtual audio device that plays nowhere, the same setting as Xcode's Sound Output menu. The simulator reads that setting only at boot, so when a booted simulator's sound goes anywhere else the step shuts it down, saves BlackHole in its audio settings file and boots it again, once; a later run finds it silent and touches nothing. On a simulator that is shut down, the step only saves the setting, so its next boot already plays nowhere, with no boot of its own.
 
-An app's simulator script runs it after the boot and before the install:
+`app-kit iphone run sim` runs it before the boot. An app's own simulator script runs it after the boot and before the install:
 
 ```sh
 xcrun simctl bootstatus "$udid" -b >/dev/null

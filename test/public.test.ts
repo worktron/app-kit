@@ -10,7 +10,8 @@ import { relative } from 'path';
 
 /** An email address: a domain of letters ends it, so a package's name@1.2.3 is not one. */
 const EMAIL = /[\w.+-]+@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
-const HOME_FOLDER = /\/(?:Users|home)\/[\w.-]+/g;
+/** A home folder, as a path or as JSON writes one, with each slash escaped ("\/Users\/someone"). */
+const HOME_FOLDER = /\\?\/(?:Users|home)\\?\/[\w.-]+/g;
 /** A real Google Cloud project, by number, or an OAuth client of one. A test's stand-in project is a short number. */
 const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]+\.apps\.googleusercontent\.com/g;
 const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$/;
@@ -37,6 +38,7 @@ function personalFacts(text: string, allowed: (email: string) => boolean = (e) =
 test('a personal email or a home folder is found, and test addresses are not', () => {
   expect(personalFacts('Signed in as someone@gmail.com from /Users/someone/Workspace')).toEqual(['someone@gmail.com', '/Users/someone']);
   expect(personalFacts('ana@example.com, kit@worktron.com, ./users/list')).toEqual([]);
+  expect(personalFacts('"dataPath" : "\\/Users\\/someone\\/Library"')).toEqual(['\\/Users\\/someone']);
 });
 
 test("a Google Cloud project's number or OAuth client is found, and a test's stand-in project is not", () => {

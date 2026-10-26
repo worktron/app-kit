@@ -19,8 +19,8 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
-import { runCommand, stopRunning, type Run } from './run.ts';
-import { STOP_SIGNALS, UPLOADING } from './upload.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from './run.ts';
+import { UPLOADING } from './upload.ts';
 
 type Env = Record<string, string | undefined>;
 

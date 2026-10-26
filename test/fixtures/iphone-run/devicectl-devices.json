@@ -1,0 +1,43 @@
+{
+  "info" : {
+    "commandType" : "devicectl.list.devices",
+    "outcome" : "success",
+    "version" : "651.13.5"
+  },
+  "result" : {
+    "devices" : [
+      {
+        "identifier" : "00000000-0000-0000-0000-0000000005A1",
+        "properties" : {
+          "connection" : { "pairingState" : "paired", "state" : "connected", "transportType" : "local" },
+          "hardware" : { "deviceType" : "iPhone", "reality" : "simulated", "udid" : "00000000-0000-0000-0000-0000000005A1" },
+          "state" : { "bootState" : "booted", "name" : "iPhone 17" }
+        }
+      },
+      {
+        "identifier" : "00000000-0000-0000-0000-0000000001D0",
+        "properties" : {
+          "connection" : { "pairingState" : "paired", "state" : "disconnected", "transportType" : "localNetwork" },
+          "hardware" : { "deviceType" : "iPhone", "reality" : "physical", "udid" : "00008100-0000000000000001" },
+          "state" : { "bootState" : "booted", "name" : "Old Test iPhone" }
+        }
+      },
+      {
+        "identifier" : "00000000-0000-0000-0000-0000000001DA",
+        "properties" : {
+          "connection" : { "pairingState" : "paired", "state" : "connected", "transportType" : "wired" },
+          "hardware" : { "deviceType" : "iPad", "reality" : "physical", "udid" : "00008100-0000000000000003" },
+          "state" : { "bootState" : "booted", "name" : "Test iPad" }
+        }
+      },
+      {
+        "identifier" : "00000000-0000-0000-0000-0000000001D2",
+        "properties" : {
+          "connection" : { "pairingState" : "paired", "state" : "connected", "transportType" : "wired" },
+          "hardware" : { "deviceType" : "iPhone", "reality" : "physical", "udid" : "00008100-0000000000000002" },
+          "state" : { "bootState" : "booted", "name" : "Test iPhone" }
+        }
+      }
+    ]
+  }
+}

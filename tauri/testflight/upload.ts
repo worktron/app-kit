@@ -19,7 +19,7 @@
  * - The export copies with rsync and passes options only Apple's accepts; Homebrew's rsync, ahead of it on PATH,
  *   fails with "Copy failed", so a folder holding a link to /usr/bin/rsync goes first on PATH.
  * - Tauri passes FORCE_COLOR into the Xcode build step as a flag, where a terminal's FORCE_COLOR=3 reads as a chip
- *   architecture, so it is removed.
+ *   architecture, so it is removed, with the key, by the build environment every iPhone build shares (../build-env.ts).
  * - Tauri writes the export method and the build number into tracked files; only the values it wrote are put back,
  *   so an edit made to either file during the build survives.
  *
@@ -27,11 +27,14 @@
  * else.
  */
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions, type TestFlightKey } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
-import { runCommand, stopRunning, type Run } from './run.ts';
+import { buildEnv, type Env } from '../build-env.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from './run.ts';
+
+export { buildEnv, STOP_SIGNALS };
 
 export const EXPORT_OPTIONS = 'src-tauri/gen/apple/ExportOptions.plist';
 const INFO_PLIST = /^src-tauri\/gen\/apple\/[^/]+_iOS\/Info\.plist$/;
@@ -40,25 +43,6 @@ export const PROCESSING_LIMIT_MS = 30 * 60 * 1000;
 const POLL_MS = 30_000;
 /** The line the watcher reads as the end of the build: its time limit for the upload starts there. */
 export const UPLOADING = /^\[testflight\] uploading build \d+/m;
-
-type Env = Record<string, string | undefined>;
-
-/**
- * The environment the build and the upload run in: Rust's own folder first, so a shell that never read rustup's
- * profile finds cargo; a UTF-8 locale, which CocoaPods and xcodebuild need; and none of what would change the build or
- * reach it that should not: FORCE_COLOR, APPLE_API_*, and the 1Password token.
- */
-export function buildEnv(env: Env, home = homedir()): Env {
-  const out: Env = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (name === 'FORCE_COLOR' || name === 'OP_SERVICE_ACCOUNT_TOKEN' || name.startsWith('APPLE_API_')) continue;
-    out[name] = value;
-  }
-  const cargo = join(env.CARGO_HOME || join(home, '.cargo'), 'bin');
-  out.PATH = [cargo, ...(env.PATH ?? '').split(':').filter((dir) => dir && dir !== cargo)].join(':');
-  out.LANG = 'en_US.UTF-8';
-  return out;
-}
 
 /**
  * Whether a failed build failed on the app's own code, which builds the same way every time: Rust, Swift or the web
@@ -84,9 +68,6 @@ function cleanupOnStop(cleanup: () => void): () => void {
     if (cleanups.delete(cleanup)) cleanup();
   };
 }
-
-/** The signals that stop the upload, or the watcher, as launchd and a terminal send them. */
-export const STOP_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
 /** Whether altool refused the upload because App Store Connect already holds this build number. */
 export function alreadyUploaded(output: string): boolean {

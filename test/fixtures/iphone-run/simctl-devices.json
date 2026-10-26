@@ -1,0 +1,29 @@
+{
+  "devices" : {
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-2" : [
+      {
+        "name" : "Sample App",
+        "udid" : "00000000-0000-0000-0000-00000000DEAD",
+        "state" : "Shutdown",
+        "isAvailable" : false,
+        "availabilityError" : "runtime profile not found"
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-27-0" : [
+      {
+        "name" : "iPhone 17",
+        "udid" : "00000000-0000-0000-0000-000000000017",
+        "state" : "Shutdown",
+        "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-17"
+      },
+      {
+        "name" : "Sample App",
+        "udid" : "00000000-0000-0000-0000-00000000A001",
+        "state" : "Booted",
+        "isAvailable" : true,
+        "deviceTypeIdentifier" : "com.apple.CoreSimulator.SimDeviceType.iPhone-17"
+      }
+    ]
+  }
+}
