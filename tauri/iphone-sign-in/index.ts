@@ -37,18 +37,23 @@ interface Back {
 
 const tauriInvoke: Invoke = async (command, args) => (await import('@tauri-apps/api/core')).invoke(command, args);
 
+/** `address` read as an address, or null. Never URL.canParse, which iOS 16's WebKit lacks. */
+function addressOf(address: string): URL | null {
+  try {
+    return new URL(address);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The ticket and nonce of the app's own sign-in link, or of the address the sheet waited for over https, or null for
  * any other link. iOS reads a scheme in any case. It matches an https address loosely, ignoring the port, the case of
  * the path and a slash at its end, so that one is taken only exactly as the browser page writes it.
  */
 function sheetSignInLink(link: string, scheme: string, back: Back | null): DesktopSignInLink | null {
-  let url: URL;
-  try {
-    url = new URL(link);
-  } catch {
-    return null;
-  }
+  const url = addressOf(link);
+  if (!url) return null;
   let fields: URLSearchParams;
   if (url.protocol === `${scheme.toLowerCase()}:` && url.host === LINK_HOST) fields = url.searchParams;
   else if (back && url.origin === back.origin && url.pathname === back.path && !url.username && !url.search) {
@@ -67,7 +72,7 @@ function sheetSignInLink(link: string, scheme: string, back: Back | null): Deskt
 export async function signInInSheet(address: string, options: SheetSignInOptions): Promise<boolean> {
   const invoke = options.invoke ?? tauriInvoke;
   // A plugin from before the https hand-back ignores the host and path, and waits for the app's link as it always has.
-  const page = options.handBackOverHttps && URL.canParse(address) ? new URL(address) : null;
+  const page = options.handBackOverHttps ? addressOf(address) : null;
   const back = page?.protocol === 'https:' ? { origin: page.origin, path: DESKTOP_SIGN_IN_BACK_PATH } : null;
   const payload = { url: address, callbackScheme: options.scheme, ...(page && back && { callbackHost: page.hostname, callbackPath: back.path }) };
   let answer: unknown;

@@ -185,3 +185,19 @@ test('not asked to hand back over https, or on a page that is not https, the she
   }
   expect(provider.calls.tickets).toEqual([]);
 });
+
+test('asked to hand back over https on a browser engine without URL.canParse, as iOS 16’s, the sheet still opens', async () => {
+  // Shadowed rather than deleted, since the page's URL inherits it from the engine's own.
+  const canParse = Object.getOwnPropertyDescriptor(URL, 'canParse');
+  Object.defineProperty(URL, 'canParse', { configurable: true, value: undefined });
+  try {
+    const s = sheet(() => {
+      throw new Error('cancelled');
+    });
+    expect(await signInInSheet(hostedAddress(null), { scheme: SCHEME, handBackOverHttps: true, invoke: s.invoke })).toBe(false);
+    expect(s.calls).toHaveLength(1);
+  } finally {
+    if (canParse) Object.defineProperty(URL, 'canParse', canParse);
+    else delete (URL as { canParse?: unknown }).canParse;
+  }
+});
