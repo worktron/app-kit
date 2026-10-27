@@ -14,11 +14,16 @@ export const COMMANDS = {
   authenticate: 'authenticate',
 } as const;
 
-/** The command's arguments: `{ payload: { url, callbackScheme } }`. */
+/**
+ * The command's arguments: `{ payload: { url, callbackScheme, callbackHost?, callbackPath? } }`. With a host and path,
+ * the kit's plugin waits for the hand-back over https where iOS allows it; the original plugin ignores them.
+ */
 export const ARGUMENTS = {
   payload: 'payload',
   url: 'url',
   callbackScheme: 'callbackScheme',
+  callbackHost: 'callbackHost',
+  callbackPath: 'callbackPath',
 } as const;
 
 /** The key of the command's answer that holds the link the sheet closed on. */

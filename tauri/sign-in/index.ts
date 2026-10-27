@@ -13,6 +13,7 @@ export {
 } from './window';
 export {
   appLink,
+  backLink,
   desktopSignInRequest,
   googleStartedHere,
   startGoogleHere,
@@ -24,6 +25,9 @@ export {
   type DesktopSignInRequest,
 } from './browser';
 export {
+  BACK_OVER_HTTPS,
+  BACK_PARAM,
+  DESKTOP_SIGN_IN_BACK_PATH,
   DESKTOP_SIGN_IN_EVENT,
   DESKTOP_SIGN_IN_LISTENING,
   DESKTOP_SIGN_IN_OPEN_PATH,

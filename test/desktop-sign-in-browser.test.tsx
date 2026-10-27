@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../tauri/sign-in';
+import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../tauri/sign-in';
 import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../web/sign-in/SignInGate';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { fingerprint, randomHex } from '../tauri/sign-in/fingerprint';
@@ -16,6 +16,21 @@ const goTo = (address: string) => (window as unknown as { happyDOM: { setURL(url
 
 const NONCE = fingerprint(randomHex());
 const PAGE = `/desktop-sign-in?nonce=${NONCE}&account=ana%40example.com`;
+/** The page as the iPhone's sheet opens it when it waits for the hand-back over https. */
+const OVER_HTTPS = `${PAGE}&back=https`;
+
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+const MAC_SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+const MAC_FIREFOX = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0';
+const realNavigator = { userAgent: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints };
+
+/** The browser the page runs in, as it reads it: its user agent, its touch points, and Chromium's userAgentData. */
+function inBrowser(userAgent: string, maxTouchPoints: number, userAgentData = false) {
+  Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => userAgent });
+  Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, get: () => maxTouchPoints });
+  if (userAgentData) Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: { brands: [] } });
+  else delete (navigator as { userAgentData?: unknown }).userAgentData;
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -30,6 +45,7 @@ afterEach(() => {
   globalThis.fetch = realFetch;
   window.close = realClose;
   setSystemTime();
+  inBrowser(realNavigator.userAgent, realNavigator.maxTouchPoints);
 });
 
 /** The app's signed-out sign-in screen on the browser page: straight to Google for the account the window asked for. */
@@ -73,6 +89,9 @@ async function click() {
 
 /** The code the link the page opened carries, in the field installed shells call `ticket`. */
 const codeInLink = () => new URL(window.location.href).searchParams.get('ticket');
+
+/** The code the address the page went to over https carries, after its `#`. */
+const codeInBackLink = () => new URLSearchParams(new URL(window.location.href).hash.slice(1)).get('ticket');
 
 test('signed out, the page goes to Google once for the account the window asked for, and Back from Google stays on it', async () => {
   goTo(PAGE);
@@ -245,4 +264,85 @@ test("in another site's frame, the page never offers to hand over, and goes to G
     if (top) Object.defineProperty(window, 'top', top);
     else delete (window as { top?: unknown }).top;
   }
+});
+
+test("in the iPhone's sheet waiting over https, signed in as the account asked, the page hands over with no click, by going to its own site's address", async () => {
+  inBrowser(IPHONE, 5);
+  goTo(OVER_HTTPS);
+  const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+  const pushed: unknown[] = [];
+  const realPush = window.history.pushState;
+  window.history.pushState = (...args: Parameters<History['pushState']>) => void pushed.push(args);
+  try {
+    draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+    await waitFor(() => expect(heading()).toBe('sent'));
+  } finally {
+    window.history.pushState = realPush;
+  }
+  const code = codeInBackLink()!;
+  expect(code).toMatch(/^[0-9a-f]{64}$/);
+  expect(window.location.href).toBe(`http://localhost:5173/desktop-sign-in/back#${new URLSearchParams({ ticket: code, nonce: NONCE })}`);
+  expect(backLink(code, NONCE)).toBe(window.location.href);
+  // A page load, which the sheet catches, never a change of history alone, which it never sees.
+  expect(pushed).toEqual([]);
+  expect(sent[0]).toEqual({ path: '/api/desktop-sign-in/code', authorization: 'Bearer stand-in-token-0', body: { fingerprint: NONCE } });
+});
+
+test('in any browser but an iPhone\'s, a page asked for the hand-back over https still waits for the click, and then opens the app\'s link', async () => {
+  // A program on a Mac could open the page asking for it, and read the code from the browser's history.
+  for (const [agent, touch, userAgentData] of [
+    [MAC_SAFARI, 0, false],
+    [MAC_FIREFOX, 0, false],
+    // Chrome or Edge made to look like an iPhone, as its device mode does, still has userAgentData.
+    [IPHONE, 5, true],
+    // An iPhone's user agent with no touch is a desktop browser pretending.
+    [IPHONE, 0, false],
+  ] as const) {
+    cleanup();
+    inBrowser(agent, touch, userAgentData);
+    goTo(OVER_HTTPS);
+    const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+    draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+    await waitFor(() => expect(heading()).toBe('ready'));
+    expect(desktopSignInRequest()?.overHttps).toBe(false);
+    expect(sent).toEqual([]);
+    await click();
+    await waitFor(() => expect(heading()).toBe('sent'));
+    expect(window.location.href).toStartWith('example-app://sign-in?');
+  }
+});
+
+test("in the iPhone's sheet waiting over https, signed in as another account, the page still signs out first and makes no code", async () => {
+  inBrowser(IPHONE, 5);
+  goTo(OVER_HTTPS);
+  const { sent } = serveDesktopSignIn(() => 'bo@example.com');
+  const leaving = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' }, store: sessionStorage, leaveForGoogle: () => {} });
+  draw(leaving);
+  await waitFor(() => expect(heading()).toBe('Sign in'));
+  expect(leaving.calls.signOut).toBe(1);
+  expect(leaving.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
+  expect(sent).toEqual([]);
+});
+
+test("an iPad's sheet, whose browser names a Mac, is told by touch and hands over over https too", async () => {
+  inBrowser(MAC_SAFARI, 5);
+  goTo(OVER_HTTPS);
+  serveDesktopSignIn(() => 'ana@example.com');
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await waitFor(() => expect(heading()).toBe('sent'));
+  expect(codeInBackLink()).toMatch(/^[0-9a-f]{64}$/);
+});
+
+test('a page closed once its link is out asks the server nothing more', async () => {
+  // Over https the page stays on its own site, where it can still ask; a page left on the app's link cannot.
+  inBrowser(IPHONE, 5);
+  goTo(OVER_HTTPS);
+  const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+  const page = draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await waitFor(() => expect(sent.filter((r) => r.path === '/api/desktop-sign-in/status')).toHaveLength(1));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  page.unmount();
+  const asked = sent.length;
+  await new Promise((resolve) => setTimeout(resolve, ASK_TAKEN_EVERY_MS + 100));
+  expect(sent).toHaveLength(asked);
 });

@@ -25,6 +25,17 @@ export const DESKTOP_SIGN_IN_OPEN_PATH = `${DESKTOP_SIGN_IN_ROUTES}/redeem`;
 export const LINK_HOST = 'sign-in';
 
 /**
+ * Where the iPhone's sign-in sheet takes the hand-back instead, on iOS 17.4 and later, when the app's build is
+ * associated with its site: `<origin>/desktop-sign-in/back#ticket=…&nonce=…`, on the browser page's own site. iOS gives
+ * an address there only to the app the site names, so the browser page hands it over with no click. The sheet asks for
+ * it by adding `back=https` to the browser page's address; the plugin's Swift adds it, and
+ * test/iphone-sign-in-names.test.ts holds it to these.
+ */
+export const DESKTOP_SIGN_IN_BACK_PATH = '/desktop-sign-in/back';
+export const BACK_PARAM = 'back';
+export const BACK_OVER_HTTPS = 'https';
+
+/**
  * The window event the shell dispatches with `{ ticket, nonce }` as its detail, for a page that has set the flag below,
  * so the page signs in where it is with no page load.
  */

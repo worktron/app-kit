@@ -8,6 +8,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ANSWER_KEY, ARGUMENTS, COMMANDS, LOG_PREFIX, PLUGIN } from '../tauri/iphone-sign-in/names';
+import { BACK_OVER_HTTPS, BACK_PARAM } from '../tauri/sign-in/names';
 
 const plugin = join(import.meta.dir, '../tauri/iphone-sign-in/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -44,6 +45,12 @@ test('the Swift and the Rust read the arguments and answer under the page’s ke
   expect(rust).toContain(`pub ${ARGUMENTS.url}: String`);
   expect(rust).toContain('pub callback_scheme: String');
   expect(rust).toContain('pub callback_url: String');
+  // The hand-back over https: optional, so a page from before it, which sends neither, still opens the sheet.
+  expect(swift).toContain(`let ${ARGUMENTS.callbackHost}: String?`);
+  expect(swift).toContain(`let ${ARGUMENTS.callbackPath}: String?`);
+  expect(rust).toContain('pub callback_host: Option<String>');
+  expect(rust).toContain('pub callback_path: Option<String>');
+  expect([ARGUMENTS.callbackHost, ARGUMENTS.callbackPath]).toEqual(['callbackHost', 'callbackPath']);
   expect(ARGUMENTS.callbackScheme).toBe('callbackScheme');
   expect(ANSWER_KEY).toBe('callbackUrl');
 });
@@ -53,6 +60,11 @@ test('the crate, its links key and the Swift package carry the plugin’s name, 
   expect(cargo).toContain(`links = "${crate}"`);
   const pkg = read('ios/Package.swift');
   expect([...pkg.matchAll(/name: "([\w-]+)"/g)].map((m) => m[1]).filter((n) => n !== 'Tauri')).toEqual([crate, crate, crate]);
+});
+
+test('the Swift asks the browser page for the hand-back over https by the names the page reads', () => {
+  expect(swift).toContain(`URLQueryItem(name: "${BACK_PARAM}", value: "${BACK_OVER_HTTPS}")`);
+  expect(swift).toContain('callback: .https(host: host, path: path)');
 });
 
 test('the Swift logs as the page does', () => {

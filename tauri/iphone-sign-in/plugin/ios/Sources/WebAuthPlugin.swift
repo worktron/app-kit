@@ -7,6 +7,9 @@ import WebKit
 class AuthenticateArgs: Decodable {
   let url: String
   let callbackScheme: String
+  // The site and path to wait for over https instead, where iOS allows it. A page from before it sends neither.
+  let callbackHost: String?
+  let callbackPath: String?
 }
 
 class WebAuthPlugin: Plugin {
@@ -30,34 +33,73 @@ class WebAuthPlugin: Plugin {
         invoke.reject("A sign-in sheet is already open")
         return
       }
-      let session = ASWebAuthenticationSession(
-        url: url,
-        callbackURLScheme: args.callbackScheme
-      ) { [weak self] callbackURL, error in
-        self?.session = nil
-        if let error = error {
-          if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
-            NSLog("[iphone-sign-in] sheet cancelled")
-          } else {
-            NSLog("[iphone-sign-in] sheet failed: %@", error.localizedDescription)
-          }
-          invoke.reject(error.localizedDescription)
-          return
+      let overScheme = {
+        self.open(invoke, url, waitingFor: args.callbackScheme) { done in
+          ASWebAuthenticationSession(url: url, callbackURLScheme: args.callbackScheme, completionHandler: done)
         }
-        NSLog("[iphone-sign-in] sheet returned a %@ link", callbackURL?.scheme ?? "missing")
-        invoke.resolve([
-          "callbackUrl": callbackURL?.absoluteString ?? ""
-        ])
       }
-      session.presentationContextProvider = self
-      self.session = session
-      if session.start() {
-        NSLog("[iphone-sign-in] sheet started for %@", url.host ?? args.url)
+      // The kit's second change: from iOS 17.4 the sheet can wait for an address on the app's own site, which iOS gives
+      // only to the app that site names, so the browser page hands over with no click. It asks the page for that with
+      // back=https. iOS refuses it, before the sheet shows, when the site does not name the app or its file has not
+      // reached the phone; then the sheet opens again waiting for the app's link, and the page asks for the click.
+      if #available(iOS 17.4, *), let host = args.callbackHost, let path = args.callbackPath,
+        var asking = URLComponents(url: url, resolvingAgainstBaseURL: false)
+      {
+        asking.queryItems = (asking.queryItems ?? []) + [URLQueryItem(name: "back", value: "https")]
+        guard let overHttps = asking.url else { return overScheme() }
+        self.open(invoke, overHttps, waitingFor: "https://\(host)\(path)", refused: overScheme) { done in
+          ASWebAuthenticationSession(url: overHttps, callback: .https(host: host, path: path), completionHandler: done)
+        }
       } else {
-        self.session = nil
-        NSLog("[iphone-sign-in] sheet could not start")
-        invoke.reject("The sign-in sheet could not start")
+        overScheme()
       }
+    }
+  }
+
+  /// Starts the session `make` builds and answers the page with the link it closes on. With `refused`, a session iOS
+  /// refuses or will not start runs that instead of answering.
+  private func open(
+    _ invoke: Invoke,
+    _ url: URL,
+    waitingFor: String,
+    refused: (() -> Void)? = nil,
+    make: (@escaping ASWebAuthenticationSession.CompletionHandler) -> ASWebAuthenticationSession
+  ) {
+    let session = make { [weak self] callbackURL, error in
+      self?.session = nil
+      if let error = error {
+        // iOS gives a refusal, as of a site that does not name the app, the cancel's code: only a cancel comes with
+        // nothing more to say, as Auth0.swift tells them apart.
+        let nsError = error as NSError
+        if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin && nsError.userInfo.isEmpty {
+          NSLog("[iphone-sign-in] sheet cancelled")
+        } else if let refused = refused {
+          NSLog("[iphone-sign-in] sheet refused %@: %@", waitingFor, nsError.localizedFailureReason ?? error.localizedDescription)
+          DispatchQueue.main.async(execute: refused)
+          return
+        } else {
+          NSLog("[iphone-sign-in] sheet failed: %@", nsError.localizedFailureReason ?? error.localizedDescription)
+        }
+        invoke.reject(error.localizedDescription)
+        return
+      }
+      NSLog("[iphone-sign-in] sheet returned a %@ link", callbackURL?.scheme ?? "missing")
+      invoke.resolve([
+        "callbackUrl": callbackURL?.absoluteString ?? ""
+      ])
+    }
+    session.presentationContextProvider = self
+    self.session = session
+    if session.start() {
+      NSLog("[iphone-sign-in] sheet started for %@, waiting for %@", url.host ?? url.absoluteString, waitingFor)
+    } else if let refused = refused {
+      self.session = nil
+      NSLog("[iphone-sign-in] sheet could not start waiting for %@", waitingFor)
+      refused()
+    } else {
+      self.session = nil
+      NSLog("[iphone-sign-in] sheet could not start")
+      invoke.reject("The sign-in sheet could not start")
     }
   }
 }

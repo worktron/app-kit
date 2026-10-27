@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { signInInSheet as openSheet, type Invoke, type SheetSignInOptions } from '../tauri/iphone-sign-in';
-import { appLink, desktopSignInAddress, listenForDesktopSignIn, resetDesktopSignIn, useDesktopSignInWindow } from '../tauri/sign-in';
+import { appLink, backLink, desktopSignInAddress, listenForDesktopSignIn, resetDesktopSignIn, useDesktopSignInWindow, type DesktopSignInAccount } from '../tauri/sign-in';
 import { standInSignIn, standInTicket, type StandInSignIn } from '../authentication/stand-in';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
 
@@ -110,5 +110,78 @@ test('a sheet closed without signing in, or one that fails, hands nothing over, 
   });
   expect(await signInInSheet(desktopSignInAddress(null), { scheme: SCHEME, invoke: s.invoke })).toBe(false);
   expect(lines[0]).toStartWith('[iphone-sign-in] sheet closed without signing in Error: The operation');
+  expect(provider.calls.tickets).toEqual([]);
+});
+
+const SITE = 'https://app.example.com';
+
+/** The browser page's address on the hosted site, as `desktopSignInAddress` writes it there. */
+const hostedAddress = (account: DesktopSignInAccount) => desktopSignInAddress(account).replace(window.location.origin, SITE);
+
+test('asked to hand back over https, the sheet waits for the page’s own site, and the address it closes on signs the window in', async () => {
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn();
+  render(<Window provider={provider} />);
+  const address = hostedAddress({ account: 'ana@example.com' });
+  const code = await codeFor(nonceOf(new URL(address)));
+  const s = sheet((asked) => ({ callbackUrl: backLink(code, nonceOf(asked), SITE) }));
+  expect(await signInInSheet(address, { scheme: SCHEME, handBackOverHttps: true, invoke: s.invoke })).toBe(true);
+  expect(s.calls).toEqual([
+    {
+      command: 'plugin:web-auth|authenticate',
+      args: { payload: { url: address, callbackScheme: SCHEME, callbackHost: 'app.example.com', callbackPath: '/desktop-sign-in/back' } },
+    },
+  ]);
+  await waitFor(() => expect(screen.getByRole('heading').textContent).toBe('Signed in as ana@example.com'));
+});
+
+test('asked to hand back over https, the app’s link still signs in, as from a plugin before it or a hand-back iOS refused', async () => {
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn();
+  render(<Window provider={provider} />);
+  const address = hostedAddress(null);
+  const code = await codeFor(nonceOf(new URL(address)));
+  const s = sheet((asked) => ({ callbackUrl: appLink(SCHEME, code, nonceOf(asked)) }));
+  expect(await signInInSheet(address, { scheme: SCHEME, handBackOverHttps: true, invoke: s.invoke })).toBe(true);
+  await waitFor(() => expect(screen.getByRole('heading').textContent).toBe('Signed in as ana@example.com'));
+});
+
+test('over https, only the page’s own hand-back address exactly is taken, though iOS matches more loosely', async () => {
+  const provider = standInSignIn();
+  render(<Window provider={provider} />);
+  const ticket = standInTicket('mallory@example.com');
+  const fields = (nonce: string) => new URLSearchParams({ ticket, nonce });
+  for (const make of [
+    (nonce: string) => `http://app.example.com/desktop-sign-in/back#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com:8443/desktop-sign-in/back#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/desktop-sign-in/back/#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/Desktop-Sign-In/back#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/desktop-sign-in/%62ack#${fields(nonce)}`,
+    (nonce: string) => Object.assign(new URL(`https://app.example.com/desktop-sign-in/back#${fields(nonce)}`), { username: 'someone' }).href,
+    (nonce: string) => `https://evil.example.com/desktop-sign-in/back#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/desktop-sign-in/back?x=1#${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/desktop-sign-in/back?${fields(nonce)}`,
+    (nonce: string) => `https://app.example.com/desktop-sign-in/back#nonce=${nonce}`,
+  ]) {
+    lines = [];
+    const s = sheet((asked) => ({ callbackUrl: make(nonceOf(asked)) }));
+    expect(await signInInSheet(hostedAddress(null), { scheme: SCHEME, handBackOverHttps: true, invoke: s.invoke })).toBe(false);
+    expect(lines).toEqual(["[iphone-sign-in] sheet returned a link that is not this app's sign-in: nothing handed over"]);
+  }
+  expect(provider.calls.tickets).toEqual([]);
+});
+
+test('not asked to hand back over https, or on a page that is not https, the sheet waits for the app’s link alone', async () => {
+  const provider = standInSignIn();
+  render(<Window provider={provider} />);
+  const ticket = standInTicket('mallory@example.com');
+  for (const [address, handBackOverHttps] of [
+    [hostedAddress(null), false],
+    [desktopSignInAddress(null).replace(window.location.origin, 'http://app.example.com'), true],
+  ] as const) {
+    const s = sheet((asked) => ({ callbackUrl: backLink(ticket, nonceOf(asked), new URL(address).origin) }));
+    expect(await signInInSheet(address, { scheme: SCHEME, handBackOverHttps, invoke: s.invoke })).toBe(false);
+    expect(s.calls[0]?.args).toEqual({ payload: { url: address, callbackScheme: SCHEME } });
+  }
   expect(provider.calls.tickets).toEqual([]);
 });

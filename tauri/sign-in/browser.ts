@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProviderSession } from '../../web/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
-import { DESKTOP_SIGN_IN_PATH, LINK_HOST } from './names';
+import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST } from './names';
 import { HEX_32 } from './fingerprint';
 import { post } from './requests';
 import type { DesktopSignInAccount } from './window';
@@ -15,7 +15,9 @@ import type { DesktopSignInAccount } from './window';
  *
  * The click is what keeps another app out: anything on the computer can open this page with a fingerprint of its own
  * secret, and nothing in the address tells the app's window from it, so the page never hands over until the person says
- * so. In another site's frame it never offers to, so the click cannot be lured out of a page laid over it.
+ * so. In another site's frame it never offers to, so the click cannot be lured out of a page laid over it. The one
+ * exception is the iPhone's sign-in sheet asking for the hand-back over https, at an address on this site that iOS
+ * gives only to the app the site names: there it hands over with no click.
  */
 
 const STARTED_KEY = 'app-kit.desktopSignInGoogleStarted';
@@ -24,10 +26,26 @@ const STARTED_KEY = 'app-kit.desktopSignInGoogleStarted';
 export const ASK_TAKEN_EVERY_MS = 500;
 export const ASK_TAKEN_FOR_MS = 90_000;
 
-/** What the app's window asked the browser for: the fingerprint of its secret, and the Google account chosen there. */
+/**
+ * What the app's window asked the browser for: the fingerprint of its secret, the Google account chosen there, and
+ * whether the iPhone's sheet waits for the hand-back over https.
+ */
 export interface DesktopSignInRequest {
   nonce: string;
   account: DesktopSignInAccount;
+  overHttps: boolean;
+}
+
+/**
+ * Whether this page runs in an iPhone's or iPad's browser, the only place the sheet that asks for the hand-back over
+ * https runs. Anywhere else the ask is ignored: a program on a Mac could open the page with it, and read the code from
+ * the browser's history. An iPad's browser names a Mac, and tells itself apart by touch; Chrome and Edge, anywhere
+ * but iOS, have userAgentData whatever their user agent says.
+ */
+function inIphoneBrowser(): boolean {
+  const agent = navigator.userAgent;
+  const apple = /\b(iPhone|iPad)\b/.test(agent) || /\bMacintosh\b/.test(agent);
+  return apple && navigator.maxTouchPoints > 1 && !('userAgentData' in navigator);
 }
 
 /** On the browser's sign-in page with a well-formed nonce, outside any frame, the window's request; otherwise null. */
@@ -37,7 +55,8 @@ export function desktopSignInRequest(location: Pick<Location, 'pathname' | 'sear
   const nonce = query.get('nonce');
   if (!nonce || !HEX_32.test(nonce)) return null;
   const account = query.get('account');
-  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account } };
+  const overHttps = query.get(BACK_PARAM) === BACK_OVER_HTTPS && inIphoneBrowser();
+  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account }, overHttps };
 }
 
 /**
@@ -66,6 +85,14 @@ export function appLink(scheme: string, code: string, nonce: string): string {
   return `${scheme}://${LINK_HOST}?${new URLSearchParams({ ticket: code, nonce })}`;
 }
 
+/**
+ * The address that hands a code to the app over https, for the iPhone's sheet: on this site, with the code and nonce
+ * after the `#`, which never reaches a server's log.
+ */
+export function backLink(code: string, nonce: string, origin: string = window.location.origin): string {
+  return `${origin}${DESKTOP_SIGN_IN_BACK_PATH}#${new URLSearchParams({ ticket: code, nonce })}`;
+}
+
 export type DesktopSignInBrowserPage =
   | { state: 'not-from-app' }
   | { state: 'signing-out' }
@@ -88,8 +115,9 @@ export interface DesktopSignInBrowserPageOptions {
  * for Google's list, and not back from Google, it only signs out: the app's sign-in screen then goes to Google for the
  * account asked, through `startGoogleHere`. Otherwise it is `ready`: the app draws which account goes to the app and a
  * button that calls `handOver`, with words such as "only if you just chose Continue with Google in the app", and the
- * state says where the hand-over stands for the app to draw. `again` decides again, for a link the browser did not
- * open or that expired, or a sign-out that failed; it is the person's click too, so it hands over without `ready`.
+ * state says where the hand-over stands for the app to draw. Asked by the iPhone's sheet for the hand-back over https,
+ * it skips `ready` and hands over. `again` decides again, for a link the browser did not open or that expired, or a
+ * sign-out that failed; it is the person's click too, so it hands over without `ready`.
  */
 export function useDesktopSignInBrowserPage({
   session,
@@ -109,12 +137,14 @@ export function useDesktopSignInBrowserPage({
     const body = answer?.ok ? ((await answer.json().catch(() => null)) as { code?: unknown } | null) : null;
     if (typeof body?.code !== 'string' || !body.code) return setNow({ state: 'failed' });
     code.current = body.code;
-    const link = appLink(scheme, body.code, asked.nonce);
+    const link = asked.overHttps ? backLink(body.code, asked.nonce) : appLink(scheme, body.code, asked.nonce);
     setNow({ state: 'sent', link });
+    // A page load, never a change of history alone: the sheet catches only a navigation of the page.
     window.location.href = link;
   }, [scheme]);
 
-  // `clicked` is the person's say-so: without it, a request that would hand over stops at `ready`.
+  // `clicked` is the person's say-so: without it, a request that would hand over stops at `ready`, unless the iPhone's
+  // sheet waits for it over https.
   const decide = useCallback((clicked: boolean) => {
     const asked = desktopSignInRequest();
     if (!asked) return setNow({ state: 'not-from-app' });
@@ -125,7 +155,7 @@ export function useDesktopSignInBrowserPage({
       latest.current.signOut().catch(() => setNow({ state: 'failed' }));
       return;
     }
-    if (clicked) void send();
+    if (clicked || asked.overHttps) void send();
     else setNow({ state: 'ready' });
   }, [send]);
 
@@ -147,6 +177,7 @@ export function useDesktopSignInBrowserPage({
     if (!sent) return;
     const asked = code.current;
     let stopped = false;
+    let next: ReturnType<typeof setTimeout> | undefined;
     const until = Date.now() + ASK_TAKEN_FOR_MS;
     const ask = async () => {
       const answer = await post(latest.current, '/status', { code: asked }).catch(() => null);
@@ -156,7 +187,7 @@ export function useDesktopSignInBrowserPage({
         setNow({ state: 'taken', link: sent });
         window.close();
       } else if (Date.now() < until) {
-        setTimeout(() => void ask(), ASK_TAKEN_EVERY_MS);
+        next = setTimeout(() => void ask(), ASK_TAKEN_EVERY_MS);
       } else {
         setNow({ state: 'expired' });
       }
@@ -164,6 +195,7 @@ export function useDesktopSignInBrowserPage({
     void ask();
     return () => {
       stopped = true;
+      clearTimeout(next);
     };
   }, [sent]);
 

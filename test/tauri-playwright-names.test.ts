@@ -33,7 +33,8 @@ test('every name the Tauri steps copy is the one its names file gives', () => {
 });
 
 test('the steps read the iPhone sign-in command\'s arguments by the names the plugin takes', () => {
-  expect(sheet.ARGUMENTS).toEqual({ payload: 'payload', url: 'url', callbackScheme: 'callbackScheme' });
+  // The steps answer with the app's link, which the page takes with or without the hand-back over https.
+  expect(sheet.ARGUMENTS).toMatchObject({ payload: 'payload', url: 'url', callbackScheme: 'callbackScheme' });
   expect(steps).toContain('args?.payload?.url');
   expect(steps).toContain('args?.payload?.callbackScheme');
 });
