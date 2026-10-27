@@ -749,22 +749,22 @@ The console family's look for a menu bar app, the look of metamax and the consol
 
 | Piece | What it draws |
 | --- | --- |
-| `MenuBarPanel(width:state:content:)` | The panel under the icon: Escape closes it (after its `onEscape`, which a page uses to go back to its list), as does a click anywhere outside it; up and down move through the rows and Return acts; ⌘ with a footer item's key runs that item. It takes the keys without making the app active, so the app in front stays in front, and opens on the Space in front, over a full-screen app too. `attach(to:)` hooks it to a status item: on macOS 27 and later through the item's expanded interface session, as Apple's header asks, and before that through the icon's button. It fits its content, and scrolls only when the screen is too short. |
+| `MenuBarPanel(width:state:content:)` | The panel under the icon: Escape closes it (after its `onEscape`, which a page uses to go back to its list), as does a click anywhere outside it; up and down move through the rows and Return acts; ⌘ with a footer item's key runs that item. It takes the keys without making the app active, so the app in front stays in front, and opens on the Space in front, over a full-screen app too. `attach(to:)` hooks it to a status item: on macOS 27 and later through the item's expanded interface session, as Apple's header asks, and before that, or when the app is built with an older SDK, through the icon's button. It fits its content, and scrolls only when the screen is too short. |
 | `Header(_:status:note:back:)` | The 40 point top line: a back mark when `back` is given (then the whole line goes back), the title in bold, its status in words, and a note on the right in muted, such as how old the status is. |
-| `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, and its age on the right. A click anywhere on it acts. |
+| `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, its age, and `›` on the right, as a menu's submenu arrow says a click opens something; selected, the `›` brightens. A click anywhere on it acts. |
 | `SubLine(_:)` | A line of detail under a header, in secondary. |
 | `ProblemBlock(_:hint:copy:)` | A problem on a page: its title in red, what to do in secondary, and the exact command or line in a `CodeBox`. |
 | `CodeBox(_:id:)` | The thing to copy, wrapped to show all of it, with "copy" in blue that turns to "copied" in green once it is on the pasteboard. A click anywhere on the box copies. |
 | `ItemGroup(_:age:items:)`, `ItemLine(_:copy:id:)` | G's group: a 36 point heading with the age, and a 26 point line for each problem in red, with "copy" on the right, or "by hand" in muted when there is nothing to copy. |
 | `GroupLine(_:status:age:)` | A group with nothing under it, such as a Mac that is fine. |
-| `Footer(_:trailing:)`, `FooterItem(_:key:action:)` | The 36 point last line: its actions with their ⌘ keys, the last ones (Quit) on the right. A menu bar app's are Settings… (⌘,), Check for Updates…, About and Quit (⌘Q), as practices' desktop app rule lists. |
+| `Footer(_:trailing:)`, `FooterItem(_:key:action:)` | The 36 point last line: its actions with their ⌘ keys, the last ones (Quit) on the right. The arrow keys reach them after the lines above, as a menu's last items. A menu bar app's are Settings… (⌘,), Check for Updates…, About and Quit (⌘Q), as practices' desktop app rule lists. |
 | `Words`, `Tone` | Status in colored words: `Words("has never reported", .error).then("+1", .muted)`. |
-| `Palette`, `Metrics`, `Typeface` | The tokens: the twelve colors metamax's web client and the console tools share, the heights and sizes, and the bundled JetBrains Mono 2.304 (Regular, SemiBold and Bold, under the SIL Open Font License in `Fonts/OFL.txt`). |
+| `Palette`, `Metrics`, `Typeface` | The tokens: the twelve colors metamax's web client and the console tools share, and `hover`, the selected line's fill, the heights and sizes, and the bundled JetBrains Mono 2.304 (Regular, SemiBold and Bold, under the SIL Open Font License in `Fonts/OFL.txt`). |
 | `snapshot(width:scale:state:content:)` | Any screen drawn to a PNG with nothing on the screen, through the same hosting view the panel uses, for an app's headless checks. It throws when the bundled font is not loaded, rather than draw in another. A `PanelState` given to it shows a row as selected or a box as copied. |
 
-Each line the arrow keys stop on has an id, unique in its panel: a row's is its name, an item line's its group, text and command, a code box's its block's title and text, and `id:` sets one where those could repeat.
+Each line the arrow keys stop on has an id, unique in its panel: a row's is its name, an item line's its group, text and command, a code box's its block's title and text, a footer item's its label, and `id:` sets one where those could repeat.
 
-Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. A click always acts at once.
+Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. The selected line, whether the keys or the pointer chose it, fills in `hover`. A click always acts at once.
 
 An app takes it in in three steps. First the kit, at a release tag:
 
@@ -782,7 +782,7 @@ swiftc -I build -L build -lMenuBarTheme Sources/*.swift -o My.app/Contents/MacOS
 cp -R "$kit/Sources/MenuBarTheme/Fonts" My.app/Contents/Resources/
 ```
 
-A build that decides whether to rebuild from a hash of its sources, as Fleet's does, puts the kit's version in that hash too. Last, the app's Info.plist sets `LSUIElement` to true, so the app has no Dock icon. The theme runs on macOS 14 and later and builds with Xcode's macOS 27 SDK, which has the status item session.
+A build that decides whether to rebuild from a hash of its sources, as Fleet's does, puts the kit's version in that hash too. Last, the app's Info.plist sets `LSUIElement` to true, so the app has no Dock icon. The theme runs on macOS 14 and later. It builds with the macOS 26 SDKs too, which have no status item session: the session is compiled only when AppKit is the macOS 27 SDK's (`canImport(AppKit, _version: 2700)`), and the gates build it against the newest macOS 26 SDK the Command Line Tools keep.
 
 ```swift
 import AppKit
@@ -816,7 +816,7 @@ panel.onEscape = {
 panel.attach(to: item)
 ```
 
-`swift/menu-bar/e2e/compare-mockups.ts` checks the theme against the Studies page: a headless Chromium draws the five screens of `e2e/mockups.html` (the page's own CSS and markup, with stand-in names, since this repository is public), the theme draws the same five, and each is held to the mockup's size, backgrounds, lines and the place and color of every run of text, within 2 points. It writes the pairs side by side to `test-results/menu-bar/side-by-side`. It is run by hand after a change to the look, not by the gates, since it holds one text engine's letters to another's. The gates run the theme's Swift tests (`swift test` in `swift/menu-bar`) and build it the bare `swiftc` way (`e2e/swiftc-build.sh`). What no test reaches is a real click on a real menu bar icon: the session's start and end call the same open and close the tests drive.
+`swift/menu-bar/e2e/compare-mockups.ts` checks the theme against the Studies page: a headless Chromium draws the five screens of `e2e/mockups.html` (the page's own CSS and markup, with stand-in names, since this repository is public), the theme draws the same five, and each is held to the mockup's size, backgrounds, lines and the place and color of every run of text, within 2 points. It writes the pairs side by side to `test-results/menu-bar/side-by-side`. It is run by hand after a change to the look, not by the gates, since it holds one text engine's letters to another's. The gates run the theme's Swift tests (`swift test` in `swift/menu-bar`) and build it the bare `swiftc` way (`e2e/swiftc-build.sh`), against the current SDK and again against the newest macOS 26 SDK the Command Line Tools keep, at the theme's macOS 14 floor, as a Mac not yet on macOS 27 builds it. That second build uses the current Swift compiler with the older SDK, so it catches an API only the new SDK declares, not a language feature only the new compiler has. What no test reaches is a real click on a real menu bar icon: the session's start and end call the same open and close the tests drive.
 
 ## authentication/: who is calling
 

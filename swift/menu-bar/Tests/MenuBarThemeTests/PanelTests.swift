@@ -86,16 +86,18 @@ import Testing
     @Test func arrowKeysMoveThroughTheLinesAndReturnActs() {
         var acted: [String] = []
         let panel = panel { acted.append($0) }
-        #expect(panel.state.lines.map(\.id) == ["alpha", "bravo", "charlie"])
+        // The footer's items come last, as a menu's last items do.
+        #expect(panel.state.lines.map(\.id) == ["alpha", "bravo", "charlie", ["footer", "settings"], ["footer", "quit"]])
         panel.sendEvent(key(Self.down, code: 125))
         #expect(panel.state.selected == AnyHashable("alpha"))
-        panel.sendEvent(key(Self.down, code: 125))
-        panel.sendEvent(key(Self.down, code: 125))
-        panel.sendEvent(key(Self.down, code: 125))
-        #expect(panel.state.selected == AnyHashable("charlie"))
+        for _ in 0..<5 { panel.sendEvent(key(Self.down, code: 125)) }
+        #expect(panel.state.selected == AnyHashable(["footer", "quit"]))
         panel.sendEvent(key(Self.up, code: 126))
         panel.sendEvent(key("\r", code: 36))
-        #expect(acted == ["bravo"])
+        panel.sendEvent(key(Self.up, code: 126))
+        panel.sendEvent(key(Self.up, code: 126))
+        panel.sendEvent(key("\r", code: 36))
+        #expect(acted == ["settings", "bravo"])
     }
 
     @Test func theSameProblemUnderTwoMacsIsTwoLines() {
@@ -151,7 +153,7 @@ import Testing
     @Test func upFromNothingSelectsTheLastLine() {
         let panel = panel()
         panel.sendEvent(key(Self.up, code: 126))
-        #expect(panel.state.selected == AnyHashable("charlie"))
+        #expect(panel.state.selected == AnyHashable(["footer", "quit"]))
     }
 
     @Test func commandAndAFooterItemsKeyRunIt() {

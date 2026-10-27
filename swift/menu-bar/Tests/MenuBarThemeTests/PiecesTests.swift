@@ -48,6 +48,55 @@ import Testing
         #expect(drawn == 0)
     }
 
+    /// The color at `x`, `y` points inside the panel's 1 point border, in a snapshot at scale 2.
+    func color(_ png: Data, _ x: CGFloat, _ y: CGFloat) throws -> UInt32 {
+        let rep = try #require(NSBitmapImageRep(data: png))
+        var pixel = [Int](repeating: 0, count: 4)
+        rep.getPixel(&pixel, atX: Int((1 + x) * 2), y: Int((1 + y) * 2))
+        return UInt32(pixel[0] << 16 | pixel[1] << 8 | pixel[2])
+    }
+
+    func selecting(_ id: AnyHashable?) -> PanelState {
+        let state = PanelState(pasteboard: .withUniqueName())
+        state.selected = id
+        return state
+    }
+
+    @Test func theSelectedLineIsPaintedInTheHoverFill() throws {
+        let row = { Row("alpha", status: Words("fine", .ok), age: "4m") {} }
+        #expect(try color(snapshot(width: 400, state: selecting("alpha"), row), 4, 22) == Palette.hover.rawValue)
+        #expect(try color(snapshot(width: 400, state: selecting(nil), row), 4, 22) == Palette.bg.rawValue)
+        // A code box has a fill of its own, which the hover fill takes the place of.
+        let box = { CodeBox("bun bin/apply.ts") }
+        #expect(try color(snapshot(width: 400, state: selecting(["copy", "", "bun bin/apply.ts"]), box), 3, 16) == Palette.hover.rawValue)
+        #expect(try color(snapshot(width: 400, state: selecting(nil), box), 3, 16) == Palette.surface.rawValue)
+        // A footer item's fill reaches past its words, which start at the line's inset.
+        let footer = { Footer([FooterItem("settings", key: ",") {}]) }
+        #expect(try color(snapshot(width: 400, state: selecting(["footer", "settings"]), footer), Metrics.inset - 4, 18) == Palette.hover.rawValue)
+        #expect(try color(snapshot(width: 400, state: selecting(nil), footer), Metrics.inset - 4, 18) == Palette.bg.rawValue)
+    }
+
+    @Test func aRowsMarkIsOnTheRightAndBrightensWhenSelected() throws {
+        /// The brightest red channel in the last 10 points before the row's right inset, where the mark sits.
+        func brightest(_ selected: AnyHashable?) throws -> Int {
+            let png = try snapshot(width: 400, state: selecting(selected)) { Row("alpha", status: Words("fine", .ok), age: "4m") {} }
+            let rep = try #require(NSBitmapImageRep(data: png))
+            var most = 0
+            for x in Int((1 + 400 - 2 - Metrics.inset - 10) * 2)..<Int((1 + 400 - 2 - Metrics.inset) * 2) {
+                for y in 2..<(rep.pixelsHigh - 4) {
+                    var pixel = [Int](repeating: 0, count: 4)
+                    rep.getPixel(&pixel, atX: x, y: y)
+                    most = max(most, pixel[0])
+                }
+            }
+            return most
+        }
+        let resting = try brightest(nil)
+        let selected = try brightest("alpha")
+        #expect(resting > 0x30 && resting <= 0x55 + 4)
+        #expect(selected > 0xb0)
+    }
+
     @Test func theBundledFontIsTheOneDrawn() {
         #expect(Typeface.register())
         #expect(Typeface.loaded)

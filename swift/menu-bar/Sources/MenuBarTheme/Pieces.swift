@@ -87,7 +87,8 @@ public struct Header: View {
     }
 }
 
-/// A 44 point row: the name in its column, its status in words, cut short with an ellipsis, and its age on the right.
+/// A 44 point row: the name in its column, its status in words, cut short with an ellipsis, its age, and on the right
+/// the mark that says a click opens something, as a menu's submenu arrow does.
 public struct Row: View {
     let name: String
     let status: Words
@@ -110,6 +111,7 @@ public struct Row: View {
             Text(status.attributed).console(Metrics.small).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(age).console(Metrics.small, tone: .secondary).monospacedDigit().lineLimit(1).fixedSize()
+            Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).fixedSize()
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity))
@@ -174,10 +176,9 @@ public struct CodeBox: View {
         }
         .padding(.vertical, 6 + Metrics.line)
         .padding(.horizontal, 8 + Metrics.line)
-        .background(Palette.surface.color)
+        .modifier(Selectable(id: id ?? AnyHashable(["copy", scope, text]), action: { state?.copy(text) },
+                             rest: Palette.surface.color, corner: Metrics.cornerInside))
         .overlay(RoundedRectangle(cornerRadius: Metrics.cornerInside).strokeBorder(Palette.border.color, lineWidth: Metrics.line))
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerInside))
-        .modifier(Selectable(id: id ?? AnyHashable(["copy", scope, text]), action: { state?.copy(text) }))
     }
 }
 
@@ -269,7 +270,8 @@ public struct ItemGroup<Items: View>: View {
     }
 }
 
-/// An action in the footer, with the ⌘ shortcut it answers to.
+/// An action in the footer, with the ⌘ shortcut it answers to. The arrow keys stop on it after the lines above, as a
+/// menu's last items, and selected it brightens on a fill a little wider than its words.
 public struct FooterItem {
     let label: String
     let key: Character?
@@ -283,12 +285,12 @@ public struct FooterItem {
 
     @MainActor var view: some View {
         HStack(spacing: 6) {
-            Text(label).console(Metrics.small, tone: .secondary)
+            Brightening(text: label, size: Metrics.small, tone: .secondary, selected: .text)
             if let key { Text("⌘\(String(key).uppercased())").console(Metrics.small, tone: .muted) }
         }
         .fixedSize()
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        .modifier(Selectable(id: AnyHashable(["footer", label]), action: action, corner: Metrics.cornerInside,
+                             outset: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7)))
     }
 }
 

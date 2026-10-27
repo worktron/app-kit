@@ -13,15 +13,17 @@
 * { box-sizing:border-box; }
 body { margin:0; padding:24px; background:#08080a; display:flex; flex-direction:column; align-items:flex-start; gap:24px; }
 .oc { --text:#d4d4d4; --secondary:#888888; --muted:#555555; --ok:#89d185; --warn:#e2c08d; --error:#f48771; --info:#6cb6ff;
-  --bg:#050505; --surface:#0e0e0e; --surfaceHi:#141414; --border:#1c1c1c; --borderHi:#282828;
+  --bg:#050505; --surface:#0e0e0e; --surfaceHi:#141414; --border:#1c1c1c; --borderHi:#282828; --hover:#222222;
   font-family:"JetBrains Mono","SF Mono","Cascadia Code","Fira Code",Menlo,monospace; font-size:13px; line-height:1.5;
   background:var(--bg); color:var(--text); border:1px solid var(--borderHi); border-radius:8px; overflow:hidden;
   box-shadow:0 16px 40px rgba(0,0,0,.5); -webkit-font-smoothing:antialiased; }
 .oc .hd { height:40px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--border); background:var(--surface); }
 .oc .hd b { font-weight:700; }
 .oc .hd .r { margin-left:auto; color:var(--muted); font-size:11px; }
-.oc .row { height:44px; display:grid; grid-template-columns:92px minmax(0,1fr) auto; align-items:center; gap:12px; padding:0 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
-.oc .row.hov { background:var(--surface); }
+.oc .row { height:44px; display:grid; grid-template-columns:92px minmax(0,1fr) auto auto; align-items:center; gap:12px; padding:0 14px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.oc .row.hov { background:var(--hover); }
+.oc .row .mk { color:var(--muted); }
+.oc .row.hov .mk { color:var(--text); }
 .oc .row .n { font-weight:600; }
 .oc .row .st { overflow:hidden; text-overflow:ellipsis; font-size:12px; }
 .oc .row .age { color:var(--secondary); font-size:12px; font-variant-numeric:tabular-nums; }
@@ -49,10 +51,10 @@ body { margin:0; padding:24px; background:#08080a; display:flex; flex-direction:
 </head>
 <body>
 <div class="oc" data-screen="f-list" style="width:400px"><div class="hd"><b>fleet</b><span class="e">3 of 4 need you</span><span class="r">read just now</span></div>
-  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span></div>
-  <div class="row hov"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span></div>
-  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span></div>
-  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span><span class="mk">›</span></div>
+  <div class="row hov"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span><span class="mk">›</span></div>
+  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span><span class="mk">›</span></div>
+  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span><span class="mk">›</span></div>
   <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
 <div class="oc" data-screen="f-page" style="width:400px"><div class="hd"><span class="s">‹</span><b>bravo</b><span class="e">3 problems</span><span class="r">2h ago</span></div>
   <div class="sub">MacBook Air · reachable from charlie-2, delta</div>
@@ -67,12 +69,12 @@ body { margin:0; padding:24px; background:#08080a; display:flex; flex-direction:
   <div class="mac" style="border-bottom:1px solid var(--border)"><span class="n">delta</span><span class="o" style="font-size:12px">fine</span><span class="age">16m ago</span></div>
   <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
 <div class="oc" data-screen="fine" style="width:400px"><div class="hd"><b>fleet</b><span class="o">all 4 fine</span><span class="r">read just now</span></div>
-  <div class="row"><span class="n">alpha</span><span class="st"><span class="o">fine</span></span><span class="age">4m</span></div><div class="row"><span class="n">bravo</span><span class="st"><span class="o">fine</span></span><span class="age">9m</span></div><div class="row"><span class="n">charlie-2</span><span class="st"><span class="o">fine</span></span><span class="age">2m</span></div><div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div><div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="o">fine</span></span><span class="age">4m</span><span class="mk">›</span></div><div class="row"><span class="n">bravo</span><span class="st"><span class="o">fine</span></span><span class="age">9m</span><span class="mk">›</span></div><div class="row"><span class="n">charlie-2</span><span class="st"><span class="o">fine</span></span><span class="age">2m</span><span class="mk">›</span></div><div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span><span class="mk">›</span></div><div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
 <div class="oc" data-screen="unreadable" style="width:400px"><div class="hd"><b>fleet</b><span class="w">couldn't read status</span><span class="r">as of 12m ago</span></div>
-  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span></div>
-  <div class="row"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span></div>
-  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span></div>
-  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span></div>
+  <div class="row"><span class="n">alpha</span><span class="st"><span class="e">has never reported</span> <span class="more">+1</span></span><span class="age">never</span><span class="mk">›</span></div>
+  <div class="row"><span class="n">bravo</span><span class="st"><span class="e">nudged, sent no new report</span> <span class="more">+2</span></span><span class="age">2h</span><span class="mk">›</span></div>
+  <div class="row"><span class="n">charlie-2</span><span class="st"><span class="e">apply stopped: model</span></span><span class="age">2m</span><span class="mk">›</span></div>
+  <div class="row"><span class="n">delta</span><span class="st"><span class="o">fine</span></span><span class="age">16m</span><span class="mk">›</span></div>
   <div class="ft"><span>settings<span class="k">⌘,</span></span><span>about</span><span class="r">quit<span class="k">⌘Q</span></span></div></div>
 </body>
 </html>

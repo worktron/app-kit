@@ -15,6 +15,8 @@ public enum Palette: UInt32, CaseIterable, Sendable {
     case surfaceHi = 0x141414
     case border = 0x1c1c1c
     case borderHi = 0x282828
+    /// The selected line's fill: the line the arrow keys or the pointer are on.
+    case hover = 0x222222
 
     var red: CGFloat { CGFloat((rawValue >> 16) & 0xff) / 255 }
     var green: CGFloat { CGFloat((rawValue >> 8) & 0xff) / 255 }

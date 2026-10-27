@@ -95,15 +95,24 @@ struct Shortcuts: PreferenceKey {
     static func reduce(value: inout [Shortcut], nextValue: () -> [Shortcut]) { value += nextValue() }
 }
 
-/// A line that acts on a click on its whole background, is one the arrow keys stop on, and paints as hovered when selected.
+/// A line that acts on a click on its whole background, is one the arrow keys stop on, and paints as hovered when selected:
+/// `rest` is its fill otherwise, and `outset` the room its fill takes around it, with `corner` its rounding. Its content
+/// reads whether it is selected from `lineSelected`, so a mark on it can brighten.
 struct Selectable: ViewModifier {
     let id: AnyHashable
     let action: () -> Void
+    var rest: Color = .clear
+    var corner: CGFloat = 0
+    var outset = EdgeInsets()
     @Environment(PanelState.self) private var state: PanelState?
 
     func body(content: Content) -> some View {
+        let selected = state?.selected == id
         content
-            .background(state?.selected == id ? Palette.surface.color : .clear)
+            .environment(\.lineSelected, selected)
+            .padding(outset)
+            .background(RoundedRectangle(cornerRadius: corner).fill(selected ? Palette.hover.color : rest))
+            .padding(EdgeInsets(top: -outset.top, leading: -outset.leading, bottom: -outset.bottom, trailing: -outset.trailing))
             .contentShape(Rectangle())
             .onTapGesture {
                 state?.selected = id
@@ -113,5 +122,30 @@ struct Selectable: ViewModifier {
                 if inside { state?.pointerOver = id } else if state?.pointerOver == id { state?.pointerOver = nil }
             }
             .preference(key: SelectableLines.self, value: [SelectableLine(id: id, action: action)])
+    }
+}
+
+/// Whether the line a view sits on is selected.
+struct LineSelected: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var lineSelected: Bool {
+        get { self[LineSelected.self] }
+        set { self[LineSelected.self] = newValue }
+    }
+}
+
+/// Text that brightens to `selected` while its line is selected, as a row's mark or a footer item's label does.
+struct Brightening: View {
+    let text: String
+    let size: CGFloat
+    let tone: Tone
+    let selected: Tone
+    @Environment(\.lineSelected) private var isSelected
+
+    var body: some View {
+        Text(text).console(size, tone: isSelected ? selected : tone)
     }
 }
