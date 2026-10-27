@@ -58,16 +58,19 @@ public final class MenuBarPanel: NSPanel {
 
     /// Opens and closes from `item`'s icon. On macOS 27 and later the icon's expanded interface session drives it, as
     /// Apple's header asks of a status item that shows its own window; before that, the icon's button action toggles it.
+    /// Only the macOS 27 SDK declares the session, so a build with an older SDK always takes the button action.
     public func attach(to item: NSStatusItem) {
         statusItem = item
+        #if canImport(AppKit, _version: 2700)
         if #available(macOS 27, *) {
             let session = ExpandedInterface(panel: self)
             hookup = session
             item.expandedInterfaceDelegate = session
-        } else {
-            item.button?.target = self
-            item.button?.action = #selector(toggleFromIcon)
+            return
         }
+        #endif
+        item.button?.target = self
+        item.button?.action = #selector(toggleFromIcon)
     }
 
     @objc private func toggleFromIcon() {
@@ -111,7 +114,9 @@ public final class MenuBarPanel: NSPanel {
         intentTimer?.invalidate()
         buttonRect = nil
         state.reset()
+        #if canImport(AppKit, _version: 2700)
         if #available(macOS 27, *) { statusItem?.expandedInterfaceSession?.cancel() }
+        #endif
         orderOut(nil)
         onClose?()
     }
@@ -233,6 +238,9 @@ struct PanelRoot<Content: View>: View {
     }
 }
 
+// AppKit 27xx is the macOS 27 SDK, the first to declare the expanded interface session; the macOS 26 SDKs' AppKit is
+// 26xx. `@available` only guards running, so without the check an older SDK fails to compile this.
+#if canImport(AppKit, _version: 2700)
 /// The macOS 27 hookup: the icon's session opens the panel and its end closes it.
 @available(macOS 27, *)
 @MainActor
@@ -249,3 +257,4 @@ final class ExpandedInterface: NSObject, @preconcurrency NSStatusItemExpandedInt
         panel?.close()
     }
 }
+#endif
