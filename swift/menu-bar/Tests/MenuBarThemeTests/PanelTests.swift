@@ -258,6 +258,30 @@ import Testing
         #expect(try scrolled(panel) == 0)
     }
 
+    @Test func aPanelScrolledByHandOpensAgainAtItsTop() throws {
+        let short = NSRect(x: 0, y: 800, width: 1440, height: 200)
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            ForEach(0..<6) { Row("mac \($0)", status: Words("fine", .ok), age: "\($0)m") {} }
+        }
+        panel.open(below: Self.icon, in: short)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        // As the wheel would: scrolled, with no line selected.
+        func find(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let content = try #require(panel.contentView)
+        let scroll = try #require(find(content))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 60))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(try scrolled(panel) == 60)
+        #expect(panel.state.selected == nil)
+        panel.close()
+        panel.open(below: Self.icon, in: short)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(try scrolled(panel) == 0)
+    }
+
     @Test func theOpenPanelFitsItsContent() {
         let panel = panel()
         // A 40 point header, three 44 point rows, a 36 point footer and the 1 point border above and below.

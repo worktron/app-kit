@@ -241,14 +241,11 @@ struct PanelRoot<Content: View>: View {
                 .scrollIndicators(state.contentHeight + 2 * Metrics.line > state.maxHeight ? .automatic : .hidden)
                 .frame(height: max(0, min(state.contentHeight, state.maxHeight - 2 * Metrics.line)))
                 // A line the keys chose is never out of sight, so Return never runs one that cannot be seen.
-                // Nothing selected is a panel just closed, which opens again at the top, as a menu does.
                 .onChange(of: state.selected) { _, selected in
-                    if let selected {
-                        if selected != state.pointerOver { scroller.scrollTo(selected) }
-                    } else {
-                        scroller.scrollTo(Top(), anchor: .top)
-                    }
+                    if let selected, selected != state.pointerOver { scroller.scrollTo(selected) }
                 }
+                // Closed, it opens again at the top, as a menu does, however it was scrolled.
+                .onChange(of: state.closes) { _, _ in scroller.scrollTo(Top(), anchor: .top) }
             }
         }
         .environment(state)

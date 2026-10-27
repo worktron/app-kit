@@ -17,6 +17,8 @@ public final class PanelState {
     @ObservationIgnored var shortcuts: [Shortcut] = []
     /// The line under the pointer, which becomes the selection once the pointer means it.
     var pointerOver: AnyHashable?
+    /// How many times the panel has closed, so its content scrolls back to the top for the next open.
+    var closes = 0
     /// How tall the content is, and how tall the screen lets the panel be.
     var contentHeight: CGFloat = 0
     var maxHeight: CGFloat = .greatestFiniteMagnitude
@@ -62,11 +64,12 @@ public final class PanelState {
         return true
     }
 
-    /// The panel closed: nothing stays selected or copied.
+    /// The panel closed: nothing stays selected or copied, and it opens again at its top.
     func reset() {
         selected = nil
         copied = nil
         pointerOver = nil
+        closes += 1
     }
 }
 

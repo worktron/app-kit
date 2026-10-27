@@ -135,6 +135,11 @@ import Testing
         // One line of 13 point text centred in the 40 point header, so nothing above 10 points or below 30.
         #expect(try ink(png, x: 30..<300, y: 1..<10) == 0)
         #expect(try ink(png, x: 30..<300, y: 30..<39) == 0)
+        // Cut in the middle: two titles that differ only at their end still draw differently.
+        let other = try snapshot(width: 480) {
+            Header("docs.example.com/document/d/1AbCdEf/edit/and/then/some/more/of/the/page", note: "read just now", back: {})
+        }
+        #expect(other != png)
         // The note at the right is drawn: its first word starts about 80 points from the right inset.
         #expect(try ink(png, x: (480 - 2 - Metrics.inset - 80)..<(480 - 2 - Metrics.inset - 60), y: 12..<28) > 0)
     }
