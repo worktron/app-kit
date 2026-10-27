@@ -5,16 +5,18 @@ import { CODE_GOOD_MS, CODE_KEPT_MS, DESKTOP_SIGN_IN_OPEN_PATH, DESKTOP_SIGN_IN_
 
 const realWarn = console.warn;
 const realLog = console.log;
+const realError = console.error;
 let lines: string[] = [];
 
 beforeEach(() => {
   lines = [];
-  console.warn = console.log = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+  console.warn = console.log = console.error = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
 });
 
 afterEach(() => {
   console.warn = realWarn;
   console.log = realLog;
+  console.error = realError;
 });
 
 /** An app's server with the routes mounted where the kit asks for them, signed in as `signedInAs`. */
@@ -156,4 +158,19 @@ test("the fingerprint is the secret's SHA-256 in hex, as the browser's own hashi
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret)));
   expect(fingerprint(secret)).toBe([...digest].map((byte) => byte.toString(16).padStart(2, '0')).join(''));
   expect(fingerprint('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+});
+
+test('a ticket maker that fails, as the provider out of reach, answers 502 and says so in the log', async () => {
+  const app = new Hono();
+  app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({ userId: () => 'user_a', makeTicket: () => Promise.reject(new Error('unreachable')) }));
+  const secret = randomHex();
+  const asked = await app.request(`${DESKTOP_SIGN_IN_ROUTES}/code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer session-token' },
+    body: JSON.stringify({ fingerprint: fingerprint(secret) }),
+  });
+  const { code } = (await asked.json()) as { code: string };
+  const res = await app.request(DESKTOP_SIGN_IN_OPEN_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, secret }) });
+  expect(res.status).toBe(502);
+  expect(lines).toContain('[desktop-sign-in] no ticket: the ticket maker failed Error: unreachable');
 });

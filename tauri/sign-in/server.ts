@@ -134,9 +134,16 @@ export function desktopSignInRoutes<E extends Env = Env>({ userId, makeTicket, n
       console.warn(`${LOG_PREFIX} no ticket: the secret is not the one the window asked with`);
       return c.json({ error: 'This sign-in did not come from this window. Sign in again.' }, 400);
     }
-    // Used up before the ticket is made, so two answers at once never make two.
+    // Used up before the ticket is made, so two answers at once never make two. A ticket maker that fails, as the
+    // provider out of reach, leaves the person to click again in the browser for a fresh code.
     handed.redeemed = true;
-    const ticket = await makeTicket(handed.userId, c);
+    let ticket: string;
+    try {
+      ticket = await makeTicket(handed.userId, c);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} no ticket: the ticket maker failed`, err);
+      return c.json({ error: 'Could not sign in just now. Sign in again.' }, 502);
+    }
     console.log(`${LOG_PREFIX} a code was turned into a ticket for the window that asked`);
     c.header('Cache-Control', 'no-store');
     return c.json({ ticket });
