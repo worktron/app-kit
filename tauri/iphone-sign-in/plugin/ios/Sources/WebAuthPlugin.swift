@@ -45,7 +45,8 @@ class WebAuthPlugin: Plugin {
       if #available(iOS 17.4, *), let host = args.callbackHost, let path = args.callbackPath,
         var asking = URLComponents(url: url, resolvingAgainstBaseURL: false)
       {
-        asking.queryItems = (asking.queryItems ?? []) + [URLQueryItem(name: "back", value: "https")]
+        // Added to the query as the page encoded it: read back and written again, a '+' in an email turns into a space.
+        asking.percentEncodedQuery = [asking.percentEncodedQuery, "back=https"].compactMap { $0 }.joined(separator: "&")
         guard let overHttps = asking.url else { return overScheme() }
         self.open(invoke, overHttps, waitingFor: "https://\(host)\(path)", refused: overScheme) { done in
           ASWebAuthenticationSession(url: overHttps, callback: .https(host: host, path: path), completionHandler: done)

@@ -63,7 +63,9 @@ test('the crate, its links key and the Swift package carry the plugin’s name, 
 });
 
 test('the Swift asks the browser page for the hand-back over https by the names the page reads', () => {
-  expect(swift).toContain(`URLQueryItem(name: "${BACK_PARAM}", value: "${BACK_OVER_HTTPS}")`);
+  // Added to the query as the page encoded it, never through queryItems, which writes a '+' in an email back bare.
+  expect(swift).toContain(`[asking.percentEncodedQuery, "${BACK_PARAM}=${BACK_OVER_HTTPS}"]`);
+  expect(swift).not.toContain('queryItems');
   expect(swift).toContain('callback: .https(host: host, path: path)');
 });
 

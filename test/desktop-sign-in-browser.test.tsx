@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, beforeEach, expect, jest, setSystemTime, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../tauri/sign-in';
@@ -338,11 +338,26 @@ test('a page closed once its link is out asks the server nothing more', async ()
   inBrowser(IPHONE, 5);
   goTo(OVER_HTTPS);
   const { sent } = serveDesktopSignIn(() => 'ana@example.com');
-  const page = draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
-  await waitFor(() => expect(sent.filter((r) => r.path === '/api/desktop-sign-in/status')).toHaveLength(1));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  page.unmount();
-  const asked = sent.length;
-  await new Promise((resolve) => setTimeout(resolve, ASK_TAKEN_EVERY_MS + 100));
-  expect(sent).toHaveLength(asked);
+  const served = globalThis.fetch;
+  let answered = 0;
+  globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+    const answer = await served(...args);
+    if (String(args[0]).endsWith('/status')) answered++;
+    return answer;
+  }) as typeof fetch;
+  jest.useFakeTimers();
+  try {
+    const page = draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+    // The server has answered the first ask, so the page has its next one waiting on the clock.
+    for (let i = 0; i < 100 && answered === 0; i++) await act(async () => {});
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(answered).toBe(1);
+    page.unmount();
+    const asked = sent.length;
+    act(() => jest.advanceTimersByTime(ASK_TAKEN_EVERY_MS * 3));
+    await act(async () => {});
+    expect(sent).toHaveLength(asked);
+  } finally {
+    jest.useRealTimers();
+  }
 });
