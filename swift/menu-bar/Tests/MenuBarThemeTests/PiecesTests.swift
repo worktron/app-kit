@@ -97,6 +97,48 @@ import Testing
         #expect(selected > 0xb0)
     }
 
+    /// How many pixels in the points `x` and `y` span are brighter than the panel's background, in a snapshot at scale 2.
+    func ink(_ png: Data, x: Range<CGFloat>, y: Range<CGFloat>) throws -> Int {
+        let rep = try #require(NSBitmapImageRep(data: png))
+        var drawn = 0
+        for px in Int((1 + x.lowerBound) * 2)..<Int((1 + x.upperBound) * 2) {
+            for py in Int((1 + y.lowerBound) * 2)..<Int((1 + y.upperBound) * 2) {
+                var pixel = [Int](repeating: 0, count: 4)
+                rep.getPixel(&pixel, atX: px, y: py)
+                if pixel[0] > 0x40 { drawn += 1 }
+            }
+        }
+        return drawn
+    }
+
+    @Test func aRowWithoutANameRunsItsWordsAcrossTheRow() throws {
+        let png = try snapshot(width: 480) {
+            Row(Words("github.com/acme/widgets/pull/12"), trailing: "work@example.com", id: "link") {}
+        }
+        // The words start at the inset, where a name would be, and run through the gap after the name's column.
+        #expect(try ink(png, x: Metrics.inset..<(Metrics.inset + 8), y: 12..<32) > 0)
+        #expect(try ink(png, x: (Metrics.inset + Metrics.nameColumn)..<(Metrics.inset + Metrics.nameColumn + 12), y: 12..<32) > 0)
+        // The trailing words end before the mark, at the right.
+        let mark = 480 - 2 - Metrics.inset - 10
+        #expect(try ink(png, x: (mark - 40)..<(mark - 12), y: 12..<32) > 0)
+        #expect(try ink(png, x: mark..<(mark + 10), y: 12..<32) > 0)
+        // A row whose click acts in place has no mark: its words run on to the inset.
+        let acts = try snapshot(width: 480) { Row(Words("open once in work@example.com"), opens: false, id: "once") {} }
+        #expect(try ink(acts, x: mark..<(mark + 10), y: 12..<32) == 0)
+    }
+
+    @Test func aLongTitleStaysOnOneLineAndTheNoteStaysWhole() throws {
+        let png = try snapshot(width: 480) {
+            Header("docs.example.com/document/d/1AbCdEf/edit/and/then/some/more/of/the/path", note: "read just now", back: {})
+        }
+        #expect(try height(Header("docs.example.com/document/d/1AbCdEf/edit/and/then/some/more/of/the/path", note: "read just now", back: {})) == 40)
+        // One line of 13 point text centred in the 40 point header, so nothing above 10 points or below 30.
+        #expect(try ink(png, x: 30..<300, y: 1..<10) == 0)
+        #expect(try ink(png, x: 30..<300, y: 30..<39) == 0)
+        // The note at the right is drawn: its first word starts about 80 points from the right inset.
+        #expect(try ink(png, x: (480 - 2 - Metrics.inset - 80)..<(480 - 2 - Metrics.inset - 60), y: 12..<28) > 0)
+    }
+
     @Test func theBundledFontIsTheOneDrawn() {
         #expect(Typeface.register())
         #expect(Typeface.loaded)

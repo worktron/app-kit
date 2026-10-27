@@ -13,6 +13,9 @@ public final class MenuBarPanel: NSPanel {
     public let state: PanelState
     /// Called on Escape before the panel closes; true when the content handled it, as a page going back to its list.
     public var onEscape: (() -> Bool)?
+    /// Called as a closed panel opens, before it is sized and shown, so what it changes draws in the first frame: the
+    /// place to read what SwiftUI cannot observe, and to hold a list still while the panel is open.
+    public var onOpen: (() -> Void)?
     /// Called once the panel has closed, however it closed.
     public var onClose: (() -> Void)?
     public private(set) var isOpen = false
@@ -85,7 +88,8 @@ public final class MenuBarPanel: NSPanel {
 
     /// Opens with its top just under `button`, the icon's rect in screen coordinates, kept inside `visibleFrame`.
     public func open(below button: NSRect, in visibleFrame: NSRect) {
-        // Opened again while open, as by a second session: one set of monitors, not two.
+        // Opened again while open, as by a second session: one set of monitors, not two, and the content left as it is.
+        if !isOpen { onOpen?() }
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors = []
         buttonRect = button
@@ -218,18 +222,34 @@ struct PanelRoot<Content: View>: View {
     let width: CGFloat
     let state: PanelState
     let content: Content
+    /// The top of the content, scrolled back to as the panel closes: a type of its own, so no line's id is the same.
+    struct Top: Hashable {}
 
     var body: some View {
         PanelFrame(width: width) {
-            ScrollView(.vertical) {
-                VStack(spacing: 0) { content }
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                        state.contentHeight = height
+            ScrollViewReader { scroller in
+                ScrollView(.vertical) {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 0).id(Top())
+                        content
                     }
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                            state.contentHeight = height
+                        }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(state.contentHeight + 2 * Metrics.line > state.maxHeight ? .automatic : .hidden)
+                .frame(height: max(0, min(state.contentHeight, state.maxHeight - 2 * Metrics.line)))
+                // A line the keys chose is never out of sight, so Return never runs one that cannot be seen.
+                // Nothing selected is a panel just closed, which opens again at the top, as a menu does.
+                .onChange(of: state.selected) { _, selected in
+                    if let selected {
+                        if selected != state.pointerOver { scroller.scrollTo(selected) }
+                    } else {
+                        scroller.scrollTo(Top(), anchor: .top)
+                    }
+                }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicators(state.contentHeight + 2 * Metrics.line > state.maxHeight ? .automatic : .hidden)
-            .frame(height: max(0, min(state.contentHeight, state.maxHeight - 2 * Metrics.line)))
         }
         .environment(state)
         .onPreferenceChange(SelectableLines.self) { lines in MainActor.assumeIsolated { state.lines = lines } }

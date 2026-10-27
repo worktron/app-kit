@@ -71,10 +71,11 @@ public struct Header: View {
     public var body: some View {
         let line = Lined(height: Metrics.header, content: HStack(spacing: 10) {
             if back != nil { Text("‹").console(Metrics.body, tone: .secondary) }
-            Text(title).console(Metrics.body, weight: .bold)
-            if let status { Text(status.attributed).console(Metrics.body).lineLimit(1) }
+            // On one line, cut in the middle so a path keeps its start and its end, and the first to give way.
+            Text(title).console(Metrics.body, weight: .bold).lineLimit(1).truncationMode(.middle)
+            if let status { Text(status.attributed).console(Metrics.body).lineLimit(1).layoutPriority(1) }
             Spacer(minLength: 0)
-            Text(note).console(Metrics.note, tone: .muted).lineLimit(1)
+            Text(note).console(Metrics.note, tone: .muted).lineLimit(1).layoutPriority(2)
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity)
@@ -88,11 +89,13 @@ public struct Header: View {
 }
 
 /// A 44 point row: the name in its column, its status in words, cut short with an ellipsis, its age, and on the right
-/// the mark that says a click opens something, as a menu's submenu arrow does.
+/// the mark that says a click opens something, as a menu's submenu arrow does. Without a name, its words take the
+/// row's width, as a link with its account on the right, and a row whose click acts in place leaves the mark off.
 public struct Row: View {
-    let name: String
+    let name: String?
     let status: Words
     let age: String
+    let opens: Bool
     let id: AnyHashable
     let action: () -> Void
 
@@ -100,18 +103,32 @@ public struct Row: View {
         self.name = name
         self.status = status
         self.age = age
+        opens = true
         self.id = id ?? AnyHashable(name)
+        self.action = action
+    }
+
+    /// A row whose `text` runs from the inset to the `trailing` text, in secondary on the right; `opens` false for one
+    /// whose click acts in place, as "open once in" a profile, rather than opening a page.
+    public init(_ text: Words, trailing: String = "", opens: Bool = true, id: AnyHashable, action: @escaping () -> Void) {
+        name = nil
+        status = text
+        age = trailing
+        self.opens = opens
+        self.id = id
         self.action = action
     }
 
     public var body: some View {
         Lined(height: Metrics.row, content: HStack(spacing: 12) {
-            Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).truncationMode(.tail)
-                .frame(width: Metrics.nameColumn, alignment: .leading)
-            Text(status.attributed).console(Metrics.small).lineLimit(1).truncationMode(.tail)
+            if let name {
+                Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).truncationMode(.tail)
+                    .frame(width: Metrics.nameColumn, alignment: .leading)
+            }
+            Text(status.attributed).console(name == nil ? Metrics.body : Metrics.small).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(age).console(Metrics.small, tone: .secondary).monospacedDigit().lineLimit(1).fixedSize()
-            Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).fixedSize()
+            if opens { Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).fixedSize() }
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity))

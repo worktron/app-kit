@@ -121,6 +121,8 @@ struct Selectable: ViewModifier {
                 if inside { state?.pointerOver = id } else if state?.pointerOver == id { state?.pointerOver = nil }
             }
             .preference(key: SelectableLines.self, value: [SelectableLine(id: id, action: action)])
+            // What the panel scrolls to when the keys choose this line, fill and all.
+            .id(id)
             // Laid out at its content's size, while the fill and the click reach over the outset.
             .padding(EdgeInsets(top: -outset.top, leading: -outset.leading, bottom: -outset.bottom, trailing: -outset.trailing))
     }

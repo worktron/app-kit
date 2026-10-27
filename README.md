@@ -778,9 +778,9 @@ The console family's look for a menu bar app, the look of metamax and the consol
 
 | Piece | What it draws |
 | --- | --- |
-| `MenuBarPanel(width:state:content:)` | The panel under the icon: Escape closes it (after its `onEscape`, which a page uses to go back to its list), as does a click anywhere outside it; up and down move through the rows and Return acts; ⌘ with a footer item's key runs that item. It takes the keys without making the app active, so the app in front stays in front, and opens on the Space in front, over a full-screen app too. `attach(to:)` hooks it to a status item: on macOS 27 and later through the item's expanded interface session, as Apple's header asks, and before that, or when the app is built with an older SDK, through the icon's button. It fits its content, and scrolls only when the screen is too short. |
-| `Header(_:status:note:back:)` | The 40 point top line: a back mark when `back` is given (then the whole line goes back), the title in bold, its status in words, and a note on the right in muted, such as how old the status is. |
-| `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, its age, and `›` on the right, as a menu's submenu arrow says a click opens something; selected, the `›` brightens. A click anywhere on it acts. |
+| `MenuBarPanel(width:state:content:)` | The panel under the icon: Escape closes it (after its `onEscape`, which a page uses to go back to its list), as does a click anywhere outside it; up and down move through the rows and Return acts; ⌘ with a footer item's key runs that item. It takes the keys without making the app active, so the app in front stays in front, and opens on the Space in front, over a full-screen app too. `attach(to:)` hooks it to a status item: on macOS 27 and later through the item's expanded interface session, as Apple's header asks, and before that, or when the app is built with an older SDK, through the icon's button. It fits its content, and scrolls only when the screen is too short, keeping a line the keys choose in sight, and opens again at the top. `onOpen` runs as a closed panel opens, before it is sized and shown, so what it changes draws in the first frame: the place to read what SwiftUI cannot observe, and to hold a list still while the panel is open. |
+| `Header(_:status:note:back:)` | The 40 point top line: a back mark when `back` is given (then the whole line goes back), the title in bold on one line, cut in the middle when it is too long so a path keeps its start and its end, its status in words, and a note on the right in muted, such as how old the status is, which the title gives way to. |
+| `Row(_:status:age:id:action:)` | The 44 point row: the name in a 92 point column, its status in words, cut short with an ellipsis, its age, and `›` on the right, as a menu's submenu arrow says a click opens something; selected, the `›` brightens. A click anywhere on it acts. `Row(_:trailing:opens:id:action:)` is the same row without a name: its words run across it, such as a link, with a trailing text in secondary on the right, such as the account it opens in; `opens: false` leaves the `›` off a row whose click acts in place rather than opening a page. |
 | `SubLine(_:)` | A line of detail under a header, in secondary. |
 | `ProblemBlock(_:hint:copy:)` | A problem on a page: its title in red, what to do in secondary, and the exact command or line in a `CodeBox`. |
 | `CodeBox(_:id:)` | The thing to copy, wrapped to show all of it, with "copy" in blue that turns to "copied" in green once it is on the pasteboard. A click anywhere on the box copies. |
@@ -791,7 +791,7 @@ The console family's look for a menu bar app, the look of metamax and the consol
 | `Palette`, `Metrics`, `Typeface` | The tokens: the twelve colors metamax's web client and the console tools share, and `hover`, the selected line's fill, the heights and sizes, and the bundled JetBrains Mono 2.304 (Regular, SemiBold and Bold, under the SIL Open Font License in `Fonts/OFL.txt`). |
 | `snapshot(width:scale:state:content:)` | Any screen drawn to a PNG with nothing on the screen, through the same hosting view the panel uses, for an app's headless checks. It throws when the bundled font is not loaded, rather than draw in another. A `PanelState` given to it shows a row as selected or a box as copied. |
 
-Each line the arrow keys stop on has an id, unique in its panel: a row's is its name, an item line's its group, text and command, a code box's its block's title and text, a footer item's its label, and `id:` sets one where those could repeat.
+Each line the arrow keys stop on has an id, unique in its panel: a row's is its name (a row without one is given its `id:`), an item line's its group, text and command, a code box's its block's title and text, a footer item's its label, and `id:` sets one where those could repeat.
 
 Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. The selected line, whether the keys or the pointer chose it, fills in `hover`. A click always acts at once.
 
@@ -837,6 +837,7 @@ if !Typeface.register() { log("menu bar font: \(Typeface.problem ?? "unknown")")
 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 item.button?.image = NSImage(named: "MenuBarIcon")
 let panel = MenuBarPanel(width: 400) { Menu(model: model) }
+panel.onOpen = { model.reload() }   // what the app reads from disk, drawn in the first frame
 panel.onEscape = {
     guard model.page != nil else { return false }
     model.page = nil

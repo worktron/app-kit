@@ -184,6 +184,80 @@ import Testing
         #expect(MenuBarPanel.maxHeight(below: Self.icon, in: Self.screen) == CGFloat(1000 - 4 - 4))
     }
 
+    @Observable final class Links {
+        var shown: [String] = []
+    }
+
+    struct LinkRows: View {
+        let links: Links
+        var body: some View {
+            ForEach(links.shown, id: \.self) { Row(Words($0), id: $0) {} }
+        }
+    }
+
+    @Test func onOpenRunsOnceBeforeThePanelIsShownAndItsChangeIsInTheFirstFrame() {
+        let links = Links()
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            LinkRows(links: links)
+        }
+        var opened: [Bool] = []
+        panel.onOpen = {
+            opened.append(panel.isOpen)
+            links.shown = ["github.com/acme/widgets/pull/12", "docs.example.com/document/d/1AbCdEf/edit"]
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        // Called while still closed, and the panel was sized for the two rows it read.
+        #expect(opened == [false])
+        let twoRows: CGFloat = 2 * 44 + 2
+        #expect(panel.frame.height == twoRows)
+        // A second open while open, as by a second session, leaves the content alone.
+        panel.open(below: Self.icon, in: Self.screen)
+        #expect(opened == [false])
+        panel.close()
+        panel.open(below: Self.icon, in: Self.screen)
+        #expect(opened == [false, false])
+    }
+
+    /// How far the panel's content is scrolled down, in points.
+    func scrolled(_ panel: MenuBarPanel) throws -> CGFloat {
+        func find(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        let content = try #require(panel.contentView)
+        let scroll = try #require(find(content))
+        return scroll.contentView.bounds.origin.y
+    }
+
+    @Test func aLineTheKeysChooseScrollsIntoView() throws {
+        // A screen 200 points tall under the icon: the 210 point panel scrolls, and the footer starts out of sight.
+        let short = NSRect(x: 0, y: 800, width: 1440, height: 200)
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            Header("fleet", status: Words("all 3 fine", .ok), note: "read just now")
+            Row("alpha", status: Words("fine", .ok), age: "4m") {}
+            Row("bravo", status: Words("fine", .ok), age: "9m") {}
+            Row("charlie", status: Words("fine", .ok), age: "2m") {}
+            Footer([FooterItem("settings", key: ",") {}], trailing: [FooterItem("quit", key: "q") {}])
+        }
+        panel.open(below: Self.icon, in: short)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let whole: CGFloat = 40 + 3 * 44 + 36 + 2
+        #expect(panel.frame.height < whole)
+        #expect(try scrolled(panel) == 0)
+        // Up from nothing chooses the footer's last item, at the bottom.
+        panel.sendEvent(key(Self.up, code: 126))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(panel.state.selected == AnyHashable(["footer", "quit"]))
+        #expect(try scrolled(panel) > 0)
+        // Opened again, it starts at the top, as a menu does, and Down chooses the top line, already in sight.
+        panel.close()
+        panel.open(below: Self.icon, in: short)
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(panel.state.selected == AnyHashable("alpha"))
+        #expect(try scrolled(panel) == 0)
+    }
+
     @Test func theOpenPanelFitsItsContent() {
         let panel = panel()
         // A 40 point header, three 44 point rows, a 36 point footer and the 1 point border above and below.
