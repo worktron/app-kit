@@ -2,19 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { TICKET_FAILED, type Outcome, type ProviderSession } from '../../web/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, NONCE_PARAM, TICKET_PARAM } from './names';
-import { NONCE, post } from './requests';
+import { fingerprint, HEX_32, randomHex } from './fingerprint';
+import { post } from './requests';
 
 /*
  * The desktop app's window. Google refuses to sign in inside an app's web view, so the window opens the browser on the
- * app's sign-in page, with a nonce it keeps in its own storage. The browser, signed in, hands back a one-time ticket
- * through the app's own link; the shell passes it to the page, which signs in with it only when the nonce is the one
- * it asked with, so a link the window did not ask for, made by any other app on the Mac, never signs it in.
+ * app's sign-in page, with the fingerprint of a secret it keeps in its own storage. The browser, signed in, hands back
+ * a one-time code through the app's own link; the shell passes it to the page, which takes it only when the link
+ * carries its own fingerprint, and turns it into a ticket at the server with its secret. Any other app can claim the
+ * link, but the code is worth nothing to it without the secret, which never leaves the window.
  *
  * The window's page is the app's own site, served by the server that mounts the routes, as a Tauri window onto the
  * hosted app is: the browser page's address and the routes are both on the page's origin.
  */
 
-const NONCE_KEY = 'app-kit.desktopSignInNonce';
+const SECRET_KEY = 'app-kit.desktopSignInSecret';
 
 export const NOT_FROM_THIS_WINDOW = 'This sign-in did not come from this window. Sign in again.';
 
@@ -25,7 +27,10 @@ export const NOT_FROM_THIS_WINDOW = 'This sign-in did not come from this window.
  */
 export type DesktopSignInAccount = { account: string } | 'choose' | null;
 
-/** What the browser hands the app: the ticket, and the nonce the window asked with. */
+/**
+ * What the browser hands the app, in the fields installed shells name: `ticket` is the server's one-time code, and
+ * `nonce` the fingerprint of the secret the window asked with.
+ */
 export interface DesktopSignInLink {
   ticket: string;
   nonce: string;
@@ -33,16 +38,16 @@ export interface DesktopSignInLink {
 
 /**
  * The browser page to open for Google, as a full address, since the iPhone's sign-in sheet takes only one, asking for
- * the account chosen in the window. A nonce already kept and not yet used is asked with again, so a second click leaves
- * the first browser tab's sign-in good.
+ * the account chosen in the window, with the fingerprint of the window's secret as its nonce. A secret already kept and
+ * not yet used is asked with again, so a second click leaves the first browser tab's sign-in good.
  */
 export function desktopSignInAddress(account: DesktopSignInAccount, store: () => KeyValueStore = thisTab): string {
-  let nonce = read(store, NONCE_KEY);
-  if (!nonce || !NONCE.test(nonce)) {
-    nonce = crypto.randomUUID();
-    write(store, NONCE_KEY, nonce);
+  let secret = read(store, SECRET_KEY);
+  if (!secret || !HEX_32.test(secret)) {
+    secret = randomHex();
+    write(store, SECRET_KEY, secret);
   }
-  const query = new URLSearchParams({ nonce });
+  const query = new URLSearchParams({ nonce: fingerprint(secret) });
   if (account) query.set('account', account === 'choose' ? 'choose' : account.account);
   return `${window.location.origin}${DESKTOP_SIGN_IN_PATH}?${query}`;
 }
@@ -54,22 +59,33 @@ export function desktopSignInLink(value: unknown): DesktopSignInLink | null {
   return typeof ticket === 'string' && ticket && typeof nonce === 'string' && nonce ? { ticket, nonce } : null;
 }
 
+/** The ticket the server makes for the browser's code and this window's secret, or null when it makes none. */
+async function redeem(session: Pick<ProviderSession, 'token'>, code: string, secret: string): Promise<string | null> {
+  const answer = await post(session, '/redeem', { code, secret }).catch(() => null);
+  const body = answer?.ok ? ((await answer.json().catch(() => null)) as { ticket?: unknown } | null) : null;
+  return typeof body?.ticket === 'string' && body.ticket ? body.ticket : null;
+}
+
 /**
- * Signs in with a link from the browser when its nonce is the one this window asked with. The nonce is used up only
- * once the ticket has worked, so a ticket that expired while the browser asked whether to open the app can be
- * followed by a fresh one. Then the server hears it was taken, for the browser tab that handed it over.
+ * Signs in with a link from the browser when it carries this window's fingerprint: the server turns its code into a
+ * ticket for the window's secret, and the provider signs in with that. The secret is used up only once the ticket has
+ * worked, so a code that expired while the browser asked whether to open the app can be followed by a fresh one. Then
+ * the server hears it was taken, for the browser tab that handed it over.
  */
 export async function takeDesktopSignIn(
   session: Pick<ProviderSession, 'ticket' | 'token'>,
   link: DesktopSignInLink,
   store: () => KeyValueStore = thisTab,
 ): Promise<Outcome> {
-  if (!NONCE.test(link.nonce) || read(store, NONCE_KEY) !== link.nonce) return { ok: false, message: NOT_FROM_THIS_WINDOW };
+  const secret = read(store, SECRET_KEY);
+  if (!secret || !HEX_32.test(link.nonce) || fingerprint(secret) !== link.nonce) return { ok: false, message: NOT_FROM_THIS_WINDOW };
+  const ticket = await redeem(session, link.ticket, secret);
+  if (!ticket) return { ok: false, message: TICKET_FAILED };
   // A provider that throws, as on a network failure, fails like one that says no, so the window never stays signing in.
-  const outcome = await session.ticket(link.ticket).catch((): Outcome => ({ ok: false, message: TICKET_FAILED }));
+  const outcome = await session.ticket(ticket).catch((): Outcome => ({ ok: false, message: TICKET_FAILED }));
   if (!outcome.ok) return outcome;
-  write(store, NONCE_KEY, null);
-  await post(session, '/taken', { ticket: link.ticket }).catch(() => undefined);
+  write(store, SECRET_KEY, null);
+  await post(session, '/taken', { code: link.ticket }).catch(() => undefined);
   return outcome;
 }
 
@@ -85,8 +101,8 @@ function arrived(link: DesktopSignInLink) {
 
 /**
  * In the desktop app's window, from the page's first script: takes a link the shell loaded the page with off the
- * address, so a reload never tries a used ticket, and listens for the ones it dispatches, telling the shell so. The
- * shell puts a link in the address's fragment, which the browser never sends, so the ticket reaches no server's log.
+ * address, so a reload never tries a used code, and listens for the ones it dispatches, telling the shell so. The
+ * shell puts a link in the address's fragment, which the browser never sends, so the code reaches no server's log.
  */
 export function listenForDesktopSignIn(): void {
   const url = new URL(window.location.href);

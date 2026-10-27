@@ -12,7 +12,8 @@ export interface SentRequest {
 /**
  * The app's server with the desktop sign-in routes, answering the page's fetch in the test itself. A request counts as
  * signed in only with a bearer token, as the app's server would have it, and then as whoever `signedInAs` names; its
- * tickets are ones the stand-in takes.
+ * tickets are ones the stand-in takes. `codeFor` is the browser, signed in as `signedInAs`, handing over a code for a
+ * window's nonce, asked outside the page's fetch so it is not among what the page sent.
  */
 export function serveDesktopSignIn(signedInAs: () => string | null) {
   const app = new Hono();
@@ -33,5 +34,15 @@ export function serveDesktopSignIn(signedInAs: () => string | null) {
     });
     return app.fetch(request);
   }) as typeof fetch;
-  return { sent };
+  const codeFor = async (nonce: string): Promise<string> => {
+    const answer = await app.request(`${DESKTOP_SIGN_IN_ROUTES}/code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer browser-session' },
+      body: JSON.stringify({ fingerprint: nonce }),
+    });
+    const { code } = (await answer.json()) as { code?: string };
+    if (!code) throw new Error(`no code for ${nonce}: ${answer.status}`);
+    return code;
+  };
+  return { sent, codeFor };
 }

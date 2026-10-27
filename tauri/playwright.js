@@ -14,6 +14,7 @@ const NAMES = {
   answerKey: 'callbackUrl',
   linkHost: 'sign-in',
   desktopSignInPath: '/desktop-sign-in',
+  redeemPath: '/api/desktop-sign-in/redeem',
   desktopSignInEvent: 'app-kit-desktop-sign-in',
   ticketParam: 'desktop_sign_in_ticket',
   nonceParam: 'desktop_sign_in_nonce',
@@ -39,6 +40,16 @@ export async function fakeTauri(page, options = {}) {
       throw new Error('fakeTauri: the iPhone plugins answer only an iPhone app; use test.use({ userAgent: IPHONE_USER_AGENT }) first.');
     }
   }
+  // The window, signed out, turns the code its link carries into a ticket at the server with its secret. A test's link
+  // carries the ticket itself where the code goes, so this answers the window with it, as the server answers the secret
+  // the window keeps; an app's own server tests hold the real route.
+  await page.route(
+    (url) => url.pathname === NAMES.redeemPath,
+    (route) => {
+      const code = /** @type {{ code?: unknown } | null} */ (route.request().postDataJSON())?.code;
+      return route.fulfill({ json: { ticket: typeof code === 'string' ? code : '' } });
+    },
+  );
   await page.addInitScript(
     ({ options, names, launchKey }) => {
       /** @type {Recorded} */

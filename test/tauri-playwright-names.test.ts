@@ -25,6 +25,7 @@ test('every name the Tauri steps copy is the one its names file gives', () => {
     answerKey: sheet.ANSWER_KEY,
     linkHost: desktop.LINK_HOST,
     desktopSignInPath: desktop.DESKTOP_SIGN_IN_PATH,
+    redeemPath: desktop.DESKTOP_SIGN_IN_OPEN_PATH,
     desktopSignInEvent: desktop.DESKTOP_SIGN_IN_EVENT,
     ticketParam: desktop.TICKET_PARAM,
     nonceParam: desktop.NONCE_PARAM,

@@ -54,12 +54,12 @@ async function signInInSheet(address: string, options: SheetSignInOptions) {
 }
 
 test('the sheet opens the browser page, and the sign-in link it closes on signs the window in where it is', async () => {
-  serveDesktopSignIn(() => null);
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   const address = desktopSignInAddress({ account: 'ana@example.com' });
-  const ticket = standInTicket('ana@example.com');
-  const s = sheet((asked) => ({ callbackUrl: appLink(SCHEME, ticket, nonceOf(asked)) }));
+  const code = await codeFor(nonceOf(new URL(address)));
+  const s = sheet((asked) => ({ callbackUrl: appLink(SCHEME, code, nonceOf(asked)) }));
   expect(await signInInSheet(address, { scheme: SCHEME, invoke: s.invoke })).toBe(true);
   expect(s.calls).toEqual([{ command: 'plugin:web-auth|authenticate', args: { payload: { url: address, callbackScheme: SCHEME } } }]);
   await waitFor(() => expect(screen.getByRole('heading').textContent).toBe('Signed in as ana@example.com'));
@@ -67,11 +67,12 @@ test('the sheet opens the browser page, and the sign-in link it closes on signs 
 });
 
 test('a scheme with capitals still matches its link, which iOS hands back in any case', async () => {
-  serveDesktopSignIn(() => null);
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
   const provider = standInSignIn();
   render(<Window provider={provider} />);
   const address = desktopSignInAddress(null);
-  const s = sheet((asked) => ({ callbackUrl: appLink('com.example.myapp', standInTicket('ana@example.com'), nonceOf(asked)) }));
+  const code = await codeFor(nonceOf(new URL(address)));
+  const s = sheet((asked) => ({ callbackUrl: appLink('com.example.myapp', code, nonceOf(asked)) }));
   expect(await signInInSheet(address, { scheme: 'com.example.MyApp', invoke: s.invoke })).toBe(true);
   await waitFor(() => expect(screen.getByRole('heading').textContent).toBe('Signed in as ana@example.com'));
 });

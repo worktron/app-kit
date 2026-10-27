@@ -29,7 +29,9 @@ export interface TauriCall {
  * Runs the page as the app's Tauri build, called before the page loads: a stand-in for the shell's bridge
  * (`window.__TAURI_INTERNALS__`) that answers the kit's plugins as they answer, and the commands in `answers`; every
  * other command is refused with "no <command> here". Every call is recorded. The iPhone plugins need an iPhone user
- * agent and throw without one.
+ * agent and throw without one. The window's redeem of the code its sign-in link carries is answered with that code as
+ * the ticket, so a test hands over a ticket where the code goes, through the sheet, `handOverSignIn` or
+ * `loadWithSignIn`; the app's own server tests hold the real route.
  */
 export function fakeTauri(page: Page, options?: FakeTauriOptions): Promise<void>;
 
@@ -54,7 +56,10 @@ export function launchedByTap(page: Page, address: string): Promise<void>;
  */
 export function windowAsksForSignIn(page: Page, click: () => Promise<void>): Promise<string>;
 
-/** The shell handing the browser's sign-in to a page that listens for it, as its window event. */
+/**
+ * The shell handing the browser's sign-in to a page that listens for it, as its window event: `ticket` is the field
+ * the link's code goes in, here the ticket itself, which `fakeTauri`'s redeem answers with.
+ */
 export function handOverSignIn(page: Page, link: { ticket: string; nonce: string }): Promise<void>;
 
 /**

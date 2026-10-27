@@ -11,7 +11,17 @@ export const DESKTOP_SIGN_IN_PATH = '/desktop-sign-in';
 /** Where the app's server mounts `desktopSignInRoutes`. */
 export const DESKTOP_SIGN_IN_ROUTES = '/api/desktop-sign-in';
 
-/** The host of the link the browser opens to hand the sign-in to the app: `<scheme>://sign-in?ticket=…&nonce=…`. */
+/**
+ * The one route the app's window asks while still signed out, turning the browser's code into a ticket with its
+ * secret: the app's sign-in check lets it through, as it lets the health check.
+ */
+export const DESKTOP_SIGN_IN_OPEN_PATH = `${DESKTOP_SIGN_IN_ROUTES}/redeem`;
+
+/**
+ * The host of the link the browser opens to hand the sign-in to the app: `<scheme>://sign-in?ticket=…&nonce=…`. Its
+ * `ticket` carries the server's one-time code, worth nothing without the window's secret, and its `nonce` the
+ * fingerprint of that secret; the fields keep the names installed shells take.
+ */
 export const LINK_HOST = 'sign-in';
 
 /**
