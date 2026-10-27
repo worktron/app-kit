@@ -331,6 +331,41 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         await browser.close();
       }
     });
+
+    test("a page left while its sound plays under Playwright's clock never crashes, and the next page plays", async () => {
+      const browser = await launch();
+      try {
+        // Moving the clock and then leaving the page runs the kit's step in the page that was left, where WebKit has
+        // already torn the audio down; resuming the engine there crashed WebKit's page within a few pages, most often
+        // early in a browser context.
+        const now = Date.now();
+        for (let round = 0; round < 6; round++) {
+          const { context, page } = await openPage(browser, { startsOnTap: true });
+          let crashed = false;
+          page.on('crash', () => (crashed = true));
+          try {
+            for (let hour = 1; hour <= 10; hour++) {
+              await page.getByRole('button', { name: 'Play' }).click();
+              await page.clock.pauseAt(new Date(now + (round * 10 + hour) * 3_600_000));
+              await page.clock.resume();
+              await page.goto(ADDRESS);
+            }
+            await page.getByRole('button', { name: 'Play' }).click();
+            await page.evaluate(() => new Promise<void>((resolve) => (function moved() {
+              if (window.contexts[0]!.state === 'running' && window.contexts[0]!.currentTime > 0.1) resolve();
+              else setTimeout(moved, 10);
+            })()));
+          } catch (error) {
+            expect(crashed, 'the page crashed').toBe(false);
+            throw error;
+          }
+          expect(crashed, 'the page crashed').toBe(false);
+          await context.close();
+        }
+      } finally {
+        await browser.close();
+      }
+    });
   });
 }
 

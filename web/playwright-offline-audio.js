@@ -79,6 +79,10 @@ function installOfflineAudio({ startsOnTap }) {
     const own = record(context);
     own.waiting = false;
     if (own.state !== 'running') return;
+    // A page that has left its frame, navigated away from or reloaded, can still run this for a moment, as it does
+    // under Playwright's clock. WebKit has torn its audio down by then, and its engine resumed there starts a render that
+    // fails a release assertion, which crashes the page.
+    if (!document.defaultView) return;
     const frame = Math.ceil(((context.currentTime + AHEAD) * context.sampleRate) / QUANTUM) * QUANTUM;
     // The last step renders to the end, which an engine cannot be suspended at.
     if (frame < context.length) native.suspend.call(context, frame / context.sampleRate).then(() => arrived(context), () => {});
