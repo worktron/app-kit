@@ -112,7 +112,6 @@ struct Selectable: ViewModifier {
             .environment(\.lineSelected, selected)
             .padding(outset)
             .background(RoundedRectangle(cornerRadius: corner).fill(selected ? Palette.hover.color : rest))
-            .padding(EdgeInsets(top: -outset.top, leading: -outset.leading, bottom: -outset.bottom, trailing: -outset.trailing))
             .contentShape(Rectangle())
             .onTapGesture {
                 state?.selected = id
@@ -122,6 +121,8 @@ struct Selectable: ViewModifier {
                 if inside { state?.pointerOver = id } else if state?.pointerOver == id { state?.pointerOver = nil }
             }
             .preference(key: SelectableLines.self, value: [SelectableLine(id: id, action: action)])
+            // Laid out at its content's size, while the fill and the click reach over the outset.
+            .padding(EdgeInsets(top: -outset.top, leading: -outset.leading, bottom: -outset.bottom, trailing: -outset.trailing))
     }
 }
 

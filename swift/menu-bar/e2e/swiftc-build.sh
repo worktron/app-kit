@@ -14,6 +14,10 @@ swiftc -parse-as-library -emit-library -static -emit-module -module-name MenuBar
   -emit-module-path "$out/MenuBarTheme.swiftmodule" -o "$out/libMenuBarTheme.a" Sources/MenuBarTheme/*.swift 2>"$log" \
   || { cat "$log" >&2; exit 1; }
 swiftc -I "$out" -L "$out" -lMenuBarTheme e2e/swiftc-app.swift -o "$out/app" 2>>"$log" || { cat "$log" >&2; exit 1; }
+# With the macOS 27 SDK the module holds the status item session; without it, the check in Panel.swift has gone wrong.
+if [ "$(xcrun --show-sdk-version | cut -d. -f1)" -ge 27 ] && ! nm "$out/libMenuBarTheme.a" | grep ExpandedInterface >/dev/null; then
+  echo "swiftc-build: built with the macOS $(xcrun --show-sdk-version) SDK, but the theme has no status item session" >&2; exit 1
+fi
 # The Command Line Tools keep earlier SDKs beside the current one; the newest of the 26 ones stands for an older Mac's.
 older=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | sort -V | tail -1 || true)
 [ -n "$older" ] || { echo "swiftc-build: no macOS 26 SDK in /Library/Developer/CommandLineTools/SDKs; install the Command Line Tools (xcode-select --install)" >&2; exit 1; }
