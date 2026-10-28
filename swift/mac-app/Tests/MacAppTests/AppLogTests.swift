@@ -53,6 +53,27 @@ import Testing
         #expect(kept.contains { $0.hasSuffix("\tthe line that must not be lost") })
     }
 
+    /// When the newest half starts on a line's first byte, that line is whole and stays.
+    @Test func aCutOnALineStartKeepsThatLine() throws {
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("logs"), withIntermediateDirectories: true)
+        // Nine lines of ten bytes; the 27 byte line below takes the file to 117 bytes, past 94, and its newest 47
+        // start at byte 70, the first of "line 7...".
+        try Data((0..<9).map { "line \($0)...\n" }.joined().utf8).write(to: file)
+        let log = AppLog(file: file, limit: 94)
+        #expect(log.note("x"))
+        let kept = try lines().dropLast()
+        #expect(kept.first == "line 7...")
+        #expect(kept.count == 3)
+    }
+
+    @Test func aLineThatCannotBeWrittenSaysSo() throws {
+        let locked = folder.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o500])
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path) }
+        #expect(!AppLog(file: locked.appendingPathComponent("app.log")).note("x"))
+        #expect(AppLog(file: file).note("x"))
+    }
+
     @Test func tailIsTheNewestLinesOldestFirst() {
         let log = AppLog(file: file)
         #expect(log.tail(3) == [])

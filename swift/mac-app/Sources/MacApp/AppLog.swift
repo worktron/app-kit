@@ -22,12 +22,15 @@ public struct AppLog: Sendable {
         home.appendingPathComponent("Library/Application Support", isDirectory: true).appendingPathComponent(name, isDirectory: true)
     }
 
-    /// Appends one line: the time, then `fields`, each with its tabs and line breaks turned into spaces.
-    public func note(_ fields: String..., now: Date = Date()) {
+    /// Appends one line: the time, then `fields`, each with its tabs and line breaks turned into spaces. Answers whether
+    /// the whole line went in; it does not when the folder cannot be written or the disk is full.
+    @discardableResult
+    public func note(_ fields: String..., now: Date = Date()) -> Bool {
         note(fields, now: now)
     }
 
-    public func note(_ fields: [String], now: Date = Date()) {
+    @discardableResult
+    public func note(_ fields: [String], now: Date = Date()) -> Bool {
         let line = ([Self.time(now)] + fields.map(Self.field)).joined(separator: "\t") + "\n"
         let data = Data(line.utf8)
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -35,7 +38,7 @@ public struct AppLog: Sendable {
         // line would then go into a file with no name, so it opens the file again until the lock is on the named one.
         for attempt in 0..<8 {
             let fd = open(file.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
-            guard fd >= 0 else { return }
+            guard fd >= 0 else { return false }
             afterOpen?(attempt)
             flock(fd, LOCK_EX)
             var opened = stat()
@@ -44,18 +47,21 @@ public struct AppLog: Sendable {
                 close(fd)
                 continue
             }
-            _ = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
+            let wrote = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
             if lseek(fd, 0, SEEK_END) > limit { trim() }
             close(fd)
-            return
+            return wrote == data.count
         }
+        return false
     }
 
     /// Keeps the newest half of the file, from the first line that starts in it. Called with the lock held.
     private func trim() {
         guard let all = try? Data(contentsOf: file) else { return }
         let half = all.suffix(limit / 2)
-        let start = half.firstIndex(of: UInt8(ascii: "\n")).map { half.index(after: $0) } ?? half.startIndex
+        // A half that starts on a line's first byte keeps that line; otherwise the part line is dropped.
+        let whole = half.startIndex == all.startIndex || all[half.index(before: half.startIndex)] == UInt8(ascii: "\n")
+        let start = whole ? half.startIndex : half.firstIndex(of: UInt8(ascii: "\n")).map { half.index(after: $0) } ?? half.startIndex
         try? half[start...].write(to: file, options: .atomic)
     }
 

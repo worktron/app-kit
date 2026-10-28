@@ -99,9 +99,13 @@ public enum Program {
             }
         }
         reads.wait()
+        // Waits for it to end without reaping it, so its pid, and with it the group's, stays this run's until the
+        // timer can no longer act; then reaps it.
+        var ended = siginfo_t()
+        while waitid(P_PID, id_t(pid), &ended, WEXITED | WNOWAIT) == -1 && errno == EINTR {}
+        let timedOut = run.finish()
         var status: Int32 = 0
         while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
-        let timedOut = run.finish()
         let exited = status & 0x7f == 0
         return Outcome(exitCode: exited ? (status >> 8) & 0xff : nil, signal: exited ? nil : status & 0x7f,
                        output: read.output.data, errorOutput: read.errors.data, timedOut: timedOut)

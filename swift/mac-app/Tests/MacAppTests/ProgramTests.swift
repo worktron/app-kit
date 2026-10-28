@@ -95,13 +95,18 @@ func isRunning(_ pid: pid_t) -> Bool {
     /// A pipe of the app's that is not marked close-on-exec is not passed on: another run's output held open by
     /// this program would keep that run waiting.
     @Test func itInheritsOnlyItsThreeDescriptors() throws {
+        // Moved to numbers nothing else takes: ls lists the descriptors it opens itself (3 and 4), which a pipe made
+        // while other tests run at once can also be.
         var fds: [Int32] = [-1, -1]
         #expect(pipe(&fds) == 0)
-        defer { fds.forEach { close($0) } }
+        let held: [Int32] = [210, 211]
+        #expect(dup2(fds[0], held[0]) == held[0] && dup2(fds[1], held[1]) == held[1])
+        (fds + held).forEach { _ = fcntl($0, F_SETFD, 0) }
+        defer { (fds + held).forEach { close($0) } }
         let outcome = try Program.run("/bin/ls", arguments: ["/dev/fd"], limit: 30, later: HandLater())
         let listed = outcome.outputText.split(separator: "\n").map(String.init)
         #expect(listed.contains("2"))
-        #expect(!listed.contains(String(fds[0])) && !listed.contains(String(fds[1])))
+        #expect(!listed.contains("210") && !listed.contains("211"))
     }
 
     @Test func runsInTheFolderGiven() throws {
