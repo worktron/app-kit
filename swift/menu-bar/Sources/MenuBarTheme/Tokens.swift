@@ -1,7 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// The console family's colors, the ones metamax's web client, argon-watcher and perf-buddy's web client share, as sRGB.
+/// The console family's colors, the ones metamax's web client, argon-watcher and perf-buddy's web client share, as sRGB:
+/// each case's raw value is its dark look, and `light` its light one. A color draws in whichever look the view it is in
+/// has, which is the app's appearance, so the Mac's own Light and Dark setting unless the app pins one.
 public enum Palette: UInt32, CaseIterable, Sendable {
     case text = 0xd4d4d4
     case secondary = 0x888888
@@ -18,12 +20,44 @@ public enum Palette: UInt32, CaseIterable, Sendable {
     /// The selected line's fill: the line the arrow keys or the pointer are on.
     case hover = 0x222222
 
-    var red: CGFloat { CGFloat((rawValue >> 16) & 0xff) / 255 }
-    var green: CGFloat { CGFloat((rawValue >> 8) & 0xff) / 255 }
-    var blue: CGFloat { CGFloat(rawValue & 0xff) / 255 }
+    public var dark: UInt32 { rawValue }
 
-    public var color: Color { Color(.sRGB, red: red, green: green, blue: blue) }
-    public var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
+    /// The light look: neutral greys, with every tone but muted reading at least 4.5 to 1 on the panel, a code box and a
+    /// selected line, and muted as faint as it is in dark.
+    public var light: UInt32 {
+        switch self {
+        case .text: 0x1f1f1f
+        case .secondary: 0x5e5e5e
+        case .muted: 0x9e9e9e
+        case .ok: 0x276f2b
+        case .warn: 0x825400
+        case .error: 0xb72f1c
+        case .info: 0x0a5cb8
+        case .bg: 0xfbfbfb
+        case .surface: 0xf0f0f0
+        case .surfaceHi: 0xe8e8e8
+        case .border: 0xe6e6e6
+        case .borderHi: 0xd0d0d0
+        case .hover: 0xe5e5e5
+        }
+    }
+
+    /// The value for `appearance`: light for an aqua one, dark for a dark one.
+    public func hex(for appearance: NSAppearance) -> UInt32 {
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? light : dark
+    }
+
+    /// Resolved again whenever the appearance it draws in changes, so an open panel follows the Mac's setting.
+    public var nsColor: NSColor {
+        NSColor(name: "MenuBarTheme.\(self)") { appearance in
+            let hex = hex(for: appearance)
+            return NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
+                           blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+        }
+    }
+
+    /// The same color for SwiftUI, which resolves it against the view's color scheme.
+    public var color: Color { Color(nsColor: nsColor) }
 }
 
 /// Sizes in points, from the Studies page's `.oc` rules: one height per kind of line, so every list keeps one rhythm.

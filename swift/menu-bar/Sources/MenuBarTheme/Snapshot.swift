@@ -15,13 +15,18 @@ public enum SnapshotError: Error, CustomStringConvertible {
 
 /// Draws `content` in the panel's frame, `width` points wide and as tall as it is, into a PNG at `scale` pixels a point,
 /// in sRGB, with nothing on the screen: through the same hosting view the panel uses, which draws a scroll view's
-/// contents where SwiftUI's ImageRenderer leaves them blank. Throws when the bundled font is not loaded.
+/// contents where SwiftUI's ImageRenderer leaves them blank. It draws in `appearance`, dark unless asked, never the
+/// machine's own setting, so a render is the same at any hour. Throws when the bundled font is not loaded.
 @MainActor
-public func snapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, state: PanelState? = nil, @ViewBuilder _ content: () -> Content) throws -> Data {
+public func snapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, appearance: NSAppearance = NSAppearance(named: .darkAqua)!,
+                                    state: PanelState? = nil, @ViewBuilder _ content: () -> Content) throws -> Data {
     let state = state ?? PanelState()
     guard Typeface.register() else { throw SnapshotError.font(Typeface.problem ?? "unknown") }
     // Laid out at the scale it is drawn at, as on a Retina screen; outside a window it would round to whole points.
-    let view = NSHostingView(rootView: PanelRoot(width: width, state: state, content: content()).environment(\.displayScale, scale))
+    let scheme: ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
+    let view = NSHostingView(rootView: PanelRoot(width: width, state: state, content: content())
+        .environment(\.displayScale, scale).environment(\.colorScheme, scheme))
+    view.appearance = appearance
     view.sizingOptions = []
     // The content reports its height on its first layout, which the frame then takes.
     view.frame = NSRect(x: 0, y: 0, width: width, height: 1)

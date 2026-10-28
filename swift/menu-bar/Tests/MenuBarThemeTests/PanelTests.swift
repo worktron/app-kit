@@ -282,6 +282,42 @@ import Testing
         #expect(try scrolled(panel) == 0)
     }
 
+    /// The color the open panel draws at `x`, `y` points from its top left, read from its own view, off the screen.
+    func drawn(_ panel: MenuBarPanel, x: CGFloat, y: CGFloat) throws -> UInt32 {
+        let view = try #require(panel.contentView)
+        view.layoutSubtreeIfNeeded()
+        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let srgb = try #require(rep.converting(to: .sRGB, renderingIntent: .default))
+        let scale = CGFloat(srgb.pixelsWide) / view.bounds.width
+        let color = try #require(srgb.colorAt(x: Int(x * scale), y: Int(y * scale)))
+        let channel = { (value: CGFloat) in UInt32((value * 255).rounded()) }
+        return channel(color.redComponent) << 16 | channel(color.greenComponent) << 8 | channel(color.blueComponent)
+    }
+
+    /// Turns the run loop until the panel takes on the app's appearance, as it does a turn after the app's changes.
+    func settle(_ panel: MenuBarPanel, to name: NSAppearance.Name) {
+        var turns = 0
+        while panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != name, turns < 50 {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            turns += 1
+        }
+    }
+
+    @Test func thePanelFollowsTheAppsAppearance() throws {
+        let before = NSApp.appearance
+        defer { NSApp.appearance = before }
+        let panel = panel()
+        #expect(panel.appearance == nil)
+        // In alpha's row, left of its name: the panel's own background.
+        NSApp.appearance = NSAppearance(named: .aqua)
+        settle(panel, to: .aqua)
+        #expect(try drawn(panel, x: 6, y: 1 + 40 + 1 + 22) == Palette.bg.light)
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        settle(panel, to: .darkAqua)
+        #expect(try drawn(panel, x: 6, y: 1 + 40 + 1 + 22) == Palette.bg.dark)
+    }
+
     @Test func theOpenPanelFitsItsContent() {
         let panel = panel()
         // A 40 point header, three 44 point rows, a 36 point footer and the 1 point border above and below.

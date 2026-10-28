@@ -152,15 +152,91 @@ import Testing
         #expect(Typeface.nsFont(size: 12).familyName == "JetBrains Mono")
     }
 
+    /// The sRGB value SwiftUI draws `palette` as in `scheme`.
+    func drawn(_ palette: Palette, _ scheme: ColorScheme) -> UInt32 {
+        var environment = EnvironmentValues()
+        environment.colorScheme = scheme
+        let resolved = palette.color.resolve(in: environment)
+        let channel = { (value: Float) in UInt32((value * 255).rounded()) }
+        return channel(resolved.red) << 16 | channel(resolved.green) << 8 | channel(resolved.blue)
+    }
+
     @Test func theTokensAreTheConsoleFamilys() {
         #expect(Palette.text.rawValue == 0xd4d4d4)
         #expect(Palette.error.rawValue == 0xf48771)
         #expect(Palette.bg.rawValue == 0x050505)
         #expect(Palette.borderHi.rawValue == 0x282828)
-        let red = Palette.error.nsColor.usingColorSpace(.sRGB)!
-        #expect(Int((red.redComponent * 255).rounded()) == 0xf4)
-        #expect(Int((red.greenComponent * 255).rounded()) == 0x87)
-        #expect(Int((red.blueComponent * 255).rounded()) == 0x71)
+        // What SwiftUI draws is each token's value in each look, as is what AppKit draws.
+        for palette in Palette.allCases {
+            #expect(drawn(palette, .dark) == palette.dark, "\(palette) in dark")
+            #expect(drawn(palette, .light) == palette.light, "\(palette) in light")
+        }
+        let red = Palette.error.nsColor
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            let light = red.usingColorSpace(.sRGB)!
+            #expect(Int((light.redComponent * 255).rounded()) == Int(Palette.error.light >> 16))
+        }
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+            let dark = red.usingColorSpace(.sRGB)!
+            #expect(Int((dark.redComponent * 255).rounded()) == 0xf4)
+            #expect(Int((dark.greenComponent * 255).rounded()) == 0x87)
+            #expect(Int((dark.blueComponent * 255).rounded()) == 0x71)
+        }
+    }
+
+    /// The contrast between two sRGB colors, as WCAG reckons it.
+    func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+        func luminance(_ hex: UInt32) -> Double {
+            let linear = [16, 8, 0].map { shift -> Double in
+                let c = Double((hex >> UInt32(shift)) & 0xff) / 255
+                return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+        }
+        let (x, y) = (luminance(a), luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    @Test func everyToneReadsOnThePanelInBothLooks() {
+        let reading: [Palette] = [.text, .secondary, .ok, .warn, .error, .info]
+        // Words sit on the panel, the header and a code box, and on a selected line. Dark's secondary reads 4.49 on a
+        // selected line, as it has since that fill came in; the light look holds every one.
+        for tone in reading {
+            for ground in [Palette.bg, .surface] {
+                #expect(contrast(tone.dark, ground.dark) >= 4.5, "\(tone) on \(ground) in dark")
+                #expect(contrast(tone.light, ground.light) >= 4.5, "\(tone) on \(ground) in light")
+            }
+            #expect(contrast(tone.light, Palette.hover.light) >= 4.5, "\(tone) on a selected line in light")
+        }
+        // Muted, the ages and counts, is faint on purpose, and as faint in light as in dark.
+        let dark = contrast(Palette.muted.dark, Palette.bg.dark)
+        let light = contrast(Palette.muted.light, Palette.bg.light)
+        #expect(abs(light - dark) <= 0.3)
+    }
+
+    @Test(arguments: ["f-list", "f-page", "g", "fine", "unreadable"])
+    func aLightScreenFillsInLight(screen: String) throws {
+        let sample = try #require(samples.first { $0.name == screen })
+        let rep = try #require(NSBitmapImageRep(data: try render(sample, appearance: NSAppearance(named: .aqua)!)))
+        var count: [UInt32: Int] = [:]
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                var pixel = [Int](repeating: 0, count: 4)
+                rep.getPixel(&pixel, atX: x, y: y)
+                guard pixel[3] == 255 else { continue }
+                count[UInt32(pixel[0] << 16 | pixel[1] << 8 | pixel[2]), default: 0] += 1
+            }
+        }
+        let total = rep.pixelsWide * rep.pixelsHigh
+        // The panel, its header and its edge are in their light values.
+        #expect(count[Palette.bg.light, default: 0] > total / 4)
+        #expect(count[Palette.surface.light, default: 0] > 0)
+        #expect(count[Palette.borderHi.light, default: 0] > 0)
+        // No dark fill is left: these four are darker than any light ink, so no edge of a word can make them.
+        for fill in [Palette.bg, .surface, .surfaceHi, .border] {
+            #expect(count[fill.dark, default: 0] == 0, "\(fill)'s dark value in \(screen)")
+        }
+        if sample.selected != nil { #expect(count[Palette.hover.light, default: 0] > 0) }
     }
 
     @Test func aCopyGoesToThePanelsPasteboardAndSaysCopied() {

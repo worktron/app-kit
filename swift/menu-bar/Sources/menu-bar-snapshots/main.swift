@@ -1,7 +1,8 @@
 import AppKit
 import Foundation
 
-// menu-bar-snapshots render <folder>                       draws each sample screen to <folder>/<screen>.png
+// menu-bar-snapshots render <folder> [dark|light]          draws each sample screen to <folder>/<screen>.png, in the
+//                                                          dark look unless light is asked for
 // menu-bar-snapshots compare <mockups> <theme> <out>       checks each screen against the mockup's render and its
 //                                                          rectangles (<mockups>/<screen>.png and .json), and writes the
 //                                                          two side by side to <out>/<screen>.png
@@ -16,12 +17,15 @@ let arguments = CommandLine.arguments.dropFirst()
 MainActor.assumeIsolated {
     _ = NSApplication.shared
     switch (arguments.first, arguments.count) {
-    case ("render", 2):
-        let folder = URL(fileURLWithPath: arguments.last!)
+    case ("render", 2), ("render", 3):
+        let look = arguments.count == 3 ? arguments.last! : "dark"
+        guard look == "dark" || look == "light" else { fail("render takes dark or light, not \(look)", code: 2) }
+        let folder = URL(fileURLWithPath: arguments[arguments.startIndex + 1])
+        let appearance = NSAppearance(named: look == "light" ? .aqua : .darkAqua)!
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             for sample in samples {
-                try render(sample).write(to: folder.appendingPathComponent("\(sample.name).png"))
+                try render(sample, appearance: appearance).write(to: folder.appendingPathComponent("\(sample.name).png"))
                 print("drew \(sample.name)")
             }
         } catch { fail("\(error)") }
@@ -38,6 +42,6 @@ MainActor.assumeIsolated {
         }
         if failed { exit(1) }
     default:
-        fail("usage: menu-bar-snapshots render <folder> | compare <mockups> <theme> <out>", code: 2)
+        fail("usage: menu-bar-snapshots render <folder> [dark|light] | compare <mockups> <theme> <out>", code: 2)
     }
 }

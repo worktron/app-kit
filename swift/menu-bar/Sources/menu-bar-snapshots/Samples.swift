@@ -72,11 +72,11 @@ let samples: [Sample] = [
 
 /// A sample drawn as the panel would draw it, on a pasteboard of its own so a copied line never reaches the person's.
 @MainActor
-func render(_ sample: Sample) throws -> Data {
+func render(_ sample: Sample, appearance: NSAppearance = NSAppearance(named: .darkAqua)!) throws -> Data {
     let pasteboard = NSPasteboard.withUniqueName()
     defer { pasteboard.releaseGlobally() }
     let state = PanelState(pasteboard: pasteboard)
     state.selected = sample.selected
     if let copied = sample.copied { state.copy(copied) }
-    return try snapshot(width: sample.width, state: state) { sample.content() }
+    return try snapshot(width: sample.width, appearance: appearance, state: state) { sample.content() }
 }
