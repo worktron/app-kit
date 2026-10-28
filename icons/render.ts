@@ -13,7 +13,8 @@
  * Homebrew nor a browser; sharp is an optional peer dependency, loaded only here. Each drawing is read from its file, so
  * a link to another drawing in its folder resolves; a link that does not resolve inside the folder would draw nothing,
  * so it is refused first. Every file is drawn before any is written, so a refusal or a failure while drawing leaves an
- * app's icons as they were, and each is written under another name and renamed into place, so none is ever cut short.
+ * app's icons as they were, and each is written under another name and renamed into place, so none is ever cut short;
+ * a disk that fills partway through the writing leaves the files before it new.
  * A file name read from a Contents.json or tauri.conf.json is refused when it leads out of its folder. The Mac .icns is
  * made by Apple's iconutil, through the kit's runner for outside programs.
  */
@@ -186,8 +187,11 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
 
   for (const [path, bytes] of files) {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(`${path}.app-kit-icons`, bytes);
-    renameSync(`${path}.app-kit-icons`, path);
+    // Made new, never through a file or link already there under that name.
+    const fresh = `${path}.app-kit-icons`;
+    rmSync(fresh, { force: true });
+    writeFileSync(fresh, bytes, { flag: 'wx' });
+    renameSync(fresh, path);
   }
   return [...files.keys()];
 }

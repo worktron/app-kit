@@ -1130,7 +1130,7 @@ The command names where each set goes, so an app keeps it as a script in `packag
 ]
 ```
 
-It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name or one that leads out of its folder, or any failure while drawing stops it before it writes anything, and each file is written under another name and renamed into place, so an app's icons are never left half new. The same drawings draw the same bytes, so a rerun changes nothing in git.
+It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name or one that leads out of its folder, or any failure while drawing stops it before it writes anything, and each file is written under another name and renamed into place, so none is left cut short. The same drawings draw the same bytes, so a rerun changes nothing in git.
 
 ## bin/, scripts/ and test/: develop
 
