@@ -21,7 +21,7 @@ test('no arguments, help, -h and --help print the usage with its exit codes, and
 });
 
 test('an unknown part, a part with no command, a command missing its argument or given one too many prints the usage to stderr and exits 2', () => {
-  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['--version', 'extra'], ['help', 'extra'], ['iphone'], ['iphone', 'run'], ['iphone', 'run', 'tablet'], ['iphone', 'run', 'sim', 'udid', 'extra'], ['iphone', 'run', 'phone', '--udid'], ['iphone-simulator'], ['iphone-simulator', 'quiet'], ['iphone-simulator', 'quiet', 'udid', 'extra']]) {
+  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['--version', 'extra'], ['help', 'extra'], ['iphone'], ['iphone', 'run'], ['iphone', 'run', 'tablet'], ['iphone', 'run', 'sim', 'udid', 'extra'], ['iphone', 'run', 'phone', '--udid'], ['iphone-simulator'], ['iphone-simulator', 'quiet'], ['iphone-simulator', 'quiet', 'udid', 'extra'], ['icons'], ['icons', 'draw', '--web', 'public'], ['icons', 'render'], ['icons', 'render', 'design/icon'], ['icons', 'render', '--web'], ['icons', 'render', 'a', 'b', '--web', 'public'], ['icons', 'render', '--web', 'public', '--web', 'other'], ['icons', 'render', '--extension', 'icons', '--toolbar-color', 'grey'], ['icons', 'render', '--web', 'public', '--toolbar-color', '#1f1f1f'], ['icons', 'render', '--web', 'public', '--size', '64']]) {
     const { code, out, err } = run(...args);
     expect(code).toBe(2);
     expect(out).toBe('');
@@ -46,7 +46,7 @@ test("installed in an app's checkout, --version names the commit the app's bun.l
     git('init', '-q');
     git('commit', '-q', '--allow-empty', '-m', 'the app');
     const kit = join(app, 'node_modules/app-kit');
-    for (const path of ['bin', 'extension', 'tauri/iphone-run', 'tauri/iphone-simulator', 'tauri/testflight', 'tauri/apple-token.ts', 'tauri/build-env.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
+    for (const path of ['bin', 'extension', 'icons', 'tauri/iphone-run', 'tauri/iphone-simulator', 'tauri/testflight', 'tauri/apple-token.ts', 'tauri/build-env.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
     expect(runFrom(kit, '--version').out).toBe(`app-kit ${packageJson.version} (commit unknown: no checkout of its own and no bun.lock naming it)\n`);
     writeFileSync(join(app, 'bun.lock'), `{\n  "packages": {\n    "app-kit": ["app-kit@github:worktron/app-kit#1ce3152", {}, "worktron-app-kit-1ce3152", "sha512-x"],\n  }\n}\n`);
     expect(runFrom(kit, '--version')).toEqual({ code: 0, out: `app-kit ${packageJson.version} (1ce3152)\n`, err: '' });

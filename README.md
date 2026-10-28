@@ -1,6 +1,6 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a folder for each kind of app, and two for what several kinds share. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a folder for each kind of app, and three for what several kinds share. Practices' rules files say why each piece exists; this package is the code.
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
+| `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
 
 A piece with a browser half keeps its server half beside it (`tauri/sign-in/server.ts`); a piece that is server only goes in `server/`. No vendor names a top folder.
@@ -1087,6 +1088,49 @@ test('records a visit', async () => {
 ```
 
 Needs `drizzle-orm` 0.45, `@electric-sql/pglite` 0.5 and `postgres` 3.4, which the kit names as optional peers, so an app without a database installs none of them. An app that uses it installs all three as dependencies, not dev dependencies, whichever database it opens: the one module imports both drivers, so a server that opens only Railway's Postgres still loads PGlite at start, and one on PGlite still loads `postgres`.
+
+## icons/: one drawing, every icon
+
+`app-kit icons render` draws every icon an app ships from the drawings it commits, so no app keeps an icon script of its own. An app commits its drawings in one folder, `design/icon` by default:
+
+- `app-icon.svg`, 1024 square, with its tile on Apple's macOS grid: an 824 rounded square at 100, with a corner radius near 186, and see-through around it. The Mac's icons are this drawing as it is; drawn on that grid, macOS 26 and later show it without the grey plate they put under an icon of another shape. The iPhone's icons and the Apple touch icon are its tile alone, its corners filled in the tile's own colour (read just inside the middle of its top edge) and with no alpha channel, since iOS rounds the corners itself and the App Store refuses an icon with one. The favicon is the tile alone with its rounded corners kept, so it reads on a light or a dark tab bar.
+- `mark.svg`, square, the drawing with no tile, when the app has an extension: its icons.
+- `glyph.svg`, when the app has a menu bar icon: copied into the menu bar's image set as a vector template image.
+
+A drawing may link to another beside it, as `<image href="mark.svg">` draws the mark on the tile; a link to anything outside the folder is refused, since it would draw nothing there. Text is drawn in whatever font this Mac has, so a drawing turns its text into paths. A drawing that fills its whole square, as many iPhone and web icons were drawn, goes on the grid inside a 1024 frame:
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="186"/></clipPath>
+  <image href="full-bleed.svg" x="100" y="100" width="824" height="824" clip-path="url(#tile)"/>
+</svg>
+```
+
+The command names where each set goes, so an app keeps it as a script in `package.json` and runs it after changing a drawing, then commits what it wrote with the drawings:
+
+```json
+"icons": "app-kit icons render --icon-set Beeline/Assets.xcassets/AppIcon.appiconset --menu-bar Beeline/Assets.xcassets/MenuBarIcon.imageset --extension extension/icons --toolbar-color '#1f1f1f'"
+```
+
+- `--icon-set <AppIcon.appiconset>`, as often as the app has sets: every image its `Contents.json` lists, at its size and scale, to its file name, a Mac entry from the app icon and an iPhone, iPad or App Store entry from the tile. Dark and tinted entries are left to the system, which makes them from the light one. A set with no `Contents.json` is refused: Xcode makes the set, and for a Tauri iPhone app `bunx tauri ios init` makes `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset`. An Icon Composer icon (`AppIcon.icon`) beside a set is what macOS and iOS 26 and later show; the command says so, and the set covers older systems.
+- `--tauri <src-tauri>`: the icons `tauri.conf.json` lists under `bundle.icon`, from the app icon: `NxN.png`, `NxN@2x.png`, `icon.png` at 512, and `icon.icns`, made by macOS's `iconutil`. A Windows `.ico` and a Liquid Glass `.icon` or `Assets.car` are left as they are.
+- `--menu-bar <MenuBarIcon.imageset>`: `glyph.svg`, under the name the set's `Contents.json` gives, with a template `Contents.json` written when it has none.
+- `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws every fill and stroke of the 16 and 32 in one colour, where a mark's shades blur together at toolbar size.
+- `--web <folder>`, the folder the app serves as its root: `favicon.ico` (16, 32 and 48), `apple-touch-icon.png` (180), and `icon-192.png` and `icon-512.png` for the manifest, the app icon as it is, which Chrome on the Mac shows in the Mac's own shape. The page and the manifest name them:
+
+```html
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+```
+
+```json
+"icons": [
+  { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+  { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+]
+```
+
+It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name, or any failure along the way stops it before it writes anything, so an app's icons are never left half new. The same drawings draw the same bytes, so a rerun changes nothing in git.
 
 ## bin/, scripts/ and test/: develop
 

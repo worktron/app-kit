@@ -5,13 +5,15 @@
 // why nothing is connected. The iPhone part builds a Tauri app and starts it on
 // a Simulator or a paired iPhone. The iPhone simulator part sends a
 // simulator's sound to BlackHole so it plays nowhere. The TestFlight part uploads
-// an iPhone build, and watches apps' main to upload after each landing.
+// an iPhone build, and watches apps' main to upload after each landing. The icons
+// part draws every icon an app ships from its drawings.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
+import { isColor, renderIcons } from '../icons/render.ts'
 import packageJson from '../package.json'
 import { runIphone } from '../tauri/iphone-run/index.ts'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
@@ -36,6 +38,19 @@ const USAGE = `app-kit <part> <command>
                               the extension's build, commit and kept errors; when no
                               host answers, why and the fix, checking how Chrome is
                               told of the host <name> and the extension in <folder>
+  icons render [<drawings>] [--icon-set <set>]... [--tauri <src-tauri>] [--menu-bar <imageset>]
+               [--extension <folder>] [--toolbar-color <#hex>] [--web <folder>]
+                              draw every icon an app ships from the drawings in
+                              <drawings> (design/icon by default): app-icon.svg, 1024
+                              square with its tile on Apple's grid, mark.svg and
+                              glyph.svg. --icon-set fills an Xcode AppIcon.appiconset
+                              from its Contents.json, the Mac's from the app icon and the
+                              iPhone's from its tile; --tauri the icons tauri.conf.json
+                              lists; --menu-bar copies glyph.svg into a template image
+                              set; --extension writes icon-16, -32, -48 and -128 from
+                              the mark, the 16 and 32 in --toolbar-color when given;
+                              --web writes favicon.ico, apple-touch-icon.png, icon-192.png
+                              and icon-512.png. Needs sharp: bun add -d sharp
   iphone run sim [<udid>]     from a Tauri app's checkout: build its iPhone app and start
                               it on this checkout's own Simulator (made once, an iPhone 17,
                               named after the app, and in a worktree after its folder too),
@@ -144,6 +159,47 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
   return true
 }
 
+/** icons render's arguments: the drawings folder at most, and its flags. Null for wrong usage. */
+function iconsArguments(args: string[]) {
+  const words: string[] = []
+  const iconSets: string[] = []
+  const flags: Record<string, string> = {}
+  const single = ['--tauri', '--menu-bar', '--extension', '--toolbar-color', '--web']
+  for (let at = 0; at < args.length; at++) {
+    const flag = args[at]!
+    const value = args[at + 1]
+    if ((flag === '--icon-set' || single.includes(flag)) && value !== undefined && !value.startsWith('--')) {
+      at++
+      if (flag === '--icon-set') iconSets.push(value)
+      else if (flag in flags) return null
+      else flags[flag] = value
+    } else if (flag.startsWith('-')) return null
+    else words.push(flag)
+  }
+  const [drawings = 'design/icon', ...extra] = words
+  const color = flags['--toolbar-color']
+  if (extra.length || (color !== undefined && (!isColor(color) || !flags['--extension']))) return null
+  const options = {
+    drawings,
+    iconSets,
+    tauri: flags['--tauri'],
+    menuBar: flags['--menu-bar'],
+    extension: flags['--extension'],
+    toolbarColor: color,
+    web: flags['--web'],
+  }
+  if (!iconSets.length && !options.tauri && !options.menuBar && !options.extension && !options.web) return null
+  return options
+}
+
+async function icons([command, ...args]: string[]): Promise<boolean> {
+  const options = command === 'render' ? iconsArguments(args) : null
+  if (!options) return false
+  const written = await renderIcons(options)
+  console.log(`Drew ${written.length} icon files from ${options.drawings}; commit them with the drawings.`)
+  return true
+}
+
 async function testflight([command, ...args]: string[]): Promise<boolean> {
   if (command === 'upload' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
     const code = await upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
@@ -177,6 +233,7 @@ function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
 
 async function main([part, ...rest]: string[]) {
   if (part === 'extension' && (await extension(rest))) return
+  if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
   if (part === 'testflight' && (await testflight(rest))) return

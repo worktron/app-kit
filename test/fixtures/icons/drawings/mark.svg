@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- The tests' mark in three shades, filling its square edge to edge so the insets can be measured. -->
+  <rect x="0" y="0" width="24" height="8" fill="#2a2c30"/>
+  <rect x="0" y="8" width="24" height="8" fill="#5c5f65"/>
+  <g fill="none" stroke="#8e9197" stroke-width="8"><path d="M0 20H24"/></g>
+</svg>

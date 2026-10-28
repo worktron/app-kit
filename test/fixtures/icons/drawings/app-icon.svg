@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The tests' app icon: mark.svg on a flat tile, on Apple's macOS grid (an 824 tile at 100). -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="#f6f5f2"/>
+  <image href="mark.svg" x="187" y="187" width="650" height="650"/>
+</svg>
