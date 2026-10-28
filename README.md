@@ -1097,7 +1097,8 @@ const db = await openDb(process.env.DATABASE_URL || '.data/db', { schema, migrat
 
 const app = appServer({ service: 'argon-watcher' });
 app.use('/api/*', clerkMiddleware());
-app.use('/api/*', requireCaller({ caller: clerkCaller, readableByKey: ['GET /api/items'] }));
+// The page's catch-all, registered as `*`, matches /api/items too, so a key's read lists it (Hono records it as GET /*).
+app.use('/api/*', requireCaller({ caller: clerkCaller, readableByKey: ['GET /api/items', 'GET /*'] }));
 app.get('/api/items', async (c) => c.json(await listItems(db, callerOf(c).personId)));
 
 const page = serveBuiltPage(join(import.meta.dir, '../dist'));

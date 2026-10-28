@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 export type Print = (line: string) => void;
 
 /** A request's path as the log shows it: a query is replaced whole, since on an OAuth callback it is a live sign-in code. */
-export function loggedPath(url: string): string {
+function loggedPath(url: string): string {
   const { pathname, search } = new URL(url);
   return search ? `${pathname}?[redacted]` : pathname;
 }

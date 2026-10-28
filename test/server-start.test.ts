@@ -2,7 +2,12 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { get, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import { callerOf, requireCaller, type Caller } from '../authentication/agent-keys';
-import { appServer, loggedPath } from '../server/start';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { appServer } from '../server/start';
+import { serveBuiltPage } from '../web/server';
+
+const anasKey: Caller = { kind: 'key', personId: 'person-ana', keyId: 'key-1', keyName: 'Reading agent' };
 
 let printed: string[];
 beforeEach(() => {
@@ -37,8 +42,9 @@ test("the log line for a sign-in callback carries neither its code nor its state
   expect(printed[0]).not.toContain('xyz789');
 });
 
-test('a path with no query is logged as it is', () => {
-  expect(loggedPath('https://example.com/api/items/7')).toBe('/api/items/7');
+test('a path with no query is logged as it is', async () => {
+  await server().request('/api/items/7');
+  expect(printed[0]).toMatch(/^GET \/api\/items\/7 404 \d+ms$/);
 });
 
 test('agent keys on the app answer 401 with their own body, from the middleware and from a route', async () => {
@@ -63,6 +69,23 @@ test('agent keys on the app answer 401 with their own body, from the middleware 
   expect(await thrown.json()).toEqual({ error: 'unauthorized' });
   // The health route answers before the check.
   expect((await app.request('/api/health')).status).toBe(200);
+});
+
+test("the README's whole server lets a key read its listed route past the page's catch-all", async () => {
+  const dist = mkdtempSync(join(tmpdir(), 'server-start-'));
+  writeFileSync(join(dist, 'index.html'), '<!doctype html><title>app</title>');
+  const app = server();
+  app.use('/api/*', requireCaller({ caller: () => anasKey, readableByKey: ['GET /api/items', 'GET /*'] }));
+  app.get('/api/items', (c) => c.json({ for: callerOf(c).personId }));
+  app.get('/api/settings', (c) => c.json({ settings: true }));
+  const page = serveBuiltPage(dist);
+  app.get('*', (c) => page(c.req.raw));
+
+  const read = await app.request('/api/items');
+  expect(read.status).toBe(200);
+  expect(await read.json()).toEqual({ for: 'person-ana' });
+  // A route the list leaves out stays refused to the key, catch-all or not.
+  expect((await app.request('/api/settings')).status).toBe(403);
 });
 
 test('an ordinary error is logged with its stack and answered as JSON with a 500', async () => {
