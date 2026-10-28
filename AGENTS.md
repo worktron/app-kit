@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and three for what several kinds share (`authentication/`, `server/`, `icons/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and three for what several kinds share (`authentication/`, `server/`, `icons/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -51,7 +51,9 @@ authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the C
                  server-sign-in/ (whether a server requires sign-in, from its environment: refused hosted without it, open on this machine only)
 server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
-                 migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration)
+                 migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration),
+                 start/ (the Hono app every server starts from, with its health route, request log and JSON errors, and
+                 listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it)
 icons/           `app-kit icons render` (render.ts), every icon an app ships drawn from its drawings with sharp: Xcode
                  icon sets, a Tauri app's icons, the menu bar image, the extension's and the web's; test/fixtures/icons
                  holds the tests' drawings and the icon sets' Contents.json

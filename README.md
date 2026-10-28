@@ -1079,6 +1079,47 @@ Needs `hono-openapi` 1.5 or later, and `@scalar/hono-api-reference` for the page
 
 ## server/: for an app's server
 
+### Starting the server
+
+`app-kit/server/start`: every app's server starts the same way. `appServer({ service })` is a Hono app with four things on it already: the request log, `GET /api/health`, errors answered as JSON, and a JSON 404 under `/api/`. `listen(app, options)` serves it and stops it cleanly. A whole server, with the database, keys for agents and the built page:
+
+```ts
+import { clerkMiddleware } from '@clerk/hono';
+import { requireCaller, callerOf } from 'app-kit/authentication/agent-keys';
+import { clerkCaller } from 'app-kit/authentication/clerk/server';
+import { openDb } from 'app-kit/server/postgres';
+import { appServer, listen } from 'app-kit/server/start';
+import { serveBuiltPage } from 'app-kit/web/server';
+import { join } from 'node:path';
+import * as schema from './schema';
+
+const db = await openDb(process.env.DATABASE_URL || '.data/db', { schema, migrationsFolder: join(import.meta.dir, '../drizzle') });
+
+const app = appServer({ service: 'argon-watcher' });
+app.use('/api/*', clerkMiddleware());
+app.use('/api/*', requireCaller({ caller: clerkCaller, readableByKey: ['GET /api/items'] }));
+app.get('/api/items', async (c) => c.json(await listItems(db, callerOf(c).personId)));
+
+const page = serveBuiltPage(join(import.meta.dir, '../dist'));
+app.get('*', (c) => page(c.req.raw));
+
+listen(app, { onStop: () => db.close() });
+```
+
+and in `railway.json`, so Railway waits for the clean stop instead of killing the server at once:
+
+```json
+{ "deploy": { "healthcheckPath": "/api/health", "drainingSeconds": 10 } }
+```
+
+- **The health route** answers `{ ok: true, service, commit }` before any sign-in check, since the app's routes and checks go on after it. `commit` is the commit Railway built from (`RAILWAY_GIT_COMMIT_SHA`), null elsewhere, so a check after a deploy can confirm which code production serves.
+- **The request log** prints one line per request once it is answered, `GET /api/items?[redacted] 200 12ms`, with any query replaced whole. Hono's own logger prints the query as it came, and on an OAuth callback that is a live sign-in code in the hosted log. `requestLog()` is exported alone too, for an app not built on `appServer`.
+- **Errors.** An `HTTPException` a route or middleware throws goes out as it was made, so the agent keys' 401 keeps its `{ error: 'unauthorized' }` and a check its WWW-Authenticate header. Any other error is logged with its stack and answered `500 { error: 'Something went wrong on the server.' }`, never the error's own message, which could carry what the person should not see. An address under `/api/` that no route takes is `404 { error: 'Not found' }`.
+- **Listening.** `listen` hands Bun.serve every option it is given as it is (`hostname`, `websocket`, `maxRequestBodySize`, `idleTimeout`), takes `PORT` when no port is given, then 3000, and logs the address once. A websocket route uses Hono's `upgradeWebSocket` and passes Hono's `websocket` from `hono/bun` to `listen`.
+- **Stopping.** On SIGTERM, which Railway sends before a deploy replaces the server, or SIGINT, it stops taking requests and gives open ones `graceMs` (5 seconds unless given) to finish. Then it closes what is still open, since a live-update stream never ends by itself and Bun waits for every connection, with websockets told 1001, going away. It runs `onStop` (a database's `close()`, a repeating job's stop) and exits. Railway sends SIGKILL at once unless `drainingSeconds` is set, so set it longer than the grace.
+
+Needs `hono` 4.12 or later.
+
 ### What a refusal from Google means
 
 `app-kit/server/google`, for an app's server: what a refusal from Google means, read the same way in every app. It takes the answer to a call made with a grant the app holds, whether the token came from Clerk or from the app's own Google sign-in: any Google API (Gmail, Calendar, Drive), or a refresh at Google's token endpoint. A sign-in's first exchange of its code is not one: Google answers `invalid_grant` there too, for a code that is stale or used, and the sign-in starts again. It has no React and no packages.

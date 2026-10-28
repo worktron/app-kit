@@ -37,6 +37,7 @@
     "./tauri/playwright": "./tauri/playwright.js",
     "./server/google": "./server/google/index.ts",
     "./server/postgres": "./server/postgres/index.ts",
+    "./server/start": "./server/start/index.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
