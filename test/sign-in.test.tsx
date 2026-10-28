@@ -127,6 +127,8 @@ test('a request the server refuses brings sign-in up over the current address, s
   expect(window.location.pathname).toBe('/events/42');
   // Asked once more with a fresh token before giving up on the session.
   expect(provider.calls.tokens.map((t) => t.fresh)).toEqual([false, true]);
+  // The person did not ask to be forgotten, so signing back in stays one tap.
+  expect(screen.getByRole('button', { name: 'Continue as ana@example.com' })).toBeTruthy();
 
   // Signing in again lands back on the same item.
   await press('Email code');
@@ -171,12 +173,14 @@ test('Continue as names the remembered account to Google, and a different accoun
   ]);
 });
 
-test('after a sign-in and sign-out on the page, the sign-in screen offers the account just used', async () => {
+test('signing out forgets the account, so the sign-in screen offers no Continue as', async () => {
   draw(standInSignIn());
-  expect(screen.queryByRole('button', { name: /Continue as/ })).toBeNull();
   await press('Email code');
+  expect(lastAccount()).toBe('ana@example.com');
   await press('Sign out');
-  expect(screen.getByRole('button', { name: 'Continue as ana@example.com' })).toBeTruthy();
+  expect(heading()).toBe('Sign in');
+  expect(screen.queryByRole('button', { name: /Continue as/ })).toBeNull();
+  expect(lastAccount()).toBeNull();
 });
 
 test('an account named outright goes to Google as it is, for a choice made in another window', () => {

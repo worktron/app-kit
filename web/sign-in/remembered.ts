@@ -15,8 +15,8 @@ export function rememberSignedIn(signedIn: boolean, store: () => KeyValueStore =
 }
 
 /**
- * The email this app last signed in with on this device, offered as Continue as that account. Google does not tell
- * an app which accounts the browser holds, so this is the best guess there is.
+ * The email this app last signed in with on this device, offered as Continue as that account, until the person signs
+ * out. Google does not tell an app which accounts the browser holds, so this is the best guess there is.
  */
 export function lastAccount(store: () => KeyValueStore = local): string | null {
   return read(store, ACCOUNT_KEY);
@@ -24,6 +24,11 @@ export function lastAccount(store: () => KeyValueStore = local): string | null {
 
 export function rememberAccount(email: string, store: () => KeyValueStore = local): void {
   write(store, ACCOUNT_KEY, email);
+}
+
+/** The person signed out: the next sign-in screen offers no account by name. */
+export function forgetAccount(store: () => KeyValueStore = local): void {
+  write(store, ACCOUNT_KEY, null);
 }
 
 /** The address the person was at, as a path with its query and fragment. */

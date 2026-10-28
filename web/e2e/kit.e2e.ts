@@ -91,10 +91,10 @@ test("Google costs only the provider's own trip, and lands on the asked address"
   expect(new URL(page.url()).pathname).toBe('/items/1');
   expect(count.loads).toBe(1);
 
-  // Signed out, the screen offers that account by name.
+  // Signed out by the person, the screen forgets that account and offers Google plainly.
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page.getByRole('button', { name: 'Continue as chosen@example.com' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Use a different account' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Continue as/ })).toHaveCount(0);
 });
 
 test('a session the server refuses brings sign-in up over the current address, and signing in again returns there', async ({ page }) => {
@@ -115,6 +115,8 @@ test('a session the server refuses brings sign-in up over the current address, a
   await expect(heading(page)).toHaveText('Sign in');
   await expect(page.getByRole('alert')).toHaveText('Your session ended. Sign in again to carry on where you were.');
   expect(new URL(page.url()).pathname).toBe('/');
+  // The person did not ask to be forgotten, so the account is still offered by name.
+  await expect(page.getByRole('button', { name: 'Continue as ana@example.com' })).toBeVisible();
 
   server.status = 200;
   await signInByCode(page, 'ana@example.com');

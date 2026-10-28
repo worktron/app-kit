@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { announceSignedOut, setCurrentSession } from './current';
 import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
-import { currentAddress, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
+import { currentAddress, forgetAccount, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
 
 /** Where Google sends the browser back to, unless the gate is told another. The server must answer it with the app. */
 export const GOOGLE_CALLBACK_PATH = '/sso-callback';
@@ -21,7 +21,10 @@ export function accountFor(choice: GoogleAccount, remembered: string | null): st
 
 /** What the app's sign-in screen works with. */
 export interface SignIn {
-  /** The account this app last signed in with on this device, for Continue as that account, or null. */
+  /**
+   * The account this app last signed in with on this device, for Continue as that account, or null. The person's own
+   * Sign out forgets it; a session the server ended keeps it.
+   */
   lastAccount: string | null;
   /** Something to say above the buttons: Google did not finish, or the server ended the session. */
   notice: string | null;
@@ -48,7 +51,10 @@ export function useSignIn(): SignIn {
   return signIn;
 }
 
-/** Signs out with no page load, straight to the sign-in screen. Null outside the gate, so the app draws no Sign out there. */
+/**
+ * Signs out with no page load, straight to the sign-in screen, and forgets the account, so that screen offers no
+ * Continue as. Null outside the gate, so the app draws no Sign out there.
+ */
 export const useSignOut = () => useContext(SignOutContext);
 
 /** Who is signed in, or null outside the gate. */
@@ -126,11 +132,15 @@ function Gate({
   const signedInAt = useRef(0);
   const wasSignedOut = useRef<boolean | null>(null);
 
-  const signOut = useCallback(() => {
+  // The person's own Sign out forgets the account; a session the server ended keeps it, so signing back in is one tap.
+  // Forgotten before the provider answers, since the sign-in screen reads it as it draws.
+  const endSession = useCallback((forget: boolean) => {
+    if (forget) forgetAccount();
     rememberSignedIn(false);
     setSigningOut(true);
     latest.current.signOut().catch(() => setSigningOut(false));
   }, []);
+  const signOut = useCallback(() => endSession(true), [endSession]);
 
   // In a layout effect, which runs before any passive one: an app's first requests come from its own effects, and
   // children's effects run before their parent's, so a passive one here would let them go out without a token.
@@ -142,14 +152,14 @@ function Gate({
         // Already signed out, as when a second request in flight is refused after the first: the sign-in screen is up.
         if (!latest.current.person) return;
         setNotice(SESSION_ENDED);
-        signOut();
+        endSession(false);
       },
       get signedInAt() {
         return signedInAt.current;
       },
     });
     return () => setCurrentSession(null);
-  }, [signOut]);
+  }, [endSession]);
 
   const personId = person?.id ?? null;
   const email = person?.email ?? null;
