@@ -7,7 +7,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
-| `swift/` | the Swift files of `swift/menu-bar`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font. |
+| `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
@@ -774,7 +774,7 @@ The token is handed only to the `op` call, never to the build's programs. Until 
 
 ## swift/: Mac apps built in Swift
 
-What a Mac app written in Swift takes from the kit: the menu bar theme. A Swift app builds the kit's Swift files as they are at a tag, from the copy bun installs, or from any copy of the folder at that tag.
+What a Mac app written in Swift takes from the kit: the menu bar theme, and the Mac app package, what every Swift Mac app writes for itself. A Swift app builds the kit's Swift files as they are at a tag, from the copy bun installs, or from any copy of the folder at that tag.
 
 ### Menu bar theme
 
@@ -853,6 +853,65 @@ panel.attach(to: item)
 ```
 
 `swift/menu-bar/e2e/compare-mockups.ts` checks the theme against the Studies page: a headless Chromium draws the five screens of `e2e/mockups.html` (the page's own CSS and markup, with stand-in names, since this repository is public), the theme draws the same five, and each is held to the mockup's size, backgrounds, lines and the place and color of every run of text, within 2 points. It writes the pairs side by side to `test-results/menu-bar/side-by-side`. It is run by hand after a change to the look, not by the gates, since it holds one text engine's letters to another's. The gates run the theme's Swift tests (`swift test` in `swift/menu-bar`) and build it the bare `swiftc` way (`e2e/swiftc-build.sh`), against the current SDK and again against the newest macOS 26 SDK the Command Line Tools keep, at the theme's macOS 14 floor, as a Mac not yet on macOS 27 builds it. That second build uses the current Swift compiler with the older SDK, so it catches an API only the new SDK declares, not a language feature only the new compiler has. What no test reaches is a real click on a real menu bar icon: the session's start and end call the same open and close the tests drive.
+
+### Mac app
+
+What every Swift Mac app writes for itself, as practices' desktop app rule lists it: its log, launch at login, the Dock icon while a window is open, the native messaging host when the app is its own, the build it runs for About, work on a clock that catches up after the Mac wakes, and running another program with a time limit. It is one Swift package, `swift/mac-app`, with one module, `MacApp`, and no part of it depends on the menu bar theme. Each piece takes the app's names (its folder, its host, its extensions, its Info.plist key) as inputs, and what it touches on the Mac (the login item, the Dock, Chrome's folder, macOS's notification centers) has a default the app uses and a stand-in its tests pass.
+
+| Piece | What it does |
+| --- | --- |
+| `AppLog(file:limit:)` | The app's log: `note("step", "detail", …)` writes the time in UTC to the millisecond, then its fields, tab-separated, tabs and line breaks in a field turned into spaces. Past `limit` (1 MiB) the file is cut to its newest half at a line start and renamed into place. The app and its native host may write the same file: each line goes in under a lock, and a writer whose file another trimmed away while it waited opens it again, so no line is lost. `tail(n)` gives the newest lines, for an app's `log` command. `AppLog.link(_:keepPath:)` writes a link without its query, fragment or credentials, and without its path for one that carries a token. `AppLog.applicationSupport("My App")` is the folder in Application Support. |
+| `LaunchAtLogin(item:log:)`, `LaunchAtLoginToggle(_:launch:)` | Opening at login, through macOS's own login item (`SMAppService.mainApp`), which System Settings lists and lets the person turn off: `isEnabled` reads it from macOS each time, and `set(_:)` answers what macOS has afterwards, so a refusal leaves the switch where macOS left it, with the reason in the log. `startIfAsked()` turns it on when the app was started with `--start-at-login` and prints `start at login: <status>`, the line an installer waits for. The toggle is the switch for Settings. An app whose launch agent restarts it after an update, as Fleet's does, keeps its agent instead. |
+| `DockIcon.follow()`, `AppWindows.show(log:open:)`, `AppWindows.openSettingsScene(log:)` | No Dock icon, except while one of the app's windows is open: `follow` sets the app regular each time a window becomes key and accessory when the last one closes, whatever made the window, and panels never count. `show` brings a window to the front from the menu bar: it gives the app its icon, asks macOS to bring it forward, runs the app's opener, and on the next turn of the run loop brings the window forward and asks again, because since macOS 14 activating is only a request; it logs when the app still was not in front. `openSettingsScene` opens SwiftUI's Settings scene through the app menu's Settings… item (⌘,), since SwiftUI's `openSettings` does nothing from a menu bar panel, and logs when the item is missing. |
+| `NativeHost(name:description:extensionIDs:)` | The app as Chrome's native messaging host for its extensions: `install(executable:in:)` writes the manifest into `NativeHost.chromeHostsFolder()`, renamed into place and only when it changed, naming the running executable; `NativeHost.claims(executable:installed:testFolder:)` says whether this build should, so a Debug build never takes Chrome's host from the installed copy in Applications; `allows(origin:)` checks the extension Chrome started the host for (its first argument); `frame` and `readMessage` are Chrome's framing; `NativeHost.extensionID(key:)` is an extension's ID from the `key` in its manifest. A command line tool's host is the extension kit's, `app-kit/extension/host`. |
+| `AppBuild(commitKey:)` | The running build: its version, and the commit the installer stamped into Info.plist under the app's key, or "development build" for one nothing stamped. `description` is "1.2.0, 683f92e"; `showAbout()` is the standard About panel with both. |
+| `Refresh(every:afterWake:work:)` | Work on a clock, such as a poll: it runs every `every` seconds and `afterWake` seconds after each wake, on NSWorkspace's notification center, the only one macOS posts the wake on. It does not run at once. Keep it for as long as the app runs; `stop()` ends it. |
+| `Program.run(_:arguments:directory:environment:limit:)` | Another program run to its end, at most `limit` seconds, off the main thread, synchronously or with `await`: it gives back the exit code or signal, the output and error output, and whether the limit stopped it. The program runs in a process group of its own, which the limit stops whole (SIGTERM, then SIGKILL a second later), so a script's children end with it; it inherits nothing of the app's but input from /dev/null and its two outputs, which are read at once. An app started from Finder has launchd's short PATH: `Program.searchPath(adding: Program.toolFolders())` puts bun's and Homebrew's folders in front. |
+
+An app takes it in as it takes the theme: the kit at a release tag, then `node_modules/app-kit/swift/mac-app` as a local package (in Xcode, Add Package Dependencies, then Add Local; in a Package.swift, `.package(path: "node_modules/app-kit/swift/mac-app")`) with a dependency on its `MacApp` product, or, in a bare `swiftc` build, a module of its own, so its names never meet the app's:
+
+```sh
+kit=node_modules/app-kit/swift/mac-app
+swiftc -parse-as-library -emit-library -static -emit-module -module-name MacApp \
+  -emit-module-path build/MacApp.swiftmodule -o build/libMacApp.a "$kit"/Sources/MacApp/*.swift
+swiftc -I build -L build -lMacApp Sources/*.swift -o My.app/Contents/MacOS/My
+```
+
+The installer stamps the commit as the build's Info.plist key (`<key>MyCommit</key><string>$(MY_COMMIT)</string>`, with `MY_COMMIT="$(git rev-parse --short HEAD)"`, and " with uncommitted changes" after it when `git diff --quiet HEAD` fails), and names the log's file in the app's AGENTS.md. A menu bar app's delegate then reads:
+
+```swift
+import AppKit
+import MacApp
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let log = AppLog(file: AppLog.applicationSupport("My App").appendingPathComponent("events.log"))
+    let build = AppBuild(commitKey: "MyCommit")
+    let model = Model()   // the app's own
+    var dock: DockIcon.Following?
+    var refresh: Refresh?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let launch = LaunchAtLogin(log: log)
+        launch.startIfAsked()
+        log.note("started", build.description, "launch at login \(launch.statusWords)")
+        dock = DockIcon.follow()
+        model.read()
+        refresh = Refresh(every: 300, afterWake: 5) { [weak self] in self?.model.read() }
+    }
+
+    /// Opening the app again (Spotlight, Finder, the Dock) opens Settings: the menu bar icon is the only other way in.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        log.note("reopen", "opened Settings")
+        AppWindows.openSettingsScene(log: log)
+        return false
+    }
+}
+```
+
+and a status read in the model is `let outcome = try await Program.run(bun, arguments: ["bin/status.ts", "--json"], directory: checkout, limit: 30)`, with `outcome.timedOut` written to the log when the limit stopped it.
+
+The gates run the package's Swift tests (`swift test` in `swift/mac-app`) and its bare `swiftc` build (`e2e/swiftc-build.sh`), in Swift 5 mode and against the newest macOS 26 SDK at the macOS 14 floor, at no warnings. Every test writes only to its own folder in `/tmp/app-kit-tests/<pid>`, and `StaysOffTheMachineTests` fails a test file that reaches the Mac's own login item, Dock, app in front, Chrome folder or notification centers. What no test reaches is macOS itself: a real login item, a real window coming forward, and Chrome starting the host, which each app checks once it takes the package in.
 
 ## authentication/: who is calling
 

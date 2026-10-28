@@ -3,8 +3,8 @@
 # WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, and the Rust and Swift of the iPhone notifications
 # and iPhone sign-in plugins built for the iPhone simulator, and the window plugin's Rust tests and its lint, for the Mac
-# and the iPhone simulator, with no warnings, since its warnings would show in every app's build, and the menu bar
-# theme's Swift tests and its bare swiftc build, with no warnings either.
+# and the iPhone simulator, with no warnings, since its warnings would show in every app's build, and the Swift
+# packages' tests and their bare swiftc builds, the menu bar theme's and the Mac app package's, with no warnings either.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bun install --frozen-lockfile >/dev/null
@@ -18,6 +18,9 @@ bun test ./extension/e2e/harness.e2e.ts
 # own module beside an app with a Row of its own (Swift 5). Each checkout keeps its own .build.
 (cd swift/menu-bar && swift build -Xswiftc -warnings-as-errors && swift test -Xswiftc -warnings-as-errors)
 bash swift/menu-bar/e2e/swiftc-build.sh
+# The Mac app package the same two ways: its log, launch at login, Dock icon, native host, build, refresh and runner.
+(cd swift/mac-app && swift build -Xswiftc -warnings-as-errors && swift test -Xswiftc -warnings-as-errors)
+bash swift/mac-app/e2e/swiftc-build.sh
 
 # The plugins' Rust and Swift. rustup puts cargo in ~/.cargo/bin, which a plain bash, as a landing runs this, has not
 # read into PATH. One build folder serves every app-kit checkout, so only the first landing builds all of Tauri; cargo
