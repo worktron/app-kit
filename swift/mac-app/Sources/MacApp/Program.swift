@@ -85,9 +85,8 @@ public enum Program {
         let run = Running()
         let group = pid
         later.after(limit) {
-            guard run.expire() else { return }
-            kill(-group, SIGTERM)
-            later.after(grace) { if run.isRunning { kill(-group, SIGKILL) } }
+            guard run.whileRunning(expiring: true, { kill(-group, SIGTERM) }) else { return }
+            later.after(grace) { run.whileRunning { kill(-group, SIGKILL) } }
         }
 
         let reads = DispatchGroup()
@@ -155,15 +154,17 @@ public enum Program {
         private var finished = false
         private var expired = false
 
-        /// Marks the limit reached; false when the run had already ended.
-        func expire() -> Bool {
+        /// Runs `act` (a signal to the group) only while the run has not ended, under the lock `finish` takes, so the
+        /// group's id is still this run's when it acts; `expiring` marks the limit reached. False when it had ended.
+        @discardableResult
+        func whileRunning(expiring: Bool = false, _ act: () -> Void) -> Bool {
             lock.withLock {
-                if !finished { expired = true }
-                return !finished
+                guard !finished else { return false }
+                if expiring { expired = true }
+                act()
+                return true
             }
         }
-
-        var isRunning: Bool { lock.withLock { !finished } }
 
         /// Marks the run ended; answers whether the limit was reached first.
         func finish() -> Bool {
