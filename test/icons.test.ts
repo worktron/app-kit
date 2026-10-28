@@ -186,6 +186,37 @@ describe('icons render', () => {
     await expect(renderIcons({ ...options, iconSets: [unnamed] })).rejects.toThrow('the mac 16x16 @1x entry names no file');
   });
 
+  test('refuses a file name that leads out of its folder, and an existing menu bar set that names no .svg', async () => {
+    const { root, sets, options } = app();
+    const before = snapshot(root);
+    writeFileSync(join(sets.mac, 'Contents.json'), JSON.stringify({ images: [{ idiom: 'mac', scale: '1x', size: '16x16', filename: '../../README.md' }] }));
+    await expect(renderIcons({ ...options, iconSets: [sets.mac] })).rejects.toThrow('../../README.md leads out of');
+    mkdirSync(options.menuBar, { recursive: true });
+    writeFileSync(join(options.menuBar, 'Contents.json'), JSON.stringify({ images: [{ idiom: 'universal', filename: 'menu.png' }] }));
+    await expect(renderIcons({ ...options, iconSets: [] })).rejects.toThrow('names menu.png for its image; the menu bar icon is glyph.svg itself');
+    expect(existsSync(join(root, 'README.md'))).toBe(false);
+    expect(Object.keys(snapshot(root)).filter((name) => !(name in before))).toEqual(['Assets.xcassets/MenuBarIcon.imageset/Contents.json']);
+  });
+
+  test('a mark drawn large, and coloured by styles, classes and the default black, still draws in the one toolbar colour', async () => {
+    const { options } = app();
+    writeFileSync(
+      join(options.drawings, 'mark.svg'),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048">
+        <style>.lane{fill:#5c5f65}</style>
+        <rect width="2048" height="700" style="fill:#2a2c30"/><rect y="700" width="2048" height="700" class="lane"/><rect y="1400" width="2048" height="648"/>
+      </svg>`,
+    );
+    await renderIcons({ ...options, iconSets: [], tauri: undefined, menuBar: undefined, web: undefined });
+    for (const side of [16, 32]) {
+      const icon = await pixels(join(options.extension, `icon-${side}.png`));
+      expect(icon.width).toBe(side);
+      // Each pixel in the one colour, a band's soft edge keeping only its own transparency.
+      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) expect(icon.at(x, y).slice(0, 3)).toEqual([0x1f, 0x1f, 0x1f]);
+    }
+    expect((await pixels(join(options.extension, 'icon-128.png'))).at(64, 20)).toEqual([0x2a, 0x2c, 0x30, 255]);
+  });
+
   test('a failure after drawing began writes nothing, so an app is never left with half its icons new', async () => {
     const { root, options } = app();
     const before = snapshot(root);

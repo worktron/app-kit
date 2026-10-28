@@ -1114,8 +1114,8 @@ The command names where each set goes, so an app keeps it as a script in `packag
 
 - `--icon-set <AppIcon.appiconset>`, as often as the app has sets: every image its `Contents.json` lists, at its size and scale, to its file name, a Mac entry from the app icon and an iPhone, iPad or App Store entry from the tile. Dark and tinted entries are left to the system, which makes them from the light one. A set with no `Contents.json` is refused: Xcode makes the set, and for a Tauri iPhone app `bunx tauri ios init` makes `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset`. An Icon Composer icon (`AppIcon.icon`) beside a set is what macOS and iOS 26 and later show; the command says so, and the set covers older systems.
 - `--tauri <src-tauri>`: the icons `tauri.conf.json` lists under `bundle.icon`, from the app icon: `NxN.png`, `NxN@2x.png`, `icon.png` at 512, and `icon.icns`, made by macOS's `iconutil`. A Windows `.ico` and a Liquid Glass `.icon` or `Assets.car` are left as they are.
-- `--menu-bar <MenuBarIcon.imageset>`: `glyph.svg`, under the name the set's `Contents.json` gives, with a template `Contents.json` written when it has none.
-- `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws every fill and stroke of the 16 and 32 in one colour, where a mark's shades blur together at toolbar size.
+- `--menu-bar <MenuBarIcon.imageset>`: `glyph.svg`, under the `.svg` name the set's `Contents.json` gives, with a template `Contents.json` written when it has none.
+- `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws the 16 and 32 in one colour, every pixel keeping its own transparency, however the mark's shapes are coloured, where a mark's shades blur together at toolbar size.
 - `--web <folder>`, the folder the app serves as its root: `favicon.ico` (16, 32 and 48), `apple-touch-icon.png` (180), and `icon-192.png` and `icon-512.png` for the manifest, the app icon as it is, which Chrome on the Mac shows in the Mac's own shape. The page and the manifest name them:
 
 ```html
@@ -1130,7 +1130,7 @@ The command names where each set goes, so an app keeps it as a script in `packag
 ]
 ```
 
-It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name, or any failure along the way stops it before it writes anything, so an app's icons are never left half new. The same drawings draw the same bytes, so a rerun changes nothing in git.
+It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name or one that leads out of its folder, or any failure while drawing stops it before it writes anything, and each file is written under another name and renamed into place, so an app's icons are never left half new. The same drawings draw the same bytes, so a rerun changes nothing in git.
 
 ## bin/, scripts/ and test/: develop
 

@@ -12,16 +12,18 @@
  * It draws with sharp, whose prebuilt binaries carry librsvg, the engine rsvg-convert draws with, so it needs neither
  * Homebrew nor a browser; sharp is an optional peer dependency, loaded only here. Each drawing is read from its file, so
  * a link to another drawing in its folder resolves; a link that does not resolve inside the folder would draw nothing,
- * so it is refused first. Every file is drawn before any is written, so a refusal or a failure leaves an app's icons as
- * they were. The Mac .icns is made by Apple's iconutil, through the kit's runner for outside programs.
+ * so it is refused first. Every file is drawn before any is written, so a refusal or a failure while drawing leaves an
+ * app's icons as they were, and each is written under another name and renamed into place, so none is ever cut short.
+ * A file name read from a Contents.json or tauri.conf.json is refused when it leads out of its folder. The Mac .icns is
+ * made by Apple's iconutil, through the kit's runner for outside programs.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Sharp, SharpOptions } from 'sharp';
 import { runCommand, type Run } from '../tauri/testflight/run.ts';
 
-type SharpModule = (input: string, options?: SharpOptions) => Sharp;
+type SharpModule = (input?: string | Buffer, options?: SharpOptions) => Sharp;
 
 export type IconsOptions = {
   /** The folder holding app-icon.svg, and mark.svg and glyph.svg when a target needs them. */
@@ -98,7 +100,13 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
   }
 
   const files = new Map<string, Buffer>();
-  const add = (path: string, bytes: Buffer) => files.set(resolve(path), bytes);
+  /** Keeps `bytes` to write as `name` in `into`, refusing a name, read from an app's own files, that leads out of it. */
+  const add = (into: string, name: string, bytes: Buffer) => {
+    const path = resolve(into, name);
+    const within = relative(resolve(into), path);
+    if (!within || within.startsWith('..') || isAbsolute(within)) throw new Error(`${name} leads out of ${into}, where its icon belongs`);
+    files.set(path, bytes);
+  };
 
   /** The app icon as it is, at `size`. */
   const mac = (size: number) => sharp(appIcon, { density: (72 * size) / CANVAS }).resize(size, size).png().toBuffer();
@@ -129,11 +137,11 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
     const listed: unknown = (JSON.parse(readFileSync(config, 'utf8')) as { bundle?: { icon?: unknown } }).bundle?.icon;
     if (!Array.isArray(listed) || !listed.length) throw new Error(`${config} lists no icons under bundle.icon`);
     for (const name of listed as string[]) {
-      const path = join(options.tauri, name);
+      const keep = (bytes: Buffer) => add(options.tauri!, name, bytes);
       const sized = /(?:^|\/)(\d+)x(\d+)(@2x)?\.png$/.exec(name);
-      if (sized && sized[1] === sized[2]) add(path, await mac(Number(sized[1]) * (sized[3] ? 2 : 1)));
-      else if (basename(name) === 'icon.png') add(path, await mac(512));
-      else if (name.endsWith('.icns')) add(path, await icns(mac, run));
+      if (sized && sized[1] === sized[2]) keep(await mac(Number(sized[1]) * (sized[3] ? 2 : 1)));
+      else if (basename(name) === 'icon.png') keep(await mac(512));
+      else if (name.endsWith('.icns')) keep(await icns(mac, run));
       else if (/\.(ico|icon|car)$/.test(name)) print(`skipped ${name}: Windows and Liquid Glass icons are not drawn here`);
       else throw new Error(`${config} lists ${name}, which is not an icon this command draws (NxN.png, NxN@2x.png, icon.png, icon.icns)`);
     }
@@ -142,35 +150,44 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
   if (options.menuBar) {
     const glyph = drawing('glyph.svg', 'The menu bar icon');
     const contents = join(options.menuBar, 'Contents.json');
-    const named = existsSync(contents) ? (JSON.parse(readFileSync(contents, 'utf8')) as { images?: Entry[] }).images?.[0]?.filename : undefined;
-    if (!existsSync(contents)) add(contents, Buffer.from(TEMPLATE_CONTENTS));
-    add(join(options.menuBar, named ?? 'glyph.svg'), readFileSync(glyph));
+    let named = 'glyph.svg';
+    if (existsSync(contents)) {
+      const set = JSON.parse(readFileSync(contents, 'utf8')) as { images?: Entry[]; properties?: Record<string, unknown> };
+      const file = set.images?.[0]?.filename;
+      if (!file?.endsWith('.svg')) throw new Error(`${contents} names ${file ?? 'no file'} for its image; the menu bar icon is glyph.svg itself, so name an .svg there`);
+      if (set.properties?.['template-rendering-intent'] !== 'template') print(`${contents} does not mark its image a template, so the menu bar draws it in its own colours`);
+      named = file;
+    } else add(options.menuBar, 'Contents.json', Buffer.from(TEMPLATE_CONTENTS));
+    add(options.menuBar, named, readFileSync(glyph));
   }
 
   if (options.extension) {
     const mark = drawing('mark.svg', "The extension's icons");
     const { width, height } = await sharp(mark).metadata();
     if (!width || width !== height) throw new Error(`${mark} is ${width} by ${height}; the mark is drawn square`);
+    // Drawn at least at the density of the drawing's own size, which sharp's smallest is, and then scaled to `size`.
+    const draw = (size: number) => sharp(mark, { density: Math.max(1, (72 * size) / width) }).resize(size, size);
     const color = options.toolbarColor;
-    const stylesheet = color && `[fill]:not([fill="none"]){fill:${color} !important}[stroke]:not([stroke="none"]){stroke:${color} !important}`;
-    const draw = (size: number, svg: SharpOptions['svg'] = {}) => sharp(mark, { density: (72 * size) / width, svg }).resize(size, size);
-    for (const size of [16, 32]) add(join(options.extension, `icon-${size}.png`), await draw(size, stylesheet ? { stylesheet } : {}).png().toBuffer());
+    for (const size of [16, 32]) {
+      add(options.extension, `icon-${size}.png`, color ? await oneColour(sharp, draw(size), color) : await draw(size).png().toBuffer());
+    }
     for (const [page, art] of [[48, 40], [128, 96]] as const) {
       const edge = (page - art) / 2;
       const inset = draw(art).extend({ top: edge, bottom: edge, left: edge, right: edge, background: { r: 0, g: 0, b: 0, alpha: 0 } });
-      add(join(options.extension, `icon-${page}.png`), await inset.png().toBuffer());
+      add(options.extension, `icon-${page}.png`, await inset.png().toBuffer());
     }
   }
 
   if (options.web) {
-    add(join(options.web, 'favicon.ico'), ico(await Promise.all([16, 32, 48].map((size) => tile(size).png().toBuffer()))));
-    add(join(options.web, 'apple-touch-icon.png'), await phone(180));
-    for (const size of [192, 512]) add(join(options.web, `icon-${size}.png`), await mac(size));
+    add(options.web, 'favicon.ico', ico(await Promise.all([16, 32, 48].map((size) => tile(size).png().toBuffer()))));
+    add(options.web, 'apple-touch-icon.png', await phone(180));
+    for (const size of [192, 512]) add(options.web, `icon-${size}.png`, await mac(size));
   }
 
   for (const [path, bytes] of files) {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, bytes);
+    writeFileSync(`${path}.app-kit-icons`, bytes);
+    renameSync(`${path}.app-kit-icons`, path);
   }
   return [...files.keys()];
 }
@@ -181,7 +198,7 @@ async function iconSet(
   { mac, phone, add, print }: {
     mac: (size: number) => Promise<Buffer>;
     phone: (size: number) => Promise<Buffer>;
-    add: (path: string, bytes: Buffer) => void;
+    add: (into: string, name: string, bytes: Buffer) => void;
     print: (line: string) => void;
   },
 ): Promise<void> {
@@ -207,8 +224,24 @@ async function iconSet(
     if (!side || !Number.isInteger(size)) throw new Error(`${contents}: the ${label} entry is not a square of whole pixels`);
     const drawn = entry.idiom === 'mac' ? mac : PHONE_IDIOMS.has(entry.idiom ?? '') || (entry.idiom === 'universal' && entry.platform === 'ios') ? phone : undefined;
     if (!drawn) throw new Error(`${contents}: the ${label} entry is for a device this command does not draw for (Mac and iPhone only)`);
-    add(join(set, entry.filename), await drawn(size));
+    add(set, entry.filename, await drawn(size));
   }
+}
+
+/**
+ * The mark drawn in one colour, every pixel keeping its own transparency: the same as recolouring the drawing, however
+ * its shapes are coloured (attributes, styles, classes or the default black).
+ */
+async function oneColour(sharp: SharpModule, image: Sharp, color: string): Promise<Buffer> {
+  const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const hex = color.length === 4 ? color.replace(/[0-9a-f]/gi, (digit) => digit + digit) : color;
+  const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+  for (let at = 0; at < data.length; at += 4) {
+    data[at] = r!;
+    data[at + 1] = g!;
+    data[at + 2] = b!;
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
 /** The Mac icon as an .icns, made by iconutil from the ten sizes of a Mac icon set. */
