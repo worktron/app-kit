@@ -32,7 +32,7 @@ MainActor.assumeIsolated {
     case ("compare", 4):
         let paths = arguments.dropFirst().map { URL(fileURLWithPath: $0) }
         var failed = false
-        for sample in samples {
+        for sample in samples where sample.mockup {
             do {
                 let problems = try compare(screen: sample.name, mockups: paths[0], theme: paths[1], out: paths[2])
                 if problems.isEmpty { print("\(sample.name): within the limits") }

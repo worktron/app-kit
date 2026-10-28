@@ -4,12 +4,17 @@ import SwiftUI
 
 /// The five screens of the Fleet Menu Studies page (rev 3) that the theme is checked against, with the page's text,
 /// except that the Macs, commands and key are stand-ins: the repository is public. e2e/mockups.html holds the same text.
+/// After them, screens with no mockup, drawn for a look only.
 struct Sample {
     let name: String
     let width: CGFloat
     /// The selected line's id, painted as hovered, and the text shown as copied.
     var selected: AnyHashable?
     var copied: String?
+    /// The row whose side page is drawn beside the panel.
+    var sidePage: AnyHashable?
+    /// Whether e2e/mockups.html draws it, so the comparison holds it to the mockup.
+    var mockup = true
     let content: () -> AnyView
 }
 
@@ -68,7 +73,32 @@ let samples: [Sample] = [
     Sample(name: "unreadable", width: 400) {
         machines(Header("fleet", status: Words("couldn't read status", .warn), note: "as of 12m ago"))
     },
+    // A list of links with one link's choices open beside it, as a menu's submenu.
+    Sample(name: "side", width: 480, selected: ["once", "home"], sidePage: "docs", mockup: false) {
+        AnyView(VStack(spacing: 0) {
+            Header("links", note: "links it opened")
+            Row(Words("github.com/example/widgets/pull/12"), trailing: "work@example.com", id: "pull", page: { linkPage("you opened it in work") })
+            Row(Words("docs.example.com/document/d/1AbCdEf/edit"), trailing: "work@example.com", id: "docs",
+                page: { linkPage("a rule sends docs.example.com to work") })
+            Row(Words("news.example.org/today"), trailing: "home@example.com", id: "news", page: { linkPage("you opened it in home") })
+            footer
+        })
+    },
 ]
+
+@MainActor
+private func linkPage(_ why: String) -> AnyView {
+    AnyView(VStack(spacing: 0) {
+        SubLine("Opened 2m ago. \(why).")
+        Row(Words("copy the whole link"), opens: false, id: "copy") {}
+        GroupLine("open once in", age: "")
+        Row(Words("home"), opens: false, id: ["once", "home"]) {}
+        Row(Words("school"), opens: false, id: ["once", "school"]) {}
+        GroupLine("always open this page in", age: "")
+        Row(Words("home"), opens: false, id: ["always", "home"]) {}
+        Row(Words("work"), trailing: "opened here", opens: false, id: ["always", "work"]) {}
+    })
+}
 
 /// A sample drawn as the panel would draw it, on a pasteboard of its own so a copied line never reaches the person's.
 @MainActor
@@ -78,5 +108,6 @@ func render(_ sample: Sample, appearance: NSAppearance = NSAppearance(named: .da
     let state = PanelState(pasteboard: pasteboard)
     state.selected = sample.selected
     if let copied = sample.copied { state.copy(copied) }
+    if let sidePage = sample.sidePage { state.openSide(sidePage) }
     return try snapshot(width: sample.width, appearance: appearance, state: state) { sample.content() }
 }

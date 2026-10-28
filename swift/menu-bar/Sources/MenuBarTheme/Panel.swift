@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The panel under a menu bar icon, which behaves as a menu does: Escape and a click outside close it, the arrow keys
 /// and Return work, ⌘ and a footer item's key run it, and it takes the keys without making the app active, so the app
-/// the person was in stays in front. It never shows a Dock icon (the app's Info.plist sets LSUIElement).
+/// the person was in stays in front. A row with a page opens it in a side panel beside it, as a submenu. It never
+/// shows a Dock icon (the app's Info.plist sets LSUIElement).
 @MainActor
 public final class MenuBarPanel: NSPanel {
     /// Set by tests: `open` places the panel and marks it open without putting it on the screen, and no event monitor is
@@ -28,6 +29,10 @@ public final class MenuBarPanel: NSPanel {
     private var buttonRect: NSRect?
     private weak var statusItem: NSStatusItem?
     private var hookup: AnyObject?
+    /// The visible frame of the screen the panel opened on, which the side panel keeps inside too.
+    private var visibleFrame: NSRect?
+    /// The panel beside this one that shows a row's side page, made the first time one opens.
+    private(set) var sidePanel: SidePanel?
 
     public init<Content: View>(width: CGFloat, state: PanelState? = nil, @ViewBuilder content: () -> Content) {
         let state = state ?? PanelState()
@@ -43,11 +48,13 @@ public final class MenuBarPanel: NSPanel {
         hasShadow = true
         acceptsMouseMovedEvents = true
         isReleasedWhenClosed = false
-        let root = PanelRoot(width: width, state: state, content: content())
+        let root = PanelRoot(width: width, state: state, surface: state.list, content: content())
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []
         contentView = hosting
-        state.resized = { [weak self] in self?.fit() }
+        state.list.resized = { [weak self] in self?.fit() }
+        state.side.resized = { [weak self] in self?.fitSide() }
+        state.sideChanged = { [weak self] selectingFirst in self?.sideChanged(selectingFirst: selectingFirst) }
     }
 
     /// Borderless, and non-activating so it takes the keys while another app stays active.
@@ -93,7 +100,9 @@ public final class MenuBarPanel: NSPanel {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors = []
         buttonRect = button
-        state.maxHeight = Self.maxHeight(below: button, in: visibleFrame)
+        self.visibleFrame = visibleFrame
+        state.list.maxHeight = Self.maxHeight(below: button, in: visibleFrame)
+        state.side.maxHeight = visibleFrame.height - 2 * Self.gap
         fit(top: button.minY - Self.gap, visibleFrame: visibleFrame)
         intent.reset()
         isOpen = true
@@ -102,7 +111,12 @@ public final class MenuBarPanel: NSPanel {
         monitors = [
             NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: outside) as Any,
             NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-                if event.window !== self { self?.clicked(at: NSEvent.mouseLocation) }
+                if event.window !== self, event.window !== self?.sidePanel { self?.clicked(at: NSEvent.mouseLocation) }
+                return event
+            } as Any,
+            // The pointer's moves over this panel and the side panel, whichever of the two AppKit sends them to.
+            NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                self?.pointerMoved(to: NSEvent.mouseLocation, at: event.timestamp)
                 return event
             } as Any,
         ]
@@ -118,6 +132,7 @@ public final class MenuBarPanel: NSPanel {
         intentTimer?.invalidate()
         buttonRect = nil
         state.reset()
+        hideSide()
         #if canImport(AppKit, _version: 2700)
         if #available(macOS 27, *) { statusItem?.expandedInterfaceSession?.cancel() }
         #endif
@@ -125,13 +140,15 @@ public final class MenuBarPanel: NSPanel {
         onClose?()
     }
 
-    /// A click at `point` closes the panel unless it is inside the panel or on the icon, whose own click toggles it.
-    static func closes(onClickAt point: NSPoint, panel: NSRect, button: NSRect?) -> Bool {
-        !panel.contains(point) && !(button?.contains(point) ?? false)
+    /// A click at `point` closes the panel unless it is inside the panel or its open side panel, or on the icon, whose
+    /// own click toggles it.
+    static func closes(onClickAt point: NSPoint, panel: NSRect, button: NSRect?, side: NSRect? = nil) -> Bool {
+        !panel.contains(point) && !(button?.contains(point) ?? false) && !(side?.contains(point) ?? false)
     }
 
     func clicked(at point: NSPoint) {
-        if isOpen, Self.closes(onClickAt: point, panel: frame, button: buttonRect) { close() }
+        let side = state.sidePage == nil ? nil : sidePanel?.frame
+        if isOpen, Self.closes(onClickAt: point, panel: frame, button: buttonRect, side: side) { close() }
     }
 
     public override func resignKey() {
@@ -140,21 +157,18 @@ public final class MenuBarPanel: NSPanel {
         close()
     }
 
+    /// Escape closes an open side page first, then goes back a page through `onEscape`, then closes the panel.
     public override func cancelOperation(_ sender: Any?) {
+        if state.leaveSide() { return }
         if onEscape?() != true { close() }
     }
 
-    /// The keys a menu answers, handled before any view sees them: Escape, up and down, Return, and ⌘ with a footer
-    /// item's key. Moves of the pointer feed its intent.
+    /// The keys a menu answers, handled before any view sees them: Escape, the arrows, Return, and ⌘ with a footer
+    /// item's key. The side panel never takes the keys, so this is where its keys come too.
     public override func sendEvent(_ event: NSEvent) {
-        switch event.type {
-        case .keyDown:
+        if event.type == .keyDown {
             intent.reset()
             if handle(key: event) { return }
-        case .mouseMoved:
-            pointerMoved(to: NSEvent.mouseLocation, at: event.timestamp)
-        default:
-            break
         }
         super.sendEvent(event)
     }
@@ -171,6 +185,10 @@ public final class MenuBarPanel: NSPanel {
             state.move(-1)
         case NSDownArrowFunctionKey:
             state.move(1)
+        case NSRightArrowFunctionKey:
+            state.enterSide()
+        case NSLeftArrowFunctionKey:
+            state.leaveSide()
         case 0x0d, 0x03:
             state.act()
         default:
@@ -188,17 +206,47 @@ public final class MenuBarPanel: NSPanel {
     }
 
     func pointerHeld(at time: TimeInterval) {
-        if intent.tick(at: time), let over = state.pointerOver { state.selected = over }
+        if intent.tick(at: time), let over = state.pointerOver { state.pointed(at: over) }
     }
 
     /// Sizes the panel to its content, up to what the screen allows, keeping its top where it is.
     func fit(top: CGFloat? = nil, visibleFrame: NSRect? = nil) {
         guard let hosting = contentView else { return }
         hosting.layoutSubtreeIfNeeded()
-        let size = NSSize(width: width, height: state.panelHeight)
+        let size = NSSize(width: width, height: state.list.panelHeight)
         let placed = Self.place(below: NSRect(x: buttonRect?.minX ?? frame.minX, y: (top ?? frame.maxY) + Self.gap, width: 0, height: 0),
-                                size: size, in: visibleFrame ?? screen?.visibleFrame ?? .infinite)
+                                size: size, in: visibleFrame ?? self.visibleFrame ?? screen?.visibleFrame ?? .infinite)
         setFrame(placed, display: isOpen)
+    }
+
+    /// A side page opened, swapped or closed, or the list's rows were drawn again: the side panel shows the open page
+    /// beside its row, or hides when none is open or its row is gone.
+    func sideChanged(selectingFirst: Bool) {
+        guard isOpen, let id = state.sidePage else { return hideSide() }
+        guard state.sidePages.contains(where: { $0.id == id }) else { return state.closeSide() }
+        let side = sidePanel ?? SidePanel(width: width, state: state)
+        sidePanel = side
+        fitSide()
+        // A child window is on the screen as soon as it is added to one that is, so a check never adds it.
+        if !Self.staysOffScreen, side.parent == nil { addChildWindow(side, ordered: .above) }
+        if selectingFirst, let first = state.side.lines.first { state.selected = first.id }
+    }
+
+    /// Sizes the side panel to its page and puts it beside its row.
+    func fitSide() {
+        guard let side = sidePanel, let hosting = side.contentView,
+              let page = state.sidePages.first(where: { $0.id == state.sidePage }) else { return }
+        hosting.layoutSubtreeIfNeeded()
+        let row = NSRect(x: frame.minX + page.row.minX, y: frame.maxY - page.row.maxY, width: page.row.width, height: page.row.height)
+        let size = NSSize(width: width, height: state.side.panelHeight)
+        side.setFrame(Self.place(side: size, beside: row, of: frame, in: visibleFrame ?? screen?.visibleFrame ?? .infinite), display: isOpen)
+        hosting.layoutSubtreeIfNeeded()
+    }
+
+    func hideSide() {
+        guard let side = sidePanel else { return }
+        if side.parent != nil { removeChildWindow(side) }
+        side.orderOut(nil)
     }
 
     static let gap: CGFloat = 4
@@ -207,6 +255,16 @@ public final class MenuBarPanel: NSPanel {
     static func place(below button: NSRect, size: NSSize, in visible: NSRect) -> NSRect {
         let x = max(visible.minX + gap, min(button.minX, visible.maxX - gap - size.width))
         let top = min(button.minY - gap, visible.maxY)
+        return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+    }
+
+    /// The side panel's frame: `gap` to the right of the panel, or to its left when the screen has no room on the right,
+    /// with its first line level with `row` and kept inside `visible`, all in screen coordinates.
+    static func place(side size: NSSize, beside row: NSRect, of panel: NSRect, in visible: NSRect) -> NSRect {
+        let right = panel.maxX + gap
+        let x = right + size.width <= visible.maxX - gap ? right : max(visible.minX + gap, panel.minX - gap - size.width)
+        // Its frame's top line sits just above the row's top, so its first line starts where the row does.
+        let top = max(min(row.maxY + Metrics.line, visible.maxY), visible.minY + gap + size.height)
         return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
     }
 
@@ -221,6 +279,8 @@ public final class MenuBarPanel: NSPanel {
 struct PanelRoot<Content: View>: View {
     let width: CGFloat
     let state: PanelState
+    /// The list's surface or the side page's: where this panel's lines and height go.
+    let surface: Surface
     let content: Content
     /// The top of the content, scrolled back to as the panel closes: a type of its own, so no line's id is the same.
     struct Top: Hashable {}
@@ -234,12 +294,12 @@ struct PanelRoot<Content: View>: View {
                         content
                     }
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                            state.contentHeight = height
+                            surface.contentHeight = height
                         }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicators(state.contentHeight + 2 * Metrics.line > state.maxHeight ? .automatic : .hidden)
-                .frame(height: max(0, min(state.contentHeight, state.maxHeight - 2 * Metrics.line)))
+                .scrollIndicators(surface.contentHeight + 2 * Metrics.line > surface.maxHeight ? .automatic : .hidden)
+                .frame(height: max(0, min(surface.contentHeight, surface.maxHeight - 2 * Metrics.line)))
                 // A line the keys chose is never out of sight, so Return never runs one that cannot be seen.
                 .onChange(of: state.selected) { _, selected in
                     if let selected, selected != state.pointerOver { scroller.scrollTo(selected) }
@@ -249,10 +309,56 @@ struct PanelRoot<Content: View>: View {
             }
         }
         .environment(state)
-        .onPreferenceChange(SelectableLines.self) { lines in MainActor.assumeIsolated { state.lines = lines } }
-        .onPreferenceChange(Shortcuts.self) { keys in MainActor.assumeIsolated { state.shortcuts = keys } }
-        .onChange(of: state.contentHeight) { _, _ in state.resized?() }
+        .onPreferenceChange(SelectableLines.self) { lines in MainActor.assumeIsolated { surface.lines = lines } }
+        .onPreferenceChange(Shortcuts.self) { keys in MainActor.assumeIsolated { surface.shortcuts = keys } }
+        .onPreferenceChange(SidePages.self) { pages in
+            MainActor.assumeIsolated {
+                // Only the list's rows open side pages; a side page holds none of its own.
+                guard surface === state.list else { return }
+                state.sidePages = pages
+                state.sideChanged?(false)
+            }
+        }
+        .onChange(of: surface.contentHeight) { _, _ in surface.resized?() }
     }
+}
+
+/// The open side page's content, or nothing.
+struct SideContent: View {
+    let state: PanelState
+
+    var body: some View {
+        if let id = state.sidePage, let page = state.sidePages.first(where: { $0.id == id }) { page.content }
+    }
+}
+
+/// The panel beside the list that shows a row's side page. It never takes the keys or makes the app active, so the
+/// list's panel keeps the keyboard, and it takes a click at once, though it is never the key window.
+@MainActor
+final class SidePanel: NSPanel {
+    init(width: CGFloat, state: PanelState) {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: width, height: 1), styleMask: MenuBarPanel.style, backing: .buffered, defer: true)
+        isFloatingPanel = true
+        level = MenuBarPanel.windowLevel
+        collectionBehavior = MenuBarPanel.spaces
+        hidesOnDeactivate = false
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        acceptsMouseMovedEvents = true
+        isReleasedWhenClosed = false
+        let hosting = FirstClickHostingView(rootView: PanelRoot(width: width, state: state, surface: state.side, content: SideContent(state: state)))
+        hosting.sizingOptions = []
+        contentView = hosting
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+/// A hosting view that acts on the click that reaches a window not in front, which SwiftUI before macOS 15 drops.
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // AppKit 27xx is the macOS 27 SDK, the first to declare the expanded interface session; the macOS 26 SDKs' AppKit is

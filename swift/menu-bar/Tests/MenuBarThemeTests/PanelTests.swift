@@ -22,6 +22,8 @@ import Testing
 
     static let up = String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!)
     static let down = String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!)
+    static let right = String(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!)
+    static let left = String(UnicodeScalar(UInt16(NSLeftArrowFunctionKey))!)
 
     /// A panel of three rows and a footer, laid out so its lines and shortcuts are known, with what each did.
     func panel(acted: @escaping (String) -> Void = { _ in }) -> MenuBarPanel {
@@ -87,7 +89,7 @@ import Testing
         var acted: [String] = []
         let panel = panel { acted.append($0) }
         // The footer's items come last, as a menu's last items do.
-        #expect(panel.state.lines.map(\.id) == ["alpha", "bravo", "charlie", ["footer", "settings"], ["footer", "quit"]])
+        #expect(panel.state.list.lines.map(\.id) == ["alpha", "bravo", "charlie", ["footer", "settings"], ["footer", "quit"]])
         panel.sendEvent(key(Self.down, code: 125))
         #expect(panel.state.selected == AnyHashable("alpha"))
         for _ in 0..<5 { panel.sendEvent(key(Self.down, code: 125)) }
@@ -110,13 +112,13 @@ import Testing
         }
         panel.open(below: Self.icon, in: Self.screen)
         panel.contentView?.layoutSubtreeIfNeeded()
-        #expect(Set(panel.state.lines.map(\.id)).count == 3)
+        #expect(Set(panel.state.list.lines.map(\.id)).count == 3)
         panel.sendEvent(key(Self.down, code: 125))
         panel.sendEvent(key(Self.down, code: 125))
         panel.sendEvent(key("\r", code: 36))
         #expect(pasteboard.string(forType: .string) == "on bravo: bun bin/sync.ts install")
         panel.sendEvent(key(Self.down, code: 125))
-        #expect(panel.state.selected == panel.state.lines.last?.id)
+        #expect(panel.state.selected == panel.state.list.lines.last?.id)
     }
 
     @Observable final class Status {
@@ -316,6 +318,160 @@ import Testing
         NSApp.appearance = NSAppearance(named: .darkAqua)
         settle(panel, to: .darkAqua)
         #expect(try drawn(panel, x: 6, y: 1 + 40 + 1 + 22) == Palette.bg.dark)
+    }
+
+    /// A side page of five profiles a link can open in, under a line saying why, taller than the list it opens from.
+    static func linkPage(_ link: String, _ acted: @escaping (String) -> Void) -> AnyView {
+        AnyView(VStack(spacing: 0) {
+            SubLine("why \(link) opened where it did")
+            ForEach(["home", "work", "school", "club", "shop"], id: \.self) { profile in
+                Row(Words(profile), opens: false, id: [link, profile]) { acted("\(link) in \(profile)") }
+            }
+        })
+    }
+
+    /// Three links, the first two with side pages and the third acting in place, and a footer, opened under `icon`.
+    func linksPanel(icon: NSRect = NSRect(x: 100, y: 1000, width: 24, height: 24), acted: @escaping (String) -> Void = { _ in }) -> MenuBarPanel {
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            Header("links", note: "links it opened")
+            Row(Words("a.example.com"), trailing: "work", id: "a", page: { Self.linkPage("a", acted) })
+            Row(Words("b.example.com"), trailing: "home", id: "b", page: { Self.linkPage("b", acted) })
+            Row(Words("c.example.com"), trailing: "home", opens: false, id: "c") { acted("c") }
+            Footer([FooterItem("settings", key: ",") { acted("settings") }])
+        }
+        panel.open(below: icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        return panel
+    }
+
+    /// The pointer travels, then rests on the line `id`, long enough for the panel to take it as meant.
+    func rest(_ panel: MenuBarPanel, on id: AnyHashable) {
+        panel.state.pointerOver = id
+        panel.pointerMoved(to: NSPoint(x: 0, y: 0), at: 0)
+        panel.pointerMoved(to: NSPoint(x: 0, y: 20), at: 1)
+        panel.pointerHeld(at: 1 + PointerIntent.wait)
+    }
+
+    @Test func aHeldPointerOpensTheRowsSidePageLevelWithIt() throws {
+        let panel = linksPanel()
+        let list = panel.frame
+        rest(panel, on: "b")
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        #expect(panel.state.selected == AnyHashable("b"))
+        let side = try #require(panel.sidePanel)
+        // To the right, its first line where row b starts: under the frame's top line, the header and row a.
+        #expect(side.frame.minX == list.maxX + MenuBarPanel.gap)
+        #expect(side.frame.maxY - Metrics.line == list.maxY - (Metrics.line + Metrics.header + Metrics.row))
+        #expect(side.frame.height > list.height)
+    }
+
+    @Test func theListNeverMovesWhenTheSidePageOpens() throws {
+        var acted: [String] = []
+        let panel = linksPanel { acted.append($0) }
+        let list = panel.frame
+        let lines = panel.state.list.lines.map(\.id)
+        rest(panel, on: "a")
+        rest(panel, on: "b")
+        // The page is taller than the list and reports its own height and lines, which leave the list's alone.
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        #expect(try #require(panel.sidePanel).frame.height != list.height)
+        #expect(panel.frame == list)
+        #expect(panel.state.list.lines.map(\.id) == lines)
+        #expect(lines == ["a", "b", "c", ["footer", "settings"]])
+        rest(panel, on: "c")
+        panel.sendEvent(key("\r", code: 36))
+        #expect(acted == ["c"])
+    }
+
+    @Test func theSidePageOpensOnTheLeftAtTheScreensRightEdge() throws {
+        // Under an icon near the right edge, the list ends 4 points from it, so the page has no room on the right.
+        let panel = linksPanel(icon: Self.icon)
+        rest(panel, on: "a")
+        #expect(try #require(panel.sidePanel).frame.maxX == panel.frame.minX - MenuBarPanel.gap)
+        // A row near the bottom of the screen keeps a tall page inside it.
+        let low = MenuBarPanel.place(side: NSSize(width: 400, height: 300), beside: NSRect(x: 0, y: 50, width: 400, height: 44),
+                                     of: NSRect(x: 0, y: 0, width: 400, height: 500), in: Self.screen)
+        #expect(low.minY == MenuBarPanel.gap)
+        #expect(low.minX == 400 + MenuBarPanel.gap)
+    }
+
+    @Test func rightOrReturnOpensTheSidePageAndLeftOrEscapeComesBack() {
+        let panel = linksPanel()
+        // The keys stopping on a row open nothing, as in a menu.
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == AnyHashable("a"))
+        #expect(panel.state.sidePage == nil)
+        panel.sendEvent(key(Self.right, code: 124))
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        #expect(panel.state.selected == AnyHashable(["a", "home"]))
+        panel.sendEvent(key(Self.left, code: 123))
+        #expect(panel.state.sidePage == nil)
+        #expect(panel.state.selected == AnyHashable("a"))
+        panel.sendEvent(key("\r", code: 36))
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        #expect(panel.state.selected == AnyHashable(["a", "home"]))
+        panel.sendEvent(key("\u{1b}", code: 53))
+        #expect(panel.isOpen)
+        #expect(panel.state.sidePage == nil)
+        #expect(panel.state.selected == AnyHashable("a"))
+        panel.sendEvent(key("\u{1b}", code: 53))
+        #expect(!panel.isOpen)
+    }
+
+    @Test func upAndDownStayInTheSidePage() {
+        var acted: [String] = []
+        let panel = linksPanel { acted.append($0) }
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key(Self.right, code: 124))
+        for _ in 0..<8 { panel.sendEvent(key(Self.down, code: 125)) }
+        #expect(panel.state.selected == AnyHashable(["a", "shop"]))
+        for _ in 0..<8 { panel.sendEvent(key(Self.up, code: 126)) }
+        #expect(panel.state.selected == AnyHashable(["a", "home"]))
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key("\r", code: 36))
+        #expect(acted == ["a in work"])
+    }
+
+    @Test func restingOnAnotherRowSwapsTheSidePage() {
+        let panel = linksPanel()
+        rest(panel, on: "a")
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        // Into the page, which stays open, and its row with it.
+        rest(panel, on: ["a", "work"])
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        #expect(panel.state.selected == AnyHashable(["a", "work"]))
+        rest(panel, on: "b")
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        rest(panel, on: "c")
+        #expect(panel.state.sidePage == nil)
+        #expect(panel.state.selected == AnyHashable("c"))
+        // The keys moving off the open row close its page too.
+        rest(panel, on: "b")
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == AnyHashable("c"))
+        #expect(panel.state.sidePage == nil)
+    }
+
+    @Test func aClickInTheSidePageKeepsBothOpenAndOutsideClosesBoth() throws {
+        let panel = linksPanel()
+        rest(panel, on: "a")
+        let side = try #require(panel.sidePanel)
+        panel.clicked(at: NSPoint(x: side.frame.midX, y: side.frame.midY))
+        #expect(panel.isOpen)
+        #expect(panel.state.sidePage == AnyHashable("a"))
+        panel.clicked(at: NSPoint(x: side.frame.maxX + 50, y: side.frame.midY))
+        #expect(!panel.isOpen)
+        #expect(panel.state.sidePage == nil)
+    }
+
+    @Test func theSidePageStaysOffTheScreenInTests() throws {
+        let panel = linksPanel()
+        rest(panel, on: "a")
+        let side = try #require(panel.sidePanel)
+        #expect(!side.isVisible)
+        #expect(side.parent == nil)
+        #expect(!side.canBecomeKey)
     }
 
     @Test func theOpenPanelFitsItsContent() {

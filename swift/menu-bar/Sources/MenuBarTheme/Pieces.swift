@@ -91,6 +91,8 @@ public struct Header: View {
 /// A 44 point row: the name in its column, its status in words, cut short with an ellipsis, its age, and on the right
 /// the mark that says a click opens something, as a menu's submenu arrow does. Without a name, its words take the
 /// row's width, as a link with its account on the right, and a row whose click acts in place leaves the mark off.
+/// Given a `page`, the row opens it beside the list, as a menu's submenu: on the pointer resting on it, a click, Return
+/// or Right.
 public struct Row: View {
     let name: String?
     let status: Words
@@ -98,6 +100,7 @@ public struct Row: View {
     let opens: Bool
     let id: AnyHashable
     let action: () -> Void
+    var page: (@MainActor () -> AnyView)?
 
     public init(_ name: String, status: Words, age: String, id: AnyHashable? = nil, action: @escaping () -> Void) {
         self.name = name
@@ -119,7 +122,27 @@ public struct Row: View {
         self.action = action
     }
 
+    /// The row with a name, whose `page` opens beside the list.
+    @MainActor public init<Page: View>(_ name: String, status: Words, age: String, id: AnyHashable? = nil, @ViewBuilder page: @escaping @MainActor () -> Page) {
+        self.init(name, status: status, age: age, id: id) {}
+        self.page = { AnyView(page()) }
+    }
+
+    /// The row without a name, whose `page` opens beside the list.
+    @MainActor public init<Page: View>(_ text: Words, trailing: String = "", id: AnyHashable, @ViewBuilder page: @escaping @MainActor () -> Page) {
+        self.init(text, trailing: trailing, id: id) {}
+        self.page = { AnyView(page()) }
+    }
+
     public var body: some View {
+        line
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: SidePages.self, value: page.map { [SidePage(id: id, content: $0(), row: geometry.frame(in: .global))] } ?? [])
+            })
+            .modifier(Selectable(id: id, action: action, opensSide: page != nil))
+    }
+
+    private var line: some View {
         Lined(height: Metrics.row, content: HStack(spacing: 12) {
             if let name {
                 Text(name).console(Metrics.body, weight: .semibold).lineLimit(1).truncationMode(.tail)
@@ -132,7 +155,6 @@ public struct Row: View {
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity))
-        .modifier(Selectable(id: id, action: action))
     }
 }
 

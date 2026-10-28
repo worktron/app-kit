@@ -273,9 +273,28 @@ import Testing
         #expect(colors(in: png) > 20)
     }
 
+    @Test func aSnapshotDrawsTheSidePageBesideItsRow() throws {
+        let sample = try #require(samples.first { $0.name == "side" })
+        let rep = try #require(NSBitmapImageRep(data: try render(sample)))
+        #expect(rep.pixelsWide == Int((2 * sample.width + MenuBarPanel.gap) * 2))
+        /// Whether anything is drawn at `x`, `y` points from the top left.
+        func drawn(_ x: CGFloat, _ y: CGFloat) -> Bool {
+            var pixel = [Int](repeating: 0, count: 4)
+            rep.getPixel(&pixel, atX: Int(x * 2), y: Int(y * 2))
+            return pixel[3] > 0
+        }
+        // The page's row is the second link, which starts under the frame's line, the header and the first link.
+        let row = Metrics.line + Metrics.header + Metrics.row
+        let page = sample.width + MenuBarPanel.gap + 20
+        #expect(!drawn(page, row - 4))
+        #expect(drawn(page, row + 4))
+        // Nothing in the gap between the two.
+        #expect(!drawn(sample.width + MenuBarPanel.gap / 2, row + 20))
+    }
+
     @Test func contentTallerThanTheScreenScrollsAndStillDraws() throws {
         let state = PanelState(pasteboard: .withUniqueName())
-        state.maxHeight = 120
+        state.list.maxHeight = 120
         let png = try snapshot(width: 400, state: state) {
             ForEach(0..<10) { Row("mac \($0)", status: Words("fine", .ok), age: "\($0)m") {} }
         }
