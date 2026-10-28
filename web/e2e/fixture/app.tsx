@@ -184,7 +184,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
       <main>
         <h1>The app at {address}</h1>
         <Screen title={item ? `Item ${item}` : path === '/later' ? 'Later' : path === '/shelf' ? 'Shelf' : null}>
-          {item ? <p>Item {item}</p> : address === '/later' ? <Suspense fallback={null}><Later /></Suspense> : address === '/shelf' ? <Shelf /> : <Items itemsOf={itemsOf} />}
+          {item ? <p>Item {item}</p> : path === '/later' ? <Suspense fallback={null}><Later /></Suspense> : path === '/shelf' ? <Shelf /> : <Items itemsOf={itemsOf} />}
         </Screen>
         <RowLink href="/later">Later</RowLink>
       </main>

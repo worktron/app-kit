@@ -154,6 +154,12 @@ test('each screen sets its own page title', async ({ page }) => {
   await signInByCode(page, 'ana@example.com');
   await expect(heading(page)).toHaveText('The app at /items/1');
   await expect(page).toHaveTitle('Item 1 · the fixture');
+
+  // A screen's address with a query is still that screen, drawn and titled as it.
+  await serveShelf(page);
+  await page.goto('/shelf?from=mail');
+  await expect(page.getByRole('list', { name: 'Shelf' })).toBeVisible();
+  await expect(page).toHaveTitle('Shelf · the fixture');
 });
 
 test('a row is a real link: a plain click moves in the page, ⌘-click opens a new tab', async ({ page, context }) => {
