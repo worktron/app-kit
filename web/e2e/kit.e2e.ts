@@ -155,10 +155,16 @@ test('each screen sets its own page title', async ({ page }) => {
   await expect(heading(page)).toHaveText('The app at /items/1');
   await expect(page).toHaveTitle('Item 1 · the fixture');
 
-  // A screen's address with a query is still that screen, drawn and titled as it.
-  await serveShelf(page);
+  // A screen's address with a query is still that screen, drawn and titled as it, behind the placeholder until its
+  // answer is in.
+  const shelf = await serveShelf(page);
+  shelf.answer = 'hold';
   await page.goto('/shelf?from=mail');
-  await expect(page.getByRole('list', { name: 'Shelf' })).toBeVisible();
+  await expect.poll(() => shelf.held !== null).toBe(true);
+  await expect(page.getByRole('progressbar')).toHaveText('fixture');
+  shelf.held!();
+  await expect(page.getByRole('list', { name: 'Shelf' })).toHaveText('Bread');
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
   await expect(page).toHaveTitle('Shelf · the fixture');
 });
 

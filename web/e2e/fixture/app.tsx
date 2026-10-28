@@ -161,12 +161,12 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
   const path = address.split('?')[0];
   const known = Boolean(item) || ['/', '/later', '/shelf'].includes(path);
-  // Only the list waits for data; every other screen is drawn at once, and the not-found page says so itself.
+  // A screen with no data to wait for is drawn at once; the list, the shelf and the not-found page each say so themselves.
   const appDrawn = useAppDrawn();
-  const waitsForList = known && !item && path !== '/later' && path !== '/shelf';
+  const drawnAtOnce = Boolean(item) || path === '/later';
   useLayoutEffect(() => {
-    if (known && !waitsForList) appDrawn();
-  }, [known, waitsForList, appDrawn]);
+    if (drawnAtOnce) appDrawn();
+  }, [drawnAtOnce, appDrawn]);
   if (!known) {
     return (
       <NavigateProvider navigate={navigate}>
