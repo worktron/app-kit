@@ -2,7 +2,7 @@
 // with the real sharp and iconutil, and checked by their pixels; the refusals, which write nothing; and the icon sets
 // compiled by Xcode's asset compiler, as an app's build compiles them.
 import { describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import sharp from 'sharp';
@@ -215,6 +215,18 @@ describe('icons render', () => {
       for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) expect(icon.at(x, y).slice(0, 3)).toEqual([0x1f, 0x1f, 0x1f]);
     }
     expect((await pixels(join(options.extension, 'icon-128.png'))).at(64, 20)).toEqual([0x2a, 0x2c, 0x30, 255]);
+  });
+
+  test('writes each icon under a name of its own, never through a link left where that name goes', async () => {
+    const { root, options } = app();
+    const kept = join(root, 'kept.txt');
+    writeFileSync(kept, 'not an icon');
+    mkdirSync(options.web, { recursive: true });
+    symlinkSync(kept, join(options.web, 'favicon.ico.app-kit-icons'));
+    await renderIcons({ ...options, iconSets: [], tauri: undefined, menuBar: undefined, extension: undefined });
+    expect(readFileSync(kept, 'utf8')).toBe('not an icon');
+    expect(readFileSync(join(options.web, 'favicon.ico')).readUInt16LE(4)).toBe(3);
+    expect(readdirSync(options.web).sort()).toEqual(['apple-touch-icon.png', 'favicon.ico', 'icon-192.png', 'icon-512.png']);
   });
 
   test('a failure after drawing began writes nothing, so an app is never left with half its icons new', async () => {
