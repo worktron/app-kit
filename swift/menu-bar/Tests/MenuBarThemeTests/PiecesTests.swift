@@ -290,6 +290,8 @@ import Testing
         #expect(drawn(page, row + 4))
         // Nothing in the gap between the two.
         #expect(!drawn(sample.width + MenuBarPanel.gap / 2, row + 20))
+        // The row whose page is open stays lit, though the selection is in the page.
+        #expect(try color(render(sample), 4, row + 22) == Palette.hover.dark)
     }
 
     @Test func contentTallerThanTheScreenScrollsAndStillDraws() throws {

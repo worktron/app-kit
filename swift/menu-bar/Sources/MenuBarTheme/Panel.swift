@@ -104,6 +104,8 @@ public final class MenuBarPanel: NSPanel {
         state.list.maxHeight = Self.maxHeight(below: button, in: visibleFrame)
         state.side.maxHeight = visibleFrame.height - 2 * Self.gap
         fit(top: button.minY - Self.gap, visibleFrame: visibleFrame)
+        // Opened again while open: a side page still open follows the list.
+        fitSide()
         intent.reset()
         isOpen = true
         guard !Self.staysOffScreen else { return }
@@ -259,10 +261,23 @@ public final class MenuBarPanel: NSPanel {
     }
 
     /// The side panel's frame: `gap` to the right of the panel, or to its left when the screen has no room on the right,
-    /// with its first line level with `row` and kept inside `visible`, all in screen coordinates.
+    /// with its first line level with `row` and kept inside `visible`, all in screen coordinates. On a screen with room
+    /// on neither side it goes to the side with more and covers part of the list, as a menu's submenu does.
     static func place(side size: NSSize, beside row: NSRect, of panel: NSRect, in visible: NSRect) -> NSRect {
         let right = panel.maxX + gap
-        let x = right + size.width <= visible.maxX - gap ? right : max(visible.minX + gap, panel.minX - gap - size.width)
+        let left = panel.minX - gap - size.width
+        let roomRight = visible.maxX - gap - panel.maxX
+        let roomLeft = panel.minX - visible.minX - gap
+        let x: CGFloat
+        if right + size.width <= visible.maxX - gap {
+            x = right
+        } else if left >= visible.minX + gap {
+            x = left
+        } else if roomRight >= roomLeft {
+            x = max(visible.minX + gap, visible.maxX - gap - size.width)
+        } else {
+            x = visible.minX + gap
+        }
         // Its frame's top line sits just above the row's top, so its first line starts where the row does.
         let top = max(min(row.maxY + Metrics.line, visible.maxY), visible.minY + gap + size.height)
         return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)

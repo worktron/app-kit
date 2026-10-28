@@ -77,6 +77,13 @@ public final class PanelState {
         return true
     }
 
+    /// A click on the line `id`: it is selected, and a row with a side page opens it, leaving the selection on the row;
+    /// any other line acts.
+    func clicked(_ id: AnyHashable, opensSide: Bool, action: () -> Void) {
+        selected = id
+        if opensSide { openSide(id) } else { action() }
+    }
+
     /// The pointer came to rest on `id`: it is selected, and a row's side page opens, swaps or closes to match it.
     func pointed(at id: AnyHashable) {
         selected = id
@@ -200,10 +207,7 @@ struct Selectable: ViewModifier {
             .padding(outset)
             .background(RoundedRectangle(cornerRadius: corner).fill(selected ? Palette.hover.color : rest))
             .contentShape(Rectangle())
-            .onTapGesture {
-                state?.selected = id
-                if opensSide { state?.openSide(id, selectingFirst: false) } else { action() }
-            }
+            .onTapGesture { state?.clicked(id, opensSide: opensSide, action: action) }
             .onHover { inside in
                 if inside { state?.pointerOver = id } else if state?.pointerOver == id { state?.pointerOver = nil }
             }

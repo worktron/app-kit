@@ -393,6 +393,32 @@ import Testing
                                      of: NSRect(x: 0, y: 0, width: 400, height: 500), in: Self.screen)
         #expect(low.minY == MenuBarPanel.gap)
         #expect(low.minX == 400 + MenuBarPanel.gap)
+        // With room on neither side, it goes to the side with more and covers part of the list, inside the screen.
+        let narrow = NSRect(x: 0, y: 0, width: 1024, height: 768)
+        let list = NSRect(x: 300, y: 300, width: 480, height: 400)
+        let cramped = MenuBarPanel.place(side: NSSize(width: 480, height: 300), beside: NSRect(x: 300, y: 600, width: 480, height: 44),
+                                         of: list, in: narrow)
+        // 296 points free on the left and 240 on the right.
+        #expect(cramped.minX == narrow.minX + MenuBarPanel.gap)
+    }
+
+    @Test func aClickOnARowOpensItsSidePageAndAClickInThePageActs() throws {
+        var acted: [String] = []
+        let panel = linksPanel { acted.append($0) }
+        panel.state.clicked("b", opensSide: true) { acted.append("the row's action") }
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        #expect(panel.state.selected == AnyHashable("b"))
+        let line = try #require(panel.state.side.lines.dropFirst().first)
+        panel.state.clicked(line.id, opensSide: line.opensSide, action: line.action)
+        #expect(acted == ["b in work"])
+        #expect(panel.state.sidePage == AnyHashable("b"))
+    }
+
+    @Test func aSidePageFollowsTheListWhenItOpensAgainWhileOpen() throws {
+        let panel = linksPanel()
+        rest(panel, on: "a")
+        panel.open(below: NSRect(x: 300, y: 1000, width: 24, height: 24), in: Self.screen)
+        #expect(try #require(panel.sidePanel).frame.minX == panel.frame.maxX + MenuBarPanel.gap)
     }
 
     @Test func rightOrReturnOpensTheSidePageAndLeftOrEscapeComesBack() {
