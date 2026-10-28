@@ -36,6 +36,8 @@ bun add github:worktron/app-kit#v0.22.0
 | Reload after a failed screen load | `reloadOnFailedLoad` | A tab open across a deploy asks for screen code that is gone; Vite's `vite:preloadError` reloads the page once, with a guard so it never loops. |
 | Error boundary | `ErrorBoundary` | A crash shows what failed and a Reload button, or the app's own `fallback`. A built page first asks the server which build it serves, and when that is a newer one, as after a deploy or a rollback that changed what an answer holds, it reloads by itself onto it, once. Give it the app's `placeholder`, which it draws while it asks. See below. |
 | Saved copies of screens | `savedCopies`, `useScreenData`, `useSavedCopy`, `useSaveAfterDraw` | A screen seen before paints at once from the copy this browser saved, then from the server. Copies are kept per build and per person, deleted at sign-out, and saved only after they have drawn, so a deploy that changes an answer's shape, or is rolled back, never leaves a copy that crashes every load. See below. |
+| Page titles | `nameApp`, `useTitle`, `titleFor` | The app names itself once at start (`nameApp('argon-watcher')`), and each screen calls `useTitle('Inbox')`, which writes "Inbox · argon-watcher" while the screen shows and puts back the title it found when it goes; `useTitle(null)` shows the app's name alone. One call per screen: a layout that calls it too runs after the screen and wins. |
+| Not-found page | `NotFound` | What an address the app does not know draws, at that address: "Nothing is at" the address, and a link home (`home`, `/` unless given), with the page title "Not found". Never a redirect home, which makes a stale link look as if it worked. It tells the sign-in gate it has drawn, so it shows under `waitForFirstDraw`. |
 | Links for rows and cards | `RowLink`, `NavigateProvider` | A whole row as a real `<a href>`: ⌘-click and middle-click open a new tab, a plain click moves through the app's navigate. |
 | The phone's Text Size | `followTextSize`, `useTextScale` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings, which a web view otherwise ignores, so every size in rem follows; read again each time the page comes back in front. Anywhere else the scale is 1. See below. |
 | Fields that never zoom | `fieldsNeverZoom`, `FIELD_FONT_SIZE`, `rem` | A text field's size is 16 pixels or the Text Size's size, whichever is larger, so iPhone Safari never zooms into it at a small Text Size and it still grows at a large one. `rem(px)` writes a pixel size as one that follows Text Size. See below. |
@@ -49,10 +51,11 @@ bun add github:worktron/app-kit#v0.22.0
 ### An app built on it
 
 ```tsx
-import { ErrorBoundary, SignInGate, reloadOnFailedLoad, configureConnection, followTextSize } from 'app-kit/web';
+import { ErrorBoundary, SignInGate, reloadOnFailedLoad, configureConnection, followTextSize, nameApp } from 'app-kit/web';
 import { signInFromEnvironment } from 'app-kit/authentication/clerk';
 
 reloadOnFailedLoad();
+nameApp('argon-watcher');
 configureConnection({ probePath: '/api/health' });
 followTextSize();
 const provider = signInFromEnvironment(import.meta.env);

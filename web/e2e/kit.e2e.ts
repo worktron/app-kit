@@ -133,6 +133,29 @@ test('a server that refuses a session just made says so, rather than offering si
   await expect(heading(page)).toHaveText('The app at /');
 });
 
+test('an unknown address shows the not-found page at that address, drawn past the placeholder, with its title', async ({ page }) => {
+  await serve(page);
+  await page.goto('/nowhere?from=mail');
+  await signInByCode(page, 'ana@example.com');
+  await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible();
+  await expect(page.getByText('Nothing is at /nowhere?from=mail.')).toBeVisible();
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
+  await expect(page).toHaveTitle('Not found · the fixture');
+  expect(new URL(page.url()).pathname).toBe('/nowhere');
+
+  await page.getByRole('link', { name: 'Go to the home page' }).click();
+  await expect(heading(page)).toHaveText('The app at /');
+  await expect(page).toHaveTitle('the fixture');
+});
+
+test('each screen sets its own page title', async ({ page }) => {
+  await serve(page);
+  await page.goto('/items/1');
+  await signInByCode(page, 'ana@example.com');
+  await expect(heading(page)).toHaveText('The app at /items/1');
+  await expect(page).toHaveTitle('Item 1 · the fixture');
+});
+
 test('a row is a real link: a plain click moves in the page, ⌘-click opens a new tab', async ({ page, context }) => {
   await serve(page);
   await page.goto('/');

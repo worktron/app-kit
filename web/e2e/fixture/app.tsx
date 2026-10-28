@@ -1,13 +1,15 @@
-import { lazy, StrictMode, Suspense, useEffect, useLayoutEffect, useState } from 'react';
+import { lazy, StrictMode, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ConnectionLine,
   ErrorBoundary,
   NavigateProvider,
   NewBuildLine,
+  NotFound,
   RowLink,
   SignInGate,
   configureConnection,
+  nameApp,
   onPageReturn,
   onReconnect,
   reloadOnFailedLoad,
@@ -17,6 +19,7 @@ import {
   useScreenData,
   useSignIn,
   useSignOut,
+  useTitle,
 } from '../..';
 import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
 
@@ -146,16 +149,31 @@ function Shelf() {
   );
 }
 
+/** One screen, with its page title, as each of an app's screens sets its own. */
+function Screen({ title, children }: { title: string | null; children: ReactNode }) {
+  useTitle(title);
+  return children;
+}
+
 function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const [address, navigate] = useAddress();
   const signOut = useSignOut();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
-  // Only the list waits for data; every other screen is drawn at once.
+  const path = address.split('?')[0];
+  const known = Boolean(item) || ['/', '/later', '/shelf'].includes(path);
+  // Only the list waits for data; every other screen is drawn at once, and the not-found page says so itself.
   const appDrawn = useAppDrawn();
-  const waitsForList = !item && address !== '/later' && address !== '/shelf';
+  const waitsForList = known && !item && path !== '/later' && path !== '/shelf';
   useLayoutEffect(() => {
-    if (!waitsForList) appDrawn();
-  }, [waitsForList, appDrawn]);
+    if (known && !waitsForList) appDrawn();
+  }, [known, waitsForList, appDrawn]);
+  if (!known) {
+    return (
+      <NavigateProvider navigate={navigate}>
+        <NotFound />
+      </NavigateProvider>
+    );
+  }
   return (
     <NavigateProvider navigate={navigate}>
       <header>
@@ -165,7 +183,9 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
       </header>
       <main>
         <h1>The app at {address}</h1>
-        {item ? <p>Item {item}</p> : address === '/later' ? <Suspense fallback={null}><Later /></Suspense> : address === '/shelf' ? <Shelf /> : <Items itemsOf={itemsOf} />}
+        <Screen title={item ? `Item ${item}` : path === '/later' ? 'Later' : path === '/shelf' ? 'Shelf' : null}>
+          {item ? <p>Item {item}</p> : address === '/later' ? <Suspense fallback={null}><Later /></Suspense> : address === '/shelf' ? <Shelf /> : <Items itemsOf={itemsOf} />}
+        </Screen>
         <RowLink href="/later">Later</RowLink>
       </main>
     </NavigateProvider>
@@ -177,6 +197,7 @@ const placeholder = <div role="progressbar">fixture</div>;
 /** Starts the fixture app, given how this build reads the list out of the server's answer. */
 export function start(itemsOf: (answer: Answer) => Item[]) {
   reloadOnFailedLoad();
+  nameApp('the fixture');
   configureConnection({ probePath: '/api/health' });
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

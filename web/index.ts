@@ -10,6 +10,8 @@ export { isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
 export { PullToRefresh, PULL_DISTANCE, type PullToRefreshProps } from './PullToRefresh';
 export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';
 export { ErrorBoundary } from './ErrorBoundary';
+export { NotFound } from './NotFound';
+export { nameApp, titleFor, useTitle } from './title';
 export { RowLink, NavigateProvider, opensElsewhere, type Navigate } from './RowLink';
 export { NewBuildLine, ConnectionLine, unreachableMessage } from './lines';
 export {
