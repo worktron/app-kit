@@ -793,7 +793,7 @@ The console family's look for a menu bar app, the look of metamax and the consol
 
 Each line the arrow keys stop on has an id, unique in its panel: a row's is its name (a row without one is given its `id:`), an item line's its group, text and command, a code box's its block's title and text, a footer item's its label, and `id:` sets one where those could repeat.
 
-The panel has a dark look and a light one, and draws in the app's appearance: the Mac's Light or Dark setting unless the app pins one, switching while it is open when the setting changes. In light, every word but the muted ages and counts reads at 4.5 to 1 or better on the panel, a code box and a selected line. An app that wants the dark look always pins its appearance, as any Mac app does: `NSApp.appearance = NSAppearance(named: .darkAqua)`.
+The panel has a dark look and a light one, and draws in the app's appearance: the Mac's Light or Dark setting unless the app pins one, switching while it is open when the setting changes. In light, every word in a tone but muted reads at 4.5 to 1 or better on the panel, a code box and a selected line; muted, the faint ages, counts, notes and ⌘ keys, is as faint as it is in dark, on purpose. An app that wants the dark look always pins its appearance, as any Mac app does: `NSApp.appearance = NSAppearance(named: .darkAqua)`.
 
 Hover follows the pointer only once it means it: the pointer has to move 16 points and then rest for 100ms before the selection follows, a key press or the panel closing makes its next position the new resting point, and a still pointer paints nothing. The selected line, whether the keys or the pointer chose it, fills in `hover`. A click always acts at once.
 
