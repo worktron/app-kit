@@ -139,3 +139,10 @@ Done when: the kit's NotFound adds `env(safe-area-inset-top)` above its own padd
 
 Goal: server/start's `appServer` (v0.25.0) registers `GET /api/health` before the app's routes and always answers 200 `{ ok: true, service, commit }`, so an app cannot keep its own check on top. getter's health route answers 503 `{ ok: false, database: false }` when its database does not answer (server/app.ts:50-53, held by server/app.test.ts), and Railway's deploy check reads it (railway.json `healthcheckPath`), so a deploy whose database is unreachable never goes live. Taking appServer as it is would lose that. An option such as `appServer({ service, check: () => Promise<Record<string, boolean>> })`, answering 503 when any value is false and adding the values to the body, lets getter (and any app on a database) move onto it. Found by getter's app-kit-adoption thread, 2026-10-29.
 Done when: appServer takes the app's check, a test through app.request holds a failing check's 503 with its fields and a passing one's 200 with commit and service, and the README's server section shows it with openDb.
+
+## server-start-headers · appServer sends the baseline security headers on every answer, the health route's included
+
+Goal: an app on `appServer` that adds Hono's `secureHeaders()` (nosniff, frame denial, referrer policy) gets them on every answer but `GET /api/health`, since the kit registers the health route before the app's own middleware can run, and Hono answers it first. argon-watcher found this on 2026-10-29 moving onto v0.25.1 (its review: the health answer lacks X-Content-Type-Options, X-Frame-Options and Referrer-Policy, while every other answer has them); argon's comment now names the gap. Every app would want the same headers, so the kit can send them itself, or take the app's middleware before its routes.
+Done when: an app on appServer gets the baseline security headers on the health answer and every other, held by a test in test/server-start.test.ts, and the README's whole server says whether the app still adds `secureHeaders()` itself.
+Needs: nothing.
+Touches: server/start/index.ts, test/server-start.test.ts, README.md.
