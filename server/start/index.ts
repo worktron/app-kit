@@ -68,8 +68,8 @@ export interface AppServerOptions {
   /** Where the request log and errors go. */
   print?: Print;
   /**
-   * Other websites whose pages may call this server, as origins (`http://192.168.1.20:5900`). They may write, and their
-   * cross-origin questions get an answer; no other site gets either. An extension's worker calling with host
+   * Other websites whose pages may call this server, as origins (`http://192.168.1.20:5900`). They may write, with the
+   * person's cookies, and their cross-origin questions get an answer; no other site gets either. An extension's worker calling with host
    * permissions is not held to cross-origin rules and needs no listing unless its writes are refused.
    */
   otherSites?: readonly string[];
@@ -85,7 +85,8 @@ export interface AppServerOptions {
 export function appServer({ service, print = console.log, otherSites = [] }: AppServerOptions): Hono {
   const app = new Hono();
   app.use(requestLog(print));
-  if (otherSites.length > 0) app.use(cors({ origin: [...otherSites] }));
+  // A listed site's page may send the person's cookies too, as the app's own page does.
+  if (otherSites.length > 0) app.use(cors({ origin: [...otherSites], credentials: true }));
   app.use(otherSiteCheck(otherSites, print));
   app.get('/api/health', (c) => c.json({ ok: true, service, commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null }));
   app.onError((error, c) => {

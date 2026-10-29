@@ -209,12 +209,15 @@ test('with no Sec-Fetch-Site, an Origin on the address the request went to passe
   expect((await call('POST', { Origin: 'null' })).status).toBe(403);
 });
 
-test('a site another app lists may write, and only a listed site gets an answer to its cross-origin question', async () => {
+test("a site another app lists may write, with the person's cookies, and only a listed site gets an answer to its cross-origin question", async () => {
   const { call } = writable(['http://192.168.1.20:5900']);
   expect((await call('POST', { Origin: 'http://192.168.1.20:5900', 'Sec-Fetch-Site': 'cross-site' })).status).toBe(200);
   const asked = (origin: string) =>
     call('OPTIONS', { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' });
-  expect((await asked('http://192.168.1.20:5900')).headers.get('Access-Control-Allow-Origin')).toBe('http://192.168.1.20:5900');
+  const listed = await asked('http://192.168.1.20:5900');
+  expect(listed.headers.get('Access-Control-Allow-Origin')).toBe('http://192.168.1.20:5900');
+  // A page there calling with `credentials: 'include'` reads the answer only when the server says so.
+  expect(listed.headers.get('Access-Control-Allow-Credentials')).toBe('true');
   expect((await asked('https://elsewhere.example.com')).headers.get('Access-Control-Allow-Origin')).toBeNull();
   expect((await writable().call('OPTIONS', { Origin: 'http://192.168.1.20:5900', 'Access-Control-Request-Method': 'POST' })).headers.get('Access-Control-Allow-Origin')).toBeNull();
 });
