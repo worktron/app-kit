@@ -57,6 +57,10 @@ import Testing
         Typeface.register()
         #expect(Typeface.nsFont(size: 13, in: .console).familyName == "JetBrains Mono")
         #expect(Typeface.nsFont(size: 12, in: .console, code: true).familyName == "JetBrains Mono")
+        let before = Look.app
+        defer { Look.app = before }
+        Look.app = .plain()
+        #expect(Typeface.font(size: 13) == Font(NSFont.systemFont(ofSize: 13) as CTFont))
     }
 
     @Test(arguments: ["f-list", "f-page", "g", "fine", "unreadable", "side"], [true, false])

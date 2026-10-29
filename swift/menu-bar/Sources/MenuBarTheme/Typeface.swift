@@ -73,8 +73,9 @@ public enum Typeface {
 
     @MainActor private static var lineHeights: [String: CGFloat] = [:]
 
+    /// The app's look's face for SwiftUI.
     public static func font(size: CGFloat, weight: NSFont.Weight = .regular) -> Font {
-        Font(nsFont(size: size, weight: weight) as CTFont)
+        Font(nsFont(size: size, weight: weight, in: Look.app) as CTFont)
     }
 }
 
