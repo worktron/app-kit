@@ -120,3 +120,12 @@ Done when: a browser test with a precache service worker controlling the page (s
 Do not touch: the apps; each takes the fix with its next upgrade.
 Needs: nothing.
 Touches: web/new-build.ts, web/e2e, README.md.
+
+## persona-driver · One headless driver for persona walk-throughs, with a clock, waits and a timeline
+
+Goal: a project runs practices' persona walk-through skill without building its own driver. Today the skill needs three things from each project (persona files, a command that serves a seeded copy, a command that drives it headless), and only Sightline has the driver: `scripts/persona-look.ts` on Sightline's main (130 lines, held by `test/persona-look.test.ts`). It is generic apart from sign-in and its stand-in poster image: a fresh headless Chromium per run, a JSON steps file (goto, click by role and name or by text, fill, waitFor, read), the accessibility tree and a screenshot after each read, phone (390 by 844, touch) or desktop, and every request not to the seeded server's own address refused and printed. urge-surfer's walk-through stopped on 2026-10-28 for want of it, and its experience thread has a reviewed plan for personas who sit through whole calls that needs more than Sightline's driver does.
+
+Shape: Sightline's driver moved here as an `app-kit` command (or a `web/` export the command wraps), with what an app with time in it needs added: a step that moves the page's clock forward (Playwright's clock), a step that waits a set time with no taps, and a timeline file per run (each step, its screenshot, the time on the page's clock) with flags for a screen that waits forever, a stretch where nothing on screen changes, and the same line shown twice. Sign-in and stand-in images are the project's hooks, not built in. Sightline moves onto it in the same piece of work, which proves nothing it relied on changed.
+
+Done when: `app-kit` drives a seeded app from a steps file with those steps, writes the timeline with its flags, and refuses outside requests, each held by app-kit's tests; Sightline's own driver is deleted and its walk-through runs on app-kit's; the README says how a project adds its persona files and serve command. Asked for by the owner on 2026-10-29 (urge-surfer, thread ideas), after comparing persona work in Sightline, nivo, practices and urge-surfer.
+Do not touch: the persona files and serve commands, which stay each project's own.
