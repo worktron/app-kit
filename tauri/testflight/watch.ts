@@ -228,8 +228,12 @@ export async function watch(options: WatchOptions): Promise<number> {
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   let failures = 0;
   try {
+    // Each app has one clone and one record, by its repository's name, so a repository is watched once, at one folder.
+    const watched = new Set<string>();
     for (const url of options.urls) {
       try {
+        if (watched.has(appName(url))) throw new Error(`${url} is a repository an earlier entry already watches; each is watched at one folder`);
+        watched.add(appName(url));
         if (await watchApp(url, state, options)) failures++;
       } catch (error) {
         // Nothing an app does stops the pass over the others.

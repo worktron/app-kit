@@ -424,6 +424,12 @@ test('a Tauri project in a subfolder is installed, judged and uploaded from its 
   expect(inside.named('testflight upload')[0].options.cwd).toBe(join(checkout, 'desktop'));
   expect(existsSync(join(checkout, 'desktop/src-tauri/target/release/cache'))).toBe(true);
   expect(existsSync(join(checkout, 'desktop/node_modules/app-kit/tauri/testflight/upload.ts'))).toBe(true);
+
+  // A second folder of the same repository would share its clone and record, and be skipped unseen, so it is refused.
+  clock += 5 * MINUTE;
+  await pass(runner(), {}, [url, `file://${timescale}#mobile`]);
+  expect(logLines().at(-1)).toBe(`${line(clock)} failed: file://${timescale}#mobile is a repository an earlier entry already watches; each is watched at one folder`);
+  expect(failures).toBe(1);
 });
 
 test('a folder that is missing, leaves the repository or holds pattern characters fails that app with a line naming it', async () => {
