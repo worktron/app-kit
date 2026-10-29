@@ -84,7 +84,9 @@ function installOfflineAudio({ startsOnTap }) {
     // fails a release assertion, which crashes the page.
     if (!document.defaultView) return;
     // Up to the clock, and past wherever the engine stopped: after Playwright's clock jumps, sound that fell behind
-    // catches up in this one step, never 20 ms at a time, each with a timer runFor follows with a real wait.
+    // catches up in this one step, never 20 ms at a time, each with a timer runFor follows with a real wait. A known
+    // limit: suspend() cannot stop a render already running, so a page that suspends while a jump's catch-up renders
+    // sees currentTime go on to the clock; past no jump, a step is AHEAD, and that is all it goes on.
     const clock = own.audioAt + (performance.now() - own.clockAt) / 1000;
     const frame = Math.ceil(((Math.max(context.currentTime, clock) + AHEAD) * context.sampleRate) / QUANTUM) * QUANTUM;
     // The last step renders to the end, which an engine cannot be suspended at.
