@@ -159,9 +159,11 @@ export const PLAIN_SIZES = {
   switchKnob: 10,
 } as const;
 
-/** The console look's sizes, the menu bar panel's and the console web apps'. */
+/** The console look's sizes: the menu bar panel's, and the console web apps' MUI body1 and body2. */
 export const CONSOLE_SIZES = {
   body: 13,
+  webBody: 14,
+  webSmall: 13,
   small: 12,
   note: 11,
   row: 44,

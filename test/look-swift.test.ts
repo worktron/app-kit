@@ -63,7 +63,10 @@ test("the plain look's sizes in Swift are the tokens file's, name for name", () 
   expect(look).toMatch(new RegExp(`case \\.plain: ${PLAIN_SIZES.sidePopup}\\b`));
 });
 
-test("the console look's sizes in Swift are the tokens file's", () => {
+test("the console look's panel sizes in Swift are the tokens file's", () => {
+  // The web apps' body1 and body2 sizes have no Swift copy.
+  const { webBody, webSmall, ...panel } = CONSOLE_SIZES;
+  expect([webBody, webSmall]).toEqual([14, 13]);
   const metrics = block(tokens, 'public enum Metrics', '');
   const value = (name: string) => Number(metrics.match(new RegExp(`static let ${name}: CGFloat = ([\\d.]+)`))?.[1]);
   expect({
@@ -75,5 +78,5 @@ test("the console look's sizes in Swift are the tokens file's", () => {
     footer: value('footer'),
     side: Number(look.match(/case \.console: (\d+)/)?.[1]),
     corner: value('cornerInside'),
-  }).toEqual({ ...CONSOLE_SIZES });
+  }).toEqual(panel);
 });

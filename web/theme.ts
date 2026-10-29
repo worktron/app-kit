@@ -6,7 +6,7 @@
  * and contrast colors worked out.
  */
 import { createTheme, type CssVarsTheme, type Theme, type ThemeOptions } from '@mui/material/styles';
-import { CONSOLE, FONTS, PLAIN_SIZES, plainColors, type Accent, type Colors, type Look } from '../look';
+import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Accent, type Colors, type Look } from '../look';
 import { rem } from './fields';
 
 type Options = Record<string, unknown>;
@@ -170,7 +170,7 @@ function plainOptions(accent?: Accent): Options {
   };
 }
 
-/** The console look: the four console apps' dark theme, JetBrains Mono at 13 on near-black. */
+/** The console look: the four console apps' dark theme, JetBrains Mono on near-black, body text at 14 and smaller text at 13. */
 function consoleOptions(): Options {
   const colors = CONSOLE.dark;
   const mono = FONTS.console;
@@ -188,9 +188,9 @@ function consoleOptions(): Options {
     },
     typography: {
       fontFamily: mono,
-      fontSize: 13,
-      body1: { fontSize: '0.875rem', lineHeight: 1.55 },
-      body2: { fontSize: '0.8125rem', lineHeight: 1.5 },
+      fontSize: CONSOLE_SIZES.body,
+      body1: { fontSize: rem(CONSOLE_SIZES.webBody), lineHeight: 1.55 },
+      body2: { fontSize: rem(CONSOLE_SIZES.webSmall), lineHeight: 1.5 },
       h3: { fontWeight: 700 },
       h4: { fontWeight: 600 },
       h5: { fontWeight: 600 },
@@ -221,7 +221,7 @@ function consoleOptions(): Options {
       },
       MuiButton: {
         styleOverrides: {
-          root: { textTransform: 'none', fontWeight: 500, fontFamily: mono, fontSize: '0.8125rem' },
+          root: { textTransform: 'none', fontWeight: 500, fontFamily: mono, fontSize: rem(CONSOLE_SIZES.webSmall) },
           contained: { boxShadow: 'none', '&:hover': { boxShadow: 'none' } },
           outlined: { borderColor: `${colors.info}50`, '&:hover': { borderColor: colors.info, backgroundColor: `${colors.info}15` } },
         },
@@ -233,7 +233,7 @@ function consoleOptions(): Options {
         styleOverrides: {
           tooltip: {
             fontFamily: mono,
-            fontSize: '0.75rem',
+            fontSize: rem(CONSOLE_SIZES.small),
             borderRadius: 3,
             backgroundColor: colors.surfaceHi,
             border: `1px solid ${colors.border}`,

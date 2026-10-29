@@ -7,7 +7,8 @@
  *
  * The pieces: .page around everything, .title and .subtitle, .label above a section, .text, .rows of .row (a .name
  * with a <small> detail, and on the right a .status word, an .action, a .switch or a .menu), .field, .note, and .build
- * at the foot. An options page, which is a window, sets `--side: var(--side-window)` and `--row: var(--row-window)`.
+ * at the foot. An options page, which is a window, sets `--side: var(--side-window)`, `--row: var(--row-window)` and
+ * `--title: var(--title-window)`.
  */
 
 :root {
