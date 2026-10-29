@@ -350,6 +350,13 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
           }) as typeof setTimeout;
         });
         await page.getByRole('button', { name: 'Play' }).click();
+        // A tone playing through the context, as an app's sound does when its test moves the clock.
+        await page.evaluate(() => {
+          const context = window.contexts[0]!;
+          const tone = context.createOscillator();
+          tone.connect(context.destination);
+          tone.start();
+        });
         // The first step's timer set, which the jump fires: a jump before it has nothing to fire, and the paused clock
         // never would.
         await expect.poll(() => page.evaluate(() => window.timersSet)).toBe(1);
