@@ -15,7 +15,7 @@ import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
-// In the test process's own folder (test/temporary-folder.ts), whose path stays short: a socket path a Node or Python
+// In the test process's own folder (app-kit/testing/start-up), whose path stays short: a socket path a Node or Python
 // caller can reach on macOS is under 104 bytes, which the test holds.
 const hostDir = realpathSync(mkdtempSync(join(tmpdir(), 'ek-')))
 const socket = join(hostDir, 'host.sock')

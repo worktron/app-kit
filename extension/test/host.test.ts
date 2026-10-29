@@ -6,7 +6,7 @@ import { ask, hostStatus, NotConnected } from '../host/client.ts'
 import { startHostAsChrome, type HostAsChrome } from '../testing/host.ts'
 
 // The real host, started the way Chrome starts it, with this test as the extension.
-// In the test process's own folder (test/temporary-folder.ts), whose path stays short enough for a socket.
+// In the test process's own folder (app-kit/testing/start-up), whose path stays short enough for a socket.
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ek-')))
 const socket = join(dir, 'host.sock')
 const logPath = join(dir, 'host.log')

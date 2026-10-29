@@ -38,6 +38,7 @@
     "./server/google": "./server/google/index.ts",
     "./server/postgres": "./server/postgres/index.ts",
     "./server/start": "./server/start/index.ts",
+    "./testing/start-up": "./testing/start-up.ts",
     "./package.json": "./package.json"
   },
   "scripts": {

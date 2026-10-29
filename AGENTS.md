@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and three for what several kinds share (`authentication/`, `server/`, `icons/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and four for what several kinds share (`authentication/`, `server/`, `icons/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -57,6 +57,8 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
 icons/           `app-kit icons render` (render.ts), every icon an app ships drawn from its drawings with sharp: Xcode
                  icon sets, a Tauri app's icons, the menu bar image, the extension's and the web's; test/fixtures/icons
                  holds the tests' drawings and the icon sets' Contents.json
+testing/         what every kind's tests share: start-up.ts (app-kit/testing/start-up), the test start-up file a project
+                 names in bunfig.toml's preload, which the kit's own bunfig.toml names too
 bin/             the app-kit command
 scripts/         the gates (gates.sh), and the landing (land-main.sh, which runs land.ts), which sets the version and tags it
 test/            every unit test, in a simulated page (happy-dom); test/fixtures holds Clerk's recorded answers, ids replaced,

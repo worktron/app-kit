@@ -1,2 +1,2 @@
 [test]
-preload = ["./test/temporary-folder.ts", "./test/dom.ts"]
+preload = ["app-kit/testing/start-up", "./test/dom.ts"]

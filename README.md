@@ -1244,6 +1244,24 @@ The command names where each set goes, so an app keeps it as a script in `packag
 
 It draws with sharp, whose prebuilt binaries carry librsvg, the engine `rsvg-convert` draws with, so it needs neither Homebrew nor a browser; Beeline's icons drawn by it match those its own script drew with `rsvg-convert` within one shade in 255. The kit names sharp as an optional peer, so an app that draws icons adds it with `bun add -d sharp`, and the command says so when it is missing. A drawing not 1024 square, a set entry with no file name or one that leads out of its folder, or any failure while drawing stops it before it writes anything, and each file is written under another name and renamed into place, so none is left cut short. The same drawings draw the same bytes, so a rerun changes nothing in git.
 
+## testing/: what every kind's tests share
+
+### The test start-up file
+
+`app-kit/testing/start-up`: every `bun test` process keeps its temporary files in a folder of its own, `/tmp/<project>-tests/<pid>`, outside the system temporary folder, which slows every process started in it as it fills. A project names it in `bunfig.toml`:
+
+```toml
+[test]
+preload = ["app-kit/testing/start-up"]
+```
+
+- **The folder's name** is the `name` in `package.json` where `bun test` runs, with a scope's `@` dropped and its `/` made a `-`, so `@perf-buddy/server` is `/tmp/perf-buddy-server-tests`; with no name, it is the folder's own name.
+- **Only a folder of this user's.** `/tmp` is shared by every account, so the folder is used only when it is a real folder this user owns that no one else can write to. Anything else (a link, a file, a folder of another account or one others can write to) stops the tests with what it found, before any test runs.
+- **What it sets.** `TMPDIR` is the process's folder, and `os.tmpdir()` reads it on every call, so every `mkdtempSync(join(tmpdir(), ...))` lands there. `TEST_SHARED_TMPDIR` keeps the system folder, for what every test process shares, such as port reservations. A child started with `Bun.spawn` and no `env` keeps the start-up `TMPDIR`; pass `env: process.env`.
+- **Cleaning up.** `bun test` runs no exit handler, so each process removes the folders of processes that have ended rather than its own. Under `--parallel` the file runs once per test file, each time with the environment the worker started with, so only the first file in a process sweeps.
+
+It is the setup skill's test start-up file, held in one place.
+
 ## bin/, scripts/ and test/: develop
 
 `bun test`, `bun run typecheck`, `bun run lint`, `bun run test:e2e` for the web fixture in a hidden Chromium and the kit's WebKit kept out of the Dock, and `bun test ./extension/e2e/harness.e2e.ts` for the extension fixture through the harness (`bunx playwright install chromium webkit` first). `scripts/gates.sh` runs all five, then builds the Rust and Swift of the iPhone notifications and iPhone sign-in plugins for the iPhone simulator, with Rust from rustup and its `aarch64-apple-ios-sim` target, in one build folder all checkouts share, and runs the menu bar theme's Swift tests and its bare swiftc build. A change to `extension/worker/` is followed by `bun bin/app-kit.ts extension copy extension/test/fixture/kit`, which a test checks.
