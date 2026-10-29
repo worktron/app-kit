@@ -108,3 +108,8 @@ Touches: extension/testing/host.ts, extension/worker/, test/.
 
 Goal: web/NotFound.tsx:25-27 (v0.23.0) draws "Go to the home page" inline, one text line tall, and practices rules/interfaces.md asks for tap targets of at least 44px on a touch screen. sightline keeps its own not-found page until this lands (its link is 44px, client/src/Pages.tsx:910). Found by sightline's app-kit-adoption thread, 2026-10-29.
 Done when: the kit's NotFound home link is at least 44px tall and wide on a touch screen, held by a browser test on a phone viewport in the web fixture.
+
+## drawn-for-visitors · A screen's drawn signal reaches a placeholder the app holds for signed-out visitors
+
+Goal: SignInGate's `signedOut` tree gets the default AppDrawnContext, a no-op (web/sign-in/SignInGate.tsx:44,221 at v0.23.0), so a kit screen that calls useAppDrawn, NotFound included, cannot lift a placeholder an app holds for visitors. sightline reads every screen to visitors and holds its wordmark over them until the screen draws (client/src/SignIn.tsx Visitor, client/src/access.ts useScreenDrawn); with the kit's NotFound bare, a visitor at an unknown address would see the wordmark forever. Either the gate's waitForFirstDraw covers the signed-out tree too, or an app can hand the gate its own drawn function for it. Found by sightline's app-kit-adoption thread, 2026-10-29.
+Done when: a kit screen drawn for a signed-out visitor lifts the placeholder the app shows them, held by a test in the web fixture with a signed-out visitor at an unknown address.
