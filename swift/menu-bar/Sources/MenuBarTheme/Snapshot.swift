@@ -48,6 +48,38 @@ public func snapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, appearan
     return try png(NSBitmapImageRep(cgImage: both))
 }
 
+/// Draws `content`, a window's, `width` points wide and as tall as it lays out, into a PNG at `scale` pixels a point, in
+/// sRGB, with nothing on the screen, through the same hosting view a window uses; in `appearance`, dark unless asked, and
+/// in `look`, the app's unless asked, which it sets for the draw and puts back after. Throws, in the console look, when
+/// the bundled font is not loaded.
+@MainActor
+public func windowSnapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, appearance: NSAppearance = NSAppearance(named: .darkAqua)!,
+                                          look: Look = Look.app, @ViewBuilder _ content: () -> Content) throws -> Data {
+    let before = Look.app
+    Look.app = look
+    defer { Look.app = before }
+    if look == .console, !Typeface.register() { throw SnapshotError.font(Typeface.problem ?? "unknown") }
+    let scheme: ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
+    let root = content().frame(width: width).environment(\.displayScale, scale).environment(\.colorScheme, scheme)
+    // As tall as the content asks at this width, measured the way a window sizes itself to its content.
+    let measure = NSHostingController(rootView: root)
+    measure.view.appearance = appearance
+    let size = NSSize(width: width, height: ceil(measure.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height))
+    // On the window's paper to its edges, which the half point a height rounds up to would otherwise leave clear.
+    let view = NSHostingView(rootView: root.frame(height: size.height, alignment: .top).background(Palette.bg.color))
+    view.appearance = appearance
+    view.sizingOptions = []
+    view.frame = NSRect(origin: .zero, size: size)
+    view.layoutSubtreeIfNeeded()
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)?.retagging(with: .sRGB)
+    else { throw SnapshotError.draw }
+    rep.size = size
+    view.cacheDisplay(in: view.bounds, to: rep)
+    return try png(rep)
+}
+
 /// One panel's root drawn at its own height, which its first layout reports into `surface`.
 @MainActor
 private func draw(_ root: some View, width: CGFloat, scale: CGFloat, appearance: NSAppearance, surface: Surface) throws -> NSBitmapImageRep {

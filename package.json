@@ -11,6 +11,7 @@
     "./web/first-paint": "./web/first-paint.js",
     "./web/server": "./web/server.ts",
     "./web/playwright": "./web/playwright.js",
+    "./look": "./look/index.ts",
     "./authentication/clerk": "./authentication/clerk/index.tsx",
     "./authentication/clerk/server": "./authentication/clerk/server.ts",
     "./authentication/clerk/playwright": "./authentication/clerk/playwright.js",

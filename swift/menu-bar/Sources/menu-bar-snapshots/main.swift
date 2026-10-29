@@ -3,8 +3,9 @@ import Foundation
 import MenuBarTheme
 
 // menu-bar-snapshots render <folder> [dark|light] [plain|console]
-//                                                          draws each sample screen to <folder>/<screen>.png, in the
-//                                                          dark appearance and the plain look unless asked otherwise
+//                                                          draws each sample screen, the panel's and then a window's,
+//                                                          to <folder>/<screen>.png, in the dark appearance and the
+//                                                          plain look unless asked otherwise
 // menu-bar-snapshots compare <mockups> <theme> <out>       checks each screen against the mockup's render and its
 //                                                          rectangles (<mockups>/<screen>.png and .json), and writes the
 //                                                          two side by side to <out>/<screen>.png; the mockups are the
@@ -32,7 +33,7 @@ MainActor.assumeIsolated {
         Look.app = words.compactMap { looks[$0] }.first ?? .default
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            for sample in samples {
+            for sample in samples + windowSamples {
                 try render(sample, appearance: appearance).write(to: folder.appendingPathComponent("\(sample.name).png"))
                 print("drew \(sample.name)")
             }

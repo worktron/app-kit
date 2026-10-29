@@ -6,6 +6,7 @@ export { savedCopies, useSavedCopy, useSaveAfterDraw, useScreenData, thisBuild, 
 export { followTextSize, useTextScale } from './text-size';
 export { FIELD_FONT_SIZE, fieldsNeverZoom, rem } from './fields';
 export { waitForFonts, FONT_WAIT_MS } from './fonts';
+export { lookTheme } from './theme';
 export { isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
 export { PullToRefresh, PULL_DISTANCE, type PullToRefreshProps } from './PullToRefresh';
 export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';

@@ -80,11 +80,12 @@ public enum Typeface {
 }
 
 extension View {
-    /// Text in the app's look's face (`code` for a command to copy, monospaced in either look), with lines 1.5 times
-    /// its size apart and the same room above the first and below the last, as the web's line-height gives, so a block
-    /// of text is as tall here as in the mockups.
-    public func console(_ size: CGFloat, weight: NSFont.Weight = .regular, tone: Tone? = nil, code: Bool = false) -> some View {
-        modifier(Console(size: size, weight: weight, tone: tone, code: code))
+    /// Text in the app's look's face (`code` for a command to copy, monospaced in either look), with lines `lineHeight`
+    /// times its size apart, 1.5 unless asked, and the same room above the first and below the last, as the web's
+    /// line-height gives, so a block of text is as tall here as in the mockups.
+    public func console(_ size: CGFloat, weight: NSFont.Weight = .regular, tone: Tone? = nil, code: Bool = false,
+                        lineHeight: CGFloat = Metrics.lineHeight) -> some View {
+        modifier(Console(size: size, weight: weight, tone: tone, code: code, lineHeight: lineHeight))
     }
 }
 
@@ -93,11 +94,12 @@ struct Console: ViewModifier {
     let weight: NSFont.Weight
     let tone: Tone?
     let code: Bool
+    let lineHeight: CGFloat
 
     func body(content: Content) -> some View {
         let font = Typeface.nsFont(size: size, weight: weight, in: Look.app, code: code)
         let natural = Typeface.lineHeight(of: font)
-        let extra = max(0, size * Metrics.lineHeight - natural)
+        let extra = max(0, size * lineHeight - natural)
         let text = content.font(Font(font as CTFont)).lineSpacing(extra).padding(.vertical, extra / 2)
         if let tone {
             text.foregroundStyle(tone.palette.color)

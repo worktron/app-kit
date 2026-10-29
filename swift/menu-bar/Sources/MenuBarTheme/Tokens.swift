@@ -130,3 +130,40 @@ public enum Tone: Sendable {
         }
     }
 }
+
+/// The plain look's sizes in a window and its controls, from the Plain Look Studies page's option C on a 4 point grid,
+/// with the same names and values as the kit's tokens file (look/index.ts, PLAIN_SIZES), which a test holds equal.
+public enum PlainMetrics {
+    /// A page's title: 17 in a window, 15 in a popup.
+    public static let titleWindow: CGFloat = 17
+    public static let titlePopup: CGFloat = 15
+    public static let body: CGFloat = 13
+    /// A row's detail, a status word, a foot note and the build line.
+    public static let small: CGFloat = 12
+    /// A section's label, in muted.
+    public static let label: CGFloat = 12
+    public static let labelWeight: NSFont.Weight = .semibold
+    /// Weight of a row's name, when it is a thing's name, and of a page's main action.
+    public static let strongWeight: NSFont.Weight = .semibold
+    public static let lineHeight: CGFloat = 1.4
+    /// Left and right padding: 20 in a popup, 24 in a window.
+    public static let sidePopup: CGFloat = 20
+    public static let sideWindow: CGFloat = 24
+    /// Room above a section's label, and from the label to what it labels.
+    public static let sectionGap: CGFloat = 24
+    public static let labelGap: CGFloat = 8
+    /// A row's least height: 44 in a popup, 48 in a window, with 10 above and below its text.
+    public static let rowPopup: CGFloat = 44
+    public static let rowWindow: CGFloat = 48
+    public static let rowPadding: CGFloat = 10
+    /// The hairline between rows.
+    public static let line: CGFloat = 1
+    /// A text field's corners and its padding inside.
+    public static let fieldCorner: CGFloat = 4
+    public static let fieldPaddingVertical: CGFloat = 6
+    public static let fieldPaddingHorizontal: CGFloat = 10
+    /// The switch: 28 by 16, its knob 10 across.
+    public static let switchWidth: CGFloat = 28
+    public static let switchHeight: CGFloat = 16
+    public static let switchKnob: CGFloat = 10
+}

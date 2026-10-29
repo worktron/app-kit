@@ -7,7 +7,8 @@ import { firstPaint } from 'app-kit/web/first-paint';
 // A small app built on the kit with the stand-in sign-in, which the browser test runs built, as a deploy serves it; the
 // same app as a later deploy builds it (newer.html), with its own built entry; a page whose text follows the phone's
 // Text Size (text-size.html); the pieces an installed app adds (pieces.html); a page drawn after its fonts
-// (fonts.html); and a page run as a Tauri app's, with the kit's Tauri page halves (tauri.html). Every page's first
+// (fonts.html); a page run as a Tauri app's, with the kit's Tauri page halves (tauri.html); and a settings page in the
+// kit's MUI themes (look.html). Every page's first
 // frame follows the system's light or dark setting.
 export default defineConfig({
   root: import.meta.dirname,
@@ -23,7 +24,7 @@ export default defineConfig({
     // The record of what Vite built, which serveBuiltPage reads to know which files a browser may keep.
     manifest: true,
     rolldownOptions: {
-      input: ['index.html', 'newer.html', 'text-size.html', 'pieces.html', 'fonts.html', 'tauri.html'].map((page) => join(import.meta.dirname, page)),
+      input: ['index.html', 'newer.html', 'text-size.html', 'pieces.html', 'fonts.html', 'tauri.html', 'look.html'].map((page) => join(import.meta.dirname, page)),
     },
   },
   // Any address is the app, as the app's own server answers them.
