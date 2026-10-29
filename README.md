@@ -1,16 +1,17 @@
 # app-kit
 
-The baseline every app of ours ships with, written once instead of copied from the last app. One package with a folder for each kind of app, and three for what several kinds share. Practices' rules files say why each piece exists; this package is the code.
+The baseline every app of ours ships with, written once instead of copied from the last app. One package with a folder for each kind of app, and a folder for each thing several kinds share. Practices' rules files say why each piece exists; this package is the code.
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
-| `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
-| `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the native host, the test harness. |
+| `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
+| `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the plain look's stylesheet for their pages, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
-| `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
+| `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
+| `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
 
 A piece with a browser half keeps its server half beside it (`tauri/sign-in/server.ts`); a piece that is server only goes in `server/`. No vendor names a top folder.
@@ -263,6 +264,26 @@ test('every API route is guarded, and a key reads only the routes listed for it'
 });
 ```
 
+### The look
+
+`lookTheme(look, options)` is the MUI theme for one of the kit's two looks, built from the tokens file (`app-kit/look`), so the app keeps no copy of the colors. The plain look is the system typeface on warm paper, #f6f5f2 in light and #1d1e20 in dark, following the system's setting through MUI's CSS variables, with the app's accent for actions and links; the console look is the console apps' dark theme, JetBrains Mono at 13 on #050505. An app sets its look, in plain its accent, and nothing else of the look:
+
+```tsx
+import { lookTheme, fieldsNeverZoom } from 'app-kit/web'
+
+const theme = lookTheme({ name: 'plain', accent: { light: '#2f5fa7', dark: '#8fb0e6' } }, { components: fieldsNeverZoom })
+// or, for a console app: lookTheme({ name: 'console' })
+
+<ThemeProvider theme={theme}><CssBaseline />…</ThemeProvider>
+```
+
+- **The kit builds the theme.** MUI works out the palette's light, dark and contrast colors, the typography and the color schemes only from `createTheme`'s first argument, and merges later arguments in raw, so a palette passed after would draw without them. The app's own options go in `lookTheme`'s second argument, merged into the kit's before MUI computes anything: components, breakpoints, `fieldsNeverZoom`.
+- **The plain look's pieces in MUI.** A section's label is `<Typography variant="overline">` (12 at 600 in muted, no capitals); a title `variant="h6"` (17); a row is a `ListItem` (at least 48 high, a hairline below, no side padding), with what goes on the right, a status word, an action, a `Switch` or a menu, as a child after its `ListItemText` rather than a `secondaryAction`, which sits over the row and keeps only 48 pixels clear; status is `<Typography variant="body2" color="success">` and its siblings; an action is a `Button`, a word in the accent with nothing filled, and a removal `<Button color="error">`; the `Switch` is the kit's, 28 by 16; a menu that reads as text is `<Select variant="standard">`; a text field is a `TextField` in a hairline box. No paper, card or app bar has a shadow or a box of its own.
+- **Page width and row height stay the app's**, as the console apps' `layout` objects hold them; the theme carries neither.
+- `CONSOLE`, `plainColors(accent)`, `PLAIN_SIZES` and `FONTS` from `app-kit/look` give the values to code that draws outside MUI, as a chart or a canvas does.
+
+`web/e2e/look.e2e.ts` draws a settings page in both looks, plain in light and in dark, in the fixture's hidden Chromium, and holds its colors to the tokens.
+
 ### The phone's Text Size
 
 An iPhone's web view, Safari's and the one a Tauri app runs in, ignores the Text Size set in Settings unless the page asks for it, and Apple has said it will stay that way (WebKit bug 187013). `followTextSize()`, called once at start, asks: it measures an element in Apple's body text style, which does take the setting, against its default of 17 pixels, and multiplies the page's root font size by that scale, the app's own root size if it sets one, from about 0.82 at the smallest size to about 3.12 at the largest accessibility size. It reads again each time the page comes back in front, since changing the setting means leaving the app.
@@ -343,6 +364,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Native host | `app-kit/extension/host` | The host Chrome starts: it serves a unix socket for callers on the Mac (a command line, an MCP server, a server) and relays their requests to the extension. Also the client callers use, the status they read, the extension's ID from its key, and the manifest that tells Chrome about the host. |
 | Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
 | Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
+| Plain look | `extension/look.css`, copied as `look.css` | The plain look for a popup or an options page, plain CSS with no build step: the look's colors as CSS variables, light and dark by the system's setting, written from the tokens file as it is copied, and the kit's rules for its pieces and controls. |
 | Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for unit tests of a worker built on the kit. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
@@ -354,7 +376,7 @@ bun add github:worktron/app-kit#v0.27.0
 bun run app-kit extension copy extension/kit
 ```
 
-`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. The files land directly in the folder given, the one the worker imports them from; `copy` refuses, writing nothing, a folder that holds none of them while a folder below it holds copies, and a file of the same name that is not a copy. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy, and another checks that the worker's list for self-reload names every file it imports:
+`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. The files land directly in the folder given, the one the worker imports them from, with `look.css`, the plain look's stylesheet for the extension's pages; `copy` refuses, writing nothing, a folder that holds none of them while a folder below it holds copies, and a file of the same name that is not a copy. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy, and another checks that the worker's list for self-reload names every file it imports:
 
 ```ts
 import { unlistedImports, workerCopyDiffers } from 'app-kit/extension/copy'
@@ -364,6 +386,31 @@ test('the worker lists every file it loads', () => expect(unlistedImports('.', L
 ```
 
 To upgrade, run the same `bun add` at the new tag, then the copy command again.
+
+A page in the plain look links the copied stylesheet, says it follows dark too, and sets only its accent:
+
+```html
+<meta name="color-scheme" content="light dark" />
+<link rel="stylesheet" href="kit/look.css" />
+<style>:root { --accent-light: #2f5fa7; --accent-dark: #8fb0e6 }</style>
+
+<main class="page">
+  <p class="title">Belongs in work@example.com</p>
+  <p class="subtitle">This tab is in client@example.com</p>
+  <div class="label">Profiles</div>
+  <div class="rows">
+    <div class="row"><span class="name"><b>work@example.com</b><small>Where it belongs</small></span><button class="action">Open it there</button></div>
+    <div class="row"><span class="name">client@example.com<small>This tab</small></span><span class="status ok">Signed in</span></div>
+    <label class="row"><span class="name">Ask before moving a tab</span><input class="switch" type="checkbox" role="switch" /></label>
+    <label class="row"><span class="name">Open others in</span><select class="menu"><option>Personal</option></select></label>
+    <div class="row"><label class="name">Test a link<input class="field" /></label><button class="action">Test</button></div>
+    <div class="row"><span class="name">Link memory</span><button class="action remove">Forget all</button></div>
+  </div>
+  <p class="build">Answered by My Extension 1.0.0 (abc1234)</p>
+</main>
+```
+
+Its pieces: `.page` (20 pixel sides, as a popup's; an options page sets `--side: var(--side-window)` and `--row: var(--row-window)`), `.title`, `.subtitle`, `.label` above a section, `.text`, `.rows` of `.row` between hairlines (at least 44 high, a `.name` with a `<small>` detail, and one thing on the right), `.status` in `.ok`, `.warn`, `.error` or `.waiting`, `.action` (a word in the accent; `.main` for the page's main one, `.remove` in the error color, `.block` for one on a line of its own with a `<small>` under it), `.switch` on a checkbox, `.menu` on a select, `.field` on an input, `.note`, and `.build` at the foot, with the version and commit from `worker/build.js`. The stylesheet declares `color-scheme: light dark`, so Chrome's own scrollbars and form parts follow dark too. Its copy opens with a CSS comment naming the kit version, since a `//` line would be read as part of the rule after it, and `workerCopyDiffers` and `app-kit extension check` hold it current as they do the worker files. `extension/e2e/harness.e2e.ts` draws the fixture's popup with it, light and dark, in the hidden Chromium.
 
 A worker built on it:
 
@@ -785,7 +832,7 @@ The token is handed only to the `op` call, never to the build's programs. Until 
 
 ## swift/: Mac apps built in Swift
 
-What a Mac app written in Swift takes from the kit: the menu bar theme, and the Mac app package, what every Swift Mac app writes for itself. A Swift app builds the kit's Swift files as they are at a tag, from the copy bun installs, or from any copy of the folder at that tag.
+What a Mac app written in Swift takes from the kit: the menu bar theme, with a window's pieces in the plain look, and the Mac app package, what every Swift Mac app writes for itself. A Swift app builds the kit's Swift files as they are at a tag, from the copy bun installs, or from any copy of the folder at that tag.
 
 ### Menu bar theme
 
@@ -874,6 +921,45 @@ panel.attach(to: item)
 ```
 
 `swift/menu-bar/e2e/compare-mockups.ts` checks the theme against the Studies page: a headless Chromium draws the five screens of `e2e/mockups.html` (the page's own CSS and markup, with stand-in names, since this repository is public), the theme draws the same five in the console look, whose mockups they are, and each is held to the mockup's size, backgrounds, lines and the place and color of every run of text, within 2 points. It writes the pairs side by side to `test-results/menu-bar/side-by-side`. It is run by hand after a change to the look, not by the gates, since it holds one text engine's letters to another's. The gates run the theme's Swift tests (`swift test` in `swift/menu-bar`) and build it the bare `swiftc` way (`e2e/swiftc-build.sh`), against the current SDK and again against the newest macOS 26 SDK the Command Line Tools keep, at the theme's macOS 14 floor, as a Mac not yet on macOS 27 builds it. That second build uses the current Swift compiler with the older SDK, so it catches an API only the new SDK declares, not a language feature only the new compiler has. What no test reaches is a real click on a real menu bar icon: the session's start and end call the same open and close the tests drive.
+
+### Windows in the plain look
+
+The same package draws a Mac window in the plain look, as the Plain Look Studies page's option C draws Beeline's setup window and Settings: a page on the paper with no boxes or grouped forms, sections under a muted label, rows between hairlines, status in colored words, actions as words in the accent, and the kit's own controls instead of macOS's. They read `Look.app` for their colors, as the panel does, and `PlainMetrics` for their sizes: 24 point sides, 24 between sections, 8 from a label to what it labels, rows of 48 at least.
+
+```swift
+WindowPage {
+    SectionLabel("Starting", first: true)
+    Lines {
+        WindowRow("Open Beeline when you log in", detail: "Starts at login. Turn off to start it yourself.") {
+            Switch("Open Beeline when you log in", isOn: $settings.opensAtLogin)
+        }
+        WindowRow("Open them in") { TextMenu(selection: $settings.profile, options: profiles.map { (value: $0.id, name: $0.name) }) }
+        WindowRow("Test a link") { HairlineField("A link", text: $link) } trailing: { ActionWord("Test") { test(link) } }
+    }
+    SectionLabel("Chrome profiles")
+    Lines {
+        ForEach(profiles) { WindowRow($0.name, detail: $0.email, strong: true) { StatusWord("Connected", .ok) } }
+    }
+    FootNote("Each profile lists the sites Beeline saw it signed in to.")
+    BuildLine("Beeline \(version), \(commit)")
+}
+```
+
+| Piece | What it draws |
+| --- | --- |
+| `WindowPage(content:)` | The window's content on the paper, 24 points in from each side, 20 above and 24 below. |
+| `PageTitle(_:subtitle:)` | A page's title at 17 in semibold, and what the page is for under it in secondary. |
+| `SectionLabel(_:first:)` | A section's label, 12 at semibold in muted, 24 below what is above it and 8 above what it labels; the page's `first` sits 4 from the top. |
+| `Lines(content:)`, `WindowRow(_:detail:strong:below:trailing:)` | Rows between hairlines: the name (in semibold when `strong`, for a thing's name rather than a setting's), a detail in secondary, what goes under them (a field), and on the right a status word, an action, a switch or a menu. |
+| `StatusWord(_:_:)` | A status in a colored word, in a `Tone`. |
+| `ActionWord(_:main:removes:action:)` | An action as a word in the accent, `main` in semibold for the page's main one, `removes` in the error color, which means removal and failure only. |
+| `ActionBar(leading:trailing:)`, `FootNote(_:)`, `BuildLine(_:)` | The page's foot: what is said there and its main action; a line of explanation in secondary; and the build, as About shows it. |
+| `Switch(_:isOn:)`, `SwitchStyle`, `.lookSwitch` | The switch, 28 by 16: a muted outline and knob when off, the accent with a paper knob when on. A `ToggleStyle`, so any `Toggle` can take it; the label is what VoiceOver reads, since the row says what it sets. |
+| `TextMenu(selection:options:)` | A choice among a few that reads as text: the chosen name and a chevron over a hairline, opening a menu on a click. SwiftUI takes no custom picker style, so it is a view of its own. |
+| `HairlineField(_:text:)` | A text field in a hairline box with 4 point corners, its text at 12. SwiftUI takes no custom text field style, so it is a view of its own. |
+| `windowSnapshot(width:scale:appearance:look:content:)` | A window's page drawn to a PNG with nothing on the screen, as tall as it lays out, in the appearance and look given, as `snapshot` does for the panel. |
+
+`menu-bar-snapshots render` draws the Studies page's three window screens after the panel's (`window-setup`, `window-profiles`, `window-general`). `test/look-swift.test.ts` reads `Tokens.swift` and `Look.swift` and holds every color and size to the tokens file, `look/index.ts`, so the Swift side cannot drift from the web's and the extension's.
 
 ### Mac app
 
@@ -1210,6 +1296,10 @@ test('records a visit', async () => {
 ```
 
 Needs `drizzle-orm` 0.45, `@electric-sql/pglite` 0.5 and `postgres` 3.4, which the kit names as optional peers, so an app without a database installs none of them. An app that uses it installs all three as dependencies, not dev dependencies, whichever database it opens: the one module imports both drivers, so a server that opens only Railway's Postgres still loads PGlite at start, and one on PGlite still loads `postgres`.
+
+## look/: the two looks
+
+`app-kit/look`: the only owner of the looks' values, plain TypeScript with no packages, which `lookTheme` (web), the copied `look.css` (extension) and the Swift package's tokens all take from. `CONSOLE` holds the console look's colors, light and dark; `plainColors(accent)` the plain look's, with `DEFAULT_ACCENT`, Beeline's blue, as info unless the app gives its own; `PLAIN_SIZES` and `CONSOLE_SIZES` the sizes; `FONTS` the typefaces. A change to a value here changes every surface at once: the extension's copy at its next `app-kit extension copy`, and the Swift copy by hand in `swift/menu-bar/Sources/MenuBarTheme/Tokens.swift`, which `test/look-swift.test.ts` fails until it matches.
 
 ## icons/: one drawing, every icon
 

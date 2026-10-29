@@ -46,7 +46,7 @@ test("installed in an app's checkout, --version names the commit the app's bun.l
     git('init', '-q');
     git('commit', '-q', '--allow-empty', '-m', 'the app');
     const kit = join(app, 'node_modules/app-kit');
-    for (const path of ['bin', 'extension', 'icons', 'tauri/iphone-run', 'tauri/iphone-simulator', 'tauri/testflight', 'tauri/apple-token.ts', 'tauri/build-env.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
+    for (const path of ['bin', 'extension', 'look', 'icons', 'tauri/iphone-run', 'tauri/iphone-simulator', 'tauri/testflight', 'tauri/apple-token.ts', 'tauri/build-env.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
     expect(runFrom(kit, '--version').out).toBe(`app-kit ${packageJson.version} (commit unknown: no checkout of its own and no bun.lock naming it)\n`);
     writeFileSync(join(app, 'bun.lock'), `{\n  "packages": {\n    "app-kit": ["app-kit@github:worktron/app-kit#1ce3152", {}, "worktron-app-kit-1ce3152", "sha512-x"],\n  }\n}\n`);
     expect(runFrom(kit, '--version')).toEqual({ code: 0, out: `app-kit ${packageJson.version} (1ce3152)\n`, err: '' });

@@ -1,11 +1,11 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and four for what several kinds share (`authentication/`, `server/`, `icons/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/look`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
 ```
-web/             web apps (app-kit/web): fetch wrapper, connection, new build, preload reload, error boundary and its reload after a crash, saved copies, row links,
+web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, lookTheme), fetch wrapper, connection, new build, preload reload, error boundary and its reload after a crash, saved copies, row links,
                  the phone's Text Size, fields that never zoom, pull to refresh, the font wait, the sign-in gate and the
                  provider interface it takes (sign-in/provider.ts); first-paint.js, the Vite plugin for the first frame (app-kit/web/first-paint);
                  server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;
@@ -15,7 +15,9 @@ web/             web apps (app-kit/web): fetch wrapper, connection, new build, p
                  playwright.js, the browser test steps every app shares (app-kit/web/playwright);
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium; web/e2e/audio-output.swift, the
                  record of which processes have an output device open, for offline-audio.e2e.ts
-extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension), host/ (the Mac side),
+extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension), look.css (the plain
+                 look's rules for an extension's pages, copied beside the worker files with its variables written from
+                 look/), host/ (the Mac side),
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
                  copy.ts, and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
@@ -35,7 +37,8 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  playwright.js, the Tauri bridge faked for apps' browser tests, with desktop sign-in's steps (app-kit/tauri/playwright)
 swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift package an app builds from the kit bun
                  installed: Sources/MenuBarTheme (the two looks, plain and console, and their tokens, the bundled JetBrains
-                 Mono in Fonts/ for the console look, the pieces, the panel and the snapshot), Sources/menu-bar-snapshots
+                 Mono in Fonts/ for the console look, the pieces, the panel and the snapshot, and in the plain look a
+                 window's pieces, Window.swift, and the switch, the menu and the field, Controls.swift), Sources/menu-bar-snapshots
                  (the Studies screens drawn in either look, and compared in the console look), Tests/, and
                  e2e/ (the mockups, the comparison with a headless Chromium, and the bare swiftc build)
                  mac-app/, what every Swift Mac app writes for itself, a Swift package built the same way: Sources/MacApp
@@ -55,6 +58,9 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration),
                  start/ (the Hono app every server starts from, with its health route, request log and JSON errors, and
                  listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it)
+look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
+                 and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
+                 test/look-swift.test.ts
 icons/           `app-kit icons render` (render.ts), every icon an app ships drawn from its drawings with sharp: Xcode
                  icon sets, a Tauri app's icons, the menu bar image, the extension's and the web's; test/fixtures/icons
                  holds the tests' drawings and the icon sets' Contents.json
