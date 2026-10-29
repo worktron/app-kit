@@ -69,13 +69,19 @@ public enum AppWindows {
     /// Gives the app its Dock icon, asks macOS to bring it forward, runs `open`, which shows the window, and on the
     /// next turn of the run loop, once the window exists, brings it forward and asks again: since macOS 14 activating
     /// is only a request, and asking before the window exists can leave the icon in the Dock with the window behind.
+    /// When `open` showed no window, the icon goes back to what the open windows call for.
     public static func show(log: AppLog? = nil, open: @MainActor () -> Void) {
+        let shownBefore = Set(NSApp.windows.filter { isOrdinary($0) }.map(ObjectIdentifier.init))
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         open()
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                NSApp.windows.first { isOrdinary($0) }?.makeKeyAndOrderFront(nil)
+                guard let window = opened(shownBefore: shownBefore, frontToBack: NSApp.orderedWindows) as? NSWindow else {
+                    NSApp.setActivationPolicy(DockIcon.policy(for: NSApp.windows))
+                    return
+                }
+                window.makeKeyAndOrderFront(nil)
                 NSApp.activate()
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -105,7 +111,14 @@ public enum AppWindows {
         menu.items.firstIndex { $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command }
     }
 
-    private static func isOrdinary(_ window: NSWindow) -> Bool {
+    /// The window `open` showed: one shown since, else the frontmost, which an opener that brought an open window
+    /// forward put there. Nil when no ordinary window is showing.
+    static func opened(shownBefore: Set<ObjectIdentifier>, frontToBack windows: [any DockWindow]) -> (any DockWindow)? {
+        let showing = windows.filter { isOrdinary($0) }
+        return showing.first { !shownBefore.contains(ObjectIdentifier($0)) } ?? showing.first
+    }
+
+    private static func isOrdinary(_ window: any DockWindow) -> Bool {
         window.isVisible && window.canBecomeMain && !window.isPanel
     }
 }

@@ -60,7 +60,8 @@ public struct LaunchAtLogin {
     }
 }
 
-/// The switch for Settings: it shows what macOS has when it appears, and after each change what macOS then has.
+/// The switch for Settings: it shows what macOS has when it appears, each time the app comes forward (the person may
+/// have changed it in System Settings meanwhile), and after each change what macOS then has.
 public struct LaunchAtLoginToggle: View {
     let title: String
     let launch: LaunchAtLogin
@@ -74,5 +75,8 @@ public struct LaunchAtLoginToggle: View {
     public var body: some View {
         Toggle(title, isOn: Binding(get: { on }, set: { on = launch.set($0) }))
             .onAppear { on = launch.isEnabled }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                on = launch.isEnabled
+            }
     }
 }

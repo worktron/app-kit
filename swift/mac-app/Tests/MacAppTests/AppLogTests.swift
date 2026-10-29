@@ -66,6 +66,14 @@ import Testing
         #expect(kept.count == 3)
     }
 
+    @Test func aLineLongerThanHalfTheLimitIsKeptWhole() throws {
+        let log = AppLog(file: file, limit: 40)
+        #expect(log.note("x"))
+        let long = String(repeating: "y", count: 30)
+        #expect(log.note(long))
+        #expect(try lines().dropLast().map { $0.split(separator: "\t").last.map(String.init) } == [long])
+    }
+
     @Test func aLineThatCannotBeWrittenSaysSo() throws {
         let locked = folder.appendingPathComponent("locked")
         try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o500])

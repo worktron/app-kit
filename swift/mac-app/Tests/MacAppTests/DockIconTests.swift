@@ -49,6 +49,18 @@ final class Recorded {
         #expect(state.set.count == 3)
     }
 
+    /// Another window already open in front must not be brought forward over the one just opened.
+    @Test func theWindowJustOpenedIsTheOneBroughtForward() {
+        let main = StandInWindow()
+        let settings = StandInWindow()
+        let panel = StandInWindow()
+        panel.isPanel = true
+        let before: Set = [ObjectIdentifier(main)]
+        #expect(AppWindows.opened(shownBefore: before, frontToBack: [panel, main, settings]) === settings)
+        #expect(AppWindows.opened(shownBefore: [ObjectIdentifier(main), ObjectIdentifier(settings)], frontToBack: [settings, main]) === settings)
+        #expect(AppWindows.opened(shownBefore: before, frontToBack: [panel, StandInWindow(visible: false)]) == nil)
+    }
+
     @Test func settingsIsTheAppMenusCommandCommaItem() {
         let menu = NSMenu()
         menu.addItem(withTitle: "About My App", action: nil, keyEquivalent: "")

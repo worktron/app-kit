@@ -61,8 +61,12 @@ public struct AppLog: Sendable {
         let half = all.suffix(limit / 2)
         // A half that starts on a line's first byte keeps that line; otherwise the part line is dropped.
         let whole = half.startIndex == all.startIndex || all[half.index(before: half.startIndex)] == UInt8(ascii: "\n")
-        let start = whole ? half.startIndex : half.firstIndex(of: UInt8(ascii: "\n")).map { half.index(after: $0) } ?? half.startIndex
-        try? half[start...].write(to: file, options: .atomic)
+        var start = whole ? half.startIndex : half.firstIndex(of: UInt8(ascii: "\n")).map { half.index(after: $0) } ?? half.startIndex
+        // A newest line longer than the half has its only line break at the end, which would leave nothing: it stays whole.
+        if start == all.endIndex, let last = all.indices.last {
+            start = all[..<last].lastIndex(of: UInt8(ascii: "\n")).map { all.index(after: $0) } ?? all.startIndex
+        }
+        try? all[start...].write(to: file, options: .atomic)
     }
 
     /// The newest `count` lines, oldest first; none when the file does not exist.
