@@ -110,6 +110,28 @@ import Testing
         #expect(Palette.info.hex(for: Self.dark, in: .plain(accent: accent)) == 0xf08ac8)
     }
 
+    /// How tall `view` draws in `look`, at scale 2, without the panel's border above and below.
+    func height(_ look: Look, _ view: some View) throws -> CGFloat {
+        let rep = try #require(NSBitmapImageRep(data: try snapshot(width: 400, look: look) { view }))
+        return CGFloat(rep.pixelsHigh) / 2 - 2
+    }
+
+    @Test func eachPieceIsAsTallInPlainAsInConsole() throws {
+        Typeface.register()
+        let pieces: [(String, AnyView)] = [
+            ("header", AnyView(Header("fleet", status: Words("3 of 4 need you", .error), note: "read just now"))),
+            ("row", AnyView(Row("alpha", status: Words("has never reported", .error).then("+1", .muted), age: "never") {})),
+            ("footer", AnyView(Footer([FooterItem("settings", key: ",") {}]))),
+            ("group line", AnyView(GroupLine("delta", status: Words("fine", .ok), age: "16m ago"))),
+            ("item line", AnyView(ItemLine("has never reported", copy: "bun bin/sync.ts install"))),
+            ("sub line", AnyView(SubLine("MacBook Air · reachable from charlie-2, delta"))),
+            ("problem block", AnyView(ProblemBlock("apply stopped on share-page", hint: "on bravo, see why", copy: "bun bin/apply.ts"))),
+        ]
+        for (name, view) in pieces {
+            #expect(try height(.plain(), view) == height(.console, view), "\(name)")
+        }
+    }
+
     @Test func aPlainLineStartsAtThePlainSides() throws {
         let png = try snapshot(width: 400, appearance: Self.light, look: .plain()) { Row("alpha", status: Words("fine", .ok), age: "4m") {} }
         // Inside the 1 point outline, nothing until the plain inset, then the name.
