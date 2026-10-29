@@ -76,3 +76,21 @@ Worth-it reviewer: "Verdict: trimmed (the Swift panel look only: drop look/ toke
 - Known limit: the workspace-sweep branch also edits README.md, so whichever lands second resolves the conflict there. Routine.
 - Agreed: `Look.app` needs `nonisolated(unsafe)` under Swift 6. Written in.
 - Moved to the ticket (the pieces were cut): MUI's later `createTheme` arguments skip palette and typography (confirmed at `node_modules/@mui/material/styles/createThemeNoVars.js:151`); MUI recommends `colorSchemes` over a mode argument; a `//` header breaks a CSS copy; `color-scheme` is needed for dark native controls; SwiftUI has no public custom Picker or TextField style.
+
+## plain-look · The rest of the plain look: one tokens file, the MUI themes, the extension stylesheet, and SwiftUI window pieces and controls
+
+Asked 2026-10-29 ("Build the plain-look ticket"). The spec is the plain-look ticket on main's backlog, with its "Since" and "Also" paragraphs.
+
+### The change
+
+- `look/index.ts` (import `app-kit/look`), a new shared top folder beside `icons/` and `testing/`, since three kinds read it: the only owner of both looks' colors (every role, light and dark, the accent as the plain look's one input), the plain look's sizes and spacing (title 17 in a window and 15 in a popup, label 12 at 600 in muted, body 13, small 12, sides 20 in a popup and 24 in a window, 24 between sections, 8 from a label to its content, rows of 44 in a popup and 48 in a window), and the console look's sizes. No packages, no React.
+- `web/theme.ts` in `app-kit/web`: `lookTheme(look, options)` builds the MUI theme itself, since createTheme computes palette and typography only from its first argument. Plain gives light and dark `colorSchemes` with `cssVariables`, the system typeface, no boxes or shadows, buttons as accent words, a switch, menu and field in the kit's shape. Console gives the four console apps' dark theme, JetBrains Mono at 13. The app's own options merge in before createTheme runs.
+- `extension/look.css`: the rules only (body, title, section label, rows, row with action, status words, switch, menu, text field, removal, build footer), reading CSS variables. `app-kit extension copy` writes `look.css` beside the worker copies, with a `/* */` header and the variable blocks written from `look/index.ts` (light, and dark under prefers-color-scheme, with `color-scheme: light dark`). An app sets only `--accent-light` and `--accent-dark`. `extension check` and `workerCopyDiffers` cover it, and copy refuses to overwrite an extension's own `look.css`.
+- `swift/menu-bar`: `Window.swift` (a window's page, title, section label, ruled lines, a window row, status words, accent and removal actions, a foot note and the build line, and `windowSnapshot`) and `Controls.swift` (a switch as a ToggleStyle, a menu that reads as text and a text field in a hairline box as kit views). `Metrics` gains the window sizes. A bun test reads Tokens.swift, Look.swift and the metrics as text and holds them equal to `look/index.ts`.
+- Fixtures: the web fixture draws a plain page and a console page; the extension fixture gets a `look.html` drawn light and dark in the harness's hidden Chromium; the Swift snapshots tool draws the Settings screens. Every surface's pictures beside the Studies page's C mockups, published.
+- README's web, extension and swift sections show each in use. AGENTS.md's layout names `look/`.
+- Release: minor.
+
+### Done when
+
+The ticket's Done when holds, the console MUI theme drawn too, `scripts/gates.sh` green, the pictures published, and the landing asked for.
