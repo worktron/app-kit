@@ -103,3 +103,8 @@ Done when: a test in the kit typechecks a scratch app that installs the kit and 
 Do not touch: the worker files' behavior.
 Needs: nothing.
 Touches: extension/testing/host.ts, extension/worker/, test/.
+
+## not-found-tap-size · The not-found page's home link is a 44-pixel tap target on a phone
+
+Goal: web/NotFound.tsx:25-27 (v0.23.0) draws "Go to the home page" inline, one text line tall, and practices rules/interfaces.md asks for tap targets of at least 44px on a touch screen. sightline keeps its own not-found page until this lands (its link is 44px, client/src/Pages.tsx:910). Found by sightline's app-kit-adoption thread, 2026-10-29.
+Done when: the kit's NotFound home link is at least 44px tall and wide on a touch screen, held by a browser test on a phone viewport in the web fixture.
