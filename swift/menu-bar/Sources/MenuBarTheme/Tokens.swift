@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// The console family's colors, the ones metamax's web client, argon-watcher and perf-buddy's web client share, as sRGB:
-/// each case's raw value is its dark look, and `light` its light one. A color draws in whichever look the view it is in
-/// has, which is the app's appearance, so the Mac's own Light and Dark setting unless the app pins one.
+/// The colors, by what each one says, as sRGB. Each case's raw value is the console look's dark value, the console
+/// family's that metamax's web client, argon-watcher and perf-buddy's web client share, `light` the console look's light
+/// one, and `plain` the plain look's pair. A color draws in the app's look (`Look.app`) and in whichever appearance the
+/// view it is in has, which is the Mac's own Light and Dark setting unless the app pins one.
 public enum Palette: UInt32, CaseIterable, Sendable {
     case text = 0xd4d4d4
     case secondary = 0x888888
@@ -42,9 +43,36 @@ public enum Palette: UInt32, CaseIterable, Sendable {
         }
     }
 
-    /// The value for `appearance`: light for an aqua one, dark for a dark one.
-    public func hex(for appearance: NSAppearance) -> UInt32 {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? light : dark
+    /// The plain look, from the Plain Look Studies page's option C: Beeline's paper and graphites, with no boxes, so the
+    /// header and a code box sit on the panel's own paper. Info is the app's accent. Every tone but muted reads at least
+    /// 4.5 to 1 on the panel and on a selected line, in light and in dark, for which ok in light is a shade darker than
+    /// the page's #2e7d4f, which read 4.2 on a selected line.
+    public func plain(accent: Accent) -> (light: UInt32, dark: UInt32) {
+        switch self {
+        case .text: (0x2a2c30, 0xe6e4df)
+        case .secondary: (0x5c5f65, 0xa3a6ab)
+        case .muted: (0x8e9197, 0x74777d)
+        case .ok: (0x2a774b, 0x7cc49a)
+        case .warn: (0x9a5b00, 0xe0b46a)
+        case .error: (0xb3261e, 0xf2a39c)
+        case .info: (accent.light, accent.dark)
+        case .bg, .surface: (0xf6f5f2, 0x1d1e20)
+        case .surfaceHi: (0xefeee9, 0x242628)
+        case .border: (0xe2e0da, 0x323438)
+        case .borderHi: (0xd3d1ca, 0x3c3e42)
+        case .hover: (0xecebe6, 0x2a2c2f)
+        }
+    }
+
+    /// The value in `look` for `appearance`: light for an aqua one, dark for a dark one.
+    public func hex(for appearance: NSAppearance, in look: Look = Look.app) -> UInt32 {
+        let isLight = appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
+        switch look {
+        case .console: return isLight ? light : dark
+        case .plain(let accent):
+            let pair = plain(accent: accent)
+            return isLight ? pair.light : pair.dark
+        }
     }
 
     /// Resolved again whenever the appearance it draws in changes, so an open panel follows the Mac's setting.
@@ -69,10 +97,10 @@ public enum Metrics {
     /// A group's heading line, and an item line under it.
     public static let groupLine: CGFloat = 36
     public static let itemLine: CGFloat = 26
-    /// Left and right padding of every line.
-    public static let inset: CGFloat = 14
-    /// An item line's text starts further in, under its group's name.
-    public static let itemInset: CGFloat = 28
+    /// Left and right padding of every line, which the look gives: 14 in console, 20 in plain.
+    public static var inset: CGFloat { Look.app.inset }
+    /// An item line's text starts further in, 14 past its group's name.
+    public static var itemInset: CGFloat { inset + 14 }
     /// The width of a row's name column.
     public static let nameColumn: CGFloat = 92
     public static let cornerInside: CGFloat = 3

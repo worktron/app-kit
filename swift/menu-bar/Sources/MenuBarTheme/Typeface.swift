@@ -53,6 +53,15 @@ public enum Typeface {
         return NSFont(name: name, size: size) ?? .monospacedSystemFont(ofSize: size, weight: weight)
     }
 
+    /// The face `look` draws text in: the bundled faces in console; in plain, the system font, and its monospaced
+    /// face for `code`, a command to copy.
+    public static func nsFont(size: CGFloat, weight: NSFont.Weight = .regular, in look: Look, code: Bool = false) -> NSFont {
+        switch look {
+        case .console: nsFont(size: size, weight: weight)
+        case .plain: code ? .monospacedSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
+        }
+    }
+
     /// How tall SwiftUI makes one line in `font`: the layout manager's height, which rounds the ascender and
     /// descender each to whole points.
     @MainActor static func lineHeight(of font: NSFont) -> CGFloat {
@@ -70,10 +79,11 @@ public enum Typeface {
 }
 
 extension View {
-    /// Text in the theme's face, with lines 1.5 times its size apart and the same room above the first and below the
-    /// last, as the web's line-height gives, so a block of text is as tall here as in the mockups.
-    public func console(_ size: CGFloat, weight: NSFont.Weight = .regular, tone: Tone? = nil) -> some View {
-        modifier(Console(size: size, weight: weight, tone: tone))
+    /// Text in the app's look's face (`code` for a command to copy, monospaced in either look), with lines 1.5 times
+    /// its size apart and the same room above the first and below the last, as the web's line-height gives, so a block
+    /// of text is as tall here as in the mockups.
+    public func console(_ size: CGFloat, weight: NSFont.Weight = .regular, tone: Tone? = nil, code: Bool = false) -> some View {
+        modifier(Console(size: size, weight: weight, tone: tone, code: code))
     }
 }
 
@@ -81,9 +91,10 @@ struct Console: ViewModifier {
     let size: CGFloat
     let weight: NSFont.Weight
     let tone: Tone?
+    let code: Bool
 
     func body(content: Content) -> some View {
-        let font = Typeface.nsFont(size: size, weight: weight)
+        let font = Typeface.nsFont(size: size, weight: weight, in: Look.app, code: code)
         let natural = Typeface.lineHeight(of: font)
         let extra = max(0, size * Metrics.lineHeight - natural)
         let text = content.font(Font(font as CTFont)).lineSpacing(extra).padding(.vertical, extra / 2)

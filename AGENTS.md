@@ -34,8 +34,9 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  build-env.ts, the environment every iPhone build runs in, with no FORCE_COLOR;
                  playwright.js, the Tauri bridge faked for apps' browser tests, with desktop sign-in's steps (app-kit/tauri/playwright)
 swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift package an app builds from the kit bun
-                 installed: Sources/MenuBarTheme (the tokens, the bundled JetBrains Mono in Fonts/, the pieces, the panel
-                 and the snapshot), Sources/menu-bar-snapshots (the five Studies screens drawn and compared), Tests/, and
+                 installed: Sources/MenuBarTheme (the two looks, plain and console, and their tokens, the bundled JetBrains
+                 Mono in Fonts/ for the console look, the pieces, the panel and the snapshot), Sources/menu-bar-snapshots
+                 (the Studies screens drawn in either look, and compared in the console look), Tests/, and
                  e2e/ (the mockups, the comparison with a headless Chromium, and the bare swiftc build)
                  mac-app/, what every Swift Mac app writes for itself, a Swift package built the same way: Sources/MacApp
                  (the log, launch at login, the Dock icon while a window is open and opening Settings, the native

@@ -9,6 +9,8 @@ import Testing
 @Suite struct PiecesTests {
     init() {
         _ = NSApplication.shared
+        // These hold the console look's colors, face and padding; the plain look's are LookTests'.
+        Look.app = .console
         Typeface.register()
     }
 

@@ -9,6 +9,8 @@ import Testing
 @Suite struct PanelTests {
     init() {
         _ = NSApplication.shared
+        // These hold the console look's colors and padding; the plain look's are LookTests'.
+        Look.app = .console
         MenuBarPanel.staysOffScreen = true
     }
 

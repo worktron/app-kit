@@ -1,5 +1,5 @@
 // swift-tools-version:6.0
-// The menu bar theme: the console family's look for a Swift menu bar app. An Xcode or Swift package app adds this
+// The menu bar theme: a Swift menu bar app's panel, in the plain look or the console one. An Xcode or Swift package app adds this
 // folder, as the kit bun installed holds it, as a local package; a bare swiftc build compiles Sources/MenuBarTheme into
 // a module of its own (README.md, "Menu bar theme").
 import PackageDescription

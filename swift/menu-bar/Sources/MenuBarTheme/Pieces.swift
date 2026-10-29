@@ -210,7 +210,7 @@ public struct CodeBox: View {
     public var body: some View {
         let copied = state?.copied == text
         HStack(alignment: .top, spacing: 12) {
-            Text(text).console(Metrics.small).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            Text(text).console(Metrics.small, code: true).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             Text(copied ? "copied" : "copy").console(Metrics.small, tone: copied ? .ok : .info).fixedSize()
         }
         .padding(.vertical, 6 + Metrics.line)

@@ -2,7 +2,7 @@
 /**
  * Checks the menu bar theme against the Fleet Menu Studies page's mockups (rev 3, options F and G): a headless Chromium
  * draws the five screens in mockups.html, the page's own CSS and markup, and measures each box and run of text; the
- * theme draws the same five (menu-bar-snapshots render); then menu-bar-snapshots compare holds the theme's to the
+ * theme draws the same five in the console look (menu-bar-snapshots render); then menu-bar-snapshots compare holds the theme's to the
  * mockup's size, backgrounds, lines and text, and writes the two side by side.
  *
  *   bun swift/menu-bar/e2e/compare-mockups.ts [folder]   folder defaults to test-results/menu-bar
@@ -70,6 +70,6 @@ const run = (command: string[]) => {
   if (result.exitCode !== 0) process.exit(1);
 };
 run(['swift', 'build', '--product', 'menu-bar-snapshots']);
-run(['.build/debug/menu-bar-snapshots', 'render', join(out, 'theme')]);
+run(['.build/debug/menu-bar-snapshots', 'render', join(out, 'theme'), 'console']);
 run(['.build/debug/menu-bar-snapshots', 'compare', mockups, join(out, 'theme'), join(out, 'side-by-side')]);
 console.log(`side by side: ${join(out, 'side-by-side')}`);
