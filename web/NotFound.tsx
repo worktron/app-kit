@@ -19,7 +19,7 @@ export function NotFound({ home = '/' }: { home?: string }) {
       <Typography variant="h6" component="h1" gutterBottom>
         Not found
       </Typography>
-      <Typography color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
+      <Typography sx={{ color: 'text.secondary', mb: 2, overflowWrap: 'anywhere' }}>
         Nothing is at {address}.
       </Typography>
       <Typography>

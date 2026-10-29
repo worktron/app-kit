@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <Typography variant="h6" component="h1" gutterBottom>
             Something went wrong
           </Typography>
-          <Typography color="text.secondary" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
+          <Typography sx={{ color: 'text.secondary', mb: 2, overflowWrap: 'anywhere' }}>
             {error.message}
           </Typography>
           <Button variant="outlined" onClick={reload}>

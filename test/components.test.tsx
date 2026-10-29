@@ -5,6 +5,7 @@ import { CacheProvider } from '@emotion/react';
 import createCache from '@emotion/cache';
 import { markUnreachable, resetConnection } from '../web/connection';
 import { ErrorBoundary } from '../web/ErrorBoundary';
+import { NotFound } from '../web/NotFound';
 import { ConnectionLine } from '../web/lines';
 import { PullToRefresh } from '../web/PullToRefresh';
 import { NavigateProvider, RowLink } from '../web/RowLink';
@@ -135,4 +136,28 @@ test("the kit's own pieces draw under a theme whose colors are CSS variables", (
     'Cannot reach the server. This page reconnects by itself.',
     'Release to refresh',
   ]);
+});
+
+test("the crash screen's and the not-found page's message is in the theme's secondary text color", () => {
+  const quiet = console.error;
+  console.error = () => {};
+  const theme = createTheme({ palette: { text: { primary: 'rgb(10, 10, 10)', secondary: 'rgb(120, 120, 120)' } } });
+  try {
+    // Its own style cache, as above.
+    render(
+      <CacheProvider value={createCache({ key: 'secondary' })}>
+        <ThemeProvider theme={theme}>
+          <ErrorBoundary>
+            <Broken />
+          </ErrorBoundary>
+          <NotFound />
+        </ThemeProvider>
+      </CacheProvider>,
+    );
+  } finally {
+    console.error = quiet;
+  }
+  // MUI 9 reads only `textSecondary` or `sx` for this; `color="text.secondary"` drew it in the primary color.
+  expect(getComputedStyle(screen.getByText('Cannot read the calendar')).color).toBe('rgb(120, 120, 120)');
+  expect(getComputedStyle(screen.getByText(/^Nothing is at /)).color).toBe('rgb(120, 120, 120)');
 });
