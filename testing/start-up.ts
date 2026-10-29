@@ -49,8 +49,9 @@ export function sweepEnded(root: string): void {
     if (!/^\d+$/.test(name) || alive(Number(name))) continue;
     try {
       rmSync(join(root, name), { recursive: true, force: true });
-    } catch {
-      // Another process removing it at once.
+    } catch (e) {
+      // Another process removing it at once; anything else is said, and the next run tries again.
+      if ((e as { code?: string }).code !== 'ENOENT') console.warn(`could not remove ${join(root, name)}, left by a test process that ended: ${String(e)}`);
     }
   }
 }
@@ -61,9 +62,13 @@ if (problem) throw new Error(`the tests keep their temporary files in ${ROOT}, a
 process.env.TEST_SHARED_TMPDIR ??= tmpdir(); // for what every test process shares, like port reservations
 const own = join(ROOT, String(process.pid));
 try {
-  mkdirSync(own); // fails with EEXIST for every file after the first in this process
+  mkdirSync(own, { mode: 0o700 }); // fails with EEXIST for every file after the first in this process
   sweepEnded(ROOT);
 } catch (e) {
   if ((e as { code?: string }).code !== 'EEXIST') throw e;
+  // Checked again when it was already there. A known limit: a process given the pid of an ended one whose folder no
+  // run swept takes that folder, and what it held, as its own.
+  const ownProblem = folderProblem(own);
+  if (ownProblem) throw new Error(`the tests keep this process's temporary files in ${own}, and ${ownProblem}. Look at what is there, remove it if it is not yours, and run the tests again`);
 }
 process.env.TMPDIR = own;

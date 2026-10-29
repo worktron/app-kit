@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { folderProblem, projectName } from '../testing/start-up';
+import { folderProblem, projectName, sweepEnded } from '../testing/start-up';
 
 const kit = resolve(import.meta.dir, '..');
 const made: string[] = [];
@@ -75,4 +75,27 @@ test('a link, a file, or a folder of another owner is refused, each with its rea
   expect(folderProblem(join(scratch, 'file'))).toBe('it is not a folder');
   expect(folderProblem(real, process.getuid!() + 1)).toBe(`it belongs to uid ${process.getuid!()}, not ${process.getuid!() + 1}`);
   expect(folderProblem(real)).toBeNull();
+});
+
+test("the sweep removes an ended process's folder, keeps a running one's, and says what it could not remove", () => {
+  const root = mkdtempSync(join(tmpdir(), 'start-up-'));
+  made.push(root);
+  // A pid no process has: far past any the system hands out.
+  mkdirSync(join(root, '99999999'));
+  mkdirSync(join(root, String(process.pid)));
+  // A folder whose insides cannot be removed, as a test that took away its own write permission leaves one.
+  mkdirSync(join(root, '99999998', 'held'), { recursive: true });
+  chmodSync(join(root, '99999998'), 0o500);
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (line: string) => warned.push(line);
+  try {
+    sweepEnded(root);
+  } finally {
+    console.warn = warn;
+    chmodSync(join(root, '99999998'), 0o700);
+  }
+  expect(readdirSync(root).sort()).toEqual([String(process.pid), '99999998'].sort());
+  expect(warned).toHaveLength(1);
+  expect(warned[0]).toContain(`could not remove ${join(root, '99999998')}, left by a test process that ended`);
 });
