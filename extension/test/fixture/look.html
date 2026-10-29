@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Look</title>
+    <link rel="stylesheet" href="kit/look.css" />
+  </head>
+  <!-- The plain look's pieces on a popup, the Plain Look Studies page's toolbar popup with stand-in addresses, which the
+       harness test draws light and dark. -->
+  <body style="width: 380px">
+    <main class="page">
+      <p class="title">Belongs in work@example.com</p>
+      <p class="subtitle">This tab is in client@example.com</p>
+      <div class="label">Why</div>
+      <p class="text">work@example.com signed in to work.example.com, and no other profile did.</p>
+      <div class="label">Profiles</div>
+      <div class="rows">
+        <div class="row"><span class="name">pat@example.com</span><button class="action">Open it there once</button></div>
+        <div class="row">
+          <span class="name"><b>work@example.com</b><small>Where Beeline holds it belongs</small></span>
+          <span class="status ok">Signed in</span>
+        </div>
+        <div class="row"><span class="name">client@example.com<small>This tab</small></span><button class="action">Keep it here</button></div>
+      </div>
+      <div class="label">Settings</div>
+      <div class="rows">
+        <label class="row"><span class="name">Remember where links open<small>Learned from where you move them.</small></span><input class="switch" type="checkbox" role="switch" checked /></label>
+        <label class="row"><span class="name">Ask before moving a tab</span><input class="switch" type="checkbox" role="switch" /></label>
+        <label class="row">
+          <span class="name">Open others in</span>
+          <select class="menu"><option>Personal</option><option>Work</option><option>Client</option></select>
+        </label>
+        <div class="row">
+          <label class="name">Test a link<input class="field" value="https://work.example.com/browse/" /></label>
+          <button class="action">Test</button>
+        </div>
+        <div class="row"><span class="name">Link memory<small>Every page Beeline remembers.</small></span><button class="action remove">Forget all</button></div>
+      </div>
+      <p class="note">The same as Forget in Settings. A later sign-in there counts again.</p>
+      <p class="build">Answered by Beeline 873623f and its extension 873623f</p>
+    </main>
+  </body>
+</html>

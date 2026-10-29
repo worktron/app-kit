@@ -1,4 +1,4 @@
-// Copied from app-kit 0.11.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.27.0 by `app-kit extension copy`. Change it in the kit.
 // The worker's uncaught errors, kept in storage.local with their time and the
 // build they happened in, so a status command can print them: the worker's
 // console exists only while its DevTools window is open, and Chrome's own list

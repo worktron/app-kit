@@ -4,7 +4,8 @@
 // repository root under the ID its key gives, that Chrome starts the host and
 // the port carries messages both ways, that the worker's errors reach the
 // status, that a new commit in the checkout reloads the worker and restarts the
-// host, and that nothing opens a tab.
+// host, that the plain look's stylesheet draws a page light and dark, and that
+// nothing opens a tab.
 // Run with `bun test ./extension/e2e/harness.e2e.ts`, which scripts/gates.sh does.
 
 import { afterAll, beforeAll, expect, test } from 'bun:test'
@@ -13,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
+import { DEFAULT_ACCENT, plainColors } from '../../look/index.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
 // In the test process's own folder (app-kit/testing/start-up), whose path stays short: a socket path a Node or Python
@@ -75,6 +77,47 @@ test('a new commit in the checkout reloads the worker and restarts the host on i
   expect(after?.extension).toMatchObject({ version: `0.1.0-second (${second.slice(0, 7)})`, commit: second })
   expect(readFileSync(join(hostDir, 'host.log'), 'utf8').match(/host started/g)?.length).toBeGreaterThanOrEqual(2)
 }, 60_000)
+
+/** A CSS color as #rrggbb. */
+const hex = (value: string) => `#${value.match(/\d+/g)!.slice(0, 3).map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the copied stylesheet draws the fixture's popup in the tokens' ${scheme} colors, with the kit's controls`, async () => {
+    const colors = plainColors()[scheme]
+    const page = await ext.context.newPage()
+    try {
+      await page.emulateMedia({ colorScheme: scheme })
+      await page.setViewportSize({ width: 380, height: 800 })
+      await page.goto(`chrome-extension://${ext.extensionId}/look.html`)
+      const style = (selector: string, property: string) =>
+        page.locator(selector).first().evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), property)
+      expect(hex(await style('body', 'background-color'))).toBe(colors.bg)
+      expect(hex(await style('.title', 'color'))).toBe(colors.text)
+      expect(hex(await style('.label', 'color'))).toBe(colors.muted)
+      expect(await style('.label', 'font-weight')).toBe('600')
+      expect(hex(await style('.rows', 'border-top-color'))).toBe(colors.border)
+      expect(hex(await style('.row + .row', 'border-top-color'))).toBe(colors.border)
+      expect(await style('.row', 'min-height')).toBe('44px')
+      expect(hex(await style('.status.ok', 'color'))).toBe(colors.ok)
+      expect(hex(await style('.action', 'color'))).toBe(DEFAULT_ACCENT[scheme])
+      expect(hex(await style('.action.remove', 'color'))).toBe(colors.error)
+      expect(hex(await style('.switch:checked', 'background-color'))).toBe(DEFAULT_ACCENT[scheme])
+      expect(hex(await style('.switch:not(:checked)', 'border-top-color'))).toBe(colors.muted)
+      expect(hex(await style('.field', 'border-top-color'))).toBe(colors.border)
+      expect(hex(await style('.menu', 'border-bottom-color'))).toBe(colors.border)
+      expect(hex(await style('.build', 'color'))).toBe(colors.secondary)
+      // Chrome's own controls and scrollbars follow the scheme.
+      expect(await style(':root', 'color-scheme')).toBe('light dark')
+      // A page's own accent is the one thing it sets.
+      await page.addStyleTag({ content: ':root { --accent-light: #7a2fa7; --accent-dark: #d29be6 }' })
+      expect(hex(await style('.action', 'color'))).toBe(scheme === 'light' ? '#7a2fa7' : '#d29be6')
+      await page.addStyleTag({ content: ':root { --accent-light: initial; --accent-dark: initial }' })
+      await page.screenshot({ path: join(process.env.LOOK_PICTURES ?? tmpdir(), `extension-${scheme}.png`), fullPage: true })
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+}
 
 test('nothing the extension did opened a tab', () => {
   expect(ext.pages()).toBe(pagesAtStart)

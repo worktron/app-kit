@@ -1,4 +1,4 @@
-// Copied from app-kit 0.11.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.27.0 by `app-kit extension copy`. Change it in the kit.
 // An unpacked install reloads itself when the checkout it was loaded from moves.
 //
 // Chrome reads an unpacked extension's worker once, at load, and keeps running

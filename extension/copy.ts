@@ -1,4 +1,4 @@
-// The kit's worker files, copied into an extension.
+// The kit's worker files, and the plain look's stylesheet for the extension's pages, copied into an extension.
 //
 // An unpacked extension loads from its checkout, which a landing updates with
 // git and nothing else, so the files Chrome loads are committed in the
@@ -7,11 +7,15 @@
 // whose code, below that line, differs from the installed kit, for a test in the
 // extension to fail on, and unlistedImports() the files the worker loads that
 // its list for self-reload leaves out. A release that changes no worker file, as most of
-// app-kit's releases are of another part, leaves every copy current.
+// app-kit's releases are of another part, leaves every copy current. The stylesheet's copy, look.css, opens with a
+// CSS comment rather than a `//` line, which CSS would read as part of the rule after it, and holds the look's
+// variables, written from the tokens file as it is copied, above the kit's rules (extension/look.css), so the kit
+// keeps no generated file and no copy of the values.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, normalize, relative } from 'node:path'
 import packageJson from '../package.json'
+import { FONTS, PLAIN_SIZES, plainColors, type Colors } from '../look/index.ts'
 
 /** The kit's worker files, as shipped. */
 export const WORKER_DIR = join(import.meta.dir, 'worker')
@@ -21,15 +25,55 @@ export function workerFiles(): string[] {
   return readdirSync(WORKER_DIR).filter((name) => name.endsWith('.js')).sort()
 }
 
+/** The plain look's stylesheet, as copied into an extension beside the worker files. */
+export const STYLESHEET = 'look.css'
+
+/** Every file `copyWorker` writes: the worker files, then the stylesheet. */
+export function copiedFiles(): string[] {
+  return [...workerFiles(), STYLESHEET]
+}
+
+const header = `Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.`
+
 function copied(name: string): string {
-  return `// Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.\n${readFileSync(join(WORKER_DIR, name), 'utf8')}`
+  if (name === STYLESHEET) return `/* ${header} */\n${lookVariables()}\n${readFileSync(join(import.meta.dir, STYLESHEET), 'utf8')}`
+  return `// ${header}\n${readFileSync(join(WORKER_DIR, name), 'utf8')}`
+}
+
+const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+
+/**
+ * The look's CSS variables from the tokens file: each color role, light, and dark under prefers-color-scheme, with
+ * info as the page's accent, `--accent-light` and `--accent-dark`, or the kit's blue; the typefaces; and every size,
+ * in pixels but for the weights and the line height.
+ */
+export function lookVariables(): string {
+  const { light, dark } = plainColors()
+  const colors = (scheme: Colors, accent: 'light' | 'dark') =>
+    Object.entries(scheme).map(([role, value]) => `  --${kebab(role)}: ${role === 'info' ? `var(--accent-${accent}, ${value})` : value};`)
+  const sizes = Object.entries(PLAIN_SIZES).map(([name, value]) => `  --${kebab(name)}: ${/Weight|lineHeight/.test(name) ? value : `${value}px`};`)
+  return [
+    ':root {',
+    '  color-scheme: light dark;',
+    ...colors(light, 'light'),
+    `  --font: ${FONTS.plain};`,
+    `  --font-code: ${FONTS.code};`,
+    ...sizes,
+    '}',
+    '@media (prefers-color-scheme: dark) {',
+    '  :root {',
+    ...colors(dark, 'dark').map((line) => `  ${line}`),
+    '  }',
+    '}',
+    '',
+  ].join('\n')
 }
 
 /** A copy's code, without the header line naming the version it came from. */
 const below = (copy: string) => copy.slice(copy.indexOf('\n') + 1)
 
 /** Whether a file is a copy: its first line names where it was copied from, as this kit's and the extension kit's before it did. */
-const isCopy = (path: string) => readFileSync(path, 'utf8').startsWith('// Copied from ')
+const isCopy = (path: string) => /^(\/\/|\/\*) Copied from /.test(readFileSync(path, 'utf8'))
 
 /** The first folder below `folder`, three deep at most, that holds a copy of a worker file; not node_modules or a dot folder. */
 function copiesBelow(folder: string, names: string[]): string | null {
@@ -50,18 +94,18 @@ function copiesBelow(folder: string, names: string[]): string | null {
 }
 
 /**
- * Writes the worker files directly into `folder`, the folder the worker
- * imports them from, and returns their names. Refuses, writing nothing, a
+ * Writes the worker files and the stylesheet directly into `folder`, the
+ * folder the worker imports them from, and returns their names. Refuses, writing nothing, a
  * folder that holds none of them while a folder below it holds copies, the
  * way `copy extension` once wrote strays beside a worker whose copies were in
  * extension/kit; and a file of the same name that is not a copy, which is the
  * extension's own.
  */
 export function copyWorker(folder: string): string[] {
-  const names = workerFiles()
+  const names = copiedFiles()
   if (existsSync(folder)) {
     const present = names.filter((name) => existsSync(join(folder, name)))
-    const below = present.length ? null : copiesBelow(folder, names)
+    const below = present.length ? null : copiesBelow(folder, workerFiles())
     if (below) throw new Error(`${folder} holds none of the worker files, but ${below} holds copies of them. Copy into the folder the worker imports them from: app-kit extension copy ${below}`)
     const own = present.filter((name) => !isCopy(join(folder, name)))
     if (own.length) throw new Error(`${own.join(', ')} in ${folder} ${own.length === 1 ? 'is' : 'are'} not a copy of the kit's, so copying would overwrite the extension's own code`)
@@ -98,9 +142,9 @@ export function unlistedImports(extensionFolder: string, loadedFiles: string[]):
   return [...seen].filter((file) => !listed.has(file)).sort()
 }
 
-/** The worker files in `folder` that are missing or whose code differs from the installed kit's. */
+/** The worker files and the stylesheet in `folder` that are missing or whose code differs from the installed kit's. */
 export function workerCopyDiffers(folder: string): string[] {
-  return workerFiles().filter((name) => {
+  return copiedFiles().filter((name) => {
     const path = join(folder, name)
     return !existsSync(path) || below(readFileSync(path, 'utf8')) !== below(copied(name))
   })

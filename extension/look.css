@@ -1,0 +1,240 @@
+/*
+ * The plain look for an extension's pages: a popup, an options page. Plain CSS, since an extension updates from its
+ * checkout by git alone and has no build step. `app-kit extension copy` writes it as look.css beside the worker
+ * copies, with the variable blocks above these rules written from the kit's tokens file (look/index.ts), light and
+ * dark by the system's setting. The page links it, `<link rel="stylesheet" href="kit/look.css">`, and sets only its
+ * accent, before or after it: `<style>:root { --accent-light: #2f5fa7; --accent-dark: #8fb0e6 }</style>`.
+ *
+ * The pieces: .page around everything, .title and .subtitle, .label above a section, .text, .rows of .row (a .name
+ * with a <small> detail, and on the right a .status word, an .action, a .switch or a .menu), .field, .note, and .build
+ * at the foot. An options page, which is a window, sets `--side: var(--side-window)` and `--row: var(--row-window)`.
+ */
+
+:root {
+  --side: var(--side-popup);
+  --row: var(--row-popup);
+  --title: var(--title-popup);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--body);
+  line-height: var(--line-height);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  padding: 20px var(--side) 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--title);
+  font-weight: var(--strong-weight);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--secondary);
+  font-size: var(--small);
+}
+
+.label {
+  margin: var(--section-gap) 0 var(--label-gap);
+  color: var(--muted);
+  font-size: var(--label);
+  font-weight: var(--label-weight);
+}
+
+.text {
+  margin: 0;
+}
+
+/* Rows between hairlines: one above the first, one between each, one below the last. */
+.rows {
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+}
+
+.row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  min-height: var(--row);
+  padding: var(--row-padding) 0;
+}
+
+.row + .row {
+  border-top: var(--line) solid var(--border);
+}
+
+.row .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row b,
+.row strong {
+  font-weight: var(--strong-weight);
+}
+
+.row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--secondary);
+  font-size: var(--small);
+}
+
+/* A status said in a colored word: each color means one thing. */
+.status {
+  color: var(--secondary);
+  font-size: var(--small);
+  white-space: nowrap;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.status.warn {
+  color: var(--warn);
+}
+
+.status.error {
+  color: var(--error);
+}
+
+.status.waiting,
+.waiting {
+  color: var(--muted);
+}
+
+/* An action is a word in the accent with nothing filled; .main for the page's main one, .remove in the error color. */
+.action {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--info);
+  font: inherit;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action.main {
+  font-weight: var(--strong-weight);
+}
+
+.action.remove {
+  color: var(--error);
+}
+
+.action:hover {
+  text-decoration: underline;
+}
+
+.action:focus-visible,
+.switch:focus-visible,
+.menu:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+/* A block action under the rows, with what it does in a <small> line. */
+.action.block {
+  display: block;
+  white-space: normal;
+}
+
+.action.block small {
+  display: block;
+  margin-top: 4px;
+  color: var(--secondary);
+  font-size: var(--small);
+}
+
+/* The switch, on an <input type="checkbox" role="switch">: a muted outline and knob when off, the accent with a
+   paper knob when on. */
+.switch {
+  appearance: none;
+  box-sizing: border-box;
+  width: var(--switch-width);
+  height: var(--switch-height);
+  margin: 0;
+  border: var(--line) solid var(--muted);
+  border-radius: calc(var(--switch-height) / 2);
+  background: radial-gradient(circle calc(var(--switch-knob) / 2) at calc(var(--switch-height) / 2 - var(--line)) 50%, var(--muted) 98%, transparent 100%);
+  cursor: pointer;
+}
+
+.switch:checked {
+  border-color: var(--info);
+  background:
+    radial-gradient(circle calc(var(--switch-knob) / 2) at calc(100% - var(--switch-height) / 2 + var(--line)) 50%, var(--bg) 98%, transparent 100%),
+    var(--info);
+}
+
+/* A menu that reads as text, on a <select>: its choice and a chevron over a hairline. */
+.menu {
+  appearance: none;
+  margin: 0;
+  padding: 1px 16px 1px 0;
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
+  border-radius: 0;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--secondary) 50%) calc(100% - 7px) 55% / 4px 4px no-repeat,
+    linear-gradient(135deg, var(--secondary) 50%, transparent 50%) calc(100% - 3px) 55% / 4px 4px no-repeat;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* A text field in a hairline box. */
+.field {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-top: var(--label-gap);
+  padding: var(--field-padding-vertical) var(--field-padding-horizontal);
+  border: var(--line) solid var(--border);
+  border-radius: var(--field-corner);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--small);
+}
+
+.field::placeholder {
+  color: var(--muted);
+}
+
+.field:focus {
+  border-color: var(--info);
+  outline: none;
+}
+
+.note {
+  margin: 12px 0 0;
+  color: var(--secondary);
+  font-size: var(--small);
+}
+
+/* The build that answered, as "Answered by Beeline 873623f", at the foot below a hairline. */
+.build {
+  margin: 20px 0 0;
+  padding-top: 12px;
+  border-top: var(--line) solid var(--border);
+  color: var(--secondary);
+  font-size: var(--small);
+}
+
+code {
+  font-family: var(--font-code);
+}

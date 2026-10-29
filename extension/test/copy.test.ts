@@ -2,7 +2,8 @@ import { afterAll, expect, test } from 'bun:test'
 import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copyWorker, unlistedImports, workerCopyDiffers, workerFiles } from '../copy.ts'
+import { copiedFiles, copyWorker, unlistedImports, workerCopyDiffers, workerFiles } from '../copy.ts'
+import { PLAIN_SIZES, plainColors } from '../../look/index.ts'
 import { LOADED_FILES } from './fixture/worker.js'
 import packageJson from '../../package.json'
 
@@ -11,12 +12,53 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 const cli = (...args: string[]) => Bun.spawnSync([process.execPath, join(import.meta.dir, '../../bin/app-kit.ts'), 'extension', ...args], { stdout: 'pipe', stderr: 'pipe' })
 
-test('copy writes every worker file, each naming the kit version it came from', () => {
+test('copy writes every worker file and the stylesheet, each naming the kit version it came from', () => {
   const folder = join(dir, 'kit')
-  expect(copyWorker(folder)).toEqual(workerFiles())
+  expect(copyWorker(folder)).toEqual([...workerFiles(), 'look.css'])
   expect(workerFiles()).toEqual(['account.js', 'alarms.js', 'build.js', 'errors.js', 'port.js', 'self-reload.js'])
   expect(readFileSync(join(folder, 'port.js'), 'utf8').split('\n')[0]).toBe(`// Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.`)
   expect(workerCopyDiffers(folder)).toEqual([])
+})
+
+test("the stylesheet's copy opens with a CSS comment and holds the tokens file's colors, light and dark, and sizes", () => {
+  const folder = join(dir, 'look')
+  copyWorker(folder)
+  const css = readFileSync(join(folder, 'look.css'), 'utf8')
+  // A `//` line would be read as part of the selector after it, and drop the :root rule.
+  expect(css.split('\n')[0]).toBe(`/* Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit. */`)
+  const [lightBlock, darkBlock] = css.split('@media (prefers-color-scheme: dark)')
+  const { light, dark } = plainColors()
+  expect(lightBlock).toContain('color-scheme: light dark;')
+  expect(lightBlock).toContain(`--text: ${light.text};`)
+  expect(lightBlock).toContain(`--surface-hi: ${light.surfaceHi};`)
+  expect(lightBlock).toContain(`--info: var(--accent-light, ${light.info});`)
+  expect(lightBlock).toContain(`--side-popup: ${PLAIN_SIZES.sidePopup}px;`)
+  expect(lightBlock).toContain(`--label-weight: ${PLAIN_SIZES.labelWeight};`)
+  expect(darkBlock).toContain(`--text: ${dark.text};`)
+  expect(darkBlock).toContain(`--info: var(--accent-dark, ${dark.info});`)
+  // The kit's rules follow the variables.
+  expect(css).toContain('.switch:checked {')
+})
+
+test('a stylesheet copy edited by hand, or missing, differs from the kit, and the check command names it', () => {
+  const folder = join(dir, 'look-edited')
+  copyWorker(folder)
+  appendFileSync(join(folder, 'look.css'), '.mine { color: red; }\n')
+  expect(workerCopyDiffers(folder)).toEqual(['look.css'])
+  const edited = cli('check', folder)
+  expect(edited.exitCode).toBe(3)
+  expect(edited.stderr.toString()).toContain('look.css in')
+  rmSync(join(folder, 'look.css'))
+  expect(workerCopyDiffers(folder)).toEqual(['look.css'])
+  expect(cli('check', folder).exitCode).toBe(3)
+})
+
+test("copy refuses to overwrite a look.css that is the extension's own, and writes nothing", () => {
+  const folder = join(dir, 'own-look')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'look.css'), 'body { color: red; }\n')
+  expect(() => copyWorker(folder)).toThrow('look.css in')
+  expect(readdirSync(folder)).toEqual(['look.css'])
 })
 
 test('a copy edited by hand, or missing a file, differs from the kit, and the check command exits 3', () => {
@@ -69,8 +111,8 @@ test('copy on a fresh folder, empty or not there yet, writes the files, and the 
   const empty = join(dir, 'empty')
   mkdirSync(empty)
   expect(cli('copy', empty).exitCode).toBe(0)
-  expect(readdirSync(empty).sort()).toEqual(workerFiles())
-  expect(copyWorker(join(dir, 'not-there-yet', 'kit'))).toEqual(workerFiles())
+  expect(readdirSync(empty).sort()).toEqual(copiedFiles().sort())
+  expect(copyWorker(join(dir, 'not-there-yet', 'kit'))).toEqual(copiedFiles())
   expect(cli('copy').stderr.toString()).toContain("write the kit's worker files directly into <folder>, the\n                              folder the worker imports them from")
 })
 

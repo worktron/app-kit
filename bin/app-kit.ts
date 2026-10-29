@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // app-kit <part> <command>: the kit's command line. The extension kit copies the
-// kit's worker files into an extension, checks the copy, prints an extension's
+// kit's worker files and the plain look's stylesheet into an extension, checks the copy, prints an extension's
 // ID, tells Chrome about a native host, and prints a native host's status, or
 // why nothing is connected. The iPhone part builds a Tauri app and starts it on
 // a Simulator or a paired iPhone. The iPhone simulator part sends a
@@ -23,9 +23,10 @@ import { watch } from '../tauri/testflight/watch.ts'
 const USAGE = `app-kit <part> <command>
 
   extension copy <folder>     write the kit's worker files directly into <folder>, the
-                              folder the worker imports them from, as extension/kit;
+                              folder the worker imports them from, as extension/kit,
+                              with look.css, the plain look's stylesheet for its pages;
                               refuses a folder whose copies live in a folder below it
-  extension check <folder>    exit 3 when <folder>'s worker files differ from this kit's
+  extension check <folder>    exit 3 when <folder>'s worker files or look.css differ from this kit's
   extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
   extension install-host <name> <host> [<folder>] --description <text> [--from-worktree]
                               tell Chrome about the native host <name>: a launcher that
