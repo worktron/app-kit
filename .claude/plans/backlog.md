@@ -129,3 +129,8 @@ Shape: Sightline's driver moved here as an `app-kit` command (or a `web/` export
 
 Done when: `app-kit` drives a seeded app from a steps file with those steps, writes the timeline with its flags, and refuses outside requests, each held by app-kit's tests; Sightline's own driver is deleted and its walk-through runs on app-kit's; the README says how a project adds its persona files and serve command. Asked for by the owner on 2026-10-29 (urge-surfer, thread ideas), after comparing persona work in Sightline, nivo, practices and urge-surfer.
 Do not touch: the persona files and serve commands, which stay each project's own.
+
+## not-found-safe-area · The not-found page's heading sits below a phone's status bar in an app that draws under it
+
+Goal: web/NotFound.tsx (v0.23.0) pads its top by 48px (`py: 6`), and an app whose page sets `viewport-fit=cover`, as every Tauri iPhone window onto a hosted site does, draws under the status bar, which is about 59px on a Dynamic Island iPhone, so the heading would sit under the clock. getter wraps the kit's page in a Box with `pt: 'env(safe-area-inset-top)'` (client/src/main.tsx, app-kit-adoption landing) until the kit does it itself. Found by getter's app-kit-adoption thread, 2026-10-29.
+Done when: the kit's NotFound adds `env(safe-area-inset-top)` above its own padding (and the bottom inset below), a test holds the padding, and getter's wrapper can go.
