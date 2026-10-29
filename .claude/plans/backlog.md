@@ -113,3 +113,8 @@ Done when: the kit's NotFound home link is at least 44px tall and wide on a touc
 
 Goal: SignInGate's `signedOut` tree gets the default AppDrawnContext, a no-op (web/sign-in/SignInGate.tsx:44,221 at v0.23.0), so a kit screen that calls useAppDrawn, NotFound included, cannot lift a placeholder an app holds for visitors. sightline reads every screen to visitors and holds its wordmark over them until the screen draws (client/src/SignIn.tsx Visitor, client/src/access.ts useScreenDrawn); with the kit's NotFound bare, a visitor at an unknown address would see the wordmark forever. Either the gate's waitForFirstDraw covers the signed-out tree too, or an app can hand the gate its own drawn function for it. Found by sightline's app-kit-adoption thread, 2026-10-29.
 Done when: a kit screen drawn for a signed-out visitor lifts the placeholder the app shows them, held by a test in the web fixture with a signed-out visitor at an unknown address.
+
+## built-page-dot-folders · serveBuiltPage answers 404 for Vite's own folder
+
+Goal: with `build: { manifest: true }`, which serveBuiltPage asks for, Vite writes `.vite/manifest.json` into the built folder, and serveBuiltPage serves any file there (web/server.ts:63-72 at v0.23.0), so the record of source paths is public at `/.vite/manifest.json`. It holds no secrets, but nothing a page needs is under `.vite/`. Found by sightline's app-kit-adoption review (researcher), 2026-10-29.
+Done when: serveBuiltPage answers 404 for any address under `/.vite/` (and still reads the manifest itself), held by test/web-server.test.ts.
