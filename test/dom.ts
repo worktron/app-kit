@@ -3,6 +3,12 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 
 const PAGE = { url: 'http://localhost:5173/', settings: { handleDisabledFileLoadingAsSuccess: true } };
 
+/**
+ * Bun's own Request, for a test of server code that sends the headers only a browser sets: the simulated page's
+ * Request drops `Origin` and `Sec-Fetch-Site`, as a page's script may not set them.
+ */
+export const ServerRequest = globalThis.Request;
+
 GlobalRegistrator.register(PAGE);
 
 /**

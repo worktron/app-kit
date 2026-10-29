@@ -56,8 +56,8 @@ authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the C
 server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
                  migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration),
-                 start/ (the Hono app every server starts from, with its health route, request log and JSON errors, and
-                 listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it)
+                 start/ (the Hono app every server starts from, with its health route, request log, JSON errors and refusal of
+                 writes other websites send, and listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it)
 look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
                  and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
                  test/look-swift.test.ts

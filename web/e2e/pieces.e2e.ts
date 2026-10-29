@@ -158,3 +158,19 @@ test("a request sent as the page closes goes out at once, with the provider's he
   const sent: { authorization: string | null }[] = await (await request.get(`/api/left/${id}`)).json();
   expect(sent.every((s) => s.authorization === 'Bearer stand-in-token-0')).toBe(true);
 });
+
+test("a form on another website posts to the app's server and is refused, sending nothing", async ({ page, request, baseURL }) => {
+  const id = crypto.randomUUID();
+  // A page on another site, as the person might have open in another tab, with a form aimed at this app's server.
+  await page.route('https://elsewhere.example.com/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<form method="post" action="${baseURL}/api/left/${id}"><input name="a" value="1"><button>Send</button></form>`,
+    }),
+  );
+  await page.goto('https://elsewhere.example.com/');
+  const answered = page.waitForResponse(`${baseURL}/api/left/${id}`);
+  await page.getByRole('button', { name: 'Send' }).click();
+  expect((await answered).status()).toBe(403);
+  expect(await (await request.get(`/api/left/${id}`)).json()).toEqual([]);
+});

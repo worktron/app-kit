@@ -70,11 +70,26 @@ function peerAddress(c: Context): string | null {
 }
 
 /**
+ * Whether a request's host is a name that, dialed on this machine, reaches only this machine. A page on another site
+ * whose own name it points at 127.0.0.1 (DNS rebinding) is the same site as this server to the browser, so its writes
+ * pass the server start's check of which site sent them; the name it was sent to, its own, is what gives it away.
+ */
+function isThisMachinesName(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(hostname);
+}
+
+/**
  * Lets a request through only from this machine: its socket's peer is loopback, and so is every address a proxy on
- * this machine, such as Caddy, names in `X-Forwarded-For` for whoever called it. Anything else gets 403 and a log line.
+ * this machine, such as Caddy, names in `X-Forwarded-For` for whoever called it, and it was sent to one of this
+ * machine's own names. Anything else gets 403 and a log line.
  */
 export function onlyThisMachine(log: (line: string) => void = console.log): MiddlewareHandler {
   return async (c, next) => {
+    const { hostname } = new URL(c.req.url);
+    if (!isThisMachinesName(hostname)) {
+      log(`[sign-in] refused ${c.req.method} ${c.req.path} sent to ${hostname}: an open server answers only to localhost and 127.0.0.1`);
+      return c.json({ error: "This server runs without sign-in and answers only to this machine's own names." }, 403);
+    }
     const peer = peerAddress(c);
     const forwarded = (c.req.header('X-Forwarded-For') ?? '')
       .split(',')

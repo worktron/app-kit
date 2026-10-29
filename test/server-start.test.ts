@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { callerOf, requireCaller, type Caller } from '../authentication/agent-keys';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { cors } from 'hono/cors';
 import { appServer } from '../server/start';
 import { serveBuiltPage } from '../web/server';
+import { ServerRequest } from './dom';
 
 const anasKey: Caller = { kind: 'key', personId: 'person-ana', keyId: 'key-1', keyName: 'Reading agent' };
 
@@ -162,4 +164,72 @@ test('on SIGTERM the server closes a websocket and a stream that never ends, run
   } finally {
     child.kill('SIGKILL');
   }
+});
+
+/** The fixture app with a write route, and a call to it as a browser or a script would send it. */
+function writable(otherSites?: string[]) {
+  const app = appServer({ service: 'argon-watcher', print: (line) => printed.push(line), otherSites });
+  app.post('/api/items', (c) => c.json({ saved: true }));
+  app.get('/api/items', (c) => c.json({ items: [] }));
+  const call = (method: string, headers: Record<string, string> = {}, body?: string) =>
+    app.fetch(new ServerRequest('http://localhost:3000/api/items', { method, headers, body }));
+  return { app, call };
+}
+
+test('a write another website sends is refused with 403 and a log line, whatever its body', async () => {
+  const { call } = writable();
+  const fromThere = { Origin: 'https://elsewhere.example.com', 'Sec-Fetch-Site': 'cross-site' };
+  for (const [type, body] of [['application/x-www-form-urlencoded', 'a=1'], ['application/json', '{"a":1}'], ['text/plain', '{"a":1}']]) {
+    const answer = await call('POST', { ...fromThere, 'Content-Type': type }, body);
+    expect(answer.status).toBe(403);
+    expect(await answer.json()).toEqual({ error: 'This server takes no writes sent from another website.' });
+  }
+  expect((await call('POST', fromThere)).status).toBe(403);
+  expect(printed).toContain('refused POST /api/items: sent from https://elsewhere.example.com (Sec-Fetch-Site: cross-site)');
+});
+
+test("a write the app's own page sends goes through, as does one a script sends with no browser's marks", async () => {
+  const { call } = writable();
+  const json = { 'Content-Type': 'application/json' };
+  expect((await call('POST', { ...json, Origin: 'http://localhost:3000', 'Sec-Fetch-Site': 'same-origin' }, '{}')).status).toBe(200);
+  // Typed in the address bar, or sent by an extension the person installed.
+  expect((await call('POST', { 'Sec-Fetch-Site': 'none' })).status).toBe(200);
+  // curl, a webhook, an agent's script: no browser sent it, so no other site can have.
+  expect((await call('POST', json, '{}')).status).toBe(200);
+  expect((await call('POST', { 'Content-Type': 'application/x-www-form-urlencoded' }, 'a=1')).status).toBe(200);
+});
+
+test('with no Sec-Fetch-Site, an Origin on the address the request went to passes, and another port of the same machine does not', async () => {
+  const { call } = writable();
+  expect((await call('POST', { Origin: 'http://localhost:3000' })).status).toBe(200);
+  // Behind Railway the page is https while the server is reached over http: the host decides, not the scheme.
+  expect((await call('POST', { Origin: 'https://localhost:3000' })).status).toBe(200);
+  expect((await call('POST', { Origin: 'http://localhost:5173' })).status).toBe(403);
+  // A sandboxed frame or a data: page.
+  expect((await call('POST', { Origin: 'null' })).status).toBe(403);
+});
+
+test('a site another app lists may write, and only a listed site gets an answer to its cross-origin question', async () => {
+  const { call } = writable(['http://192.168.1.20:5900']);
+  expect((await call('POST', { Origin: 'http://192.168.1.20:5900', 'Sec-Fetch-Site': 'cross-site' })).status).toBe(200);
+  const asked = (origin: string) =>
+    call('OPTIONS', { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' });
+  expect((await asked('http://192.168.1.20:5900')).headers.get('Access-Control-Allow-Origin')).toBe('http://192.168.1.20:5900');
+  expect((await asked('https://elsewhere.example.com')).headers.get('Access-Control-Allow-Origin')).toBeNull();
+  expect((await writable().call('OPTIONS', { Origin: 'http://192.168.1.20:5900', 'Access-Control-Request-Method': 'POST' })).headers.get('Access-Control-Allow-Origin')).toBeNull();
+});
+
+test("another site may read, but not open a websocket, and an app's own cors() after it lets no other site write", async () => {
+  const { call } = writable();
+  const fromThere = { Origin: 'https://elsewhere.example.com', 'Sec-Fetch-Site': 'cross-site' };
+  expect((await call('GET', fromThere)).status).toBe(200);
+  expect((await call('GET', { ...fromThere, Upgrade: 'websocket', Connection: 'Upgrade' })).status).toBe(403);
+  // An app that kept its own let-everyone-in rule while it moved onto the kit.
+  const permissive = appServer({ service: 'argon-watcher', print: (line) => printed.push(line) });
+  permissive.use(cors());
+  permissive.post('/api/items', (c) => c.json({ saved: true }));
+  const sent = await permissive.fetch(
+    new ServerRequest('http://localhost:3000/api/items', { method: 'POST', headers: { ...fromThere, 'Content-Type': 'application/json' }, body: '{}' }),
+  );
+  expect(sent.status).toBe(403);
 });

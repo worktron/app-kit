@@ -2,7 +2,8 @@
 import { upgradeWebSocket, websocket } from 'hono/bun';
 import { appServer, listen } from '../server/start';
 
-const app = appServer({ service: 'server-start-child' });
+// The test's simulated page, on Vite's port, opens the socket: to this server it is another site, so it is listed.
+const app = appServer({ service: 'server-start-child', otherSites: ['http://localhost:5173'] });
 app.get(
   '/api/live',
   upgradeWebSocket(() => ({

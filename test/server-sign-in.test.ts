@@ -50,8 +50,8 @@ describe('onlyThisMachine', () => {
     app.use('*', onlyThisMachine((line) => logged.push(line)));
     app.get('/api/items', (c) => c.json({ items: [] }));
     /** A request as Bun hands it to Hono: its server, whose requestIP reads the socket's peer, as the environment. */
-    const call = (peer: string | null, headers: Record<string, string> = {}) =>
-      app.fetch(new Request('http://127.0.0.1/api/items', { headers }), { requestIP: () => (peer === null ? null : { address: peer }) });
+    const call = (peer: string | null, headers: Record<string, string> = {}, address = 'http://127.0.0.1/api/items') =>
+      app.fetch(new Request(address, { headers }), { requestIP: () => (peer === null ? null : { address: peer }) });
     return { call, logged };
   }
 
@@ -75,6 +75,18 @@ describe('onlyThisMachine', () => {
     expect((await call('127.0.0.1', { 'X-Forwarded-For': '100.64.0.7' })).status).toBe(403);
     expect((await call('127.0.0.1', { 'X-Forwarded-For': '127.0.0.1, 10.0.0.4' })).status).toBe(403);
     expect((await call('127.0.0.1', { 'X-Forwarded-For': '127.0.0.1' })).status).toBe(200);
+  });
+
+  test("a request sent to a name that is not this machine's is refused, as a page whose name was pointed at this machine sends it", async () => {
+    const { call, logged } = server();
+    for (const address of ['http://localhost:3000/api/items', 'http://app.localhost:3000/api/items', 'http://127.0.0.1:3000/api/items', 'http://[::1]:3000/api/items']) {
+      expect((await call('127.0.0.1', {}, address)).status).toBe(200);
+    }
+    // DNS rebinding: the page's own name now resolves to 127.0.0.1, so to the browser it is the same site as this server.
+    const res = await call('127.0.0.1', {}, 'http://rebound.example.com:3000/api/items');
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "This server runs without sign-in and answers only to this machine's own names." });
+    expect(logged).toEqual(['[sign-in] refused GET /api/items sent to rebound.example.com: an open server answers only to localhost and 127.0.0.1']);
   });
 
   test('a request whose caller cannot be read is refused', async () => {

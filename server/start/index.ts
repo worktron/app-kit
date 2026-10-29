@@ -1,4 +1,5 @@
 import { Hono, type MiddlewareHandler } from 'hono';
+import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 
 /** Where a line goes: console.log unless a test or an app wants it elsewhere. */
@@ -22,22 +23,70 @@ export function requestLog(print: Print = console.log): MiddlewareHandler {
   };
 }
 
+/** The methods that only read, which another site's page may send: a route that changes something takes another. */
+const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Why a request another website's page sent may not act here, or null when it may. A page on any site the person has
+ * open can send a write to any server, the app's own on this machine included, and a browser's cross-origin rules stop
+ * the page reading the answer, never the write itself. So a write, or a websocket's opening, passes only when the
+ * browser says it came from the server's own page (`Sec-Fetch-Site: same-origin`, or `none` for one the person typed
+ * or an extension sent), from a site in `otherSites`, or from no browser at all: a request with neither
+ * `Sec-Fetch-Site` nor `Origin` is a script, a webhook or curl, since every browser names one on a cross-site write.
+ * Without `Sec-Fetch-Site`, an `Origin` passes on the host and port the request was sent to, not its scheme, since
+ * Railway ends TLS in front of the app. Go's http.CrossOriginProtection makes the same choices; the body's type is not
+ * looked at, so a server's own cross-origin rule cannot open what this closes.
+ */
+export function otherSiteRefusal(request: Request, otherSites: readonly string[] = []): string | null {
+  const opensSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
+  if (READS.has(request.method) && !opensSocket) return null;
+  const origin = request.headers.get('origin');
+  if (origin !== null && otherSites.includes(origin)) return null;
+  const site = request.headers.get('sec-fetch-site');
+  if (site !== null) {
+    return site === 'same-origin' || site === 'none' ? null : `sent from ${origin ?? 'another site'} (Sec-Fetch-Site: ${site})`;
+  }
+  if (origin === null) return null;
+  return URL.canParse(origin) && new URL(origin).host === new URL(request.url).host ? null : `sent from ${origin}`;
+}
+
+/** The check `appServer` puts on every request, for an app whose server is not yet on it. */
+export function otherSiteCheck(otherSites: readonly string[] = [], print: Print = console.log): MiddlewareHandler {
+  return async (c, next) => {
+    const refusal = otherSiteRefusal(c.req.raw, otherSites);
+    if (refusal) {
+      print(`refused ${c.req.method} ${loggedPath(c.req.url)}: ${refusal}`);
+      return c.json({ error: 'This server takes no writes sent from another website.' }, 403);
+    }
+    await next();
+  };
+}
+
 export interface AppServerOptions {
   /** The service's name, which the health route answers with. */
   service: string;
   /** Where the request log and errors go. */
   print?: Print;
+  /**
+   * Other websites whose pages may call this server, as origins (`http://192.168.1.20:5900`). They may write, and their
+   * cross-origin questions get an answer; no other site gets either. An extension's worker calling with host
+   * permissions is not held to cross-origin rules and needs no listing unless its writes are refused.
+   */
+  otherSites?: readonly string[];
 }
 
 /**
- * The Hono app every server starts from: the request log; `GET /api/health` answering `{ ok, service, commit }`, the
- * commit being the one Railway built from (null elsewhere), so a check can confirm which code production serves; an
- * error answered as JSON; and a JSON 404 under `/api/`. The app's own routes go on it after, its sign-in check
- * included, so the health route answers before the check runs.
+ * The Hono app every server starts from: the request log; the refusal of writes other websites send (otherSiteRefusal),
+ * with cross-origin answers for `otherSites` alone; `GET /api/health` answering `{ ok, service, commit }`, the commit
+ * being the one Railway built from (null elsewhere), so a check can confirm which code production serves; an error
+ * answered as JSON; and a JSON 404 under `/api/`. The app's own routes go on it after, its sign-in check included, so
+ * the health route answers before the check runs.
  */
-export function appServer({ service, print = console.log }: AppServerOptions): Hono {
+export function appServer({ service, print = console.log, otherSites = [] }: AppServerOptions): Hono {
   const app = new Hono();
   app.use(requestLog(print));
+  if (otherSites.length > 0) app.use(cors({ origin: [...otherSites] }));
+  app.use(otherSiteCheck(otherSites, print));
   app.get('/api/health', (c) => c.json({ ok: true, service, commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null }));
   app.onError((error, c) => {
     // An answer a route chose to throw, such as the agent keys' 401 with its own body, goes out as it was made.
