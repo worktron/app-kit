@@ -24,8 +24,8 @@ function project(packageJson: object | null): string {
   return folder;
 }
 
-function runTests(folder: string): { code: number; output: string } {
-  const done = Bun.spawnSync(['bun', 'test'], { cwd: folder, env: process.env, stdout: 'pipe', stderr: 'pipe' });
+function runTests(folder: string, ...args: string[]): { code: number; output: string } {
+  const done = Bun.spawnSync(['bun', 'test', ...args], { cwd: folder, env: process.env, stdout: 'pipe', stderr: 'pipe' });
   return { code: done.exitCode, output: done.stdout.toString() + done.stderr.toString() };
 }
 
@@ -62,6 +62,22 @@ test('a folder another user could write to is refused with its reason, and the t
   expect(code).not.toBe(0);
   expect(output).toContain(`the tests keep their temporary files in ${root}, and others can write to it (mode 777)`);
   expect(output).not.toContain('TMPDIR=');
+});
+
+test("under --parallel a test file's start-up refuses the process's folder when an earlier file loosened it", () => {
+  const name = unique();
+  made.push(`/tmp/${name}-tests`);
+  const folder = project({ name });
+  // Under --parallel the start-up file runs again for each test file in a worker, and finds its folder already there.
+  writeFileSync(
+    join(folder, 'a-loosens.test.ts'),
+    "import { test } from 'bun:test';\nimport { chmodSync } from 'node:fs';\ntest('loosens', () => chmodSync(process.env.TMPDIR!, 0o777));\n",
+  );
+  writeFileSync(join(folder, 'where.test.ts'), "import { test } from 'bun:test';\ntest('where', () => console.log('second file ran'));\n");
+  const { code, output } = runTests(folder, '--parallel=1');
+  expect(code).not.toBe(0);
+  expect(output).toMatch(new RegExp(`the tests keep this process's temporary files in /tmp/${name}-tests/\\d+, and others can write to it \\(mode 777\\)`));
+  expect(output).not.toContain('second file ran');
 });
 
 test('a link, a file, or a folder of another owner is refused, each with its reason', () => {
