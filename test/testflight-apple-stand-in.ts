@@ -18,13 +18,17 @@ export const ENTITLEMENTS_PUSH = plist(
 );
 export const ENTITLEMENTS_DEVELOPMENT = plist('\t<key>aps-environment</key>\n\t<string>development</string>\n\t<key>get-task-allow</key>\n\t<true/>\n');
 
-/** An app's origin with main two commits long, its clone checked out at main, and a cargo folder holding rustc. */
-export function uploadFixture(folder: string) {
+/**
+ * An app's origin with main two commits long, its clone checked out at main, and a cargo folder holding rustc. With
+ * `appFolder`, the Tauri project is in that subfolder of the repository, as Timescale's is in `desktop/`.
+ */
+export function uploadFixture(folder: string, appFolder = '') {
+  const inApp = (path: string) => (appFolder ? `${appFolder}/${path}` : path);
   const origin = repository(join(folder, 'origin'), {
-    'src-tauri/tauri.conf.json': JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../dist' } }),
-    'src-tauri/gen/apple/ExportOptions.plist': EXPORT_OPTIONS,
-    'src-tauri/gen/apple/past-the-break_iOS/Info.plist': INFO,
-    '.gitignore': 'src-tauri/gen/apple/build/\n',
+    [inApp('src-tauri/tauri.conf.json')]: JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../dist' } }),
+    [inApp('src-tauri/gen/apple/ExportOptions.plist')]: EXPORT_OPTIONS,
+    [inApp('src-tauri/gen/apple/past-the-break_iOS/Info.plist')]: INFO,
+    '.gitignore': `${inApp('src-tauri/gen/apple/build/')}\n`,
   });
   commit(origin, { 'src/app.ts': 'export {};\n' }, 'the page');
   const app = join(folder, 'app');

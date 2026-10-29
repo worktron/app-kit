@@ -52,12 +52,15 @@ export type StandInBuild = {
   internalState?: string;
   /** How many asks by number answer "not listed" before it is listed. */
   hiddenFor?: number;
+  /** Its expirationDate, the day Apple expires it. */
+  expires?: string;
 };
 
 /**
  * App Store Connect, for one app, whose builds list comes back in the order of their numbers read as text, as Apple's
- * need not be by number. A node:http server, since the unit tests' simulated page replaces the global Response; the
- * client is handed Bun's own fetch for the same reason (`options` below).
+ * need not be by number, and with only the attributes `fields[builds]` names, as Apple's sparse fieldsets do. A
+ * node:http server, since the unit tests' simulated page replaces the global Response; the client is handed Bun's own
+ * fetch for the same reason (`options` below).
  */
 export async function appStoreConnect(config: { bundleId: string; appId?: string; builds?: StandInBuild[]; pageSize?: number }) {
   const appId = config.appId ?? '1000000001';
@@ -72,12 +75,16 @@ export async function appStoreConnect(config: { bundleId: string; appId?: string
       return [200, { data: q('filter[bundleId]') === config.bundleId ? [{ type: 'apps', id: appId, attributes: { bundleId: config.bundleId } }] : [] }];
     }
     if (url.pathname === '/v1/builds' && q('filter[app]') === appId) {
-      const resource = (b: StandInBuild, state: string) => ({
-        type: 'builds',
-        id: `build-${b.number}`,
-        attributes: { version: b.number, processingState: state },
-        relationships: { buildBetaDetail: { data: { type: 'buildBetaDetails', id: `detail-${b.number}` } } },
-      });
+      const fields = q('fields[builds]')?.split(',');
+      const resource = (b: StandInBuild, state: string) => {
+        const all: Record<string, unknown> = { version: b.number, processingState: state, ...(b.expires ? { expirationDate: b.expires } : {}) };
+        return {
+          type: 'builds',
+          id: `build-${b.number}`,
+          attributes: fields ? Object.fromEntries(Object.entries(all).filter(([name]) => fields.includes(name))) : all,
+          relationships: { buildBetaDetail: { data: { type: 'buildBetaDetails', id: `detail-${b.number}` } } },
+        };
+      };
       const version = q('filter[version]');
       if (version) {
         const build = builds.find((b) => b.number === version);

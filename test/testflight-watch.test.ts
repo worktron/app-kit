@@ -1,12 +1,12 @@
 // `app-kit testflight watch`: which landings go up, judged against what App Store Connect holds; the record that keeps
 // an unmoved main from reading the key; failures held or tried again; the lock, the time limits, and the log's exact
-// lines. Real git repositories over file://, a stand-in App Store Connect, and stand-ins for bun install, the keychain,
+// lines; an app whose Tauri project is in a subfolder; and a fresh build before the newest expires. Real git repositories over file://, a stand-in App Store Connect, and stand-ins for bun install, the keychain,
 // 1Password and the app's own upload.
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCommand, type RunOptions, type RunResult } from '../tauri/testflight/run.ts';
-import { appKind, appName, commitForNumber, countsAsApp, decide, lock, watch, type Limits } from '../tauri/testflight/watch.ts';
+import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, lock, watch, type Limits } from '../tauri/testflight/watch.ts';
 import { appStoreConnect, commit, emptyCommits, exit, git, ITEM_JSON, ok, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
@@ -14,6 +14,8 @@ setDefaultTimeout(15_000);
 
 const START = Date.UTC(2026, 9, 25, 12);
 const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 let place: ReturnType<typeof scratch>;
 let origin: string;
@@ -74,9 +76,9 @@ function runner() {
 }
 
 let failures = 0;
-async function pass(stand = runner(), limits: Partial<Limits> = {}) {
+async function pass(stand = runner(), limits: Partial<Limits> = {}, urls = [`file://${origin}`]) {
   failures = await watch({
-    urls: [`file://${origin}`],
+    urls,
     run: stand.run,
     env: { PATH: process.env.PATH, HOME: place.folder, XDG_STATE_HOME: state, OP_SERVICE_ACCOUNT_TOKEN: 'from-the-shell' },
     now: () => clock,
@@ -111,7 +113,7 @@ test('a landing that changes the app is built and uploaded, with exact log lines
   expect(stand.named('op item get')[0].options.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(TOKEN);
   for (const call of stand.calls.filter((c) => c.command[0] !== 'op')) expect(call.options.env?.OP_SERVICE_ACCOUNT_TOKEN).toBeUndefined();
   expect(readFileSync(join(folder(), `urge-surfer/build-${countOf(change)}.log`), 'utf8')).toContain('[testflight] uploading build');
-  expect(record()).toEqual({ judgedHead: change, failure: null, fetchFailingSince: null });
+  expect(record()).toEqual({ judgedHead: change, failure: null, fetchFailingSince: null, expiryCheckAt: null });
 });
 
 test('a landing that changes only documentation, plans and tests uploads nothing', async () => {
@@ -389,6 +391,119 @@ test('a pass gives how many apps had a step fail, so the command exits 1; skips 
   expect(failures).toBe(1);
 });
 
+test('a Tauri project in a subfolder is installed, judged and uploaded from its folder, keeping its Rust build', async () => {
+  // Timescale's layout: the Mac and iPhone shell in desktop/, with its own packages and its packed start page, beside a
+  // web app whose packages are the root's.
+  const timescale = repository(join(place.folder, 'timescale'), {
+    'desktop/src-tauri/tauri.conf.json': JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../start' } }),
+    'desktop/start/index.html': '<p>start</p>\n',
+    'desktop/package.json': '{}\n',
+    'desktop/bun.lock': '{}\n',
+    'client/app.ts': 'export {};\n',
+    'package.json': '{}\n',
+  });
+  const url = `file://${timescale}#desktop`;
+  const line = (ms: number) => `${new Date(ms).toISOString()} timescale:`;
+  const checkout = join(folder(), 'timescale/checkout');
+  asc.builds.push({ number: '1', states: ['VALID'] });
+  commit(timescale, { 'client/app.ts': 'export const a = 1;\n', 'package.json': '{"workspaces":["client"]}\n', 'desktop/README.md': 'docs\n' });
+  const outside = await pass(runner(), {}, [url]);
+  // The bundle id was read from desktop/src-tauri, and nothing outside desktop/ is the app.
+  expect(logLines()).toEqual([`${line(START)} skipped: no app files changed since build 1`]);
+  expect(outside.named('bun install')[0].options.cwd).toBe(join(checkout, 'desktop'));
+  expect(outside.named('testflight upload')).toEqual([]);
+
+  mkdirSync(join(checkout, 'desktop/src-tauri/target/release'), { recursive: true });
+  writeFileSync(join(checkout, 'desktop/src-tauri/target/release/cache'), 'kept\n');
+  const change = commit(timescale, { 'desktop/start/index.html': '<p>now</p>\n' });
+  const inside = await pass(runner(), {}, [url]);
+  expect(logLines().slice(1)).toEqual([
+    `${line(START)} uploading build 3 (${change.slice(0, 7)}): app files changed since build 1 (desktop/start/index.html)`,
+    `${line(START)} uploaded build 3 (${change.slice(0, 7)}), processed`,
+  ]);
+  expect(inside.named('testflight upload')[0].options.cwd).toBe(join(checkout, 'desktop'));
+  expect(existsSync(join(checkout, 'desktop/src-tauri/target/release/cache'))).toBe(true);
+  expect(existsSync(join(checkout, 'desktop/node_modules/app-kit/tauri/testflight/upload.ts'))).toBe(true);
+});
+
+test('a folder that is missing, leaves the repository or holds pattern characters fails that app with a line naming it', async () => {
+  expect(appAddress('github.com:worktron/timescale.git#desktop')).toEqual({ url: 'github.com:worktron/timescale.git', folder: 'desktop' });
+  expect(appAddress('https://github.com/worktron/timescale.git#apps/desktop/')).toEqual({ url: 'https://github.com/worktron/timescale.git', folder: 'apps/desktop' });
+  expect(appAddress('https://github.com/worktron/argon-watcher.git')).toEqual({ url: 'https://github.com/worktron/argon-watcher.git', folder: '' });
+  // git clean reads the folder as a pattern, so a wildcard or a leading ! would keep or wipe something else.
+  for (const folder of ['', '/desktop', '../desktop', 'a/./b', 'desk*top', '!desktop', 'a//b']) expect(typeof appAddress(`x.git#${folder}`)).toBe('string');
+
+  // The other apps' passes go on.
+  const argon = repository(join(place.folder, 'argon-watcher'), PAST_THE_BREAK);
+  await pass(runner(), {}, [`file://${origin}#../desktop`, `file://${argon}`]);
+  expect(logLines()[0]).toBe(`${at(START)} failed: the folder "../desktop" after # is not a folder inside the repository, named in letters, digits, ., _, - and /`);
+  expect(logLines().slice(1).map((l) => l.split(': ')[1])).toEqual(['uploading build 1 (' + git(argon, 'rev-parse', '--short=7', 'HEAD') + ')', 'uploaded build 1 (' + git(argon, 'rev-parse', '--short=7', 'HEAD') + '), processed']);
+  expect(failures).toBe(1);
+
+  const stand = await pass(runner(), {}, [`file://${origin}#mobile`]);
+  expect(logLines().at(-1)).toBe(`${at(START)} held: build 1 (${shortOf(head())}) has no folder mobile; held until main moves`);
+  expect(stand.named('bun install')).toEqual([]);
+});
+
+test('a newest build in its last 15 days goes up again once main has moved past it, with no app file changed', async () => {
+  const first = head();
+  asc.builds.push({ number: String(countOf(first)), states: ['VALID'], expires: new Date(START + 14 * DAY).toISOString() });
+  const docs = commit(origin, { 'README.md': 'docs\n' });
+  await pass();
+  expect(logLines()).toEqual([
+    `${at(START)} uploading build ${countOf(docs)} (${shortOf(docs)}): build ${countOf(first)} expires on ${dayOf(START + 14 * DAY)}`,
+    `${at(START)} uploaded build ${countOf(docs)} (${shortOf(docs)}), processed`,
+  ]);
+
+  // A build already past its date goes up the same way; one with more than 15 days left, or no date, does not.
+  const judge = (expires: string | null) => decide({ newest: 10, newestCommit: 'a'.repeat(40), head: { commit: 'b'.repeat(40), count: 12 }, changed: ['README.md'], kind: 'packs-its-pages', newestExpires: expires, now: START });
+  expect(judge('2026-10-01T10:00:00.000+0000')).toEqual({ upload: true, reason: `uploading build 12 (bbbbbbb): build 10 expired on 2026-10-01` });
+  expect(judge(new Date(START + 15 * DAY).toISOString()).upload).toBe(true);
+  expect(judge(new Date(START + 15 * DAY + MINUTE).toISOString()).upload).toBe(false);
+  expect(judge(null).upload).toBe(false);
+});
+
+test("a newest build in its last 15 days that is main's head uploads nothing and says the next landing will", async () => {
+  asc.builds.push({ number: String(countOf(head())), states: ['VALID'], expires: new Date(START + 10 * DAY).toISOString() });
+  const stand = await pass();
+  expect(logLines()).toEqual([
+    `${at(START)} skipped: build ${countOf(head())} (${shortOf(head())}) is already in App Store Connect; it expires on ${dayOf(START + 10 * DAY)}, and the next landing uploads a fresh one`,
+  ]);
+  expect(stand.named('testflight upload')).toEqual([]);
+  // It is said once, not every pass.
+  clock += 5 * MINUTE;
+  await pass();
+  expect(logLines()).toHaveLength(1);
+});
+
+test('an unmoved main is judged again once when the newest build reaches its last 15 days, and a record from before this change once', async () => {
+  const first = head();
+  const expires = START + 90 * DAY;
+  asc.builds.push({ number: String(countOf(first)), states: ['VALID'], expires: new Date(expires).toISOString() });
+  const docs = commit(origin, { 'README.md': 'docs\n' });
+  await pass();
+  expect(logLines()).toEqual([`${at(START)} skipped: no app files changed since build ${countOf(first)}`]);
+  expect(record().expiryCheckAt).toBe(new Date(expires - 15 * DAY).toISOString());
+  // Before that moment, an unmoved main still reads no key.
+  clock = expires - 15 * DAY - MINUTE;
+  expect((await pass()).calls.map((c) => c.command.slice(0, 2).join(' '))).toEqual(['git fetch', 'git rev-parse']);
+  clock = expires - 15 * DAY;
+  await pass();
+  expect(logLines().slice(1)).toEqual([
+    `${at(clock)} uploading build ${countOf(docs)} (${shortOf(docs)}): build ${countOf(first)} expires on ${dayOf(expires)}`,
+    `${at(clock)} uploaded build ${countOf(docs)} (${shortOf(docs)}), processed`,
+  ]);
+  expect(record().expiryCheckAt).toBeNull();
+  asc.builds.push({ number: String(countOf(docs)), states: ['VALID'], expires: new Date(clock + 90 * DAY).toISOString() });
+
+  // A record the watcher wrote before it knew of expiry is judged once, and then holds when to look again.
+  writeFileSync(join(folder(), 'urge-surfer/record.json'), JSON.stringify({ judgedHead: docs, failure: null, fetchFailingSince: null }));
+  clock += 5 * MINUTE;
+  await pass();
+  expect(logLines().at(-1)).toBe(`${at(clock)} skipped: build ${countOf(docs)} (${shortOf(docs)}) is already in App Store Connect`);
+  expect(record().expiryCheckAt).toBe(new Date(clock - 5 * MINUTE + 75 * DAY).toISOString());
+});
+
 describe('what counts as the iPhone app', () => {
   test('an iPhone shell that loads a website is its Tauri folder, package and lock files', () => {
     const argon = JSON.stringify({ identifier: 'com.worktron.argon', build: { frontendDist: 'https://argon.worktron.com' } });
@@ -421,6 +536,7 @@ test("an app's name is its repository's", () => {
   expect(appName('github.com:worktron/argon-watcher.git')).toBe('argon-watcher');
   expect(appName('https://github.com/worktron/urge-surfer')).toBe('urge-surfer');
   expect(appName('file:///repos/urge-surfer/')).toBe('urge-surfer');
+  expect(appName('ssh://github.com/worktron/timescale.git#desktop')).toBe('timescale');
 });
 
 test("the commit for a build number is found on main's first-parent line by its count", async () => {

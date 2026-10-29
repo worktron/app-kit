@@ -71,10 +71,12 @@ const USAGE = `app-kit <part> <command>
                               and wait until App Store Connect has processed it.
                               --token-only reads the key only through the keychain's
                               1Password token, never the signed-in op
-  testflight watch <git url>...
+  testflight watch <git url>[#<folder>]...
                               one pass: for each app whose main moved and changed its
-                              iPhone app, build main's commit in a clone of its own and
-                              upload it; one line per decision in
+                              iPhone app, or whose newest build expires within 15 days,
+                              build main's commit in a clone of its own and upload it;
+                              #<folder> names a Tauri project in a subfolder; one line
+                              per decision in
                               ~/.local/state/app-kit/testflight/testflight.log;
                               exits 1 when a step failed for any app
   --version                   this kit's version and the commit it runs from

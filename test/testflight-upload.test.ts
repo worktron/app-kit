@@ -79,6 +79,24 @@ test('a clean commit of main is built, checked, uploaded, and waited on until Ap
   expect(stand.named('op item get')).toHaveLength(1);
 });
 
+test('run from a Tauri project in a subfolder, it puts back only the values Tauri wrote', async () => {
+  // Timescale's layout: the Tauri project and its packages in desktop/, the repository's root above it.
+  const sub = scratch('testflight-upload-subfolder-');
+  try {
+    const fixture = uploadFixture(sub.folder, 'desktop');
+    const desktop = join(fixture.app, 'desktop');
+    const stand = appleFor(desktop, asc.builds);
+    const { code } = await runUpload(stand, { cwd: desktop, env: { PATH: '/usr/bin:/bin', HOME: sub.folder, CARGO_HOME: fixture.cargoHome } });
+    expect(code).toBe(0);
+    expect(stand.named('tauri ios build')[0].options.cwd).toBe(desktop);
+    // Tauri wrote the build number and the export method into both plists; the tree is as committed again.
+    expect(readFileSync(join(desktop, 'src-tauri/gen/apple/ExportOptions.plist'), 'utf8')).toContain('<string>debugging</string>');
+    expect(git(fixture.app, 'status', '--porcelain')).toBe('');
+  } finally {
+    sub.done();
+  }
+});
+
 test('the key, its token and APPLE_API_* never reach the build, and the token reaches only 1Password', async () => {
   const stand = apple();
   const env = { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome, FORCE_COLOR: '3', APPLE_API_KEY: 'X', APPLE_API_ISSUER: 'Y', APPLE_API_KEY_PATH: '/k.p8', OP_SERVICE_ACCOUNT_TOKEN: 'from-the-shell' };

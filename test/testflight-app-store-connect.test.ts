@@ -23,11 +23,11 @@ test("App Store Connect's token names the key and issuer and its audience, lives
   expect(tokenProblem(`Bearer ${token.slice(0, -4)}AAAA`)).toBe('the signature does not verify');
 });
 
-test('every build is read across pages, and one build comes with its TestFlight state', async () => {
+test('every build is read across pages with the day Apple expires it, and one build comes with its TestFlight state', async () => {
   const asc = await appStoreConnect({
     bundleId: 'app.pastthebreak',
     pageSize: 2,
-    builds: ['98', '99', '100', '101', '7'].map((number) => ({ number, states: ['VALID'] })),
+    builds: ['98', '99', '100', '101', '7'].map((number) => ({ number, states: ['VALID'], ...(number === '101' ? { expires: '2026-12-01T10:00:00.000+0000' } : {}) })),
   });
   stops.push(asc.stop);
   const client = new AppStoreConnect(KEY, asc.options);
@@ -36,7 +36,10 @@ test('every build is read across pages, and one build comes with its TestFlight 
   expect(appId).toBe('1000000001');
   const numbers = (await client.builds(appId!)).map((b) => b.number);
   expect(numbers.sort()).toEqual(['100', '101', '7', '98', '99']);
-  expect(await client.build(appId!, '100')).toEqual({ number: '100', processingState: 'VALID', internalState: 'IN_BETA_TESTING' });
+  // The stand-in answers only the fields asked for, as Apple does, so the expiry is there only because it was asked.
+  const expiring = (await client.builds(appId!)).filter((b) => b.expires);
+  expect(expiring).toEqual([{ number: '101', processingState: 'VALID', internalState: null, expires: '2026-12-01T10:00:00.000+0000' }]);
+  expect(await client.build(appId!, '100')).toEqual({ number: '100', processingState: 'VALID', internalState: 'IN_BETA_TESTING', expires: null });
   expect(await client.build(appId!, '102')).toBeNull();
 });
 

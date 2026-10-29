@@ -1,18 +1,21 @@
 /*
- * `app-kit testflight watch <git url>...`: one pass over each iPhone app's main, which a background job runs every
- * five minutes. When an app's main has moved and the change touches its iPhone app, it builds main's exact commit in a
- * clone of its own and runs the app's own `bun run app-kit testflight upload --token-only` there, so the app's pinned
- * kit decides how it is built. Every decision is one line in testflight.log, with its reason.
+ * `app-kit testflight watch <git url>[#<folder>]...`: one pass over each iPhone app's main, which a background job runs
+ * every five minutes. When an app's main has moved and the change touches its iPhone app, or the newest TestFlight build
+ * is near the day Apple expires it, it builds main's exact commit in a clone of its own and runs the app's own
+ * `bun run app-kit testflight upload --token-only` there, so the app's pinned kit decides how it is built. An app whose
+ * Tauri project is in a subfolder of its repository names it after a `#`, and everything runs in that folder. Every
+ * decision is one line in testflight.log, with its reason.
  *
  * What has already gone up is read from App Store Connect, never kept here, so an upload by hand is never repeated and
  * never causes a skip. The record kept per app holds only the last main commit judged and the last failure, so a pass
- * on an unmoved main reads no key and writes no line.
+ * on an unmoved main reads no key and writes no line, until the newest build nears its expiry.
  *
  * Files, under $XDG_STATE_HOME/app-kit/testflight (~/.local/state/app-kit/testflight by default):
  *   testflight.log         one line per decision, rotated to testflight.log.1 at 1 MB
  *   <app>/checkout/        the clone it builds in, which nobody works in
  *   <app>/build-<n>.log    the install's, build's and upload's output for build n
- *   <app>/record.json      the main commit last judged, and the last failure (commit, step, time)
+ *   <app>/record.json      the main commit last judged, the last failure (commit, step, time), and when to judge an
+ *                          unmoved main again because the newest build nears its expiry
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -29,11 +32,17 @@ export type Limits = { fetch: number; install: number; build: number; upload: nu
 export const LIMITS: Limits = { fetch: 2 * 60_000, install: 10 * 60_000, build: 60 * 60_000, upload: 45 * 60_000 };
 /** How long a failure other than a compile failure waits before the same commit is tried again. */
 export const RETRY_MS = 60 * 60 * 1000;
+/** How long before Apple expires the newest build a fresh one goes up: on day 75 of its 90. */
+export const RENEW_BEFORE_EXPIRY_MS = 15 * 24 * 60 * 60 * 1000;
 const LOG_MAX = 1_000_000;
 const BUILD_LOGS_KEPT = 10;
 
 export type Failure = { commit: string; step: string; time: string; held?: boolean };
-export type AppRecord = { judgedHead: string | null; failure: Failure | null; fetchFailingSince?: string | null };
+/**
+ * `expiryCheckAt` is when an unmoved main is judged again, as the newest build enters its last days; null when nothing
+ * would change, and absent in a record written before it existed, which is judged once.
+ */
+export type AppRecord = { judgedHead: string | null; failure: Failure | null; fetchFailingSince?: string | null; expiryCheckAt?: string | null };
 
 /** The folder the watcher keeps its clones, logs and records in. */
 export function stateFolder(env: Env, home = homedir()): string {
@@ -42,7 +51,21 @@ export function stateFolder(env: Env, home = homedir()): string {
 
 /** An app's name from its git address: https://github.com/worktron/argon-watcher.git, or its SSH form, is argon-watcher. */
 export function appName(url: string): string {
-  return (url.replace(/\/+$/, '').split(/[/:]/).pop() ?? url).replace(/\.git$/, '');
+  return (url.replace(/#.*$/, '').replace(/\/+$/, '').split(/[/:]/).pop() ?? url).replace(/\.git$/, '');
+}
+
+/**
+ * An app's entry in the watcher's list: its git address, then `#<folder>` when its Tauri project is in a subfolder,
+ * as Timescale's `desktop/` is; the folder is '' at the repository's root. GitHub's names hold no `#`. The folder goes to
+ * git clean as a pattern, so only plain path characters are taken; anything else is why the entry is refused.
+ */
+export function appAddress(entry: string): { url: string; folder: string } | string {
+  const at = entry.lastIndexOf('#');
+  if (at < 0) return { url: entry, folder: '' };
+  const folder = entry.slice(at + 1).replace(/\/+$/, '');
+  const plain = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(folder) && !folder.split('/').some((part) => part === '.' || part === '..');
+  if (!plain) return `the folder "${entry.slice(at + 1)}" after # is not a folder inside the repository, named in letters, digits, ., _, - and /`;
+  return { url: entry.slice(0, at), folder };
 }
 
 /** Whether the commit judged last should be built again: it failed for a reason other than its own code, an hour ago. */
@@ -68,7 +91,12 @@ export function appKind(tauriConfig: string): AppKind {
   }
 }
 
-export function countsAsApp(path: string, kind: AppKind): boolean {
+/** Whether a changed file, named from the repository's root, is part of the app whose Tauri project is in `folder`. */
+export function countsAsApp(path: string, kind: AppKind, folder = ''): boolean {
+  if (folder) {
+    if (!path.startsWith(`${folder}/`)) return false;
+    path = path.slice(folder.length + 1);
+  }
   if (kind === 'loads-a-website') return path.startsWith('src-tauri/') || path === 'package.json' || path === 'bun.lock';
   const parts = path.split('/');
   const name = parts[parts.length - 1];
@@ -83,23 +111,43 @@ export type Decision = { upload: boolean; reason: string };
  * Whether main's head goes up. `newest` is the largest build number App Store Connect holds, compared as a number,
  * never by the server's order; `newestCommit` the commit on main's first-parent line whose count it is, or null; and
  * `changed` the files changed from that commit to main's head, so landings since the last build are judged together.
+ * `newestExpires` is when Apple expires the newest build: from RENEW_BEFORE_EXPIRY_MS before it, and after it, main's
+ * head goes up with no app file changed, since testers cannot open an expired build.
  */
-export function decide(input: { newest: number | null; newestCommit: string | null; head: Head; changed: string[]; kind: AppKind }): Decision {
+export function decide(input: {
+  newest: number | null;
+  newestCommit: string | null;
+  head: Head;
+  changed: string[];
+  kind: AppKind;
+  folder?: string;
+  newestExpires?: string | null;
+  now?: number;
+}): Decision {
   const { newest, newestCommit, head, kind } = input;
   const at = `build ${head.count} (${head.commit.slice(0, 7)})`;
+  const expiresMs = input.newestExpires ? Date.parse(input.newestExpires) : NaN;
+  const now = input.now ?? Date.now();
+  const expiring = now >= expiresMs - RENEW_BEFORE_EXPIRY_MS ? `${now >= expiresMs ? 'expired' : 'expires'} on ${new Date(expiresMs).toISOString().slice(0, 10)}` : null;
   if (newest === null) return { upload: true, reason: `uploading ${at}: App Store Connect has no build yet` };
   if (newest > head.count) {
     return { upload: false, reason: `skipped: App Store Connect's newest build ${newest} is above main's count ${head.count}; uploads resume when main passes it` };
   }
   if (newest === head.count) {
-    if (newestCommit === head.commit) return { upload: false, reason: `skipped: ${at} is already in App Store Connect` };
+    if (newestCommit === head.commit) {
+      if (expiring) return { upload: false, reason: `skipped: ${at} is already in App Store Connect; it ${expiring}, and the next landing uploads a fresh one` };
+      return { upload: false, reason: `skipped: ${at} is already in App Store Connect` };
+    }
     return { upload: false, reason: `skipped: App Store Connect holds build ${newest} from a commit not on main; uploads resume when main passes it` };
   }
   if (!newestCommit) {
     return { upload: true, reason: `uploading ${at}: App Store Connect's newest build ${newest} names no commit on main` };
   }
-  const changed = input.changed.filter((path) => countsAsApp(path, kind));
-  if (!changed.length) return { upload: false, reason: `skipped: no app files changed since build ${newest}` };
+  const changed = input.changed.filter((path) => countsAsApp(path, kind, input.folder));
+  if (!changed.length) {
+    if (expiring) return { upload: true, reason: `uploading ${at}: build ${newest} ${expiring}` };
+    return { upload: false, reason: `skipped: no app files changed since build ${newest}` };
+  }
   const named = changed.slice(0, 3).join(', ') + (changed.length > 3 ? ` and ${changed.length - 3} more` : '');
   return { upload: true, reason: `uploading ${at}: app files changed since build ${newest} (${named})` };
 }
@@ -227,6 +275,14 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const record = readRecord(recordFile);
   const save = (next: AppRecord) => writeFileSync(recordFile, `${JSON.stringify(next, null, 2)}\n`);
   const line = (message: string) => log(state, `${new Date(now()).toISOString()} ${name}: ${message}`);
+  const address = appAddress(url);
+  if (typeof address === 'string') {
+    line(`failed: ${address}`);
+    return true;
+  }
+  // The app's Tauri project and its packages: the clone's root, or the folder its entry names.
+  const appFolder = join(checkout, address.folder);
+  const tauriConfigName = join(address.folder, 'src-tauri/tauri.conf.json');
   const minutes = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${ms / 1000} seconds`);
 
   // No terminal to prompt on: a fetch that needs a password fails instead of waiting. The 1Password token is never in
@@ -241,7 +297,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   // A fetch is cheap, so a failing one is tried every pass, with a line when it starts failing and one when it works.
   const fetched = existsSync(join(checkout, '.git'))
     ? await git(['fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main'], limits.fetch)
-    : await git(['clone', '--quiet', '--no-checkout', url, checkout], limits.install);
+    : await git(['clone', '--quiet', '--no-checkout', address.url, checkout], limits.install);
   if (!fetched.ok) {
     if (!record.fetchFailingSince) {
       const why = fetched.timedOut ? 'it did not finish in time and was stopped' : lastLine(fetched.out);
@@ -257,11 +313,14 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   }
 
   const head = (await git(['rev-parse', 'refs/remotes/origin/main'])).out;
-  if (head === record.judgedHead && !retryDue(record, head, now())) return false;
+  const expiryDue = record.expiryCheckAt === undefined || (record.expiryCheckAt !== null && now() >= Date.parse(record.expiryCheckAt));
+  if (head === record.judgedHead && !retryDue(record, head, now()) && !expiryDue) return false;
   const count = Number((await git(['rev-list', '--count', head])).out);
   const at = `build ${count} (${head.slice(0, 7)})`;
+  // Set once App Store Connect has said when the newest build expires, while that is still ahead.
+  let expiryCheckAt: string | null = null;
   const judged = (failure: Failure | null = null) => {
-    save({ judgedHead: head, failure, fetchFailingSince: null });
+    save({ judgedHead: head, failure, fetchFailingSince: null, expiryCheckAt });
     return failure !== null;
   };
   const failed = (step: string, message: string, held = false) => {
@@ -282,17 +341,20 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const toBuildLog = (chunk: string) => appendFileSync(buildLog, chunk);
 
   // Main's exact commit, with nothing left from another commit's build but the installed packages and Rust's build.
+  // git clean runs at the clone's root, where a pattern with a slash is read from the root and `node_modules` matches
+  // at any depth.
   const checkedOut = await git(['checkout', '--quiet', '--force', '--detach', head]);
-  const cleaned = checkedOut.ok ? await git(['clean', '-ffdxq', '-e', 'node_modules', '-e', 'src-tauri/target']) : checkedOut;
+  const cleaned = checkedOut.ok ? await git(['clean', '-ffdxq', '-e', 'node_modules', '-e', join(address.folder, 'src-tauri/target')]) : checkedOut;
   if (!cleaned.ok) return failed('checkout', `failed: checking out ${at}: ${lastLine(cleaned.out)}; ${retry}`);
+  if (!existsSync(appFolder)) return failed('checkout', `held: ${at} has no folder ${address.folder}; held until main moves`, true);
 
-  const installed = await run(['bun', 'install', '--frozen-lockfile'], { cwd: checkout, env: childEnv, timeoutMs: limits.install });
+  const installed = await run(['bun', 'install', '--frozen-lockfile'], { cwd: appFolder, env: childEnv, timeoutMs: limits.install });
   if (installed.code !== 0) {
     startBuildLog(installed.out);
     const why = installed.timedOut ? `it did not finish in ${minutes(limits.install)} and was stopped` : lastLine(installed.out);
     return failed('install', `failed: bun install at ${at}: ${why}; ${retry} (${logName})`);
   }
-  if (!existsSync(join(checkout, 'node_modules/app-kit/tauri/testflight/upload.ts'))) {
+  if (!existsSync(join(appFolder, 'node_modules/app-kit/tauri/testflight/upload.ts'))) {
     line("waiting: main's app-kit has no testflight upload");
     return judged();
   }
@@ -306,27 +368,30 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   if ('error' in keyRead) return failed('key', `failed: ${keyRead.error}; ${retry}`);
 
   let tauriConfig: string;
-  let numbers: number[];
+  let builds: { number: number; expires: string | null }[];
   try {
-    tauriConfig = readFileSync(join(checkout, 'src-tauri/tauri.conf.json'), 'utf8');
+    tauriConfig = readFileSync(join(checkout, tauriConfigName), 'utf8');
     const bundleId = (JSON.parse(tauriConfig) as { identifier?: string }).identifier;
-    if (!bundleId) return failed('app store connect', `failed: src-tauri/tauri.conf.json at ${at} names no identifier; ${retry}`);
+    if (!bundleId) return failed('app store connect', `failed: ${tauriConfigName} at ${at} names no identifier; ${retry}`);
     const appStoreConnect = new AppStoreConnect(keyRead.key, options.appStoreConnect);
     const appId = await appStoreConnect.appId(bundleId);
     if (!appId) return failed('app store connect', `failed: no app in App Store Connect has the bundle id ${bundleId}; ${retry}`);
     // Build numbers are compared as numbers: the server's order puts 99 above 100.
-    numbers = (await appStoreConnect.builds(appId)).map((build) => Number(build.number)).filter((n) => Number.isInteger(n));
+    builds = (await appStoreConnect.builds(appId)).map((build) => ({ number: Number(build.number), expires: build.expires })).filter((b) => Number.isInteger(b.number));
   } catch (error) {
     return failed('app store connect', `failed: ${error instanceof Error ? error.message : String(error)}; ${retry}`);
   }
-  const newest = numbers.length ? Math.max(...numbers) : null;
+  const newest = builds.length ? Math.max(...builds.map((b) => b.number)) : null;
+  const newestExpires = builds.find((b) => b.number === newest)?.expires ?? null;
+  const renewFrom = newestExpires ? Date.parse(newestExpires) - RENEW_BEFORE_EXPIRY_MS : NaN;
+  if (renewFrom > now()) expiryCheckAt = new Date(renewFrom).toISOString();
   const mainLine = (await git(['rev-list', '--first-parent', head])).out.split('\n');
   const newestCommit =
     newest !== null && newest <= count
       ? await commitForNumber(newest, mainLine, async (commit) => Number((await git(['rev-list', '--count', commit])).out))
       : null;
   const changed = newestCommit && newestCommit !== head ? (await git(['diff', '--name-only', '--no-renames', newestCommit, head])).out.split('\n').filter(Boolean) : [];
-  const decision = decide({ newest, newestCommit, head: { commit: head, count }, changed, kind: appKind(tauriConfig) });
+  const decision = decide({ newest, newestCommit, head: { commit: head, count }, changed, kind: appKind(tauriConfig), folder: address.folder, newestExpires, now: now() });
   line(decision.reason);
   if (!decision.upload) return judged();
   startBuildLog(installed.out);
@@ -336,7 +401,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   let tail = '';
   let uploading = false;
   const uploaded = await run(['caffeinate', '-i', 'taskpolicy', '-b', 'bun', 'run', 'app-kit', 'testflight', 'upload', '--token-only'], {
-    cwd: checkout,
+    cwd: appFolder,
     env: childEnv,
     timeoutMs: limits.build,
     output: (chunk) => {
@@ -351,6 +416,8 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const said = uploaded.out.split('\n').filter((l) => l.startsWith('[testflight] ')).pop()?.slice('[testflight] '.length) ?? lastLine(uploaded.out);
   if (uploaded.code === 0) {
     line(`uploaded ${at}, processed`);
+    // The newest build is now main's head, which nothing can renew until main moves, and the next judgment reads its date.
+    expiryCheckAt = null;
     return judged();
   }
   if (uploaded.timedOut) {

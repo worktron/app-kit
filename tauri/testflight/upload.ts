@@ -205,13 +205,14 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   if ('error' in keyRead) return fail(keyRead.error);
   const key = keyRead.key;
 
-  // The committed values of what Tauri writes, to put back after.
+  // The committed values of what Tauri writes, to put back after. ls-files names each file from the folder it runs in,
+  // and `HEAD:./` reads it from there too, so a Tauri project in a subfolder of its repository is put back as well.
   const tracked = (await git('ls-files', '--', 'src-tauri/gen/apple')).out.split('\n');
   const restores: { file: string; key: string; wrote: string; committed: string }[] = [];
   for (const file of tracked) {
     const plistKey = file === EXPORT_OPTIONS ? 'method' : INFO_PLIST.test(file) ? 'CFBundleVersion' : null;
     if (!plistKey) continue;
-    const committed = await plistValue((await git('show', `HEAD:${file}`)).out, plistKey);
+    const committed = await plistValue((await git('show', `HEAD:./${file}`)).out, plistKey);
     const wrote = plistKey === 'method' ? 'app-store-connect' : String(buildNumber);
     if (committed !== null) restores.push({ file, key: plistKey, wrote, committed });
   }

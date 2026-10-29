@@ -17,8 +17,11 @@ export function appStoreConnectToken(key: TestFlightKey, nowMs: number): string 
   return appleToken(key.keyId, key.privateKey, { iss: key.issuerId, iat, exp: iat + TOKEN_LIFE_SECONDS, aud: 'appstoreconnect-v1' }, { typ: 'JWT' });
 }
 
-/** One build App Store Connect holds: its build number (CFBundleVersion), and how far Apple's processing has got. */
-export type Build = { number: string; processingState: string; internalState: string | null };
+/**
+ * One build App Store Connect holds: its build number (CFBundleVersion), how far Apple's processing has got, and when
+ * Apple says testers lose it (90 days after its upload), or null when the answer has no date.
+ */
+export type Build = { number: string; processingState: string; internalState: string | null; expires: string | null };
 
 type Resource = { id: string; type: string; attributes?: Record<string, unknown>; relationships?: Record<string, { data?: { id: string } | null }> };
 type Page = { data: Resource[]; included?: Resource[]; links?: { next?: string } };
@@ -72,7 +75,7 @@ export class AppStoreConnect {
   /** Every build the app has, in the server's order, which is not by number. */
   async builds(appId: string): Promise<Build[]> {
     const builds: Build[] = [];
-    let next: string | undefined = `/v1/builds?filter[app]=${encodeURIComponent(appId)}&limit=200&fields[builds]=version,processingState`;
+    let next: string | undefined = `/v1/builds?filter[app]=${encodeURIComponent(appId)}&limit=200&fields[builds]=version,processingState,expirationDate`;
     for (let pages = 0; next && pages < 50; pages++) {
       const page: Page = await this.get(next);
       builds.push(...page.data.map((build) => buildOf(build, page.included)));
@@ -98,5 +101,6 @@ function buildOf(build: Resource, included: Resource[] = []): Build {
     number: String(build.attributes?.version ?? ''),
     processingState: String(build.attributes?.processingState ?? 'unknown'),
     internalState: detail ? String(detail.attributes?.internalBuildState ?? 'unknown') : null,
+    expires: typeof build.attributes?.expirationDate === 'string' ? build.attributes.expirationDate : null,
   };
 }

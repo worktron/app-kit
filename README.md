@@ -718,9 +718,9 @@ It prints one line starting `[iphone-simulator]` and exits 0 whatever it finds, 
 
 ### TestFlight
 
-`app-kit testflight upload` and `app-kit testflight watch`: an iPhone build reaches TestFlight after each landing that changes the iPhone app, with nobody running anything. The upload builds the commit checked out, checks the build, uploads it and waits until App Store Connect has processed it. The watcher, run by a background job on a Mac every five minutes, notices when an app's main has moved and runs the app's own upload in a clone of its own.
+`app-kit testflight upload` and `app-kit testflight watch`: an iPhone build reaches TestFlight after each landing that changes the iPhone app, and again before the newest build expires, with nobody running anything. The upload builds the commit checked out, checks the build, uploads it and waits until App Store Connect has processed it. The watcher, run by a background job on a Mac every five minutes, notices when an app's main has moved and runs the app's own upload in a clone of its own.
 
-The upload, from the app's checkout:
+The upload, from the app's checkout, or from the folder holding its Tauri project when that is a subfolder of the repository:
 
 ```sh
 bun run app-kit testflight upload
@@ -734,7 +734,17 @@ The watcher, one pass, for each app's git address:
 bun bin/app-kit.ts testflight watch https://github.com/worktron/argon-watcher.git https://github.com/worktron/timescale.git
 ```
 
-A background job runs it from a copy of the kit at a release tag, with SSH addresses; fetches never prompt. For each app it fetches main into its own clone under `$XDG_STATE_HOME/app-kit/testflight/<app>/` (`~/.local/state/app-kit/testflight/<app>/` by default), and when main's head is the one it judged last it does nothing and writes nothing. Otherwise it checks out main's commit, removes everything not committed but `node_modules` and `src-tauri/target`, runs `bun install --frozen-lockfile`, reads the key, and asks App Store Connect for the app's builds. Its newest build, by number, decides: the changes from that build's commit to main's head are judged together, so two landings between passes count as one, and an app change followed by a documentation-only landing still uploads. Which files count follows from the app's Tauri setup: when `frontendDist` in `src-tauri/tauri.conf.json` is an address, the iPhone app is only `src-tauri/`, `package.json` and `bun.lock`, since the website reaches phones when it deploys; otherwise it is every file but `*.md`, `.claude/`, `docs/`, `*.test.*`, `test/`, `tests/` and `e2e/`. An upload runs the app's own `bun run app-kit testflight upload --token-only` at background priority, keeping the Mac awake while it runs, so each app's pinned kit decides how it is built. Each step has a time limit: the fetch 2 minutes, the install 10, the build 60, the upload and processing 45. A build that did not compile is held until main moves; any other failure, a failed link included, is tried again after an hour. A pass in which a step failed for any app exits 1. A watcher stopped mid-pass, as launchd stops its job, stops the upload it started.
+An app whose Tauri project is in a subfolder of its repository, with that folder's own `package.json` and `bun.lock`, names the folder after a `#` on its address, as Timescale names `desktop/`:
+
+```sh
+bun bin/app-kit.ts testflight watch https://github.com/worktron/timescale.git#desktop
+```
+
+The install, the build and the upload then run in that folder, its `src-tauri/target` is kept, its `src-tauri/tauri.conf.json` is the one read, and only files under it count as the app's. GitHub's repository names hold no `#`, and the folder may hold only letters, digits, `.`, `_`, `-` and `/`, since it reaches `git clean` as a pattern; any other entry, or a folder main does not have, is a failed pass for that app with a line naming it. A folder that is one of the root's bun workspaces is not handled: its packages land in the root's `node_modules`.
+
+A background job runs it from a copy of the kit at a release tag, with SSH addresses; fetches never prompt. For each app it fetches main into its own clone under `$XDG_STATE_HOME/app-kit/testflight/<app>/` (`~/.local/state/app-kit/testflight/<app>/` by default), and when main's head is the one it judged last it does nothing and writes nothing. Otherwise it checks out main's commit, removes everything not committed but `node_modules` and the Tauri project's `src-tauri/target`, runs `bun install --frozen-lockfile`, reads the key, and asks App Store Connect for the app's builds. Its newest build, by number, decides: the changes from that build's commit to main's head are judged together, so two landings between passes count as one, and an app change followed by a documentation-only landing still uploads. Which files count follows from the app's Tauri setup: when `frontendDist` in `src-tauri/tauri.conf.json` is an address, the iPhone app is only `src-tauri/`, `package.json` and `bun.lock`, since the website reaches phones when it deploys; otherwise it is every file but `*.md`, `.claude/`, `docs/`, `*.test.*`, `test/`, `tests/` and `e2e/`.
+
+TestFlight builds expire 90 days after their upload, and testers then see "Beta Has Expired", so an app whose iPhone shell rarely changes would stop opening. From 15 days before the day App Store Connect gives as the newest build's `expirationDate`, and after it, main's head goes up with no app file changed, once main has moved past that build; the build number is main's commit count, so until main moves the watcher writes one line saying the build expires and the next landing uploads a fresh one. An unmoved main is judged again once, on the day the newest build enters its last 15 days, so the key is read only then. A build App Store Connect gives no expiry date is never renewed, and neither is one expired early, by hand or by Apple, before its date. An upload runs the app's own `bun run app-kit testflight upload --token-only` at background priority, keeping the Mac awake while it runs, so each app's pinned kit decides how it is built. Each step has a time limit: the fetch 2 minutes, the install 10, the build 60, the upload and processing 45. A build that did not compile is held until main moves; any other failure, a failed link included, is tried again after an hour. A pass in which a step failed for any app exits 1. A watcher stopped mid-pass, as launchd stops its job, stops the upload it started.
 
 Every decision is one line in `~/.local/state/app-kit/testflight/testflight.log`, with its reason:
 
@@ -743,9 +753,10 @@ Every decision is one line in `~/.local/state/app-kit/testflight/testflight.log`
 2026-10-25T14:09:41.000Z urge-surfer: uploaded build 130 (1a2b3c4), processed
 2026-10-25T15:20:02.000Z urge-surfer: skipped: no app files changed since build 130
 2026-10-25T15:20:04.000Z argon-watcher: waiting: main's app-kit has no testflight upload
+2026-12-30T09:05:01.000Z argon-watcher: uploading build 212 (5e6f7a8): build 209 expires on 2027-01-12
 ```
 
-Each build's output is in `<app>/build-<n>.log`, with the try before it in `build-<n>.log.1`, for the ten newest builds, and `<app>/record.json` holds the main commit judged last and the last failure. An app whose newest TestFlight build names no commit on main, such as one uploaded from a branch, gets one upload to settle it; one whose newest build is above main's count is skipped until main passes it.
+Each build's output is in `<app>/build-<n>.log`, with the try before it in `build-<n>.log.1`, for the ten newest builds, and `<app>/record.json` holds the main commit judged last, the last failure, and when an unmoved main is judged again for the newest build's expiry. An app whose newest TestFlight build names no commit on main, such as one uploaded from a branch, gets one upload to settle it; one whose newest build is above main's count is skipped until main passes it.
 
 Once per Apple team, by its Account Holder:
 
