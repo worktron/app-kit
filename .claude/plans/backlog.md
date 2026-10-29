@@ -118,3 +118,9 @@ Done when: a kit screen drawn for a signed-out visitor lifts the placeholder the
 
 Goal: with `build: { manifest: true }`, which serveBuiltPage asks for, Vite writes `.vite/manifest.json` into the built folder, and serveBuiltPage serves any file there (web/server.ts:63-72 at v0.23.0), so the record of source paths is public at `/.vite/manifest.json`. It holds no secrets, but nothing a page needs is under `.vite/`. Found by sightline's app-kit-adoption review (researcher), 2026-10-29.
 Done when: serveBuiltPage answers 404 for any address under `/.vite/` (and still reads the manifest itself), held by test/web-server.test.ts.
+
+## request-without-gate · `request` takes its token from an app that runs its own sign-in, not only from SignInGate
+
+Goal: app-kit's `request` (web/fetch.ts, `tokenFor`) reads the session only from `currentSession()`, which only `SignInGate` sets (web/sign-in/SignInGate.tsx:148), and `setCurrentSession` is not exported from `app-kit/web` (web/index.ts). An app that draws its own sign-in under Clerk's own `ClerkProvider` therefore cannot use `request`: every call would go out with no token and get a 401. argon-watcher is that app: its own fetch wrapper (src/lib/api.ts:37-83, a 401 reload latched for 15 seconds, the status read before the body) stays because of this, and threads `auth` through some forty calls. Found moving argon-watcher onto the kit, 2026-10-29 (argon-watcher's app-kit-adoption).
+Done when: an app without the gate hands `request` its session (a token getter, a "now" token for keepalive, and what a refused session does) through one exported call or hook, documented in the README's web section beside `request`, held by unit tests of a 401's retry and refusal through it; argon-watcher's follow-up then deletes its wrapper.
+Do not touch: SignInGate's own behavior.
