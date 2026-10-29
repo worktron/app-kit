@@ -338,10 +338,8 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         const { page } = await openPage(browser, { startsOnTap: true });
         await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
         await page.clock.pauseAt(new Date('2026-01-01T09:00:10'));
-        await page.getByRole('button', { name: 'Play' }).click();
-        await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
-        // Each step the kit takes sets one timer, so the timers set from the jump on count its steps. Sound three minutes
-        // behind caught up 20 ms at a time is thousands of steps, each a timer Playwright's runFor follows with a real wait
+        // Each step the kit takes sets one timer, so the timers set from the jump on count its steps. Sound a minute behind
+        // caught up 20 ms at a time is 3,000 steps, each a timer Playwright's runFor follows with a real wait
         // of its own, as a test timed out on; caught up at once, it is one.
         await page.evaluate(() => {
           const set = window.setTimeout;
@@ -351,9 +349,14 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
             return set(...args);
           }) as typeof setTimeout;
         });
-        await page.clock.fastForward('03:00');
-        // The engine renders the three minutes in real time, so the test waits for the sound to reach the clock.
-        await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(180);
+        await page.getByRole('button', { name: 'Play' }).click();
+        // The first step's timer set, which the jump fires: a jump before it has nothing to fire, and the paused clock
+        // never would.
+        await expect.poll(() => page.evaluate(() => window.timersSet)).toBe(1);
+        await page.evaluate(() => (window.timersSet = 0));
+        await page.clock.fastForward('01:00');
+        // The engine renders the minute in real time, so the test waits for the sound to reach the clock.
+        await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(60);
         expect(await page.evaluate(() => window.timersSet)).toBeLessThan(5);
       } finally {
         await browser.close();
