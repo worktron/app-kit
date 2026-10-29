@@ -332,6 +332,34 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
       }
     });
 
+    test("after the clock jumps while sound plays, the sound catches up to the clock at once, not 20 ms a step", async () => {
+      const browser = await launch();
+      try {
+        const { page } = await openPage(browser, { startsOnTap: true });
+        await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
+        await page.clock.pauseAt(new Date('2026-01-01T09:00:10'));
+        await page.getByRole('button', { name: 'Play' }).click();
+        await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
+        // Each step the kit takes sets one timer, so the timers set from the jump on count its steps. Sound three minutes
+        // behind caught up 20 ms at a time is thousands of steps, each a timer Playwright's runFor follows with a real wait
+        // of its own, as a test timed out on; caught up at once, it is one.
+        await page.evaluate(() => {
+          const set = window.setTimeout;
+          window.timersSet = 0;
+          window.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+            window.timersSet++;
+            return set(...args);
+          }) as typeof setTimeout;
+        });
+        await page.clock.fastForward('03:00');
+        // The engine renders the three minutes in real time, so the test waits for the sound to reach the clock.
+        await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(180);
+        expect(await page.evaluate(() => window.timersSet)).toBeLessThan(5);
+      } finally {
+        await browser.close();
+      }
+    });
+
     test("a page left while its sound plays under Playwright's clock never crashes, and the next page plays", async () => {
       const browser = await launch();
       try {
@@ -376,6 +404,7 @@ declare global {
     contexts: AudioContext[];
     states: AudioContextState[][];
     settled: string[];
+    timersSet: number;
     play: (context: AudioContext) => Promise<{ audio: number; clock: number; peak: number; swell: number; ended: boolean }>;
   }
 }

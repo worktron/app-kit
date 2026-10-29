@@ -83,7 +83,10 @@ function installOfflineAudio({ startsOnTap }) {
     // under Playwright's clock. WebKit has torn its audio down by then, and its engine resumed there starts a render that
     // fails a release assertion, which crashes the page.
     if (!document.defaultView) return;
-    const frame = Math.ceil(((context.currentTime + AHEAD) * context.sampleRate) / QUANTUM) * QUANTUM;
+    // Up to the clock, and past wherever the engine stopped: after Playwright's clock jumps, sound that fell behind
+    // catches up in this one step, never 20 ms at a time, each with a timer runFor follows with a real wait.
+    const clock = own.audioAt + (performance.now() - own.clockAt) / 1000;
+    const frame = Math.ceil(((Math.max(context.currentTime, clock) + AHEAD) * context.sampleRate) / QUANTUM) * QUANTUM;
     // The last step renders to the end, which an engine cannot be suspended at.
     if (frame < context.length) native.suspend.call(context, frame / context.sampleRate).then(() => arrived(context), () => {});
     if (own.rendering) native.resume.call(context).catch(() => {});
