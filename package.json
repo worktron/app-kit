@@ -10,6 +10,7 @@
     "./web/playwright-offline-audio": "./web/playwright-offline-audio.js",
     "./web/first-paint": "./web/first-paint.js",
     "./web/server": "./web/server.ts",
+    "./web/age": "./web/age.ts",
     "./web/playwright": "./web/playwright.js",
     "./look": "./look/index.ts",
     "./authentication/clerk": "./authentication/clerk/index.tsx",

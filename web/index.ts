@@ -13,6 +13,8 @@ export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';
 export { ErrorBoundary } from './ErrorBoundary';
 export { NotFound } from './NotFound';
 export { nameApp, titleFor, useTitle } from './title';
+export { age, type AgeOptions } from './age';
+export { useNow, NOW_TICK_MS } from './now';
 export { RowLink, NavigateProvider, opensElsewhere, type Navigate } from './RowLink';
 export { NewBuildLine, ConnectionLine, unreachableMessage } from './lines';
 export {
