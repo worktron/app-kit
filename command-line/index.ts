@@ -50,9 +50,13 @@ function commitOf(name: string, folder: string): string {
 
 const HELP = ['help', '-h', '--help'];
 
-/** No arguments, or `help`, `-h` or `--help` alone, or `-h` or `--help` after a subcommand. */
+/**
+ * No arguments, or `help`, `-h` or `--help` alone, or `-h` or `--help` after a subcommand, but never after `--`, where
+ * the arguments belong to another program (`tool exec -- ls -h`).
+ */
 export function helpAsked(args: readonly string[]): boolean {
-  return args.length === 0 || (args.length === 1 && HELP.includes(args[0]!)) || args.includes('--help') || args.includes('-h');
+  const own = args.includes('--') ? args.slice(0, args.indexOf('--')) : args;
+  return args.length === 0 || (args.length === 1 && HELP.includes(args[0]!)) || own.includes('--help') || own.includes('-h');
 }
 
 /**
@@ -128,7 +132,10 @@ export function openInBrowser(url: string, { offSwitch, env = process.env, print
 }
 
 function openWithSystem(url: string): void {
-  spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+  const opener = spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' });
+  // With no opener on the machine (a Linux box without xdg-open), the address already printed is the way in.
+  opener.on('error', () => undefined);
+  opener.unref();
 }
 
 /**

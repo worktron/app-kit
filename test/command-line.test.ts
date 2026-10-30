@@ -80,7 +80,8 @@ test('no arguments, help, -h and --help print the usage on stdout, and --version
   const { said, output } = kept();
   expect(answerHelpOrVersion(['--version'], { usage: USAGE, version: () => 'tool 1.0.0 (abc1234)' }, output)).toBe(true);
   expect(said.out).toEqual(['tool 1.0.0 (abc1234)']);
-  for (const args of [['help', 'extra'], ['--version', 'extra'], ['copy', 'folder']]) expect(answerHelpOrVersion(args, { usage: USAGE }, kept().output)).toBe(false);
+  // After `--` the arguments are another program's: `tool exec -- ls -h` runs ls.
+  for (const args of [['help', 'extra'], ['--version', 'extra'], ['copy', 'folder'], ['exec', '--', 'ls', '-h'], ['exec', '--', '--help']]) expect(answerHelpOrVersion(args, { usage: USAGE }, kept().output)).toBe(false);
 });
 
 test('wrong usage, an unknown flag and a flag missing its value print what was wrong and the usage on stderr, and exit 2', () => {
@@ -133,6 +134,24 @@ test('the browser opens with the full address printed, and stays closed under it
     'Open http://localhost:4000/ in your browser (a test never opens it).',
   ]);
   expect(() => openInBrowser('/sign-in', { ...options, env: {} })).toThrow();
+});
+
+test('with no opener on the machine, the tool goes on with the address printed', () => {
+  const place = scratch('command-line-no-opener-');
+  try {
+    // PATH is an empty folder, so neither open nor xdg-open is there to find, and nothing can reach the screen.
+    const empty = join(place.folder, 'bin');
+    mkdirSync(empty);
+    const tool = join(place.folder, 'tool.ts');
+    writeFileSync(
+      tool,
+      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nopenInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN', env: {} });\nsetTimeout(() => console.log('went on'), 200);\n`,
+    );
+    const ran = Bun.spawnSync([process.execPath, tool], { env: { PATH: empty, HOME: place.folder }, stdout: 'pipe', stderr: 'pipe' });
+    expect({ code: ran.exitCode, out: ran.stdout.toString() }).toEqual({ code: 0, out: 'Opening http://localhost:4000/\nwent on\n' });
+  } finally {
+    place.done();
+  }
 });
 
 test('an install run from a worktree is warned, naming the main checkout, and one from the main checkout is not', () => {
