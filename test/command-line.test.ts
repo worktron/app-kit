@@ -145,7 +145,7 @@ test('with no opener on the machine, the tool goes on with the address printed',
     const tool = join(place.folder, 'tool.ts');
     writeFileSync(
       tool,
-      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nopenInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN', env: {} });\nsetTimeout(() => console.log('went on'), 200);\n`,
+      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nimport { spawn } from 'node:child_process';\nopenInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN', env: {} });\n// A second missing program, started after the opener: its failure comes after the opener's, so the line it prints\n// shows the tool lived through the opener's.\nspawn('no-such-program', []).on('error', () => console.log('went on'));\n`,
     );
     const ran = Bun.spawnSync([process.execPath, tool], { env: { PATH: empty, HOME: place.folder }, stdout: 'pipe', stderr: 'pipe' });
     expect({ code: ran.exitCode, out: ran.stdout.toString() }).toEqual({ code: 0, out: 'Opening http://localhost:4000/\nwent on\n' });
