@@ -190,7 +190,8 @@ export function standInRunner(answer: Answer, real: string[] = ['git', 'plutil',
     calls.push({ command, options });
     const answered = await answer(command, options);
     if (answered) {
-      if (answered.out) options.output?.(answered.out);
+      if (answered.stdout) options.output?.(answered.stdout, 'stdout');
+      if (answered.stderr) options.output?.(answered.stderr, 'stderr');
       return answered;
     }
     if (real.includes(command[0])) return runCommand(command, options);

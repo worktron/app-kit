@@ -17,10 +17,11 @@ export type RunOptions = {
   /** How long it may run before its process group is stopped, in milliseconds; no limit when left out. */
   timeoutMs?: number;
   /**
-   * Each piece of its output and errors as it comes. Return a new time limit, in milliseconds from now, to replace
-   * the one running: the upload says when its build is done, and the upload's own limit starts then.
+   * Each piece of its output and errors as it comes, with which of the two it came on. Return a new time limit, in
+   * milliseconds from now, to replace the one running: the upload says when its build is done, and the upload's own
+   * limit starts then.
    */
-  output?: (chunk: string) => number | void;
+  output?: (chunk: string, stream: 'stdout' | 'stderr') => number | void;
 };
 
 /**
@@ -84,7 +85,7 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
     const take = (stream: 'stdout' | 'stderr') => (chunk: string) => {
       kept.out = (kept.out + chunk).slice(-KEPT_OUTPUT);
       kept[stream] = (kept[stream] + chunk).slice(-KEPT_OUTPUT);
-      const next = options.output?.(chunk);
+      const next = options.output?.(chunk, stream);
       if (typeof next === 'number' && !timedOut) limit(next);
     };
     // Decoded as a stream, so a character whose bytes two reads split comes through whole.

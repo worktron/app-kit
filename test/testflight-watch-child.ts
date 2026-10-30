@@ -22,9 +22,9 @@ const stand = standInRunner((command, options) => {
   if (line.includes('testflight upload')) {
     return runCommand(['sh', '-c', `echo "[stand-in] hanging ${marker}"; while :; do sleep 1; done # ${marker}`], {
       ...options,
-      output: (chunk) => {
+      output: (chunk, stream) => {
         process.stdout.write(chunk);
-        return options.output?.(chunk);
+        return options.output?.(chunk, stream);
       },
     });
   }

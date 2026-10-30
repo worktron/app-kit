@@ -203,8 +203,12 @@ test("a 1Password reference is read as it is, and a failure names the reference 
   }
 });
 
-test("a program's output and its errors come back apart as well as together, so a warning is never parsed as output", async () => {
-  const result = await runCommand(['sh', '-c', 'echo 12 /a; echo "du: /b: Permission denied" >&2; echo 34 /c']);
+test("a program's output and its errors come back apart as well as together, and stream apart, so a warning is never parsed as output", async () => {
+  const streamed = { stdout: '', stderr: '' };
+  const result = await runCommand(['sh', '-c', 'echo 12 /a; echo "du: /b: Permission denied" >&2; echo 34 /c'], {
+    output: (chunk, stream) => void (streamed[stream] += chunk),
+  });
+  expect(streamed).toEqual({ stdout: '12 /a\n34 /c\n', stderr: 'du: /b: Permission denied\n' });
   expect(result.stdout).toBe('12 /a\n34 /c\n');
   expect(result.stderr).toBe('du: /b: Permission denied\n');
   expect(result.out.split('\n').sort()).toEqual(['', '12 /a', '34 /c', 'du: /b: Permission denied']);
