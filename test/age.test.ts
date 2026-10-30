@@ -47,9 +47,12 @@ test('midnight falls where the reader is: the same two moments are hours in one 
   expect(age(tokyoLate, later, NEW_YORK)).toBe('11h ago');
 });
 
-test('a date that is no date, as new Date(undefined) makes, writes unknown rather than crashing the screen', () => {
+test('a date that is no date, as new Date(undefined) makes, or past the times a date can hold, writes unknown rather than crashing the screen', () => {
   expect(age(new Date(Number.NaN), NOW, NEW_YORK)).toBe('unknown');
   expect(age(NOW - MINUTE, Number.NaN, NEW_YORK)).toBe('unknown');
+  expect(age(Number.POSITIVE_INFINITY, NOW, NEW_YORK)).toBe('unknown');
+  expect(age(9e15, NOW, NEW_YORK)).toBe('unknown');
+  expect(age(-9e15, NOW, NEW_YORK)).toBe('unknown');
 });
 
 test('a time ahead of the clock is just now within a minute, as a server a little ahead gives, and the date past that', () => {

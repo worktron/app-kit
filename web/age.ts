@@ -20,13 +20,15 @@ const HOUR = 60 * MINUTE;
  * under an hour, "Nh ago" on the same calendar day, "yesterday" on the calendar day before, "Nd ago" under a week of
  * calendar days, and past that, or more than a minute ahead, the date ("Oct 9", with the year when it is another).
  * Days are the reader's: eleven at night read at one in the morning two days on is "2d ago", though 26 hours passed.
- * A date that is no date, as `new Date(undefined)` makes, writes "unknown" rather than crashing the screen.
+ * A date that is no date, as `new Date(undefined)` makes, or a number past the times a date can hold, writes
+ * "unknown" rather than crashing the screen.
  */
 export function age(when: Date | number, now: Date | number = Date.now(), { timeZone, locale }: AgeOptions = {}): string {
-  const then = +when;
-  const at = +now;
+  // Through Date, so a number past the times a date can hold (Infinity included) is no date, as NaN is.
+  const then = new Date(when).getTime();
+  const at = new Date(now).getTime();
+  if (Number.isNaN(then) || Number.isNaN(at)) return 'unknown';
   const elapsed = at - then;
-  if (Number.isNaN(elapsed)) return 'unknown';
   if (elapsed < -MINUTE) return date(then, at, timeZone, locale);
   if (elapsed < MINUTE) return 'just now';
   if (elapsed < HOUR) return `${Math.floor(elapsed / MINUTE)}m ago`;
