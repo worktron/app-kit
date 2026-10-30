@@ -3,7 +3,7 @@
 // codesign, the keychain, 1Password and App Store Connect, in a real git repository reached over file://.
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 import { join } from 'node:path';
 import {
   alreadyUploaded,

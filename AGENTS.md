@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/look`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/look`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -31,7 +31,7 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  iphone-run/, `app-kit iphone run sim|phone`, which builds an app and starts it on a Simulator or a paired iPhone;
                  iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole;
                  testflight/, `app-kit testflight upload` (upload.ts) and `app-kit testflight watch` (watch.ts), with the
-                 App Store Connect calls, the key read from 1Password, and the runner every outside program goes through;
+                 App Store Connect calls and the key read from 1Password;
                  apple-token.ts, the ES256 token Apple's push service and App Store Connect both take;
                  build-env.ts, the environment every iPhone build runs in, with no FORCE_COLOR;
                  playwright.js, the Tauri bridge faked for apps' browser tests, with desktop sign-in's steps (app-kit/tauri/playwright)
@@ -45,6 +45,9 @@ swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift
                  (the log, launch at login, the Dock icon while a window is open and opening Settings, the native
                  messaging host, the build's version and commit, the refresh on a clock and after wake, and a program
                  run with a time limit), Tests/, and e2e/ (the bare swiftc build)
+command-line/    command-line tools (app-kit/command-line): the version line, help and wrong usage, color, opening the
+                 browser, the worktree warning and the 1Password read (index.ts), and run.ts, the runner every outside
+                 program goes through, which the TestFlight part, `iphone run` and `icons render` use
 authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts;
                  the steps for browser tests against a development instance, playwright.js; a stand-in for Clerk's Backend API
                  for server tests, testing.ts),

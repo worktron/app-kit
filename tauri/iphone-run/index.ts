@@ -15,7 +15,7 @@
  *   for that phone; Tauri's own build is a generic one that never does, so when no profile holds the phone, one Xcode
  *   build for it runs first. That build stops at the Rust step, which only runs under Tauri; the profile is what it is
  *   for.
- * Every outside program goes through the TestFlight runner (../testflight/run.ts), each in a process group of its own,
+ * Every outside program goes through the kit's runner (command-line/run.ts), each in a process group of its own,
  * so a stop by Ctrl-C stops those groups too.
  *
  * Exit codes: 0 running; 1 anything else.
@@ -26,7 +26,7 @@ import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
 import { lastLine } from '../testflight/key.ts';
-import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../testflight/run.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
 const APPLE = 'src-tauri/gen/apple';
 /** The iPhone a new Simulator is: the one the apps' scripts made. */

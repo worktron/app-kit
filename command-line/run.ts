@@ -1,7 +1,8 @@
 /*
- * The one way the TestFlight part runs another program, so tests can stand in for every outside program it uses. Each
- * program starts in a process group of its own, so a step that runs past its time limit is stopped with everything it
- * started (Xcode's build starts many). A group of its own is out of reach of a signal to its parent's group, so a
+ * The one way a command runs another program, so tests can stand in for every outside program it uses: the kit's own
+ * (the TestFlight part, `iphone run`, `icons render`) and an app's. Each program starts in a process group of its own,
+ * so a step that runs past its time limit is stopped with everything it started (Xcode's build starts many), which
+ * Bun.spawn's own timeout does not do: it signals the program alone. A group of its own is out of reach of a signal to its parent's group, so a
  * program that is stopped itself stops the groups it started (`stopRunning`), as the upload does when the watcher's
  * time limit stops it.
  */

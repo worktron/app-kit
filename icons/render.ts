@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Sharp, SharpOptions } from 'sharp';
-import { runCommand, type Run } from '../tauri/testflight/run.ts';
+import { runCommand, type Run } from '../command-line/run.ts';
 
 type SharpModule = (input?: string | Buffer, options?: SharpOptions) => Sharp;
 

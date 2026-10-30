@@ -8,9 +8,9 @@
 // an iPhone build, and watches apps' main to upload after each landing. The icons
 // part draws every icon an app ships from its drawings.
 
-import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import { isColor, renderIcons } from '../icons/render.ts'
@@ -86,24 +86,6 @@ Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
 files that differ, or testflight upload's app did not compile; 4 status found no
 host answering.`
 
-/**
- * The commit this copy of the kit runs from: its own checkout's, or, installed from GitHub, the commit the app's
- * bun.lock pinned it to. git looks upward for a checkout, so an installed copy inside an app's checkout would find the
- * app's; only a checkout whose top is the kit's own folder counts.
- */
-function commit(): string {
-  const kit = realpathSync(join(import.meta.dir, '..'))
-  const git = (...args: string[]) => spawnSync('git', ['-C', kit, ...args], { encoding: 'utf8' })
-  const top = git('rev-parse', '--show-toplevel')
-  if (top.status === 0 && realpathSync(top.stdout.trim()) === kit) return git('rev-parse', '--short', 'HEAD').stdout.trim()
-  for (let folder = dirname(kit); folder !== dirname(folder); folder = dirname(folder)) {
-    const lock = join(folder, 'bun.lock')
-    if (!existsSync(lock)) continue
-    const pinned = readFileSync(lock, 'utf8').match(/"app-kit@github:worktron\/app-kit#([0-9a-f]+)"/)
-    if (pinned) return pinned[1]
-  }
-  return 'commit unknown: no checkout of its own and no bun.lock naming it'
-}
 
 /** install-host's arguments: three words at most, and its two flags. Null for wrong usage. */
 function installHostArguments(args: string[]) {
@@ -234,20 +216,15 @@ function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
   return true
 }
 
-async function main([part, ...rest]: string[]) {
+async function main(args: string[]) {
+  if (answerHelpOrVersion(args, { usage: USAGE, version: () => versionLine(packageJson, join(import.meta.dir, '..')) })) return
+  const [part, ...rest] = args
   if (part === 'extension' && (await extension(rest))) return
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
   if (part === 'testflight' && (await testflight(rest))) return
-  if (part === '--version' && rest.length === 0) {
-    console.log(`app-kit ${packageJson.version} (${commit()})`)
-  } else if ((part === undefined || part === '--help' || part === '-h' || part === 'help') && rest.length === 0) {
-    console.log(USAGE)
-  } else {
-    console.error(USAGE)
-    process.exit(2)
-  }
+  wrongUsage(USAGE)
 }
 
 main(process.argv.slice(2)).catch((error) => {

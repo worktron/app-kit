@@ -3,7 +3,7 @@
 // tests and by testflight-upload-child.ts, which the tests run as a process of its own to stop it.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 import { commit, exit, git, ITEM_JSON, KEY, ok, repository, standInRunner, TOKEN, type Answer, type StandInBuild } from './testflight-stand-in.ts';
 
 export const plist = (entries: string) =>

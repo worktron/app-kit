@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runCommand, type RunOptions, type RunResult } from '../tauri/testflight/run.ts';
+import { runCommand, type RunOptions, type RunResult } from '../command-line/run.ts';
 import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, lock, watch, type Limits } from '../tauri/testflight/watch.ts';
 import { appStoreConnect, commit, emptyCommits, exit, git, ITEM_JSON, ok, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
 

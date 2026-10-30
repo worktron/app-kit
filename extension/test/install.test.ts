@@ -4,7 +4,8 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { diagnoseHost } from '../host/diagnose.ts'
-import { chromeHostsDir, extensionId, installHost, readHostLauncher, worktreeOf, writeHostLauncher, writeHostManifest } from '../host/install.ts'
+import { worktreeOf } from '../../command-line/index.ts'
+import { chromeHostsDir, extensionId, installHost, readHostLauncher, writeHostLauncher, writeHostManifest } from '../host/install.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-extension-install-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))

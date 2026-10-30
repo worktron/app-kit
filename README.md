@@ -8,6 +8,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the plain look's stylesheet for their pages, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
+| `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
 | `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
@@ -1019,6 +1020,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 and a status read in the model is `let outcome = try await Program.run(bun, arguments: ["bin/status.ts", "--json"], directory: checkout, limit: 30)`, with `outcome.timedOut` written to the log when the limit stopped it.
 
 The gates run the package's Swift tests (`swift test` in `swift/mac-app`) and its bare `swiftc` build (`e2e/swiftc-build.sh`), in Swift 5 mode and against the newest macOS 26 SDK at the macOS 14 floor, at no warnings. Every test writes only to its own folder in `/tmp/app-kit-tests/<pid>`, and `StaysOffTheMachineTests` fails a test file that reaches the Mac's own login item, Dock, app in front, Chrome folder or notification centers. What no test reaches is macOS itself: a real login item, a real window coming forward, and Chrome starting the host, which each app checks once it takes the package in.
+
+## command-line/: command-line tools
+
+`app-kit/command-line`: what every command-line tool ships from its first version, as practices' command-line rules list it, so each tool answers the same way. The `app-kit` command itself is built on it.
+
+```ts
+import { join } from 'node:path';
+import { readArguments, versionLine } from 'app-kit/command-line';
+import packageJson from '../package.json';
+
+const USAGE = `tool <command>
+
+  sync [--json]     send the notes up; --json prints what changed, as JSON
+
+Exit codes: 0 done; 1 the command failed; 2 wrong usage`;
+
+const args = process.argv.slice(2);
+const { values, positionals } = readArguments(args, {
+  usage: USAGE,
+  version: () => versionLine(packageJson, join(import.meta.dir, '..')),
+  options: { json: { type: 'boolean' } },
+  allowPositionals: true,
+});
+```
+
+- **`versionLine(packageJson, folder)`** is `<name> <version> (<commit>)`, `folder` being the tool's own (where its `package.json` is). The commit is that checkout's own when the folder is the top of one; installed from GitHub into an app's `node_modules`, it is the commit the app's `bun.lock` pinned, never the app's own, which git would find by looking upward; with neither it says the commit is unknown.
+- **Help and wrong usage.** `readArguments(args, { usage, version, options, allowPositionals })` answers no arguments, `help`, `-h` and `--help` (alone, or `-h` and `--help` after a subcommand) with the usage on stdout, and `--version` alone with the version line, both exiting 0; then reads the rest with `util.parseArgs` in its strict mode, so an unknown flag or a flag missing its value prints what was wrong and the usage on stderr and exits 2, never ignored. A tool that reads its own subcommands calls `answerHelpOrVersion(args, { usage, version })` first and `wrongUsage(usage, reason)` for anything it does not take. The usage lists the exit codes; each means one thing.
+- **`useColor(stream, env)`**, `process.stdout` and `process.env` by default: true only when the output goes to a terminal and `NO_COLOR` is unset or empty. `FORCE_COLOR` is not looked at: agents' shells set it, and Bun's own `styleText` then colors output piped to a file.
+- **`openInBrowser(url, { offSwitch })`** prints the full address, which a terminal makes clickable, and opens it unless the environment variable `offSwitch` names (`DFRACT_NO_OPEN`) is set, or the code runs under `bun test`, which sets `NODE_ENV` to `test`. A tool's own tests pass `open`, a stand-in, so a mistake can never open a browser on the screen.
+- **`warnIfWorktree(folder)`**, for an install command: a tool run from its checkout runs from the main one, which follows main, never a worktree, which goes away when its work lands. It prints the warning on stderr, naming the main checkout to install from, and returns it; `worktreeOf(folder)` gives both folders.
+- **`opRead(reference)`** reads an `op://` reference with 1Password's `op read`, with nothing added, under a time limit of a minute that leaves room for Touch ID's prompt. A failure throws with the reference and `op`'s own last line, never the secret, and anything that is not a reference is refused without printing it, since it may be the secret pasted by mistake.
+- **`runCommand(command, { cwd, env, input, timeoutMs, output })`** runs another program in a process group of its own, and gives back its exit code and the end of its output and errors together. Past `timeoutMs` the whole group is stopped, everything the program started included, which `Bun.spawn`'s own timeout does not do: it signals the program alone. A program that ignores the polite signal is forced to stop five seconds later, and when the program ends, whatever it left running in its group goes with it. `stopRunning(signal)` passes a signal on to every group still running, for a command stopped itself (`STOP_SIGNALS`), and a test stands in for every outside program by passing its own `Run`. The kit's TestFlight, `iphone run` and `icons render` commands run every outside program through it; the Swift Mac app package has the same for a Swift app.
 
 ## authentication/: who is calling
 

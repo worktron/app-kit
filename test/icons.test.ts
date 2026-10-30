@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import sharp from 'sharp';
 import { loadSharp, renderIcons } from '../icons/render.ts';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 
 const FIXTURES = join(import.meta.dir, 'fixtures/icons');
 /** The tile's colour in the fixture's app-icon.svg. */

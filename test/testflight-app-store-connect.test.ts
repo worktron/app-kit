@@ -1,12 +1,9 @@
 // The TestFlight part's pieces under the upload and the watcher: App Store Connect's token and calls against a
-// stand-in that checks the token's signature, the key read from 1Password, and the runner's time limit.
+// stand-in that checks the token's signature, and the key read from 1Password. The runner they use is tested with the rest of command-line.
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { AppStoreConnect, appStoreConnectToken, TOKEN_LIFE_SECONDS } from '../tauri/testflight/app-store-connect.ts';
 import { keyFromItem, readKey } from '../tauri/testflight/key.ts';
-import { runCommand } from '../tauri/testflight/run.ts';
-import { appStoreConnect, exit, ITEM_JSON, KEY, ok, scratch, standInRunner, TOKEN, tokenProblem } from './testflight-stand-in.ts';
+import { appStoreConnect, exit, ITEM_JSON, KEY, ok, standInRunner, TOKEN, tokenProblem } from './testflight-stand-in.ts';
 
 const NOW = Date.UTC(2026, 9, 25, 12);
 const stops: (() => Promise<void>)[] = [];
@@ -67,39 +64,4 @@ test("the token reaches only op's environment, and op's refusal is one line", as
   expect(stand.calls[0].command).toEqual(['/usr/bin/security', 'find-generic-password', '-s', 'app-kit testflight', '-w']);
   expect(stand.calls[0].options.env).toBeUndefined();
   expect(stand.calls[1].options.env).toEqual({ PATH: '/usr/bin', OP_SERVICE_ACCOUNT_TOKEN: TOKEN });
-});
-
-test('a program past its time limit is stopped with everything it started, and one that ends takes its leftovers with it', async () => {
-  const place = scratch('testflight-run-');
-  try {
-    const marker = join(place.folder, 'outlived');
-    const stopped = await runCommand(['sh', '-c', `echo started; (sleep 2; touch ${marker}) & sleep 600`], { timeoutMs: 200 });
-    expect(stopped).toEqual({ code: -1, out: 'started\n', timedOut: true });
-    const ended = await runCommand(['sh', '-c', `(sleep 2; touch ${marker}) & echo done`]);
-    expect(ended).toEqual({ code: 0, out: 'done\n', timedOut: false });
-    // Neither group's sleeper is left to touch the marker.
-    expect(Bun.spawnSync(['pgrep', '-f', `touch ${marker}`]).stdout.toString()).toBe('');
-    expect(existsSync(marker)).toBe(false);
-  } finally {
-    place.done();
-  }
-});
-
-test('a program in a stopped group that ignores the polite signal is forced to stop after the grace period', async () => {
-  const marker = `ignores-term-${process.pid}-${Date.now()}`;
-  // The first program ends on the polite signal; the one it started ignores it and holds the output open.
-  const stopped = await runCommand(['sh', '-c', `(trap '' TERM; while :; do sleep 1; : ${marker}; done) & echo started; sleep 600`], {
-    output: (chunk) => (chunk.includes('started') ? 0 : undefined),
-  });
-  expect(stopped).toMatchObject({ code: -1, timedOut: true });
-  expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
-}, 15_000);
-
-test('a time limit can be replaced as the output comes', async () => {
-  const result = await runCommand(['sh', '-c', 'echo building; sleep 0.5; echo uploading; sleep 600'], {
-    timeoutMs: 600_000,
-    output: (chunk) => (chunk.includes('uploading') ? 100 : undefined),
-  });
-  expect(result).toMatchObject({ code: -1, timedOut: true });
-  expect(result.out).toBe('building\nuploading\n');
 });

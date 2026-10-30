@@ -2,7 +2,7 @@
 //   bun test/iphone-run-child.ts <app checkout> <marker>
 // Its build hangs, printing a line with the marker, and it is never itself a test.
 import { runIphone } from '../tauri/iphone-run/index.ts';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 
 const [app, marker] = process.argv.slice(2);
 const code = await runIphone({

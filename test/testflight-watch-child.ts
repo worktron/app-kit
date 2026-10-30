@@ -4,7 +4,7 @@
 // with the marker, which also names the hanging process. Never itself a test.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 import { watch } from '../tauri/testflight/watch.ts';
 import { appStoreConnect, ITEM_JSON, ok, standInRunner, TOKEN } from './testflight-stand-in.ts';
 

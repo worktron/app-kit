@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions, type TestFlightKey } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
 import { buildEnv, type Env } from '../build-env.ts';
-import { runCommand, STOP_SIGNALS, stopRunning, type Run } from './run.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
 export { buildEnv, STOP_SIGNALS };
 

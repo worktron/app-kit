@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { colorWrittenIn, DEVICE_TYPE, pairedPhones, readApp, runIphone, type IphoneRunOptions } from '../tauri/iphone-run/index.ts';
-import { runCommand } from '../tauri/testflight/run.ts';
+import { runCommand } from '../command-line/run.ts';
 import { exit, git, ok, repository, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
 
 // The worktree test runs real git a few times.

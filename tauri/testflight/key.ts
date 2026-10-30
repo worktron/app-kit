@@ -8,7 +8,7 @@
  * without the token uses the signed-in `op`, which asks for Touch ID.
  */
 import type { TestFlightKey } from './app-store-connect.ts';
-import type { Run } from './run.ts';
+import type { Run } from '../../command-line/run.ts';
 
 export const KEYCHAIN_SERVICE = 'app-kit testflight';
 export const VAULT = 'TestFlight';

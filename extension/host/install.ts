@@ -2,11 +2,11 @@
 // which names the extension allowed to start it by its ID, and the launcher
 // the manifest points at.
 
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { worktreeOf } from '../../command-line/index.ts'
 
 /**
  * The extension's ID, from the `key` in its manifest: the first 32 hex digits
@@ -134,20 +134,6 @@ function shellWords(line: string): string[] | null {
     words.push(word)
   }
   return words
-}
-
-/**
- * The worktree `folder` sits in, and the main checkout it belongs to; null
- * when it is in a main checkout or in no checkout at all. Asks git for both
- * folders as absolute paths, since in a subfolder git writes one of them
- * relative.
- */
-export function worktreeOf(folder: string): { worktree: string; main: string } | null {
-  const run = spawnSync('git', ['-C', folder, 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'], { encoding: 'utf8' })
-  if (run.status !== 0) return null
-  const [gitDir, commonDir, top] = run.stdout.trim().split('\n')
-  if (!gitDir || !commonDir || !top || gitDir === commonDir) return null
-  return { worktree: top, main: basename(commonDir) === '.git' ? dirname(commonDir) : commonDir }
 }
 
 const SCRIPT = /\.(ts|tsx|js|mjs|cjs)$/

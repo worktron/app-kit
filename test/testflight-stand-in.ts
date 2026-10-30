@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TestFlightKey } from '../tauri/testflight/app-store-connect.ts';
-import { runCommand, type Run, type RunOptions, type RunResult } from '../tauri/testflight/run.ts';
+import { runCommand, type Run, type RunOptions, type RunResult } from '../command-line/run.ts';
 
 const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 export const KEY: TestFlightKey = {
