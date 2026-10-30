@@ -21,7 +21,7 @@ A piece with a browser half keeps its server half beside it (`tauri/sign-in/serv
 An app installs the kit at a release tag, straight from GitHub, which needs no credentials since the repository is public:
 
 ```sh
-bun add github:worktron/app-kit#v0.28.0
+bun add github:worktron/app-kit#v0.29.0
 ```
 
 `bun.lock` then holds the exact commit and a hash of its download, so a build from the lockfile, such as Railway's `bun install --frozen-lockfile`, installs that commit and nothing newer. The kit ships TypeScript sources, which Vite and Bun compile with the app, except the Playwright steps, which are plain JavaScript; the web part needs React 19 and MUI 9, and `@clerk/react` 6 for the Clerk adapter. A server installs the kit as an app's client does: the package names React and MUI as peers for its web part, and the server pieces import neither. To upgrade, run the same `bun add` at the new tag and commit `package.json` and `bun.lock`; each app upgrades when it chooses.
@@ -372,7 +372,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
 
 ```sh
-bun add github:worktron/app-kit#v0.28.0
+bun add github:worktron/app-kit#v0.29.0
 bun run app-kit extension copy extension/kit
 ```
 
@@ -872,7 +872,7 @@ Hover follows the pointer only once it means it: the pointer has to move 16 poin
 An app takes it in in three steps. First the kit, at a release tag:
 
 ```sh
-bun add github:worktron/app-kit#v0.28.0
+bun add github:worktron/app-kit#v0.29.0
 ```
 
 Then the build. An Xcode project or a Swift package adds `node_modules/app-kit/swift/menu-bar` as a local package (in Xcode, Add Package Dependencies, then Add Local; in a Package.swift, `.package(path: "node_modules/app-kit/swift/menu-bar")`) and depends on its `MenuBarTheme` product, whose fonts come with it. A bare `swiftc` build compiles the theme into a module of its own first, so its names never meet the app's (Fleet has a `Row` of its own), and copies the fonts into the app's resources:
