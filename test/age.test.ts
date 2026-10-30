@@ -1,8 +1,9 @@
 // How long ago something happened (app-kit/web/age), on a fixed clock in named time zones, and useNow's ticking.
-import { expect, jest, setSystemTime, test } from 'bun:test';
+import { expect, jest, setSystemTime, spyOn, test } from 'bun:test';
 import { act, renderHook } from '@testing-library/react';
 import { age } from '../web/age.ts';
 import { NOW_TICK_MS, useNow } from '../web/now.ts';
+import * as web from '../web/index.ts';
 
 const NEW_YORK = { timeZone: 'America/New_York', locale: 'en-US' };
 /** 3:00 in the afternoon in New York on Thursday 2026-10-29 (19:00 UTC). */
@@ -46,6 +47,11 @@ test('midnight falls where the reader is: the same two moments are hours in one 
   expect(age(tokyoLate, later, NEW_YORK)).toBe('11h ago');
 });
 
+test('a date that is no date, as new Date(undefined) makes, writes unknown rather than crashing the screen', () => {
+  expect(age(new Date(Number.NaN), NOW, NEW_YORK)).toBe('unknown');
+  expect(age(NOW - MINUTE, Number.NaN, NEW_YORK)).toBe('unknown');
+});
+
 test('a time ahead of the clock is just now within a minute, as a server a little ahead gives, and the date past that', () => {
   expect(age(NOW + 30_000, NOW, NEW_YORK)).toBe('just now');
   expect(age(NOW + 2 * 24 * HOUR, NOW, NEW_YORK)).toBe('Oct 31');
@@ -58,37 +64,50 @@ test("the date past a week is written in the reader's locale", () => {
 test('useNow reads the clock once a minute while the page is in view, not at all while it is hidden, and at once on its return', () => {
   jest.useFakeTimers();
   setSystemTime(NOW);
+  const show = (state: DocumentVisibilityState) => {
+    Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+    act(() => void document.dispatchEvent(new Event('visibilitychange')));
+  };
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-  const reads: number[] = [];
   try {
-    const { result, unmount } = renderHook(() => {
-      const now = useNow();
-      reads.push(now);
-      return now;
-    });
+    const { result, unmount } = renderHook(() => useNow());
     expect(result.current).toBe(NOW);
     // Bun's fake timers move Date.now() with them.
     const step = (ms: number) => act(() => void jest.advanceTimersByTime(ms));
     step(NOW_TICK_MS);
     expect(result.current).toBe(NOW + NOW_TICK_MS);
     expect(age(NOW - 5 * MINUTE, result.current, NEW_YORK)).toBe('6m ago');
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    act(() => document.dispatchEvent(new Event('visibilitychange')));
-    const drawsWhenHidden = reads.length;
+    show('hidden');
+    const reads = spyOn(Date, 'now');
     step(30 * NOW_TICK_MS);
-    expect(reads.length).toBe(drawsWhenHidden);
+    expect(reads).not.toHaveBeenCalled();
+    reads.mockRestore();
     expect(result.current).toBe(NOW + NOW_TICK_MS);
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    show('visible');
     expect(result.current).toBe(NOW + 31 * NOW_TICK_MS);
     step(NOW_TICK_MS);
     expect(result.current).toBe(NOW + 32 * NOW_TICK_MS);
+    // A return that shows only as focus, as the sheet a phone's home-screen app opens Google in, or as a page brought
+    // back from the back-forward cache, reads the clock at once too.
+    step(NOW_TICK_MS / 2);
+    act(() => void window.dispatchEvent(new Event('focus')));
+    expect(result.current).toBe(NOW + 32.5 * NOW_TICK_MS);
+    step(NOW_TICK_MS / 4);
+    const restored = new Event('pageshow') as Event & { persisted: boolean };
+    Object.defineProperty(restored, 'persisted', { value: true });
+    act(() => void window.dispatchEvent(restored));
+    expect(result.current).toBe(NOW + 32.75 * NOW_TICK_MS);
     unmount();
   } finally {
     jest.useRealTimers();
     setSystemTime();
     delete (document as { visibilityState?: unknown }).visibilityState;
   }
+});
+
+test('app-kit/web gives age and useNow too', () => {
+  expect(web.age).toBe(age);
+  expect(web.useNow).toBe(useNow);
 });
 
 test('a server imports age by app-kit/web/age with nothing else coming with it, React and MUI included', async () => {
