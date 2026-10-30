@@ -14,7 +14,7 @@ const code = await runIphone({
   run: (command, options) =>
     command[0] === 'bunx'
       ? runCommand(['bash', '-c', `echo "hanging ${marker}"; sleep 600; echo "${marker}"`], options)
-      : Promise.resolve({ code: 0, out: '', timedOut: false }),
+      : Promise.resolve({ code: 0, out: '', stdout: '', stderr: '', timedOut: false }),
   quiet: () => ({ code: 0, line: '[iphone-simulator] quiet' }),
 });
 process.exit(code);

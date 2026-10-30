@@ -23,12 +23,15 @@ export type RunOptions = {
   output?: (chunk: string) => number | void;
 };
 
-/** How a program ended: its exit code (-1 when stopped), and the end of its output and errors together. */
-export type RunResult = { code: number; out: string; timedOut: boolean };
+/**
+ * How a program ended: its exit code (-1 when stopped), the end of its output and errors together as they came (`out`),
+ * and the end of each apart, for a caller that parses the output and must not read a warning as part of it.
+ */
+export type RunResult = { code: number; out: string; stdout: string; stderr: string; timedOut: boolean };
 
 export type Run = (command: string[], options?: RunOptions) => Promise<RunResult>;
 
-/** The most of a program's output a result keeps: the end, which holds the error. */
+/** The most of a program's output a result keeps, in each of its three texts: the end, which holds the error. */
 const KEPT_OUTPUT = 1_000_000;
 /** How long a stopped process group has between the polite signal and the forced one. */
 const GRACE_MS = 5_000;
@@ -50,7 +53,7 @@ export function stopRunning(signal: NodeJS.Signals): void {
 
 export const runCommand: Run = ([program, ...args], options = {}) =>
   new Promise((resolve) => {
-    let out = '';
+    const kept = { out: '', stdout: '', stderr: '' };
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let grace: ReturnType<typeof setTimeout> | undefined;
@@ -78,19 +81,20 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
       timer = ms === undefined ? undefined : setTimeout(stopGroup, ms);
     };
     limit(options.timeoutMs);
-    const take = (data: Buffer) => {
+    const take = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
       const chunk = data.toString();
-      out = (out + chunk).slice(-KEPT_OUTPUT);
+      kept.out = (kept.out + chunk).slice(-KEPT_OUTPUT);
+      kept[stream] = (kept[stream] + chunk).slice(-KEPT_OUTPUT);
       const next = options.output?.(chunk);
       if (typeof next === 'number' && !timedOut) limit(next);
     };
-    child.stdout?.on('data', take);
-    child.stderr?.on('data', take);
+    child.stdout?.on('data', take('stdout'));
+    child.stderr?.on('data', take('stderr'));
     if (options.input !== undefined) child.stdin?.end(options.input);
     child.on('error', (error) => {
       running.delete(child);
       limit(undefined);
-      resolve({ code: 127, out: `${out}${error.message}`, timedOut });
+      resolve({ code: 127, out: `${kept.out}${error.message}`, stdout: kept.stdout, stderr: `${kept.stderr}${error.message}`, timedOut });
     });
     // When the program ends, anything it left running in its group goes with it, so nothing outlives a step, and
     // nothing left holding its output keeps the step from ending. A group stopped at its time limit keeps its grace
@@ -116,6 +120,6 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
         // the group is gone
       }
       if (grace && !left) clearTimeout(grace);
-      resolve({ code: timedOut ? -1 : (code ?? -1), out, timedOut });
+      resolve({ code: timedOut ? -1 : (code ?? -1), ...kept, timedOut });
     });
   });

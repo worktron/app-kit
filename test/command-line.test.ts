@@ -203,14 +203,24 @@ test("a 1Password reference is read as it is, and a failure names the reference 
   }
 });
 
+test("a program's output and its errors come back apart as well as together, so a warning is never parsed as output", async () => {
+  const result = await runCommand(['sh', '-c', 'echo 12 /a; echo "du: /b: Permission denied" >&2; echo 34 /c']);
+  expect(result.stdout).toBe('12 /a\n34 /c\n');
+  expect(result.stderr).toBe('du: /b: Permission denied\n');
+  expect(result.out.split('\n').sort()).toEqual(['', '12 /a', '34 /c', 'du: /b: Permission denied']);
+  const missing = await runCommand(['no-such-program-anywhere']);
+  expect(missing).toMatchObject({ code: 127, stdout: '' });
+  expect(missing.stderr).toContain('no-such-program-anywhere');
+});
+
 test('a program past its time limit is stopped with everything it started, and one that ends takes its leftovers with it', async () => {
   const place = scratch('command-line-run-');
   try {
     const marker = join(place.folder, 'outlived');
     const stopped = await runCommand(['sh', '-c', `echo started; (sleep 2; touch ${marker}) & sleep 600`], { timeoutMs: 200 });
-    expect(stopped).toEqual({ code: -1, out: 'started\n', timedOut: true });
+    expect(stopped).toEqual({ code: -1, out: 'started\n', stdout: 'started\n', stderr: '', timedOut: true });
     const ended = await runCommand(['sh', '-c', `(sleep 2; touch ${marker}) & echo done`]);
-    expect(ended).toEqual({ code: 0, out: 'done\n', timedOut: false });
+    expect(ended).toEqual({ code: 0, out: 'done\n', stdout: 'done\n', stderr: '', timedOut: false });
     // Neither group's sleeper is left to touch the marker.
     expect(Bun.spawnSync(['pgrep', '-f', `touch ${marker}`]).stdout.toString()).toBe('');
     expect(existsSync(marker)).toBe(false);

@@ -194,7 +194,8 @@ export function standInRunner(answer: Answer, real: string[] = ['git', 'plutil',
       return answered;
     }
     if (real.includes(command[0])) return runCommand(command, options);
-    return { code: 127, out: `no stand-in for ${command.join(' ')}`, timedOut: false };
+    const said = `no stand-in for ${command.join(' ')}`;
+    return { code: 127, out: said, stdout: '', stderr: said, timedOut: false };
   };
   return { run, calls, named: (program: string) => calls.filter((c) => runs(c.command, program)) };
 }
@@ -209,5 +210,5 @@ function runs(command: string[], program: string): boolean {
   return command.some((_, start) => words.every((word, i) => command[start + i] === word));
 }
 
-export const ok = (out = ''): RunResult => ({ code: 0, out, timedOut: false });
-export const exit = (code: number, out: string): RunResult => ({ code, out, timedOut: false });
+export const ok = (out = ''): RunResult => ({ code: 0, out, stdout: out, stderr: '', timedOut: false });
+export const exit = (code: number, out: string): RunResult => ({ code, out, stdout: '', stderr: out, timedOut: false });

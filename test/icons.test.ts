@@ -232,7 +232,7 @@ describe('icons render', () => {
   test('a failure after drawing began writes nothing, so an app is never left with half its icons new', async () => {
     const { root, options } = app();
     const before = snapshot(root);
-    const failing = renderIcons({ ...options, run: async () => ({ code: 1, out: 'iconutil: Invalid Iconset.', timedOut: false }) });
+    const failing = renderIcons({ ...options, run: async () => ({ code: 1, out: 'iconutil: Invalid Iconset.', stdout: '', stderr: 'iconutil: Invalid Iconset.', timedOut: false }) });
     await expect(failing).rejects.toThrow('iconutil could not make the .icns (exit 1): iconutil: Invalid Iconset.');
     expect(snapshot(root)).toEqual(before);
   });
