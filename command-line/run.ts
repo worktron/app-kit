@@ -81,15 +81,15 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
       timer = ms === undefined ? undefined : setTimeout(stopGroup, ms);
     };
     limit(options.timeoutMs);
-    const take = (stream: 'stdout' | 'stderr') => (data: Buffer) => {
-      const chunk = data.toString();
+    const take = (stream: 'stdout' | 'stderr') => (chunk: string) => {
       kept.out = (kept.out + chunk).slice(-KEPT_OUTPUT);
       kept[stream] = (kept[stream] + chunk).slice(-KEPT_OUTPUT);
       const next = options.output?.(chunk);
       if (typeof next === 'number' && !timedOut) limit(next);
     };
-    child.stdout?.on('data', take('stdout'));
-    child.stderr?.on('data', take('stderr'));
+    // Decoded as a stream, so a character whose bytes two reads split comes through whole.
+    child.stdout?.setEncoding('utf8').on('data', take('stdout'));
+    child.stderr?.setEncoding('utf8').on('data', take('stderr'));
     if (options.input !== undefined) child.stdin?.end(options.input);
     child.on('error', (error) => {
       running.delete(child);

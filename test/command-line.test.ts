@@ -213,6 +213,26 @@ test("a program's output and its errors come back apart as well as together, so 
   expect(missing.stderr).toContain('no-such-program-anywhere');
 });
 
+test('a character whose bytes arrive in two reads comes through whole', async () => {
+  const place = scratch('command-line-split-');
+  try {
+    // The program writes é's first byte, then waits until the runner has passed on what came before it, and only
+    // then writes the second, so the two bytes are certain to arrive in separate reads.
+    const go = join(place.folder, 'go');
+    Bun.spawnSync(['mkfifo', go]);
+    let told = false;
+    const result = await runCommand(['sh', '-c', `printf 'caf\\303'; read x < '${go}'; printf '\\251 /a\\n'`], {
+      output: () => {
+        if (!told) writeFileSync(go, 'go\n');
+        told = true;
+      },
+    });
+    expect(result).toMatchObject({ code: 0, stdout: 'café /a\n', out: 'café /a\n' });
+  } finally {
+    place.done();
+  }
+});
+
 test('a program past its time limit is stopped with everything it started, and one that ends takes its leftovers with it', async () => {
   const place = scratch('command-line-run-');
   try {
