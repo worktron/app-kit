@@ -27,12 +27,16 @@ describe('showLink', () => {
     expect(shim.windows.get(window.id)).toMatchObject({ focused: true, state: 'normal' })
   })
 
-  test('two requests for one link at once share one answer and open one tab', async () => {
+  test('two requests for one link at once take turns: one tab opens, and the second, with its own options, finds it', async () => {
     addTab({ url: 'https://example.com/other', active: true })
-    const answers = await Promise.all([showLink('https://example.com/inbox'), showLink('https://example.com/inbox')])
-    expect(answers).toEqual([{ how: 'new-tab' }, { how: 'new-tab' }])
+    const skipped: number[] = []
+    const answers = await Promise.all([
+      showLink('https://example.com/inbox'),
+      showLink('https://example.com/inbox', { skip: (tab) => (skipped.push(tab.id!), false) }),
+    ])
+    expect(answers).toEqual([{ how: 'new-tab' }, { how: 'existing-tab' }])
     expect([...shim.tabs.values()].filter((tab) => tab.url === 'https://example.com/inbox')).toHaveLength(1)
-    expect(await showLink('https://example.com/inbox')).toEqual({ how: 'existing-tab' })
+    expect(skipped).toHaveLength(1)
   })
 
   test('a profile with no window gets one, focused, showing the link', async () => {
@@ -95,6 +99,9 @@ describe('showLink', () => {
     addTab({ url: 'https://other.example.com/', active: true })
     expect(await showLink('https://example.com/sent')).toEqual({ how: 'new-tab' })
     expect(await showLink('https://example.com/sent')).toEqual({ how: 'existing-tab' })
+    // The extension's own pages count only under tabs, site access being for web addresses.
+    reset({}, { version: '1.0.0', host_permissions: ['<all_urls>'] })
+    expect(await showLink(chrome.runtime.getURL('settings.html'))).toEqual({ how: 'new-window', tabsUnreadable: true })
     // Access to another site only is not: the tab on the link's site stays unread.
     reset({}, { version: '1.0.0', host_permissions: ['https://other.example.com/*'] })
     addTab({ url: 'https://other.example.com/', active: true })

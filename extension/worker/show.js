@@ -9,8 +9,9 @@
 // itself. An extension with neither for the link's site cannot find the tab
 // already open: the answer says so (tabsUnreadable), the worker logs it once,
 // and the link opens in a new tab. A link opens only when it is a web address
-// (http or https) or one of the extension's own pages. Two requests for one
-// link at once share one answer, so they never open two tabs.
+// (http or https) or one of the extension's own pages. Requests for one link
+// take turns, so two at once never open two tabs: the second, with its own
+// options, finds the tab the first opened.
 
 /** @typedef {"existing-tab" | "new-tab" | "new-window" | "refused" | "failed"} How */
 
@@ -24,7 +25,7 @@
 
 let warned = false;
 
-/** The requests being answered, by address, which a request for the same link joins. */
+/** The last request for each address, which the next for that address waits for. */
 const showing = new Map();
 
 /**
@@ -77,10 +78,11 @@ async function canRead(address) {
 export function showLink(url, options = {}) {
   const address = showable(url);
   if (!address) return Promise.resolve({ how: /** @type {const} */ ("refused") });
-  const pending = showing.get(address);
-  if (pending) return pending;
-  const answer = show(address, options).finally(() => showing.delete(address));
+  const answer = (showing.get(address) ?? Promise.resolve()).then(() => show(address, options));
   showing.set(address, answer);
+  void answer.then(() => {
+    if (showing.get(address) === answer) showing.delete(address);
+  });
   return answer;
 }
 
