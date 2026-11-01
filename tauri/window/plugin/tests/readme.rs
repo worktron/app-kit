@@ -14,6 +14,7 @@ const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
 };
 
 /// The commit About names, which the release command passes in (`APP_COMMIT=$(git rev-parse --short HEAD)`).
+#[cfg(target_os = "macos")]
 const COMMIT: &str = match option_env!("APP_COMMIT") {
     Some(commit) => commit,
     None => "development",
