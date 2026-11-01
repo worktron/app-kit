@@ -101,12 +101,13 @@ describe('tabs', () => {
     await expect(chrome.tabs.remove(madeId)).rejects.toThrow(`No tab with id: ${madeId}.`)
   })
 
-  test('a pattern that names a port matches that port alone, and a tab the extension may not see matches no address', async () => {
-    reset({}, { version: '1.0.0', host_permissions: ['http://localhost:3000/*'] })
-    const served = addTab({ url: 'http://localhost:3000/app' })
-    addTab({ url: 'http://localhost:4000/app' })
+  test('a pattern that names a port matches that port alone, any port with *, and a tab the extension may not see matches no address', async () => {
+    reset({}, { version: '1.0.0', host_permissions: ['http://app.example.com:*/*'] })
+    const served = addTab({ url: 'http://app.example.com:3000/app' })
+    const other = addTab({ url: 'http://app.example.com:4000/app' })
     const hidden = addTab({ url: 'https://mail.example.com/' })
-    expect((await chrome.tabs.query({ url: 'http://localhost:3000/*' })).map((tab) => tab.id)).toEqual([served.id])
+    expect((await chrome.tabs.query({ url: 'http://app.example.com:3000/*' })).map((tab) => tab.id)).toEqual([served.id])
+    expect((await chrome.tabs.query({ url: 'http://app.example.com:*/*' })).map((tab) => tab.id)).toEqual([served.id, other.id])
     expect(await chrome.tabs.query({ url: '*://mail.example.com/*' })).toEqual([])
     expect((await chrome.tabs.query({})).map((tab) => tab.id)).toContain(hidden.id)
   })
@@ -139,6 +140,17 @@ describe('tabs', () => {
     expect(closing).toEqual([true, true])
     expect(shim.tabs.size).toBe(0)
     await expect(chrome.windows.get(window.id)).rejects.toThrow(`No window with id: ${window.id}.`)
+  })
+
+  test('closing the focused window hands the focus to another, so the current window is never none while one is open', async () => {
+    reset({}, { version: '1.0.0', permissions: ['tabs'] })
+    const back = addWindow()
+    const front = addWindow()
+    await chrome.windows.update(front.id, { focused: true })
+    const tab = addTab({ windowId: back.id, active: true })
+    await chrome.windows.remove(front.id)
+    expect((await chrome.windows.getLastFocused()).id).toBe(back.id)
+    expect((await chrome.tabs.query({ active: true, currentWindow: true })).map((found) => found.id)).toEqual([tab.id])
   })
 
   test("tab ids are never used twice in a run, so state kept about one tab cannot match a later test's", () => {
@@ -252,6 +264,19 @@ describe('permissions, the account and alarms', () => {
     expect(await chrome.permissions.contains({ origins: ['https://example.org/*'] })).toBe(false)
     expect(await chrome.permissions.contains({ origins: ['*://*.example.org/*'] })).toBe(false)
     expect(await chrome.permissions.getAll()).toEqual({ permissions: ['storage'], origins: ['https://api.example.com/*', 'https://*.example.com/*'] })
+    // A narrower origin held never covers a wider ask: other hosts, plain http, or every path.
+    reset({}, { version: '1.0.0', host_permissions: ['https://example.com/'] })
+    await grant({ origins: ['https://api.example.com/*'] })
+    expect(await chrome.permissions.contains({ origins: ['https://*.example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['*://api.example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['https://example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['https://api.example.com/v1/*'] })).toBe(true)
+  })
+
+  test('the email comes with identity.email held by the manifest as with one granted', async () => {
+    reset({}, { version: '1.0.0', permissions: ['identity', 'identity.email'] })
+    shim.account = { id: '1234', email: 'someone@example.com' }
+    expect(await chrome.identity.getProfileUserInfo({})).toEqual({ id: '1234', email: 'someone@example.com' })
   })
 
   test('signing the profile in or out fires onSignInChanged as Chrome does', async () => {

@@ -230,23 +230,45 @@ function liveWindow(windowId: number) {
   return window
 }
 
+const WEB_SCHEMES = ['http', 'https', 'ws', 'wss']
+
+/**
+ * A match pattern's parts: the scheme (`*` for the web's four), the host (`*`, `*.example.com` or a name), the port
+ * (`*` for any, as when none is named) and the path, or null for what is not one.
+ */
+function parsePattern(pattern: string) {
+  const found = /^(\*|[a-z-]+):\/\/([^/]*)(\/.*)$/.exec(pattern)
+  if (!found) return null
+  const [, scheme, authority, path] = found as unknown as [string, string, string, string]
+  const [host = '', port = '*'] = authority.split(/:(?=[^:]*$)/)
+  if (host.slice(host.startsWith('*.') ? 2 : 0).includes('*') || !/^(\*|\d+)$/.test(port)) return null
+  return { scheme, host, port, path }
+}
+
+/** A path with `*` for anything, as a regular expression. */
+function glob(path: string) {
+  return new RegExp(`^${path.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
+}
+
+/** Whether a pattern's host covers a name: `*` any, `*.example.com` the name and every one under it. */
+function hostCovers(host: string, name: string) {
+  if (host === '*' || host === '') return true
+  if (!host.startsWith('*.')) return name === host
+  const domain = host.slice(2)
+  return name === domain || name === host || name.endsWith(`.${domain}`)
+}
+
 /** A match pattern (`*://*.example.com/*`, `<all_urls>`) as a test of an address, as Chrome reads one. */
 function matches(pattern: string, url: string) {
   if (pattern === '<all_urls>') return /^(https?|wss?|ftp|file|data):/.test(url)
-  const found = /^(\*|[a-z-]+):\/\/(\*|\*\.[^/]+|[^/*]+)?(\/.*)$/.exec(pattern)
-  if (!found || !URL.canParse(url)) return false
-  const [, scheme, host = '', path] = found
+  const parts = parsePattern(pattern)
+  if (!parts || !URL.canParse(url)) return false
   const address = new URL(url)
-  const addressScheme = address.protocol.slice(0, -1)
-  if (scheme === '*' ? !['http', 'https', 'ws', 'wss'].includes(addressScheme) : scheme !== addressScheme) return false
-  if (host !== '*' && host !== '') {
-    const domain = host.startsWith('*.') ? host.slice(2) : host
-    // A pattern that names a port matches that port alone.
-    const name = domain.includes(':') ? address.host : address.hostname
-    if (!(name === domain || (host.startsWith('*.') && name.endsWith(`.${domain}`)))) return false
-  }
-  const glob = new RegExp(`^${path!.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
-  return glob.test(address.pathname + address.search)
+  const scheme = address.protocol.slice(0, -1)
+  if (parts.scheme === '*' ? !WEB_SCHEMES.includes(scheme) : parts.scheme !== scheme) return false
+  if (!hostCovers(parts.host, address.hostname)) return false
+  if (parts.port !== '*' && parts.port !== (address.port || { http: '80', https: '443', ws: '80', wss: '443' }[scheme])) return false
+  return glob(parts.path).test(address.pathname + address.search)
 }
 
 /** What the extension holds: the manifest's permissions and host permissions, and what was granted since. */
@@ -257,12 +279,27 @@ function held() {
   }
 }
 
-/** Whether the origins held cover a pattern asked about: the same one, `<all_urls>`, or a wider one (`*.example.com`). */
+/**
+ * Whether the origins held cover a pattern asked about: the same one, `<all_urls>`, or one held that holds every
+ * address the asked one names, in its schemes, hosts, ports and paths. A narrower one held never covers a wider ask.
+ */
 function covers(origins: Set<string>, pattern: string) {
   if (origins.has(pattern) || origins.has('<all_urls>')) return true
-  // The pattern as the narrowest address it names, which a wider pattern held matches.
-  const sample = pattern.replace(/^\*:/, 'https:').replace('://*.', '://').replace(/\*/g, '')
-  return URL.canParse(sample) && [...origins].some((origin) => matches(origin, sample))
+  const asked = parsePattern(pattern)
+  if (!asked) return false
+  return [...origins].some((origin) => {
+    const held = parsePattern(origin)
+    if (!held) return false
+    const schemes = held.scheme === '*' ? WEB_SCHEMES : [held.scheme]
+    const askedSchemes = asked.scheme === '*' ? WEB_SCHEMES : [asked.scheme]
+    return (
+      askedSchemes.every((scheme) => schemes.includes(scheme)) &&
+      (held.host === '*' || hostCovers(held.host, asked.host)) &&
+      (asked.host !== '*' || held.host === '*') &&
+      (held.port === '*' || held.port === asked.port) &&
+      glob(held.path).test(asked.path)
+    )
+  })
 }
 
 /** Whether the extension may see a tab's address: with the `tabs` permission, or an origin that covers the page. */
@@ -299,10 +336,13 @@ async function closeTab(tab: Tab, isWindowClosing: boolean) {
   await chrome.tabs.onActivated.emit({ tabId: next.id, windowId: next.windowId })
 }
 
+/** Closes a window and its tabs; when it was focused, the window opened last of those left takes the focus. */
 async function closeWindow(window: ChromeWindow) {
   for (const tab of tabsIn(window.id)) await closeTab(tab, true)
   shim.windows.delete(window.id)
   await chrome.windows.onRemoved.emit(window.id)
+  const next = [...shim.windows.values()].at(-1)
+  if (window.focused && next) await focus(next)
 }
 
 function area(store: () => Record<string, unknown>, replace: (items: Record<string, unknown>) => void) {
@@ -496,9 +536,9 @@ const chrome = {
   },
   identity: {
     AccountStatus: { SYNC: 'SYNC', ANY: 'ANY' },
-    // Chrome leaves the email empty unless identity.email is granted.
+    // Chrome leaves the email empty unless the extension holds identity.email.
     async getProfileUserInfo() {
-      return { id: shim.account.id, email: shim.granted.has('identity.email') ? shim.account.email : '' }
+      return { id: shim.account.id, email: held().permissions.has('identity.email') ? shim.account.email : '' }
     },
     onSignInChanged: new ChromeEvent(),
   },
