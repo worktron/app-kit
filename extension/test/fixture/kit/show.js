@@ -11,8 +11,9 @@
 // already open: the answer says so (tabsUnreadable), the worker logs it once,
 // and the link opens in a new tab. A link opens only when it is a web address
 // (http or https) or one of the extension's own pages. Requests for one link
-// take turns, so two at once never open two tabs: the second, with its own
-// options, finds the tab the first opened.
+// take turns: the second, with its own options, finds the tab the first opened
+// when the extension may read it, so two at once open one tab.
+// Unreadable, each opens its own, as every request does then.
 
 /** @typedef {"existing-tab" | "new-tab" | "new-window" | "refused" | "failed"} How */
 
