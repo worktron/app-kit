@@ -582,6 +582,12 @@ const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
     None => "https://app.example.com",
 };
 
+/// The commit About names, which the release command passes in (`APP_COMMIT=$(git rev-parse --short HEAD)`).
+const COMMIT: &str = match option_env!("APP_COMMIT") {
+    Some(commit) => commit,
+    None => "development",
+};
+
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     let site = Site::new(PAGE.parse().expect("PAGE is an address")).scheme("com.example.app");
     let builder = builder
@@ -595,7 +601,7 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             .build(),
     );
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().build(app));
+    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().commit(COMMIT).build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
         app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;
@@ -618,7 +624,7 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
 - The address comes in at build time. An iPhone build compiles inside an Xcode step that Tauri passes only variables whose names start with `TAURI_`, so the variable is named that way for the Mac too.
 - A frame the page embeds from another site (a video, a map) goes to the browser on every load, since WebKit asks about every frame, unless `.keep_in_window(host)` keeps its host. Each address sent out is logged with a reminder of this. Cloudflare's bot check, which Clerk's sign-up shows, is kept already. An app's own `on_navigation` on the window runs first and can only refuse an address, never keep one.
 - `log_to_file("example_app")`, with the app's crate name as Rust writes it, logs the app's and the kit's decisions to `~/Library/Logs/<identifier>/`, one file of up to a megabyte, and warnings from anything else.
-- On the Mac, `AppMenu` builds the menu bar: `.settings()` adds Settings… and `.sign_out()` Sign Out, which the page carries out (below), and `.commit(env!("APP_COMMIT"))` names in About the commit a `build.rs` reads from git. The window carries out Reload and the zoom itself; the rest are macOS's own items, with its shortcuts. An app adds items of its own to File or View through `menu.get(FILE_MENU)` or `menu.get(VIEW_MENU)` and the submenu's `insert`, and handles them in its own `on_menu_event`. `show(app)` brings the window to the front, as for a global shortcut, and `zoom_items(app)` gives View's three zoom items to an app that builds its own menu.
+- On the Mac, `AppMenu` builds the menu bar: `.settings()` adds Settings… and `.sign_out()` Sign Out, which the page carries out (below), and `.commit(COMMIT)` names in About the commit the release command builds from, which Cargo builds into the app again whenever `APP_COMMIT` changes; a build without it says `development`. The window carries out Reload and the zoom itself; the rest are macOS's own items, with its shortcuts. An app adds items of its own to File or View through `menu.get(FILE_MENU)` or `menu.get(VIEW_MENU)` and the submenu's `insert`, and handles them in its own `on_menu_event`. `show(app)` brings the window to the front, as for a global shortcut, and `zoom_items(app)` gives View's three zoom items to an app that builds its own menu.
 - An iPhone page with a service worker: `.limit_navigations_to_app_bound_domains(true)` on the window, with the site and `localhost` in `WKAppBoundDomains` in `Info.ios.plist`, since an iPhone web view runs a service worker only for app-bound domains.
 
 The page:

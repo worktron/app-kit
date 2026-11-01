@@ -13,6 +13,12 @@ const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
     None => "https://app.example.com",
 };
 
+/// The commit About names, which the release command passes in (`APP_COMMIT=$(git rev-parse --short HEAD)`).
+const COMMIT: &str = match option_env!("APP_COMMIT") {
+    Some(commit) => commit,
+    None => "development",
+};
+
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     let site = Site::new(PAGE.parse().expect("PAGE is an address")).scheme("com.example.app");
     let builder = builder
@@ -26,7 +32,7 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             .build(),
     );
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().build(app));
+    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().commit(COMMIT).build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
         app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;
