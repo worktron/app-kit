@@ -18,13 +18,21 @@ describe('showLink', () => {
     expect(shim.tabs.size).toBe(2)
   })
 
-  test('with none showing it, it opens in a new tab of the last focused window, which is raised', async () => {
-    const window = addWindow()
+  test('with none showing it, it opens in a new tab of the last focused window, which is raised and brought back from the Dock', async () => {
+    const window = addWindow({ state: 'minimized' })
     addTab({ windowId: window.id, url: 'https://example.com/other', active: true })
     expect(await showLink('https://example.com/inbox')).toEqual({ how: 'new-tab' })
     const opened = [...shim.tabs.values()].find((tab) => tab.url === 'https://example.com/inbox')
     expect(opened).toMatchObject({ windowId: window.id, active: true })
-    expect(shim.windows.get(window.id)!.focused).toBe(true)
+    expect(shim.windows.get(window.id)).toMatchObject({ focused: true, state: 'normal' })
+  })
+
+  test('two requests for one link at once share one answer and open one tab', async () => {
+    addTab({ url: 'https://example.com/other', active: true })
+    const answers = await Promise.all([showLink('https://example.com/inbox'), showLink('https://example.com/inbox')])
+    expect(answers).toEqual([{ how: 'new-tab' }, { how: 'new-tab' }])
+    expect([...shim.tabs.values()].filter((tab) => tab.url === 'https://example.com/inbox')).toHaveLength(1)
+    expect(await showLink('https://example.com/inbox')).toEqual({ how: 'existing-tab' })
   })
 
   test('a profile with no window gets one, focused, showing the link', async () => {
@@ -82,10 +90,16 @@ describe('showLink', () => {
     } finally {
       warn.mockRestore()
     }
-    // Access to the site is enough, as Chrome gives the address with it.
+    // Access to the link's site is enough, as Chrome gives the address with it, though no tab of that site is open.
     reset({}, { version: '1.0.0', host_permissions: ['https://example.com/*'] })
-    addTab({ url: 'https://example.com/inbox', active: true })
-    expect(await showLink('https://example.com/inbox')).toEqual({ how: 'existing-tab' })
+    addTab({ url: 'https://other.example.com/', active: true })
+    expect(await showLink('https://example.com/sent')).toEqual({ how: 'new-tab' })
+    expect(await showLink('https://example.com/sent')).toEqual({ how: 'existing-tab' })
+    // Access to another site only is not: the tab on the link's site stays unread.
+    reset({}, { version: '1.0.0', host_permissions: ['https://other.example.com/*'] })
+    addTab({ url: 'https://other.example.com/', active: true })
+    addTab({ url: 'https://example.com/inbox' })
+    expect(await showLink('https://example.com/inbox')).toEqual({ how: 'new-tab', tabsUnreadable: true })
   })
 
   test('a refusal from Chrome is answered failed, never thrown', async () => {

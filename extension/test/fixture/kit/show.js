@@ -7,10 +7,11 @@
 // Chrome gives a tab's address only to an extension holding the "tabs"
 // permission or access to that page's site, and ignores tabs.query's url
 // filter without one, so this reads every tab and compares each address
-// itself. An extension with neither cannot find the tab already open: the
-// answer says so (tabsUnreadable), the worker logs it once, and the link opens
-// in a new tab. A link opens only when it is a web address (http or https) or
-// one of the extension's own pages.
+// itself. An extension with neither for the link's site cannot find the tab
+// already open: the answer says so (tabsUnreadable), the worker logs it once,
+// and the link opens in a new tab. A link opens only when it is a web address
+// (http or https) or one of the extension's own pages. Two requests for one
+// link at once share one answer, so they never open two tabs.
 
 /** @typedef {"existing-tab" | "new-tab" | "new-window" | "refused" | "failed"} How */
 
@@ -23,6 +24,9 @@
  */
 
 let warned = false;
+
+/** The requests being answered, by address, which a request for the same link joins. */
+const showing = new Map();
 
 /**
  * The link as an address to show, or null for one never opened: anything but a web address or the extension's own page.
@@ -52,23 +56,48 @@ async function lastFocusedWindow() {
 }
 
 /**
+ * Whether Chrome gives the extension the address of a tab showing `address`: with the tabs permission, or access to
+ * its site.
+ * @param {string} address
+ */
+async function canRead(address) {
+  if (await chrome.permissions.contains({ permissions: ["tabs"] })) return true;
+  // Site access is for web addresses; the extension's own pages count only under tabs.
+  if (address.startsWith(chrome.runtime.getURL(""))) return false;
+  return chrome.permissions.contains({ origins: [`${new URL(address).origin}/*`] });
+}
+
+/**
  * Shows `url` and says how: "existing-tab", "new-tab", "new-window", "refused" for an address it never opens, or
- * "failed" when Chrome refused. `tabsUnreadable` is set when the extension could read no open tab's address, so a tab
- * already showing the link could not be found.
+ * "failed" when Chrome refused. `tabsUnreadable` is set when the extension may not read the address of a tab on the
+ * link's site, so a tab already showing it could not be found.
  * @param {string} url
  * @param {ShowOptions} [options]
  * @returns {Promise<{ how: How, tabsUnreadable?: true }>}
  */
-export async function showLink(url, { skip = () => false, open = (_url, opening) => opening() } = {}) {
+export function showLink(url, options = {}) {
   const address = showable(url);
-  if (!address) return { how: "refused" };
+  if (!address) return Promise.resolve({ how: /** @type {const} */ ("refused") });
+  const pending = showing.get(address);
+  if (pending) return pending;
+  const answer = show(address, options).finally(() => showing.delete(address));
+  showing.set(address, answer);
+  return answer;
+}
+
+/**
+ * @param {string} address
+ * @param {ShowOptions} options
+ * @returns {Promise<{ how: How, tabsUnreadable?: true }>}
+ */
+async function show(address, { skip = () => false, open = (_url, opening) => opening() }) {
   try {
-    const tabs = await chrome.tabs.query({});
-    const unreadable = tabs.length > 0 && tabs.every((tab) => tab.url === undefined && tab.pendingUrl === undefined);
+    const unreadable = !(await canRead(address));
     if (unreadable && !warned) {
       warned = true;
-      console.warn("showLink: no tab's address is readable; the manifest needs the tabs permission or access to the sites it shows");
+      console.warn("showLink: the addresses of open tabs are not readable; the manifest needs the tabs permission or access to the sites it shows");
     }
+    const tabs = await chrome.tabs.query({});
     const existing = tabs.find((tab) => (tab.url === address || tab.pendingUrl === address) && !skip(tab));
     const said = unreadable ? { tabsUnreadable: /** @type {const} */ (true) } : {};
     if (existing?.id !== undefined) {
