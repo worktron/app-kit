@@ -1,6 +1,7 @@
 // app-kit's copy of tauri-plugin-mobile-push 0.1.4's Swift side. Changed from the original: the notification delegate is
 // set when the plugin starts, and set again once the window loads, so a tap that launches the app is not lost; and a tap
-// keeps the notification's page (its `url`) until the page takes it, with an event telling an open page to take it now.
+// keeps the notification's page (its `url`) until the page takes it, with an event telling an open page to take it now;
+// and a passive notification shows no banner with the app in front.
 
 import UIKit
 import WebKit
@@ -44,6 +45,16 @@ private var apnsDelegateSetUp = false
 private var configuredForegroundPresentation: UNNotificationPresentationOptions =
     [.banner, .list, .sound, .badge]
 
+/// What iOS shows for a notification that arrives with the app in front. These options decide it, so a passive
+/// notification, which the server sends to stay quiet, loses its banner here and keeps the rest of the configured options.
+private func foregroundPresentation(for notification: UNNotification) -> UNNotificationPresentationOptions {
+    var options = configuredForegroundPresentation
+    if #available(iOS 15.0, *), notification.request.content.interruptionLevel == .passive {
+        options.remove(.banner)
+    }
+    return options
+}
+
 /// UNUserNotificationCenter delegate for foreground notification handling.
 /// `willPresent` fires only when the app is in the foreground; backgrounded
 /// and locked states bypass this delegate entirely and iOS shows the system
@@ -57,7 +68,7 @@ private class PushNotificationHandler: NSObject, UNUserNotificationCenterDelegat
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         IphoneNotificationsPlugin.instance?.handleNotification(notification.request.content.userInfo)
-        completionHandler(configuredForegroundPresentation)
+        completionHandler(foregroundPresentation(for: notification))
     }
 
     func userNotificationCenter(

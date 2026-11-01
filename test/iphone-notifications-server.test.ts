@@ -72,6 +72,61 @@ test('the payload carries the alert and the page as a path, query and fragment',
   expect(JSON.parse(applePayload({ title: 't', body: 'b' })).url).toBe('/');
 });
 
+test('a payload with no badge and no quiet sends the bytes it always sent', () => {
+  expect(applePayload({ title: 'New alert', body: 'Two matches', url: '/alerts/3?x=1#top', tag: 'alert-3' })).toBe(
+    '{"aps":{"alert":{"title":"New alert","body":"Two matches"},"sound":"default"},"url":"/alerts/3?x=1#top"}',
+  );
+  expect(applePayload({ title: 't', body: 'b' })).toBe('{"aps":{"alert":{"title":"t","body":"b"},"sound":"default"},"url":"/"}');
+  expect(applePayload({ title: 't', body: 'b', quiet: false })).toBe(applePayload({ title: 't', body: 'b' }));
+});
+
+test('a quiet alert is passive and has no sound', () => {
+  expect(JSON.parse(applePayload({ title: 't', body: 'b', url: '/digest', quiet: true }))).toEqual({
+    aps: { alert: { title: 't', body: 'b' }, 'interruption-level': 'passive' },
+    url: '/digest',
+  });
+});
+
+test('a badge on an alert sets the icon’s number beside the alert and its sound', () => {
+  expect(JSON.parse(applePayload({ title: 't', body: 'b', url: '/digest', badge: 3 }))).toEqual({
+    aps: { alert: { title: 't', body: 'b' }, sound: 'default', badge: 3 },
+    url: '/digest',
+  });
+  expect(JSON.parse(applePayload({ title: 't', body: 'b', quiet: true, badge: 3 }))).toEqual({
+    aps: { alert: { title: 't', body: 'b' }, 'interruption-level': 'passive', badge: 3 },
+    url: '/',
+  });
+});
+
+test('a badge with no title or body sends only the badge, with no alert, sound or page', () => {
+  expect(applePayload({ badge: 4 })).toBe('{"aps":{"badge":4}}');
+  expect(applePayload({ badge: 0 })).toBe('{"aps":{"badge":0}}');
+});
+
+test('a badge-only payload keeps a page it was given', () => {
+  expect(JSON.parse(applePayload({ badge: 4, url: '/inbox' }))).toEqual({ aps: { badge: 4 }, url: '/inbox' });
+});
+
+test('a badge-only send stays an alert push at priority 10 and never asks to wake the app', async () => {
+  const d = deps(async () => ({ status: 200 }));
+  const result = await sendToApple([{ token: 'phone', environment: 'production' }], { badge: 2 }, { topic: 'com.example.app', ttlSeconds: 3600 }, d);
+  expect(result).toEqual({ sent: 1, gone: [], failed: 0 });
+  expect(d.asked[0].headers['apns-push-type']).toBe('alert');
+  expect(d.asked[0].headers['apns-priority']).toBe('10');
+  expect(d.asked[0].body).toBe('{"aps":{"badge":2}}');
+});
+
+test('half an alert is refused by the type, and so is a payload with nothing to show', () => {
+  // @ts-expect-error a title needs its body
+  applePayload({ title: 't', badge: 1 });
+  // @ts-expect-error a body needs its title
+  applePayload({ body: 'b', badge: 1 });
+  // @ts-expect-error quiet describes an alert, and this has none
+  applePayload({ badge: 1, quiet: true });
+  // @ts-expect-error no alert and no badge is nothing to send
+  applePayload({ url: '/digest' });
+});
+
 test('Apple’s answers sort into sent, gone and failed', () => {
   expect(outcomeOf(200)).toBe('sent');
   expect(outcomeOf(410, 'Unregistered')).toBe('gone');

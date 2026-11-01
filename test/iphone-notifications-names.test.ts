@@ -47,6 +47,24 @@ test('the Swift keeps the payload’s address, dispatches the page’s event and
   expect(swift).not.toContain('[mobile-push]');
 });
 
+test('the Swift asks for the badge everywhere it asks for permission, and never sets the count, which is the server’s', () => {
+  const asks = [...swift.matchAll(/requestAuthorization\(options: (\[.*?\])\)/g)].map((m) => m[1]);
+  expect(asks.length).toBeGreaterThan(0);
+  for (const options of asks) expect(options).toContain('.badge');
+  expect(swift).not.toMatch(/setBadgeCount|applicationIconBadgeNumber|\.badge\s*=/);
+});
+
+test('with the app in front a passive notification shows no banner, and goes to the list and sets the badge as configured', () => {
+  const present = swift.match(/willPresent notification[\s\S]*?\n {4}\}/)![0];
+  expect(present).toContain('foregroundPresentation(for: notification)');
+  const options = swift.match(/func foregroundPresentation\(for notification: UNNotification\)[\s\S]*?\n\}/)![0];
+  expect(options).toContain('#available(iOS 15.0, *)');
+  expect(options).toContain('.interruptionLevel == .passive');
+  expect(options).toContain('.remove(.banner)');
+  expect(options).not.toContain('.remove(.list)');
+  expect(options).not.toContain('.remove(.badge)');
+});
+
 test('the Swift takes the notification delegate when the plugin starts and again when the window loads', () => {
   const load = swift.match(/override public func load\(webview: WKWebView\) \{([\s\S]*?)\n {4}\}/)![1];
   expect(load).toContain('takeNotificationDelegate(');

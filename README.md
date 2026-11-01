@@ -713,6 +713,20 @@ for (const token of result.gone) await forgetAppleDevice(token);
 
 `topic` is the iPhone app's bundle id. The push key comes from `APPLE_PUSH_KEY_ID`, `APPLE_PUSH_TEAM_ID` and `APPLE_PUSH_KEY` (the .p8 file's contents); with any missing it sends nothing. `url` is the page a tap opens, and the payload carries only its path, query and fragment, so a debug build whose page runs on a dev server opens the same page there. A device Apple calls unregistered or bad comes back in `gone` for the app to remove; since the phone registers again on its next launch, a token removed by mistake comes back. A send that Apple has not answered in 15 seconds counts as failed.
 
+Two more fields keep a notification quiet and put a count on the app's icon:
+
+```ts
+await sendToApple(devices, { title, body, url: '/alerts/3', quiet: true, badge: 3 }, options); // quiet, with a count
+await sendToApple(devices, { badge: 3 }, options); // only the count
+await sendToApple(devices, { badge: 0 }, options); // clears the icon
+```
+
+`quiet: true` sends the alert at Apple's passive level with no sound: it goes to the Notification Center list without lighting the screen or playing anything, and with the app in front the plugin leaves out the banner. Apple's interruption levels start at iOS 15, so an older phone shows a quiet notification as a normal alert, with no sound. Without `quiet`, a notification sounds and shows as it always has.
+
+`badge` sets the number on the app's icon, and 0 clears it. The count is the server's: the plugin asks for permission to show it, and nothing on the phone changes or clears it, so the number drops only when the server sends a lower one. With the app in front, iOS applies it only when the shell's `ForegroundPresentationOptions` include `badge`, as the default and `silent()` do and `none()` does not.
+
+With no `title` and no `body` the push carries only the badge, with no alert and no sound, and with no `url` it leaves out the address too. TypeScript refuses a title without a body, `quiet` without an alert, and a payload with neither an alert nor a badge. It stays an `alert` push at priority 10, which is the push type Apple names for a badge, and it has no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`.
+
 ### iPhone sign-in
 
 `app-kit/tauri/iphone-sign-in` for the page, and a Tauri plugin for the shell, in `tauri/iphone-sign-in/plugin/`: Google refuses to sign in inside the app's web view, so an iPhone build runs desktop sign-in's browser page in Apple's sign-in sheet (`ASWebAuthenticationSession`) instead of the default browser. The sheet slides over the app, shares Safari's Google sign-in, and closes when that page opens the app's sign-in link, which it hands back to the page instead of to iOS: no switch to Safari, no "open this app?" question, and no page load. The server's routes and the browser page are desktop sign-in's, above. The plugin is the kit's copy of tauri-plugin-web-auth 1.0.0 (MIT), changed so the sheet shows: the original keeps no hold on the sheet and looks for a window the way scene-based apps have none, so iOS shows it in a window nobody sees. argon-watcher is the first app.

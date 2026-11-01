@@ -16,11 +16,27 @@ export type AppleEnvironment = 'development' | 'production';
 export type AppleDevice = { token: string; environment: AppleEnvironment };
 export type AppleConfig = { keyId: string; teamId: string; key: string };
 
-/** What the phone shows, and the page a tap opens. */
-export type ApplePayload = {
+type AppleAlert = {
   title: string;
   body: string;
-  /** The page a tap opens: a path, or an address on the app's site. Defaults to '/'. */
+  /** Goes to the Notification Center list without lighting the screen or playing anything. */
+  quiet?: boolean;
+  /** The number on the app's icon; 0 clears it. The plugin never changes it, so the count is the server's. */
+  badge?: number;
+};
+
+/** Only the number on the app's icon: nothing shows and nothing plays. */
+type AppleBadge = {
+  title?: never;
+  body?: never;
+  quiet?: never;
+  /** The number on the app's icon; 0 clears it. */
+  badge: number;
+};
+
+/** What the phone shows, and the page a tap opens: an alert, an alert with a badge, or a badge alone. */
+export type ApplePayload = (AppleAlert | AppleBadge) & {
+  /** The page a tap opens: a path, or an address on the app's site. Defaults to '/' on an alert. */
   url?: string;
   /** A newer notification with the same tag replaces the older one instead of stacking. */
   tag?: string;
@@ -58,14 +74,20 @@ export function providerToken(config: AppleConfig, nowMs: number): string {
 /**
  * Apple's payload: the alert, and the page a tap opens as a path, query and fragment. The page opens only a page of
  * its own site, so the server's own address is left out, and a debug build whose page runs on a dev server opens the
- * same path there.
+ * same path there. A quiet alert is Apple's passive level with no sound. A badge alone has no alert and no sound, and
+ * no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`.
  */
 export function applePayload(payload: ApplePayload): string {
+  const aps: Record<string, unknown> = {};
+  if (payload.title !== undefined) {
+    aps.alert = { title: payload.title, body: payload.body };
+    if (payload.quiet) aps['interruption-level'] = 'passive';
+    else aps.sound = 'default';
+  }
+  if (payload.badge !== undefined) aps.badge = payload.badge;
+  if (payload.title === undefined && payload.url === undefined) return JSON.stringify({ aps });
   const url = new URL(payload.url ?? '/', 'https://app.example.com');
-  return JSON.stringify({
-    aps: { alert: { title: payload.title, body: payload.body }, sound: 'default' },
-    [ADDRESS_KEY]: `${url.pathname}${url.search}${url.hash}`,
-  });
+  return JSON.stringify({ aps, [ADDRESS_KEY]: `${url.pathname}${url.search}${url.hash}` });
 }
 
 /**
