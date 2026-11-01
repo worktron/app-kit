@@ -110,6 +110,16 @@ describe('tabs', () => {
     expect((await chrome.tabs.query({ url: 'http://app.example.com:*/*' })).map((tab) => tab.id)).toEqual([served.id, other.id])
     expect(await chrome.tabs.query({ url: '*://mail.example.com/*' })).toEqual([])
     expect((await chrome.tabs.query({})).map((tab) => tab.id)).toContain(hidden.id)
+    // An address with no port is on its scheme's own, and a host of * is any host.
+    const plain = addTab({ url: 'https://example.com/' })
+    await grant({ origins: ['https://*/*'] })
+    expect((await chrome.tabs.query({ url: 'https://example.com:443/*' })).map((tab) => tab.id)).toEqual([plain.id])
+    expect((await chrome.tabs.query({ url: 'https://*/*' })).map((tab) => tab.id)).toEqual([hidden.id, plain.id])
+  })
+
+  test("a host permission's path is read as /*, as Chrome reads it, so one naming a page shows every page of its site", async () => {
+    reset({}, { version: '1.0.0', host_permissions: ['https://mail.example.com/inbox'] })
+    expect(await chrome.tabs.get(addTab({ url: 'https://mail.example.com/sent' }).id)).toHaveProperty('url')
   })
 
   test('closing the active tab makes the next one active, the rest move up, and a window left with none closes', async () => {
@@ -261,16 +271,24 @@ describe('permissions, the account and alarms', () => {
     expect(await chrome.permissions.contains({ permissions: ['storage'], origins: ['https://api.example.com/*'] })).toBe(true)
     await grant({ origins: ['https://*.example.com/*'] })
     expect(await chrome.permissions.contains({ origins: ['https://mail.example.com/*'] })).toBe(true)
-    expect(await chrome.permissions.contains({ origins: ['https://example.org/*'] })).toBe(false)
-    expect(await chrome.permissions.contains({ origins: ['*://*.example.org/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['http://mail.example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['*://*.example.com/*'] })).toBe(false)
     expect(await chrome.permissions.getAll()).toEqual({ permissions: ['storage'], origins: ['https://api.example.com/*', 'https://*.example.com/*'] })
-    // A narrower origin held never covers a wider ask: other hosts, plain http, or every path.
+    // A narrower origin held never covers a wider ask, of other hosts or plain http. A host permission's path is read as
+    // /*, as Chrome reads it, so the path asked plays no part.
     reset({}, { version: '1.0.0', host_permissions: ['https://example.com/'] })
     await grant({ origins: ['https://api.example.com/*'] })
     expect(await chrome.permissions.contains({ origins: ['https://*.example.com/*'] })).toBe(false)
     expect(await chrome.permissions.contains({ origins: ['*://api.example.com/*'] })).toBe(false)
-    expect(await chrome.permissions.contains({ origins: ['https://example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['https://example.com/*'] })).toBe(true)
     expect(await chrome.permissions.contains({ origins: ['https://api.example.com/v1/*'] })).toBe(true)
+    // Any host and any port, held, cover a named one; a named port, held, covers only itself, the default included.
+    reset({}, { version: '1.0.0', host_permissions: ['*://*/*', 'https://app.example.com:8443/*'] })
+    expect(await chrome.permissions.contains({ origins: ['https://*/*', 'http://example.com:3000/*'] })).toBe(true)
+    reset({}, { version: '1.0.0', host_permissions: ['https://app.example.com:8443/*', 'https://example.com:443/*'] })
+    expect(await chrome.permissions.contains({ origins: ['https://app.example.com:8443/*'] })).toBe(true)
+    expect(await chrome.permissions.contains({ origins: ['https://app.example.com/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['https://*/*'] })).toBe(false)
   })
 
   test('the email comes with identity.email held by the manifest as with one granted', async () => {

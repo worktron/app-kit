@@ -240,8 +240,9 @@ function parsePattern(pattern: string) {
   const found = /^(\*|[a-z-]+):\/\/([^/]*)(\/.*)$/.exec(pattern)
   if (!found) return null
   const [, scheme, authority, path] = found as unknown as [string, string, string, string]
-  const [host = '', port = '*'] = authority.split(/:(?=[^:]*$)/)
-  if (host.slice(host.startsWith('*.') ? 2 : 0).includes('*') || !/^(\*|\d+)$/.test(port)) return null
+  // The host, an IPv6 address in brackets included, then the port when one is named.
+  const [, host = '', port = '*'] = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/.exec(authority) ?? []
+  if ((host !== '*' && host.slice(host.startsWith('*.') ? 2 : 0).includes('*')) || !/^(\*|\d+)$/.test(port)) return null
   return { scheme, host, port, path }
 }
 
@@ -281,7 +282,8 @@ function held() {
 
 /**
  * Whether the origins held cover a pattern asked about: the same one, `<all_urls>`, or one held that holds every
- * address the asked one names, in its schemes, hosts, ports and paths. A narrower one held never covers a wider ask.
+ * address the asked one names, in its schemes, hosts and ports. A narrower one held never covers a wider ask. The path
+ * plays no part: Chrome treats a host permission's path as `/*`, whatever it says.
  */
 function covers(origins: Set<string>, pattern: string) {
   if (origins.has(pattern) || origins.has('<all_urls>')) return true
@@ -296,8 +298,7 @@ function covers(origins: Set<string>, pattern: string) {
       askedSchemes.every((scheme) => schemes.includes(scheme)) &&
       (held.host === '*' || hostCovers(held.host, asked.host)) &&
       (asked.host !== '*' || held.host === '*') &&
-      (held.port === '*' || held.port === asked.port) &&
-      glob(held.path).test(asked.path)
+      (held.port === '*' || held.port === asked.port)
     )
   })
 }
@@ -305,7 +306,9 @@ function covers(origins: Set<string>, pattern: string) {
 /** Whether the extension may see a tab's address: with the `tabs` permission, or an origin that covers the page. */
 function visible(tab: Tab) {
   const { permissions, origins } = held()
-  return permissions.has('tabs') || [...origins].some((origin) => matches(origin, tab.pendingUrl ?? tab.url))
+  // A host permission's path is read as `/*`, as Chrome reads it.
+  const anyPath = (origin: string) => origin.replace(/^([^:]+:\/\/[^/]*)\/.*$/, '$1/*')
+  return permissions.has('tabs') || [...origins].some((origin) => matches(anyPath(origin), tab.pendingUrl ?? tab.url))
 }
 
 /** A tab as the worker sees it: Chrome leaves out its address, title and icon unless the extension may see them. */
