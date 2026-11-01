@@ -72,6 +72,16 @@ describe('openTestDb', () => {
 
 describe('openDb', () => {
   let logged: string[];
+  // The files of an empty database, which the served databases below start from: PGlite starts from files in about
+  // a tenth of the time it takes to make a database, which a busy machine stretched past Bun's five seconds a test.
+  // Made once here, held to the fifteen seconds a test may take.
+  let emptyDatabase: File | Blob;
+  beforeAll(async () => {
+    const made = new PGlite();
+    await made.waitReady;
+    emptyDatabase = await made.dumpDataDir('none');
+    await made.close();
+  }, 15_000);
   beforeEach(() => {
     logged = [];
     spyOn(console, 'log').mockImplementation((line: string) => void logged.push(line));
@@ -110,7 +120,7 @@ describe('openDb', () => {
 
   test('opens a postgres:// URL through postgres-js, migrates it and says where, without the password', async () => {
     // PGlite served over Postgres's own wire protocol stands in for Railway's Postgres, on a port the system picks.
-    const served = new PGlite();
+    const served = new PGlite({ loadDataDir: emptyDatabase });
     const server = new PGLiteSocketServer({ db: served, port: 0, maxConnections: 10 });
     await server.start();
     try {
@@ -128,7 +138,7 @@ describe('openDb', () => {
 
   test('an open whose migration fails closes its connection', async () => {
     // A server that takes one connection at a time: the second open gets through only if the first let go.
-    const served = new PGlite();
+    const served = new PGlite({ loadDataDir: emptyDatabase });
     const server = new PGLiteSocketServer({ db: served, port: 0, maxConnections: 1 });
     await server.start();
     const broken = await brokenMigrations();
