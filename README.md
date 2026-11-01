@@ -368,7 +368,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
 | Plain look | `extension/look.css`, copied as `look.css` | The plain look for a popup or an options page, plain CSS with no build step: the look's colors as CSS variables, light and dark by the system's setting, written from the tokens file as it is copied, and the kit's rules for its pieces and controls. |
 | Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
-| Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for unit tests of a worker built on the kit. |
+| Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for an extension's unit tests, with the network refused unless the test answers it. See below. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
 
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
@@ -479,6 +479,48 @@ import { startHostAsChrome } from 'app-kit/extension/testing/host'
 const host = await startHostAsChrome({ command: [process.execPath, 'src/host.ts'], env: { TOOL_DIR: dir }, logPath: join(dir, 'host.log'), answer: (message) => ({ echoed: message.text }) })
 // ... ask(socketPath, ...) ...
 await host.stop()
+```
+
+### The Chrome stand-in
+
+The worker's unit tests run against an in-memory `chrome`. Importing `app-kit/extension/testing/chrome` installs it on `globalThis`; name it in the test start-up file (bunfig.toml's `preload`) or import it first in each test file, and call `reset(files, manifest)` before each test:
+
+```ts
+import { addTab, answerNetwork, reset, sendToWorker, shim } from 'app-kit/extension/testing/chrome'
+
+beforeEach(() => reset({}, { version: '1.0.0', permissions: ['tabs'] }))
+
+test('the popup asks which tabs show the inbox', async () => {
+  const tab = addTab({ url: 'https://mail.example.com/inbox', active: true })
+  answerNetwork((request) => Response.json({ unread: 3 }))
+  start()
+  expect(await sendToWorker({ type: 'inbox-tabs' })).toEqual({ tabs: [tab.id], unread: 3 })
+  expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/unread', method: 'GET' }])
+})
+```
+
+What it fakes, each behaving as Chrome does where a test could tell:
+
+- **The network.** A request to anything but the extension's own files (`shim.files`, by path) and `data:` or `blob:` addresses is recorded in `shim.networkRequests` and refused with Chrome's offline error, `TypeError: Failed to fetch`, unless the test answers it with `answerNetwork(request => Response)`. A test cannot reach the internet without saying so.
+- **Storage.** `storage.local` and `storage.session`: `get` by one key, several, an object of defaults, or `null` for all, each a copy; `set`, `remove`, `clear`. A test reads them as `shim.local` and `shim.session`.
+- **Tabs and windows.** `addWindow()` and `addTab({ url, active, windowId })` make them; the first window is focused, and the tab given back is the live one. `tabs.query` takes address patterns (one or a list, as Chrome's match patterns), `active`, `windowId`, `currentWindow`, `groupId` and `pinned`; `tabs.get`, `create`, `update` and `remove` fire `onCreated`, `onUpdated`, `onActivated` and `onRemoved`. A tab's address, title and icon are left out unless the manifest or a grant holds `tabs`, or an origin covers the page. `windows.get`, `getAll` and `getLastFocused` (`populate` for the tabs), `create` and `update`, with `onFocusChanged`. A tab or window that is gone throws Chrome's `No tab with id: 7.`. Ids are never reused in a run.
+- **Messages.** `sendToWorker(message, sender)` sends a page's message to the worker's `runtime.onMessage` listeners and gives back the answer: what was passed to `sendResponse` after a listener returned true, or what a returned promise resolved to (Chrome 148 and later), the first to answer winning, as in Chrome's message passing guide. An async listener answers every message, with `null` when it returns nothing. A promise rejected with an Error rejects with its message. The worker's own `runtime.sendMessage` is recorded in `shim.sentMessages` and refused, as Chrome does with no page open to hear it.
+- **The native host.** `sendNativeMessage` is answered by `shim.nativeHost(host, message)` and refused with Chrome's "Specified native messaging host not found." when there is none; each is recorded in `shim.nativeMessages`. `connectNative` gives a port recorded in `shim.ports`, whose `posted` lists what the worker sent, `deliver(message)` sends it one from the host, and `close(error)` closes it with the error in `runtime.lastError` for the disconnect listeners, as Chrome does for a host it could not start.
+- **Permissions and the account.** `permissions.contains`, `request`, `remove` and `getAll`, with origins, and `onAdded` and `onRemoved`; `grant({ permissions, origins })` grants as the person would. `identity.getProfileUserInfo` leaves the email out until `identity.email` is granted; `signIn(account)`, or `signIn(null)`, fires `onSignInChanged`.
+- **Alarms.** `create`, `get`, `getAll`, `clear` and `clearAll`; `fireAlarm(name)` delivers one as it comes due.
+- **The rest.** The manifest (`runtime.getManifest`), `runtime.getURL`, `runtime.reload` (counted in `shim.reloads`), `onInstalled`, `onStartup` and Web Locks, which Bun lacks. There is no `runtime.id`, so a worker that starts only inside Chrome stays still when a test imports it. `reset()` clears every listener, as a kit worker adds its own when it starts.
+
+What one extension alone uses, it adds with `extend`, once, in its start-up file or at the top of a test file. What it adds stays across `reset()`, and its events, made with `ChromeEvent` (whose `emit` a test calls as Chrome would), are cleared by it. `extend` refuses to replace what the stand-in has, so a test never runs against two versions of one call:
+
+```ts
+import { ChromeEvent, extend } from 'app-kit/extension/testing/chrome'
+
+export const badge = { text: '' }
+extend({
+  action: { setBadgeText: async ({ text }: { text: string }) => void (badge.text = text) },
+  contextMenus: { create: () => {}, onClicked: new ChromeEvent() },
+  identity: { getAuthToken: async () => ({ token: 'token-1' }) },
+})
 ```
 
 ## tauri/: Mac and iPhone apps
