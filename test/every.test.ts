@@ -1,7 +1,7 @@
 // A job on a clock (app-kit/server/every), on Bun's fake clock: never two runs at once, a failure written and the
 // next run still made, and a stop that waits for the run in progress.
 import { afterEach, beforeEach, expect, jest, test } from 'bun:test';
-import { every } from '../server/every';
+import { every, LONGEST_DELAY_MS } from '../server/every';
 
 const INTERVAL = 1_000;
 
@@ -121,8 +121,9 @@ test('stopped before its first run, it never runs, and stop gives back at once',
   expect(runs).toBe(0);
 });
 
-test('an interval of 0, below it or no number at all is refused, since the job would run back to back', () => {
-  for (const interval of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+test('an interval of 0, below it, past the longest delay a timer holds or no number at all is refused, since the job would run back to back', () => {
+  expect(() => every('refresh', LONGEST_DELAY_MS, () => undefined)()).not.toThrow();
+  for (const interval of [0, -5, LONGEST_DELAY_MS + 1, 30 * 24 * 60 * 60_000, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => every('refresh', interval, () => undefined)).toThrow(RangeError);
   }
 });

@@ -1280,7 +1280,7 @@ listen(app, { onStop: async () => { await stopTriage(); await db.close(); } });
 - **Never two at once.** The next run is set only once the last has settled, one interval after the last one started, or at once when the last took longer than that. setInterval starts a run while the last one goes on, so a slow run sends an alarm twice or changes the same mailbox twice; here a due run is never skipped and a slow one is never stacked.
 - **A failure.** A run that throws is logged as `mailbox triage failed:` with its stack (to `print`, console.log unless given), and the next run still happens. Bun.cron, which also never stacks runs, ends the process on a throw unless the app listens for unhandled rejections.
 - **Stopping.** `stop()` ends the clock and waits for a run in progress, so the database is closed after the last run, not under it. Bun.cron's stop does not wait.
-- `runAtStart` runs the job as soon as `every` is called, rather than first after one interval. An interval that is not a number of milliseconds above 0 is refused, since the job would run back to back.
+- `runAtStart` runs the job as soon as `every` is called, rather than first after one interval. An interval that is not a number of milliseconds above 0, or is past the longest delay a timer holds (`LONGEST_DELAY_MS`, about 24.8 days, which Bun cuts to 1ms), is refused, since the job would run back to back.
 - It imports nothing, so a worker with no web server takes it too. It is for one server: two copies of the app on two machines each run it, and a job that must run once across them takes a lock of its own.
 
 ### What a refusal from Google means

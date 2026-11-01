@@ -5,6 +5,9 @@
  * progress, and it keeps to the wall clock in whole minutes. No imports, so a worker with no web server takes it too.
  */
 
+/** The longest delay a timer holds, a signed 32-bit number of milliseconds: about 24.8 days. */
+export const LONGEST_DELAY_MS = 2_147_483_647;
+
 export type EveryOptions = {
   /** Run once as soon as it is started, rather than first after one interval. */
   runAtStart?: boolean;
@@ -24,8 +27,11 @@ export function every(
   job: () => unknown,
   { runAtStart = false, print = console.log }: EveryOptions = {},
 ): () => Promise<void> {
-  // An interval of 0, or none, would run the job back to back for as long as the server lives.
-  if (!(intervalMs > 0 && Number.isFinite(intervalMs))) throw new RangeError(`${name}: the interval must be a number of milliseconds above 0, not ${intervalMs}`);
+  // An interval of 0, or none, would run the job back to back for as long as the server lives, and so would one past
+  // the longest delay a timer holds (about 24.8 days), which Bun and Node cut to 1ms.
+  if (!(intervalMs > 0 && intervalMs <= LONGEST_DELAY_MS)) {
+    throw new RangeError(`${name}: the interval must be a number of milliseconds above 0 and at most ${LONGEST_DELAY_MS}, not ${intervalMs}`);
+  }
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running: Promise<void> | undefined;
