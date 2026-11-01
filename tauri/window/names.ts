@@ -14,3 +14,9 @@ export const NEWER_BUILD_EVENT = 'app-kit-newer-build';
 
 /** The host of the app's own link that restarts it into the newer build: `<scheme>://restart`. */
 export const RESTART_HOST = 'restart';
+
+/** The window event the Mac window dispatches when a menu item the page carries out is chosen, its detail the item. */
+export const MENU_EVENT = 'app-kit-menu';
+/** The items the page carries out: Settings… and Sign Out (plugin/src/menu.rs). */
+export const MENU_SETTINGS = 'settings';
+export const MENU_SIGN_OUT = 'sign-out';

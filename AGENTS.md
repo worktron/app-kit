@@ -22,7 +22,7 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
                  copy.ts, and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
-                 an app's shell builds, with desktop sign-in's shell half, and the page half (index.ts) and the names
+                 an app's shell builds, with desktop sign-in's shell half and the Mac menu bar (src/menu.rs), and the page half (index.ts) and the names
                  both share (names.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
                  and its server routes (server.ts, app-kit/tauri/sign-in/server); iphone-notifications/, notifications through
                  Apple's push service: the page half (index.ts), the sending (server.ts), the names both share with the

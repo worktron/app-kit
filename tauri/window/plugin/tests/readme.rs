@@ -4,6 +4,8 @@
 use tauri::window::Color;
 use tauri::{Manager, Runtime, WebviewUrl};
 use tauri_plugin_app_kit_window::{log_to_file, show_once_placed, Site};
+#[cfg(target_os = "macos")]
+use tauri_plugin_app_kit_window::AppMenu;
 
 /// The site this build loads: a dev server's address when the build is given one, else the site.
 const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
@@ -23,6 +25,8 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
             .build(),
     );
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
         app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;

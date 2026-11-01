@@ -25,3 +25,13 @@ tauri = { version = "2.12.5", features = ["test"] }
 # The README's shell registers these, and tests/readme.rs compiles it.
 tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
+
+# tests/menu.rs builds the menu bar on the main thread, which macOS requires, and reads back what macOS holds.
+[[test]]
+name = "menu"
+harness = false
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder", "NSRunningApplication"] }

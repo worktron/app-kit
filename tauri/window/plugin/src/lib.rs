@@ -8,7 +8,7 @@
 //! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops;
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
-//!   only once it is back where it was (mac.rs).
+//!   only once it is back where it was (mac.rs), and the menu bar every app shows (menu.rs).
 //!
 //! Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be. README.md's
 //! "A window onto the hosted site" shows an app's shell.
@@ -20,6 +20,11 @@ mod sign_in;
 mod iphone;
 #[cfg(target_os = "macos")]
 mod mac;
+#[cfg(target_os = "macos")]
+mod menu;
+
+#[cfg(target_os = "macos")]
+pub use menu::{AppMenu, FILE_MENU, VIEW_MENU};
 
 use links::{link_decision, loggable, new_window_decision, Link};
 use tauri::ipc::CapabilityBuilder;
@@ -246,7 +251,10 @@ fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show(app),
         #[cfg(target_os = "macos")]
-        RunEvent::MenuEvent(menu) => change_zoom(app, menu.id().as_ref()),
+        RunEvent::MenuEvent(event) => {
+            change_zoom(app, event.id().as_ref());
+            menu::menu_event(app, event.id().as_ref());
+        }
         _ => {}
     }
 }

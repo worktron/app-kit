@@ -1,15 +1,33 @@
-import { useEffect, useState } from 'react';
-import { FULL_SCREEN_EVENT, FULL_SCREEN_FLAG, NEWER_BUILD_EVENT, NEWER_BUILD_FLAG, RESTART_HOST } from './names';
+import { useEffect, useRef, useState } from 'react';
+import {
+  FULL_SCREEN_EVENT,
+  FULL_SCREEN_FLAG,
+  MENU_EVENT,
+  MENU_SETTINGS,
+  MENU_SIGN_OUT,
+  NEWER_BUILD_EVENT,
+  NEWER_BUILD_FLAG,
+  RESTART_HOST,
+} from './names';
 
 /*
  * The page half of the window onto the hosted site (plugin/, the Rust an app's shell builds). The Mac window tells the
  * page two things by a flag it sets and a window event it dispatches, and again as each page loads, so a page that
  * loads or listens late still knows: whether the window is in full screen, where its close, minimize and zoom buttons
  * hide, and whether a newer build of the app is installed, for the page to offer Restart. Outside the Mac window
- * neither is ever set.
+ * neither is ever set. It also hands the page the menu items that are the page's, Settings… and Sign Out.
  */
 
-export { FULL_SCREEN_EVENT, FULL_SCREEN_FLAG, NEWER_BUILD_EVENT, NEWER_BUILD_FLAG, RESTART_HOST } from './names';
+export {
+  FULL_SCREEN_EVENT,
+  FULL_SCREEN_FLAG,
+  MENU_EVENT,
+  MENU_SETTINGS,
+  MENU_SIGN_OUT,
+  NEWER_BUILD_EVENT,
+  NEWER_BUILD_FLAG,
+  RESTART_HOST,
+} from './names';
 
 const flag = (name: string) => (window as unknown as Record<string, unknown>)[name] === true;
 
@@ -52,4 +70,23 @@ export function useNewerBuildInstalled(): boolean {
  */
 export function restartLink(scheme: string): string {
   return `${scheme}://${RESTART_HOST}`;
+}
+
+/** A menu item the page carries out: Settings… or Sign Out. */
+export type WindowMenuItem = typeof MENU_SETTINGS | typeof MENU_SIGN_OUT;
+
+/**
+ * Runs `act` each time `item` is chosen from the Mac window's menu, which `AppMenu` builds with `.settings()` or
+ * `.sign_out()`. The window has already come forward. Outside the Mac window it never runs.
+ */
+export function useWindowMenu(item: WindowMenuItem, act: () => void): void {
+  const latest = useRef(act);
+  latest.current = act;
+  useEffect(() => {
+    const listener = (event: Event) => {
+      if ((event as CustomEvent<unknown>).detail === item) latest.current();
+    };
+    window.addEventListener(MENU_EVENT, listener);
+    return () => window.removeEventListener(MENU_EVENT, listener);
+  }, [item]);
 }

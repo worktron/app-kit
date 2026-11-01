@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the plain look's stylesheet for their pages, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
@@ -550,6 +550,7 @@ A Tauri plugin for the shell, in `tauri/window/plugin/` (`tauri-plugin-app-kit-w
 - Links. The site and its subdomains stay in the window; other sites go to the default browser, and mail, phone and text links to their apps; files, scripts and other schemes do nothing; desktop sign-in's browser page always goes out. A request for a new window (a link with target=_blank, `window.open`) goes out the same way, on the iPhone too, whose web view otherwise drops it.
 - The page's grant, named as local and remote. A built app counts a page under `frontendDist` as local, and a grant for remote pages alone left an installed app's page with no permissions at all, which a debug build hid.
 - On the Mac: closing hides the window and the app runs on; a Dock click brings it back; the page is not suspended while hidden (WebKit suspends a hidden page after about five minutes, which stops its polls); the window opens centered, back where it was, and maximized without the zoom animation; View's Actual Size, Zoom In and Zoom Out are kept across launches; and the page hears when the window goes into or out of full screen and when a newer build has been installed over the running one, for it to offer Restart.
+- On the Mac, the menu bar practices' desktop app rule asks for (`AppMenu`): the app's menu with About, which shows the version and the commit the build was made from, Settings… (⌘,) and Sign Out when the app has them, Services, Hide and Quit; File's Close Window (⌘W); the Edit menu, without which a text field loses ⌘C and ⌘V; View's zoom, Reload (⌘R) and Enter Full Screen; and Window's Minimize (⌘M), Zoom and Bring All to Front, where macOS lists the open windows.
 
 Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be.
 
@@ -572,6 +573,8 @@ The shell, for the Mac and the iPhone, which `main` (or `run`) runs with `shell(
 use tauri::window::Color;
 use tauri::{Manager, Runtime, WebviewUrl};
 use tauri_plugin_app_kit_window::{log_to_file, show_once_placed, Site};
+#[cfg(target_os = "macos")]
+use tauri_plugin_app_kit_window::AppMenu;
 
 /// The site this build loads: a dev server's address when the build is given one, else the site.
 const PAGE: &str = match option_env!("TAURI_PAGE_ADDRESS") {
@@ -591,6 +594,8 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
             .build(),
     );
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
         app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;
@@ -613,24 +618,26 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
 - The address comes in at build time. An iPhone build compiles inside an Xcode step that Tauri passes only variables whose names start with `TAURI_`, so the variable is named that way for the Mac too.
 - A frame the page embeds from another site (a video, a map) goes to the browser on every load, since WebKit asks about every frame, unless `.keep_in_window(host)` keeps its host. Each address sent out is logged with a reminder of this. Cloudflare's bot check, which Clerk's sign-up shows, is kept already. An app's own `on_navigation` on the window runs first and can only refuse an address, never keep one.
 - `log_to_file("example_app")`, with the app's crate name as Rust writes it, logs the app's and the kit's decisions to `~/Library/Logs/<identifier>/`, one file of up to a megabyte, and warnings from anything else.
-- On the Mac, `zoom_items(app)` gives View's three zoom items for the app's menu, and `show(app)` brings the window to the front, as for a global shortcut.
+- On the Mac, `AppMenu` builds the menu bar: `.settings()` adds Settings… and `.sign_out()` Sign Out, which the page carries out (below), and `.commit(env!("APP_COMMIT"))` names in About the commit a `build.rs` reads from git. The window carries out Reload and the zoom itself; the rest are macOS's own items, with its shortcuts. An app adds items of its own to File or View through `menu.get(FILE_MENU)` or `menu.get(VIEW_MENU)` and the submenu's `insert`, and handles them in its own `on_menu_event`. `show(app)` brings the window to the front, as for a global shortcut, and `zoom_items(app)` gives View's three zoom items to an app that builds its own menu.
 - An iPhone page with a service worker: `.limit_navigations_to_app_bound_domains(true)` on the window, with the site and `localhost` in `WKAppBoundDomains` in `Info.ios.plist`, since an iPhone web view runs a service worker only for app-bound domains.
 
 The page:
 
 ```tsx
-import { restartLink, useNewerBuildInstalled, useWindowFullScreen } from 'app-kit/tauri/window';
+import { restartLink, useNewerBuildInstalled, useWindowFullScreen, useWindowMenu } from 'app-kit/tauri/window';
 
 const fullScreen = useWindowFullScreen(); // the window's buttons are hidden: the top bar starts at its usual margin
 const newer = useNewerBuildInstalled();
+useWindowMenu('settings', () => navigate('/settings')); // Settings… (⌘,), with the window already brought forward
+useWindowMenu('sign-out', () => void signOut());
 {newer && <a href={restartLink('com.example.app')}>Restart</a>}
 ```
 
-Restart works only once a newer build is installed, so no page or frame can restart the app at will. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows.
+Restart works only once a newer build is installed, so no page or frame can restart the app at will. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows. A menu item is told once, by its event, as a click is.
 
 An app moving onto the plugin drops its own copy of the sign-in Rust and the test that held it to the kit's names. An app that had its own names for full screen or a newer build ships its shell on the plugin first and moves its page to these hooks once that build is installed, or the first install misses its Restart offer.
 
-The decisions are tested in Rust (`cargo test` in `tauri/window/plugin/`) and the shared names, the page hooks and the iPhone's `window.open` script in `test/tauri-window.test.ts`; `plugin/tests/readme.rs` compiles the shell above. What needs a screen is checked in the first app that takes the plugin, by its log: `the window was closed, so it is hidden`, `a newer build is installed`, `sent a link for https://… out of the window`.
+The decisions are tested in Rust (`cargo test` in `tauri/window/plugin/`), the menu bar as macOS holds it in `plugin/tests/menu.rs`, which builds it on the main thread and reads it back, never shown, and the shared names, the page hooks and the iPhone's `window.open` script in `test/tauri-window.test.ts`; `plugin/tests/readme.rs` compiles the shell above. What needs a screen is checked in the first app that takes the plugin, by its log: `the window was closed, so it is hidden`, `a newer build is installed`, `sent a link for https://… out of the window`.
 
 ### Desktop sign-in
 

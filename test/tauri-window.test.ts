@@ -19,12 +19,16 @@ import {
 import {
   FULL_SCREEN_EVENT,
   FULL_SCREEN_FLAG,
+  MENU_EVENT,
+  MENU_SETTINGS,
+  MENU_SIGN_OUT,
   NEWER_BUILD_EVENT,
   NEWER_BUILD_FLAG,
   RESTART_HOST,
   restartLink,
   useNewerBuildInstalled,
   useWindowFullScreen,
+  useWindowMenu,
 } from '../tauri/window';
 
 const plugin = join(import.meta.dir, '../tauri/window/plugin');
@@ -57,6 +61,13 @@ test('the Mac window tells the page under the names its hooks read', () => {
   expect(constant(rust, 'NEWER_BUILD_FLAG')).toBe(NEWER_BUILD_FLAG);
   expect(constant(rust, 'NEWER_BUILD_EVENT')).toBe(NEWER_BUILD_EVENT);
   expect(constant(rust, 'RESTART_HOST')).toBe(RESTART_HOST);
+});
+
+test("the Mac menu hands the page Settings and Sign Out under the names its hook reads", () => {
+  const rust = read('src/menu.rs');
+  expect(constant(rust, 'MENU_EVENT')).toBe(MENU_EVENT);
+  expect(constant(rust, 'SETTINGS')).toBe(MENU_SETTINGS);
+  expect(constant(rust, 'SIGN_OUT')).toBe(MENU_SIGN_OUT);
 });
 
 /** What the Mac window does to tell the page: sets the flag, then dispatches the event. */
@@ -145,4 +156,19 @@ test('the README shows the shell that plugin/tests/readme.rs compiles', () => {
   const section = readme.split('### A window onto the hosted site')[1]!.split('\n### ')[0]!;
   const shell = section.match(/```rust\n([\s\S]*?)```/)![1]!;
   expect(read('tests/readme.rs')).toContain(shell);
+});
+
+test('a menu hook runs for its own item each time it is chosen, with the newest act, and stops when the page leaves', () => {
+  const choose = (item: string) => window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail: item }));
+  const chosen: string[] = [];
+  const { rerender, unmount } = renderHook(({ label }) => useWindowMenu(MENU_SETTINGS, () => chosen.push(label)), {
+    initialProps: { label: 'first' },
+  });
+  choose(MENU_SETTINGS);
+  choose(MENU_SIGN_OUT);
+  rerender({ label: 'second' });
+  choose(MENU_SETTINGS);
+  unmount();
+  choose(MENU_SETTINGS);
+  expect(chosen).toEqual(['first', 'second']);
 });
