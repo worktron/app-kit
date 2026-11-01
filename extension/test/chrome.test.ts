@@ -277,10 +277,12 @@ describe('permissions, the account and alarms', () => {
     await grant({ origins: ['https://*.example.com/*'] })
     expect(await chrome.permissions.contains({ origins: ['https://mail.example.com/*'] })).toBe(true)
     expect(await chrome.permissions.contains({ origins: ['http://mail.example.com/*'] })).toBe(false)
-    // A wildcard held covers only names under its own: not one that merely ends the same way.
-    expect(await chrome.permissions.contains({ origins: ['https://notexample.com/*', 'https://example.com.example/*'] })).toBe(false)
     expect(await chrome.permissions.contains({ origins: ['*://*.example.com/*'] })).toBe(false)
     expect(await chrome.permissions.getAll()).toEqual({ permissions: ['storage'], origins: ['https://api.example.com/*', 'https://*.example.com/*'] })
+    // A wildcard held covers only names under its own: not one that merely ends the same way.
+    reset({}, { version: '1.0.0', host_permissions: ['https://*.mail.example.com/*'] })
+    expect(await chrome.permissions.contains({ origins: ['https://inbox.mail.example.com/*'] })).toBe(true)
+    expect(await chrome.permissions.contains({ origins: ['https://othermail.example.com/*'] })).toBe(false)
     // A narrower origin held never covers a wider ask, of other hosts or plain http. A host permission's path is read as
     // /*, as Chrome reads it, so the path asked plays no part.
     reset({}, { version: '1.0.0', host_permissions: ['https://example.com/'] })
