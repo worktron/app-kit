@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/look`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/server/every`, `app-kit/look`, `app-kit/testing/start-up`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -61,7 +61,8 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
                  migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration),
                  start/ (the Hono app every server starts from, with its health route, request log, JSON errors and refusal of
-                 writes other websites send, and listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it)
+                 writes other websites send, and listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it),
+                 every/ (a job on a clock that never runs twice at once, with no imports, app-kit/server/every)
 look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
                  and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
                  test/look-swift.test.ts

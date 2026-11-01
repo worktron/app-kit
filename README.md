@@ -10,7 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: what a refusal from Google means, and the Postgres database opener on Drizzle. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, what a refusal from Google means, and the Postgres database opener on Drizzle. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -1262,6 +1262,26 @@ and in `railway.json`, so Railway waits for the clean stop instead of killing th
 - **Stopping.** On SIGTERM, which Railway sends before a deploy replaces the server, or SIGINT, it stops taking requests and gives open ones `graceMs` (5 seconds unless given) to finish. Then it closes what is still open, since a live-update stream never ends by itself and Bun waits for every connection, with websockets told 1001, going away. It runs `onStop` (a database's `close()`, a repeating job's stop) and exits. Railway sends SIGKILL at once unless `drainingSeconds` is set, so set it longer than the grace.
 
 Needs `hono` 4.12 or later.
+
+### A job on a clock
+
+`app-kit/server/every`: a server's job that runs every so often, such as a check for new mail or a digest. `every(name, intervalMs, job, { runAtStart })` runs it every `intervalMs`, and gives back `stop`, which `listen`'s `onStop` calls:
+
+```ts
+import { every } from 'app-kit/server/every';
+import { appServer, listen } from 'app-kit/server/start';
+
+const app = appServer({ service: 'argon-watcher' });
+const stopTriage = every('mailbox triage', 30 * 60_000, () => triageMailboxes(db), { runAtStart: true });
+
+listen(app, { onStop: async () => { await stopTriage(); await db.close(); } });
+```
+
+- **Never two at once.** The next run is set only once the last has settled, one interval after the last one started, or at once when the last took longer than that. setInterval starts a run while the last one goes on, so a slow run sends an alarm twice or changes the same mailbox twice; here a due run is never skipped and a slow one is never stacked.
+- **A failure.** A run that throws is logged as `mailbox triage failed:` with its stack (to `print`, console.log unless given), and the next run still happens. Bun.cron, which also never stacks runs, ends the process on a throw unless the app listens for unhandled rejections.
+- **Stopping.** `stop()` ends the clock and waits for a run in progress, so the database is closed after the last run, not under it. Bun.cron's stop does not wait.
+- `runAtStart` runs the job as soon as `every` is called, rather than first after one interval. An interval that is not a number of milliseconds above 0 is refused, since the job would run back to back.
+- It imports nothing, so a worker with no web server takes it too. It is for one server: two copies of the app on two machines each run it, and a job that must run once across them takes a lock of its own.
 
 ### What a refusal from Google means
 
