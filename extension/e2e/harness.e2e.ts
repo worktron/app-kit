@@ -4,8 +4,8 @@
 // repository root under the ID its key gives, that Chrome starts the host and
 // the port carries messages both ways, that the worker's errors reach the
 // status, that a new commit in the checkout reloads the worker and restarts the
-// host, that the plain look's stylesheet draws a page light and dark, and that
-// nothing opens a tab.
+// host, that the plain look's stylesheet draws a page light and dark, that a
+// link shown twice opens one tab, and that nothing else opens a tab.
 // Run with `bun test ./extension/e2e/harness.e2e.ts`, which scripts/gates.sh does.
 
 import { afterAll, beforeAll, expect, test } from 'bun:test'
@@ -118,6 +118,17 @@ for (const scheme of ['light', 'dark'] as const) {
     }
   }, 30_000)
 }
+
+test('a link shown twice opens one tab, and the second time brings that tab forward', async () => {
+  const link = `chrome-extension://${ext.extensionId}/look.html`
+  const before = ext.pages()
+  expect(await ask(socket, { type: 'show', url: link })).toEqual({ how: 'new-tab' })
+  await until(() => ext.context.pages().filter((page) => page.url() === link).length, (count) => count === 1)
+  expect(await ask(socket, { type: 'show', url: link })).toEqual({ how: 'existing-tab' })
+  expect(ext.context.pages().filter((page) => page.url() === link)).toHaveLength(1)
+  expect(ext.pages()).toBe(before + 1)
+  await Promise.all(ext.context.pages().filter((page) => page.url() === link).map((page) => page.close()))
+}, 30_000)
 
 test('nothing the extension did opened a tab', () => {
   expect(ext.pages()).toBe(pagesAtStart)

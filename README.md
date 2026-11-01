@@ -362,6 +362,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Account identity | `extension/worker/account.js` | The profile's signed-in account from `chrome.identity.getProfileUserInfo`, with `identity.email` an optional permission asked for when a feature needs it. |
 | Timers | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`. |
 | Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
+| Showing a link | `extension/worker/show.js` | `showLink(url)` brings forward a tab already showing the address, raising its window, before it opens a new tab, as the extensions rule asks. Needs the `tabs` permission or access to the sites it shows. See below. |
 | Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, answers the host's status question with its build, commit and errors, and answers every other request: with the extension's reply, a refusal when it has none, or the error it threw, so no caller waits out the host's timeout. |
 | Native host | `app-kit/extension/host` | The host Chrome starts: it serves a unix socket for callers on the Mac (a command line, an MCP server, a server) and relays their requests to the extension. Also the client callers use, the status they read, the extension's ID from its key, and the manifest that tells Chrome about the host. |
 | Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
@@ -452,6 +453,20 @@ if (globalThis.chrome?.runtime?.id) {
 ```
 
 `extension/test/fixture/worker.js` is a whole one, which the kit's own hidden-Chromium test loads.
+
+A link the extension opens, from its popup, a menu or the native host, goes through `showLink`:
+
+```js
+import { showLink } from "./kit/show.js";
+
+const { how, tabsUnreadable } = await showLink("https://mail.example.com/inbox");
+```
+
+A tab already showing the address (compared as an address, so `HTTPS://EXAMPLE.COM` finds `https://example.com/`) comes forward, its window focused and brought back when minimized, and the answer is `existing-tab`. With none, the link opens in a new tab of the last focused window, which is raised (`new-tab`), or in a new focused window when the profile has none (`new-window`). Only a web address (http or https) or one of the extension's own pages opens; anything else is `refused`, and a call Chrome refuses is `failed`, never thrown.
+
+Chrome gives an extension a tab's address only with the `tabs` permission or access to that page's site, and ignores `tabs.query`'s address filter without them, so `showLink` reads every tab and compares each address itself. Without either it cannot find the tab already open: the answer carries `tabsUnreadable: true`, the worker logs it once, and the link opens in a new tab. `tabs` warns "Read your browsing history" at install; access to the extension's own site is the narrower choice when its links go only there. Name the permission to the owner before an extension ships it, as the rule asks.
+
+Two options, for an extension with more to it: `skip(tab)`, for tabs never brought forward, such as the extension's own check tabs, and `open(url, opening)`, which wraps the opening of a new tab or window (`opening()` opens it and gives back the new tab's id), for a hold that must let this link through.
 
 The host:
 
