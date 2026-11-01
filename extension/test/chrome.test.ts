@@ -115,6 +115,11 @@ describe('tabs', () => {
     await grant({ origins: ['https://*/*'] })
     expect((await chrome.tabs.query({ url: 'https://example.com:443/*' })).map((tab) => tab.id)).toEqual([plain.id])
     expect((await chrome.tabs.query({ url: 'https://*/*' })).map((tab) => tab.id)).toEqual([hidden.id, plain.id])
+    // An IPv6 host in brackets, with a port or without.
+    const loopback = addTab({ url: 'http://[::1]:3000/app' })
+    await grant({ origins: ['http://[::1]/*'] })
+    expect((await chrome.tabs.query({ url: 'http://[::1]/*' })).map((tab) => tab.id)).toEqual([loopback.id])
+    expect((await chrome.tabs.query({ url: 'http://[::1]:3000/*' })).map((tab) => tab.id)).toEqual([loopback.id])
   })
 
   test("a host permission's path is read as /*, as Chrome reads it, so one naming a page shows every page of its site", async () => {
@@ -272,6 +277,8 @@ describe('permissions, the account and alarms', () => {
     await grant({ origins: ['https://*.example.com/*'] })
     expect(await chrome.permissions.contains({ origins: ['https://mail.example.com/*'] })).toBe(true)
     expect(await chrome.permissions.contains({ origins: ['http://mail.example.com/*'] })).toBe(false)
+    // A wildcard held covers only names under its own: not one that merely ends the same way.
+    expect(await chrome.permissions.contains({ origins: ['https://notexample.com/*', 'https://example.com.example/*'] })).toBe(false)
     expect(await chrome.permissions.contains({ origins: ['*://*.example.com/*'] })).toBe(false)
     expect(await chrome.permissions.getAll()).toEqual({ permissions: ['storage'], origins: ['https://api.example.com/*', 'https://*.example.com/*'] })
     // A narrower origin held never covers a wider ask, of other hosts or plain http. A host permission's path is read as
