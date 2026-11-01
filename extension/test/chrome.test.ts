@@ -101,6 +101,46 @@ describe('tabs', () => {
     await expect(chrome.tabs.remove(madeId)).rejects.toThrow(`No tab with id: ${madeId}.`)
   })
 
+  test('a pattern that names a port matches that port alone, and a tab the extension may not see matches no address', async () => {
+    reset({}, { version: '1.0.0', host_permissions: ['http://localhost:3000/*'] })
+    const served = addTab({ url: 'http://localhost:3000/app' })
+    addTab({ url: 'http://localhost:4000/app' })
+    const hidden = addTab({ url: 'https://mail.example.com/' })
+    expect((await chrome.tabs.query({ url: 'http://localhost:3000/*' })).map((tab) => tab.id)).toEqual([served.id])
+    expect(await chrome.tabs.query({ url: '*://mail.example.com/*' })).toEqual([])
+    expect((await chrome.tabs.query({})).map((tab) => tab.id)).toContain(hidden.id)
+  })
+
+  test('closing the active tab makes the next one active, the rest move up, and a window left with none closes', async () => {
+    reset({}, { version: '1.0.0', permissions: ['tabs'] })
+    const [a, b, c] = [addTab({ url: 'https://example.com/a' }), addTab({ url: 'https://example.com/b', active: true }), addTab({ url: 'https://example.com/c' })]
+    const heard: string[] = []
+    chrome.tabs.onActivated.addListener(({ tabId }) => void heard.push(`activated ${tabId}`))
+    chrome.windows.onRemoved.addListener((windowId) => void heard.push(`window closed ${windowId}`))
+    await chrome.tabs.remove(b.id)
+    expect(shim.tabs.get(c.id)).toMatchObject({ active: true, index: 1 })
+    const d = addTab({ url: 'https://example.com/d' })
+    expect(d.index).toBe(2)
+    await chrome.tabs.remove([...shim.tabs.keys()].filter((id) => id !== a.id))
+    expect(shim.tabs.get(a.id)).toMatchObject({ active: true, index: 0 })
+    await chrome.tabs.remove(a.id)
+    expect(shim.windows.size).toBe(0)
+    // Closing c, then d, each the active one, hands it on: to d, then back to a, the last left.
+    expect(heard).toEqual([`activated ${c.id}`, `activated ${d.id}`, `activated ${a.id}`, `window closed ${a.windowId}`])
+  })
+
+  test('closing a window closes its tabs, each told the window is closing', async () => {
+    const window = addWindow()
+    addTab({ windowId: window.id })
+    addTab({ windowId: window.id })
+    const closing: boolean[] = []
+    chrome.tabs.onRemoved.addListener((_tabId, { isWindowClosing }) => void closing.push(isWindowClosing))
+    await chrome.windows.remove(window.id)
+    expect(closing).toEqual([true, true])
+    expect(shim.tabs.size).toBe(0)
+    await expect(chrome.windows.get(window.id)).rejects.toThrow(`No window with id: ${window.id}.`)
+  })
+
   test("tab ids are never used twice in a run, so state kept about one tab cannot match a later test's", () => {
     const before = addTab().id
     reset()
@@ -202,6 +242,16 @@ describe('permissions, the account and alarms', () => {
     expect(added).toEqual([{ permissions: ['identity.email'], origins: ['https://api.example.com/*'] }])
     await grant({ origins: ['<all_urls>'] })
     expect(await chrome.permissions.contains({ origins: ['https://other.example.com/*'] })).toBe(true)
+  })
+
+  test("what the manifest holds counts, and a wider origin covers a narrower one, as tabs' addresses already do", async () => {
+    reset({}, { version: '1.0.0', permissions: ['storage'], host_permissions: ['https://api.example.com/*'] })
+    expect(await chrome.permissions.contains({ permissions: ['storage'], origins: ['https://api.example.com/*'] })).toBe(true)
+    await grant({ origins: ['https://*.example.com/*'] })
+    expect(await chrome.permissions.contains({ origins: ['https://mail.example.com/*'] })).toBe(true)
+    expect(await chrome.permissions.contains({ origins: ['https://example.org/*'] })).toBe(false)
+    expect(await chrome.permissions.contains({ origins: ['*://*.example.org/*'] })).toBe(false)
+    expect(await chrome.permissions.getAll()).toEqual({ permissions: ['storage'], origins: ['https://api.example.com/*', 'https://*.example.com/*'] })
   })
 
   test('signing the profile in or out fires onSignInChanged as Chrome does', async () => {

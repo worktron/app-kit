@@ -241,23 +241,68 @@ function matches(pattern: string, url: string) {
   if (scheme === '*' ? !['http', 'https', 'ws', 'wss'].includes(addressScheme) : scheme !== addressScheme) return false
   if (host !== '*' && host !== '') {
     const domain = host.startsWith('*.') ? host.slice(2) : host
-    if (!(address.hostname === domain || (host.startsWith('*.') && address.hostname.endsWith(`.${domain}`)))) return false
+    // A pattern that names a port matches that port alone.
+    const name = domain.includes(':') ? address.host : address.hostname
+    if (!(name === domain || (host.startsWith('*.') && name.endsWith(`.${domain}`)))) return false
   }
   const glob = new RegExp(`^${path!.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
   return glob.test(address.pathname + address.search)
 }
 
-/**
- * A tab as the worker sees it: Chrome leaves out its address, title and icon unless the extension holds the `tabs`
- * permission or an origin that covers the page.
- */
+/** What the extension holds: the manifest's permissions and host permissions, and what was granted since. */
+function held() {
+  return {
+    permissions: new Set([...((shim.manifest.permissions as string[] | undefined) ?? []), ...shim.granted]),
+    origins: new Set([...((shim.manifest.host_permissions as string[] | undefined) ?? []), ...shim.origins]),
+  }
+}
+
+/** Whether the origins held cover a pattern asked about: the same one, `<all_urls>`, or a wider one (`*.example.com`). */
+function covers(origins: Set<string>, pattern: string) {
+  if (origins.has(pattern) || origins.has('<all_urls>')) return true
+  // The pattern as the narrowest address it names, which a wider pattern held matches.
+  const sample = pattern.replace(/^\*:/, 'https:').replace('://*.', '://').replace(/\*/g, '')
+  return URL.canParse(sample) && [...origins].some((origin) => matches(origin, sample))
+}
+
+/** Whether the extension may see a tab's address: with the `tabs` permission, or an origin that covers the page. */
+function visible(tab: Tab) {
+  const { permissions, origins } = held()
+  return permissions.has('tabs') || [...origins].some((origin) => matches(origin, tab.pendingUrl ?? tab.url))
+}
+
+/** A tab as the worker sees it: Chrome leaves out its address, title and icon unless the extension may see them. */
 function seen(tab: Tab): Tab {
-  const permissions = (shim.manifest.permissions as string[] | undefined) ?? []
-  const origins = [...((shim.manifest.host_permissions as string[] | undefined) ?? []), ...shim.origins]
-  const address = tab.pendingUrl ?? tab.url
-  if (permissions.includes('tabs') || shim.granted.has('tabs') || origins.some((origin) => matches(origin, address))) return structuredClone(tab)
+  if (visible(tab)) return structuredClone(tab)
   const { url: _url, title: _title, favIconUrl: _icon, pendingUrl: _pending, ...rest } = structuredClone(tab)
   return rest as Tab
+}
+
+function tabsIn(windowId: number) {
+  return [...shim.tabs.values()].filter((tab) => tab.windowId === windowId).sort((a, b) => a.index - b.index)
+}
+
+/**
+ * Closes a tab: the rest of its window move up, the next one (or the one before, for the last) becomes active when it
+ * was, and a window left with none closes, as in Chrome.
+ */
+async function closeTab(tab: Tab, isWindowClosing: boolean) {
+  shim.tabs.delete(tab.id)
+  const left = tabsIn(tab.windowId)
+  left.forEach((other, index) => (other.index = index))
+  await chrome.tabs.onRemoved.emit(tab.id, { windowId: tab.windowId, isWindowClosing })
+  if (isWindowClosing) return
+  if (left.length === 0) return closeWindow(liveWindow(tab.windowId))
+  if (!tab.active) return
+  const next = left[Math.min(tab.index, left.length - 1)]!
+  activate(next)
+  await chrome.tabs.onActivated.emit({ tabId: next.id, windowId: next.windowId })
+}
+
+async function closeWindow(window: ChromeWindow) {
+  for (const tab of tabsIn(window.id)) await closeTab(tab, true)
+  shim.windows.delete(window.id)
+  await chrome.windows.onRemoved.emit(window.id)
 }
 
 function area(store: () => Record<string, unknown>, replace: (items: Record<string, unknown>) => void) {
@@ -380,7 +425,8 @@ const chrome = {
     async query(info: { url?: string | string[]; active?: boolean; windowId?: number; currentWindow?: boolean; lastFocusedWindow?: boolean; groupId?: number; pinned?: boolean } = {}) {
       const focused = focusedWindow()?.id
       return [...shim.tabs.values()]
-        .filter((tab) => info.url === undefined || ([] as string[]).concat(info.url).some((pattern) => matches(pattern, tab.pendingUrl ?? tab.url)))
+        // A tab whose address the extension may not see matches no address, as in Chrome.
+        .filter((tab) => info.url === undefined || (visible(tab) && ([] as string[]).concat(info.url).some((pattern) => matches(pattern, tab.pendingUrl ?? tab.url))))
         .filter((tab) => info.active === undefined || tab.active === info.active)
         .filter((tab) => info.windowId === undefined || tab.windowId === info.windowId)
         .filter((tab) => !(info.currentWindow || info.lastFocusedWindow) || tab.windowId === focused)
@@ -406,12 +452,8 @@ const chrome = {
       return seen(tab)
     },
     async remove(tabIds: number | number[]) {
-      const ids = ([] as number[]).concat(tabIds)
-      const tabs = ids.map(liveTab)
-      for (const tab of tabs) {
-        shim.tabs.delete(tab.id)
-        await chrome.tabs.onRemoved.emit(tab.id, { windowId: tab.windowId, isWindowClosing: false })
-      }
+      const tabs = ([] as number[]).concat(tabIds).map(liveTab)
+      for (const tab of tabs) await closeTab(tab, false)
     },
     onCreated: new ChromeEvent(),
     onUpdated: new ChromeEvent(),
@@ -445,6 +487,9 @@ const chrome = {
       if (focused && !window.focused) await focus(window)
       return windowAsSeen(window, false)
     },
+    async remove(windowId: number) {
+      await closeWindow(liveWindow(windowId))
+    },
     onCreated: new ChromeEvent(),
     onRemoved: new ChromeEvent(),
     onFocusChanged: new ChromeEvent<(windowId: number) => unknown>(),
@@ -459,7 +504,8 @@ const chrome = {
   },
   permissions: {
     async contains({ permissions = [], origins = [] }: { permissions?: string[]; origins?: string[] }) {
-      return permissions.every((p) => shim.granted.has(p)) && origins.every((o) => shim.origins.has(o) || shim.origins.has('<all_urls>'))
+      const holds = held()
+      return permissions.every((p) => holds.permissions.has(p)) && origins.every((o) => covers(holds.origins, o))
     },
     async request({ permissions = [], origins = [] }: { permissions?: string[]; origins?: string[] }) {
       await grant({ permissions, origins })
@@ -471,8 +517,10 @@ const chrome = {
       await chrome.permissions.onRemoved.emit({ permissions, origins })
       return true
     },
+    // What the manifest holds and what was granted since, as Chrome lists them.
     async getAll() {
-      return { permissions: [...shim.granted], origins: [...shim.origins] }
+      const { permissions, origins } = held()
+      return { permissions: [...permissions], origins: [...origins] }
     },
     onAdded: new ChromeEvent(),
     onRemoved: new ChromeEvent(),
