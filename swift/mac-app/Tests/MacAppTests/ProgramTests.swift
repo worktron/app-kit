@@ -31,13 +31,15 @@ func waitForFile(_ file: URL, within seconds: TimeInterval = 60) -> Bool {
     return true
 }
 
-/// Whether `pid` is a process that has not ended; one that has ended and waits to be reaped has.
+/// Whether `pid` is a process that has not begun to end; one exiting, or ended and waiting to be reaped, has. macOS
+/// closes an exiting process's files, the run's pipe among them, before it marks it a zombie, so a program the run
+/// stopped can still be on its way out when the run returns.
 func isRunning(_ pid: pid_t) -> Bool {
     var info = kinfo_proc()
     var size = MemoryLayout<kinfo_proc>.stride
     var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
     guard sysctl(&name, 4, &info, &size, nil, 0) == 0, size > 0 else { return false }
-    return info.kp_proc.p_stat != SZOMB
+    return info.kp_proc.p_stat != SZOMB && info.kp_proc.p_flag & P_WEXIT == 0
 }
 
 @Suite struct ProgramTests {
