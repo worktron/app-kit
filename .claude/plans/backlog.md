@@ -150,3 +150,11 @@ Goal: an app on `appServer` that adds Hono's `secureHeaders()` (nosniff, frame d
 Done when: an app on appServer gets the baseline security headers on the health answer and every other, held by a test in test/server-start.test.ts, and the README's whole server says whether the app still adds `secureHeaders()` itself.
 Needs: nothing.
 Touches: server/start/index.ts, test/server-start.test.ts, README.md.
+
+## opendb-idle-timeout · openDb can close idle Postgres connections before Railway's proxy drops them
+
+Goal: lifeform could not take `app-kit/server/postgres`'s `openDb`, because it opens postgres-js with no options (server/postgres/index.ts, `postgres(location, { onnotice })`), and lifeform needs `idle_timeout: 20` and `connect_timeout: 10`: Railway's proxy silently drops a connection idle for long enough, and the first query after a long pause (a 40-second narration generation) wrote to a dead socket and failed with CONNECTION_CLOSED (lifeform server/db/index.ts). Found while moving lifeform onto app-kit (lifeform thread onto-app-kit, 2026-11-02). Either open Postgres with those as the kit's defaults, since every app on Railway's Postgres meets the same proxy, or take them as an option.
+Done when: openDb's Postgres connections close themselves after an idle period shorter than Railway's proxy's, with a test, and the README says so.
+Do not touch: the PGlite path.
+Needs: nothing.
+Touches: server/postgres/index.ts, its test, README.
