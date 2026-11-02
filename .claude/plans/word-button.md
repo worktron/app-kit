@@ -32,7 +32,7 @@ Getter changes the one style constant its 27 word buttons already share, so none
 - Getter's code. Getter's own thread makes that change.
 - Timescale and Urge Surfer, which keep their own word buttons.
 - The console look and the apps drawn in it (Argon Watcher, AI Buddy, Buddy System, Metamax). They keep a text Button's padding, so their hover fill has room and they have no slab.
-- The plain look's Link and the extension stylesheet, which keep their underline on hover. They break the same resting-pointer rule, but they are links and actions already approved in that look, and changing them is a separate question.
+- The plain look's Link and the extension stylesheet, which keep their underline on hover. They break the same resting-pointer rule, and changing them is a separate question.
 - The kit's `NewBuildLine` and `ErrorBoundary`, which draw ordinary Buttons under whatever theme the app has.
 
 ## Done when
@@ -112,7 +112,7 @@ Touches: `web/theme.ts`, `test/theme.test.ts`, `web/e2e/look.e2e.ts`, `web/e2e/f
 
 ## getter-words · Getter's word buttons stop painting a slab
 
-Goal: in Getter's own repository, on Getter's thread. Add to `wordButton` in `client/src/layout.ts:34`, which `act` spreads and all 27 sites read: `backgroundColor: 'transparent'`, `'&:active': { opacity: 0.6 }`, `'& .MuiTouchRipple-root': { display: 'none' }`, `'@media (pointer: coarse)': { minWidth: 44 }` and `...focusRing` from `client/src/theme/focus.ts`, whose values the ripple's pulse gave way to. If the owner chooses the variant, the same rules go in a `word` variant in the theme with its type declared locally, and the 27 sites change. If the owner chooses the underline, a hover rule joins them with the tracker the kit would need.
+Goal: in Getter's own repository, on Getter's thread. Add to `wordButton` in `client/src/layout.ts:34`, which `act` spreads and all 27 sites read: `backgroundColor: 'transparent'`, `'&:active': { opacity: 0.6 }`, `'& .MuiTouchRipple-root': { display: 'none' }`, `'@media (pointer: coarse)': { minWidth: 44 }` and `...focusRing` from `client/src/theme/focus.ts`, since the ripple's pulse is the only focus paint these buttons have today. If the owner chooses the variant, the same rules go in a `word` variant in the theme with its type declared locally, and the 27 sites change. If the owner chooses the underline, a hover rule joins them with the tracker the kit would need.
 
 Done when: a headless browser test hovers and presses a word button at desktop and phone widths and finds no fill, no ripple, the text flush to the column edge, 44 by 44 on a phone and a visible focus outline. The owner has looked on the iPhone: a tap dims, a scroll started on a word does not leave it dim, and a word ending a row sits acceptably.
 
