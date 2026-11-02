@@ -227,6 +227,14 @@ describe('keep and release', () => {
     expect(readHeld(folder, 'MINE')).toBeNull();
   });
 
+  test('a Simulator deleted while it was held counts as shut down: its watcher ends', async () => {
+    const m = mac({}, () => {}, 1);
+    hold({ udid: 'GONE', until: T0 });
+    expect(await watchSimulator({ ...m.lifetime, pid: process.pid }, 'GONE')).toBe('shut down');
+    expect(m.shutdowns()).toEqual(['xcrun simctl shutdown GONE']);
+    expect(readHeld(folder, 'GONE')).toBeNull();
+  });
+
   test('release shuts the Simulator down and forgets it; one app-kit holds no time for is left alone', async () => {
     const m = mac({ MINE: { name: MINE.name, booted: true }, OTHER: { name: 'Getter', booted: true } });
     hold({ udid: 'MINE' });

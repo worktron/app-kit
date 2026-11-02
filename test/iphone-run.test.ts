@@ -90,6 +90,8 @@ type Stand = {
   booted?: string[];
   /** Simulators in no fixture, by udid and name, booted by someone else. */
   others?: Record<string, string>;
+  /** What simctl's listing prints after the build, in place of the devices. */
+  listingAfterBuild?: string;
 };
 
 /** Stand-ins for Apple's tools and Tauri, recording each call; the sound step and the watcher are recorded among them. */
@@ -101,9 +103,11 @@ function apple(stand: Stand = {}) {
     for (const device of Object.values(parsed.devices).flat()) device.state = booted.has(device.udid) ? 'Booted' : 'Shutdown';
     return JSON.stringify(parsed);
   };
+  let built = false;
   const answer: Answer = (command) => {
     const line = command.join(' ');
-    if (line === 'xcrun simctl list devices -j') return ok(listing());
+    if (line.startsWith('bunx tauri ios build')) built = true;
+    if (line === 'xcrun simctl list devices -j') return ok(stand.listingAfterBuild !== undefined && built ? stand.listingAfterBuild : listing());
     if (line.startsWith('xcrun simctl bootstatus ')) {
       booted.add(command[3]);
       return ok();
@@ -235,6 +239,28 @@ describe('iphone run sim', () => {
     const fine = await runIn(app, apple({ booted: [SIMULATOR] }), { target: 'sim' });
     expect(fine.code).toBe(0);
     expect(fine.printed).toContain(`the Simulator was running before this run, booted some other way, so app-kit gives it no shut-down time: xcrun simctl shutdown ${SIMULATOR} when the check is done`);
+  });
+
+  test("a listing simctl prints that is not JSON stops the run before the boot, with one line", async () => {
+    const { code, printed, calls } = await runIn(app, apple({ listingAfterBuild: 'Unable to locate device set' }), { target: 'sim' });
+    expect(code).toBe(1);
+    expect(printed.at(-1)).toBe("! could not read simctl's list of Simulators: Unable to locate device set");
+    expect(calls.some((c) => c.startsWith('quiet'))).toBe(false);
+  });
+
+  test('a place-taking step that throws, such as a lock held too long, ends the run with one line', async () => {
+    writeFileSync(join(place.folder, 'not-a-folder'), '');
+    const { code, printed } = await runIn(app, apple(), {
+      target: 'sim',
+      lifetime: {
+        now: () => NOW,
+        // A folder that is a file: the lock cannot be made in it.
+        folder: join(place.folder, 'not-a-folder', 'simulators'),
+      },
+      env: { PATH: '/usr/bin:/bin', HOME: home },
+    });
+    expect(code).toBe(1);
+    expect(printed.at(-1)).toStartWith('! could not take a place for the Simulator: ');
   });
 
   test('with two Simulators running that app-kit has no time for, the run stops before the boot and names them', async () => {

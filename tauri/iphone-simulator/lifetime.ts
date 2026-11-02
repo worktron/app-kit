@@ -135,16 +135,19 @@ async function devices(run: Run): Promise<SimDevice[] | string> {
 }
 
 /**
- * Shuts the Simulator down, giving whether it is down: simctl's refusal for one already shut down is a success, read
- * from its state rather than its words, and any other refusal leaves the kit's file for a later try.
+ * Shuts the Simulator down, giving whether it is down: simctl's refusal for one already shut down, or deleted, is a
+ * success, read from its list rather than its words, and any other refusal leaves the kit's file for a later try.
  */
 async function shutDown(run: Run, udid: string): Promise<true | string> {
   const done = await run(['xcrun', 'simctl', 'shutdown', udid]);
   if (done.code === 0) return true;
   const listed = await devices(run);
-  if (typeof listed !== 'string' && listed.find((d) => d.udid === udid)?.state === 'Shutdown') return true;
+  if (typeof listed !== 'string' && isDown(listed, udid)) return true;
   return done.out.trim().split('\n').at(-1) ?? `exit ${done.code}`;
 }
+
+/** Whether simctl's list has the Simulator shut down, or no longer has it at all. */
+const isDown = (listed: SimDevice[], udid: string) => (listed.find((d) => d.udid === udid)?.state ?? 'Shutdown') === 'Shutdown';
 
 /** In-process turns at the lock, which the file lock alone cannot give: its holder is this same process. */
 let turn: Promise<unknown> = Promise.resolve();
@@ -337,8 +340,7 @@ export async function watchSimulator(lifetime: Lifetime, udid: string): Promise<
     }
     if (held.booted) {
       const listed = await devices(run);
-      const device = typeof listed === 'string' ? null : listed.find((d) => d.udid === udid);
-      if (device?.state === 'Shutdown') {
+      if (typeof listed !== 'string' && isDown(listed, udid)) {
         forget(lifetime.folder, udid);
         log(lifetime, `${label(held)}: shut down by someone else, before its time; its place is free`);
         return 'nothing to do';
