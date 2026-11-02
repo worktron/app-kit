@@ -124,3 +124,26 @@ for (const [size, setUp] of [
     await page.screenshot({ path: testInfo.outputPath(`text-size-fits-${size.replace(/\W+/g, '-')}.png`), fullPage: true, animations: 'disabled' });
   });
 }
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
+
+  test('the Text size menu takes a tap 44 pixels tall, 20 pixels below its words, and none past that', async ({ page }) => {
+    await page.goto('/look.html');
+    // The words' own box, without the padding a touch screen adds, measured as a mouse page draws it.
+    const words = page.getByRole('combobox', { name: 'Text size' });
+    const padded = (await words.boundingBox())!;
+    expect(padded.height).toBeGreaterThanOrEqual(44);
+    const box = { x: padded.x, y: padded.y + 9, width: padded.width, height: padded.height - 18 };
+    expect(box.height).toBeLessThan(44);
+    const middle = box.y + box.height / 2;
+    // Past its own text, inside the 44 pixel target.
+    await page.touchscreen.tap(box.x + box.width / 2, middle + 20);
+    await expect(page.getByRole('option', { name: '150%' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    // Past the target, a tap is the row's, and opens nothing.
+    await page.touchscreen.tap(box.x + box.width / 2, middle - 26);
+    await expect(page.getByRole('combobox', { name: 'Text size' })).toHaveAttribute('aria-expanded', 'false');
+  });
+});

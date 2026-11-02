@@ -256,6 +256,9 @@ test('a change made with the page still in front, as from Control Center, is rea
     const [probe] = observers[0]!.watching;
     expect(probe!.isConnected).toBe(true);
     expect(probe!.getAttribute('aria-hidden')).toBe('true');
+    // Fixed at the top corner, so it adds nothing to what scrolls below a full-height app.
+    const { position, top, left } = (probe as HTMLElement).style;
+    expect({ position, top, left }).toEqual({ position: 'fixed', top: '0px', left: '0px' });
 
     const largest = iPhone('iPhone Safari, accessibility-extra-extra-extra-large');
     playPlace(largest);

@@ -65,8 +65,12 @@ const hasPhoneSize = () => CSS.supports('font', '-apple-system-body') && navigat
 function placeProbe(): HTMLElement {
   const probe = document.createElement('span');
   probe.style.setProperty('font', '-apple-system-body', 'important');
-  probe.style.position = 'absolute';
+  // Fixed at the top corner, so a probe kept in the page never adds to what scrolls below a full-height app.
+  probe.style.position = 'fixed';
+  probe.style.top = '0';
+  probe.style.left = '0';
   probe.style.visibility = 'hidden';
+  probe.style.pointerEvents = 'none';
   probe.setAttribute('aria-hidden', 'true');
   probe.textContent = 'x';
   (document.body ?? document.documentElement).append(probe);

@@ -23,7 +23,14 @@ export function TextSizeSetting() {
       <ListItemText primary="Text size" />
       <Select
         variant="standard"
-        sx={{ maxWidth: '100%', '& .MuiSelect-select': { whiteSpace: 'normal' } }}
+        sx={{
+          maxWidth: '100%',
+          '& .MuiSelect-select': { whiteSpace: 'normal' },
+          // On a touch screen the menu takes a tap at least 44 pixels tall: 9 more pixels of padding above and below its
+          // words, given back by margins, so the words and the hairline stay where they are. The menu clips what
+          // overflows it, so a larger box drawn outside it would take no tap.
+          '@media (pointer: coarse)': { '& .MuiSelect-select': { paddingTop: '13px', paddingBottom: '14px', marginTop: '-9px', marginBottom: '-9px' } },
+        }}
         value={choice === null ? FOLLOW : String(choice)}
         onChange={(event) => chooseTextSize(TEXT_SIZES.find((size) => String(size) === event.target.value) ?? null)}
         renderValue={(value) => (value === FOLLOW ? follow : percent(Number(value)))}
