@@ -13,17 +13,17 @@ Getter changes the one style constant its 27 word buttons already share, so none
 ## Decisions
 
 - **Should the kit own this? Its plain look, yes. An exported piece, not yet.** Timescale and Urge Surfer each built their own word button, and it would be tidy to have one. But their versions work, so neither would move, Getter would still be eight minor versions behind, and the piece would land with no app calling it. The owner's rule asks for one shared tool when two products need it, and today none would call this one. The honest case for building it now: three apps already differ and a fourth will come. The Details say what shape it takes when that happens.
-- **Yours to decide: hover paints nothing, only the hand cursor.** I recommend this. The owner's rule says hover paint is off while the pointer rests, and CSS cannot tell a resting pointer from a moving one. An underline could appear with nobody moving: press "Get this one" and "Undo" can draw under the still pointer. Getter's "Put it back" is also underlined all the time, so a hover underline would make one mark mean two things. The honest case for the underline: it is what MUI's Link, Polaris, Primer and shadcn do, and without it a word changes nothing but the cursor when you hover it. If you want it, a kit piece that tracks real pointer movement has to land with it, and it stays in the kit for good.
-- **Yours to decide: Getter keeps a shared style constant rather than a theme variant.** I recommend the constant: it edits one place, every word button already reads it, and nothing changes on screen between the two. Getter's thread recommended a `variant="word"`, and the variant is the more correct use of MUI, since MUI's guidance puts a repeated style in a reusable component or the theme and not in `sx`. Its cost is a type declaration, a theme rule and 27 edited lines. If "use MUI properly" matters more to you than the size of the change, choose the variant; the styling is the same.
+- **A word button has a hover state.** This plan first recommended none, and that was wrong. Getter shipped it, the owner rejected it, and Getter now paints a soft fill with room around the word, drawn on a layer that moves nothing. The resting-pointer rule decides when hover paints, never whether a control has a hover state.
+- **Yours to decide: which hover state the kit's plain look draws.** It underlines today. Getter's soft fill is the other choice. The `plain-look-buttons` ticket waits on this.
+- **Getter kept a shared style constant rather than a theme variant.** That shipped: it edited one place, every word button already read it, and nothing on screen differs between the two. A `variant="word"` is the more correct use of MUI, since MUI's guidance puts a repeated style in a reusable component or the theme and not in `sx`, at the cost of a type declaration, a theme rule and 27 edited lines. It remains open to Getter if that ever matters more than the size of the change.
 - **Press: no ripple, and the word dims to 60% while held.** With no hover on a phone, a tap would otherwise show nothing. This is a first pass at a taste call nobody has recorded, and it is easy to take out.
 - **Keyboard focus: Getter uses its existing focus ring, and the plain look turns on MUI's own theme focus ring.** MUI's documentation says a Button with no ripple has no focus styling unless you add it, and today Getter's only focus paint is the ripple it is losing.
-- **Tap area: at least 44 by 44 on a touch screen.** A word that ends a row can sit up to about 20 pixels in from the right edge on a phone, since the box grows and the word stays at its left. An invisible overlay would avoid that, at the cost of more rules and overlapping neighbors. The owner's look at the iPhone decides whether it matters.
+- **Tap area: at least 44 by 44 on a touch screen.** A word that ends a row can sit up to about 20 pixels in from the right edge on a phone, since the box grows and the word stays at its left. An invisible overlay would avoid that, at the cost of more rules and overlapping neighbors. A run in a windowless iPhone Simulator shows whether it matters.
 - **A word inside a sentence stays MUI's `<Link component="button">`.** It sits in running text, so it needs no tap area, and WCAG exempts it. The kit's README says which is which.
 
 ## Risk
 
-- **Hover showing nothing may read as dead with a mouse.** The hand cursor is the only signal. Words in Getter differ from plain text by color and weight, which helps. It is one line to change if the owner's look says otherwise.
-- **The phone results come from Chromium's touch emulation, not an iPhone,** and WebKit has open bugs about `:active` during scrolling. The owner's look on the iPhone is in Getter's Done when, including that a tap dims and that a scroll started on a word does not leave it dim.
+- **The phone results come from Chromium's touch emulation, not an iPhone,** and WebKit has open bugs about `:active` during scrolling. A windowless iPhone Simulator can check that a tap dims and that a scroll started on a word does not leave it dim; only how it feels on a physical phone needs the owner.
 - **Turning on MUI's focus ring in the plain look changes other controls too:** it removes the faint focus fill on rows and menus in favor of the ring, in a look no app uses yet. It needs MUI 9.4; below that the plain look has no focus ring, as today.
 - **The rule stays in two places,** the kit's plain look and Getter's constant, plus Timescale's and Urge Surfer's own. That is the cost of not building the piece, and no code keeps them equal.
 
@@ -41,7 +41,7 @@ You can read in this plan whether the kit should own the button, the evidence fr
 
 ## After yes
 
-Your go lands this file on main and tells [ui](metamax://thread/getter/ui) the answer, with your two decisions, so Getter's thread can make its change. Building `plain-look-buttons` waits for your yes to that ticket; nothing is built by landing this.
+Getter's fix has shipped (894890f, with its hover state in 6b9043a). Building `plain-look-buttons` waits for your yes to that ticket and your choice of its hover state.
 
 ## Details
 
@@ -74,7 +74,7 @@ Headless Chromium, a mouse at 800 wide and a touch-emulated phone at 390 wide (`
 | Keyboard focus, after Tab on a fresh page | ripple's pulse | nothing | 2 pixels solid | 2 pixels solid, on word, outlined, filled and Link | browser's own |
 | Disabled | gray, no pointer events | gray | unchanged | unchanged | same as enabled, pointer cursor |
 
-Plain look `<Button variant="outlined">` today measures 45.3 by 24.8 with padding 0, and `contained` 30.4 by 24.8 with padding 0; changed, they pad `5px 15px` and `6px 16px`. A theme ring in `currentColor` was tried and drew white on a filled Button, so the plain look takes MUI's default, the accent. The plain look's Switch read no outline on its button element in the same check; `plain-look-buttons` must confirm what it paints.
+Plain look `<Button variant="outlined">` today measures 45.3 by 24.8 with padding 0, and `contained` 30.4 by 24.8 with padding 0; changed, they pad `5px 15px` and `6px 16px`. The "changed" columns measure this plan's first version, with no hover state; the hover state Getter shipped is not in them. A theme ring in `currentColor` was tried and drew white on a filled Button, so the plain look takes MUI's default, the accent. The plain look's Switch read no outline on its button element in the same check; `plain-look-buttons` must confirm what it paints.
 
 ### Question 2: the shape when a second app moves
 
@@ -96,28 +96,16 @@ If an own-theme app moves, build a `word` Button variant passed as `createTheme`
 - Press: Apple's interface guidelines say "Always include a press state for a custom button", and React Native's TouchableOpacity dims. None of the web link-style buttons read do so, so the dim is a taste call.
 - Target size: WCAG 2.2's minimum is 24 by 24, with an exception for a target "in a sentence". Apple asks 44 by 44, as the owner's rule does.
 
-So outside practice leans to the underline, and the owner's rule of plain text instead of chips rules out the fill. Only the owner's resting-pointer rule separates the underline from painting nothing, which is why that is their decision.
+So outside practice leans to the underline, with a fill as the other family. The plan's first version took the owner's rules to rule out the fill and to favor painting nothing; the owner rejected painting nothing, and Getter's soft fill is live.
 
 ## plain-look-buttons · The plain look's words get a tap area and a focus ring, and its other Buttons get their padding
 
-Goal: in `web/theme.ts`, move the plain look's word rule from Button's root to its `text` style override, so outlined and filled Buttons keep MUI's padding; add a tap area of at least 44 by 44 on a touch screen and a dim to 60% while held; set the theme's `focusVisible: true`. Hover follows the owner's decision above: nothing but the cursor, or, if they choose the underline, it waits on a pointer tracker. `flexShrink` and `whiteSpace` stay on root. `disableRipple` stays a default.
+Goal: in `web/theme.ts`, move the plain look's word rule from Button's root to its `text` style override, so outlined and filled Buttons keep MUI's padding; add a tap area of at least 44 by 44 on a touch screen and a dim to 60% while held; set the theme's `focusVisible: true`. Hover is the state the owner chooses above, shown only on a device that can hover. `flexShrink` and `whiteSpace` stay on root. `disableRipple` stays a default.
 
-Done when: in the fixture's hidden Chromium, under the plain look, a word has no fill on hover, no ripple, a 2 pixel outline after Tab, a dim while held, 44 by 44 on a touch-emulated page and no decoration after a tap; an outlined Button keeps its padding and its outline; the Switch shows something on keyboard focus. `test/theme.test.ts:51-52`, which holds the old rule, moves with it, and the README's look section says a word standing alone is a `Button` and a word in a sentence a `Link`. `scripts/gates.sh` passes. Release: patch.
+Done when: in the fixture's hidden Chromium, under the plain look, a word shows the chosen hover state, no ripple, a 2 pixel outline after Tab, a dim while held, 44 by 44 on a touch-emulated page and no decoration after a tap; an outlined Button keeps its padding and its outline; the Switch shows something on keyboard focus. `test/theme.test.ts:51-52`, which holds the old rule, moves with it, and the README's look section says a word standing alone is a `Button` and a word in a sentence a `Link`. `scripts/gates.sh` passes. Release: patch.
 
 Do not touch: `NewBuildLine`, `ErrorBoundary`, the console look, the extension stylesheet, Swift, any app.
 
-Needs: the owner's yes to this ticket and their hover decision.
+Needs: the owner's yes to this ticket and their choice of hover state.
 
 Touches: `web/theme.ts`, `test/theme.test.ts`, `web/e2e/look.e2e.ts`, `web/e2e/fixture/look.tsx`, `README.md`.
-
-## getter-words · Getter's word buttons stop painting a slab
-
-Goal: in Getter's own repository, on Getter's thread. Add to `wordButton` in `client/src/layout.ts:34`, which `act` spreads and all 27 sites read: `backgroundColor: 'transparent'`, `'&:active': { opacity: 0.6 }`, `'& .MuiTouchRipple-root': { display: 'none' }`, `'@media (pointer: coarse)': { minWidth: 44 }` and `...focusRing` from `client/src/theme/focus.ts`, since the ripple's pulse is the only focus paint these buttons have today. If the owner chooses the variant, the same rules go in a `word` variant in the theme with its type declared locally, and the 27 sites change. If the owner chooses the underline, a hover rule joins them with the tracker the kit would need.
-
-Done when: a headless browser test hovers and presses a word button at desktop and phone widths and finds no fill, no ripple, the text flush to the column edge, 44 by 44 on a phone and a visible focus outline. The owner has looked on the iPhone: a tap dims, a scroll started on a word does not leave it dim, and a word ending a row sits acceptably.
-
-Do not touch: app-kit, and no upgrade of it; Getter's two `ButtonBase` rows in `client/src/ResearchLines.tsx`; Getter's filled and outlined Buttons; "Put it back"'s underline in `client/src/NeedRow.tsx:163`.
-
-Needs: the owner's two decisions above, and their look at the iPhone.
-
-Touches: Getter `client/src/layout.ts`, a browser test, and, only with the variant, `client/src/theme/index.ts` and the 27 sites.
