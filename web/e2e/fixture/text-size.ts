@@ -1,6 +1,6 @@
 import { followTextSize, onPageReturn } from '../..';
 
-// A page whose text follows the phone's Text Size, which prints the scale it read. With ?report it also sends each
+// A page whose text follows the phone's Text Size, which prints the scale it read, each time it reads it. With ?report it also sends each
 // reading to /reading, with what the browser answered and whether the page had just loaded or come back in front, for
 // a run on a simulated iPhone that records test/fixtures/text-size-readings.json.
 
@@ -17,7 +17,7 @@ function bodyPx(): number {
   return px;
 }
 
-function show(on: 'load' | 'return') {
+function show(on: 'load' | 'return' | 'change') {
   const scale = document.documentElement.style.getPropertyValue('--text-scale');
   document.getElementById('scale')!.textContent = scale;
   if (!report) return;
@@ -36,3 +36,5 @@ function show(on: 'load' | 'return') {
 followTextSize();
 show('load');
 onPageReturn(() => show('return'));
+// And whenever the kit sets the root again, as on a change made with the page in front, from Control Center.
+new MutationObserver(() => show('change')).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });

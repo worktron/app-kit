@@ -3,7 +3,7 @@ export { configureConnection, onReconnect, serverReachable, useServerReachable, 
 export { useNewBuild, lookForNewBuild, builtEntry, runningEntry, isNewBuild, unsavedInput, watchChoices, BUILD_CHECK_MS, IDLE_MS } from './new-build';
 export { onPageReturn, type PageEvents } from './page-return';
 export { savedCopies, useSavedCopy, useSaveAfterDraw, useScreenData, thisBuild, type SavedCopies, type SavedCopy, type CopyStore, type ScreenData } from './saved-copies';
-export { followTextSize, useTextScale } from './text-size';
+export { chooseTextSize, followTextSize, TEXT_SIZES, useTextScale, useTextSize, type TextSize, type TextSizeState } from './text-size';
 export { FIELD_FONT_SIZE, fieldsNeverZoom, rem } from './fields';
 export { waitForFonts, FONT_WAIT_MS } from './fonts';
 export { colorVariables, lookTheme } from './theme';

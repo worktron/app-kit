@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { followTextSize, resetTextSize, useTextScale } from '../web/text-size';
+import { chooseTextSize, followTextSize, resetTextSize, TEXT_SIZES, useTextScale, useTextSize } from '../web/text-size';
 import readings from './fixtures/text-size-readings.json';
 
 // Each place's answer, recorded: on a simulated iPhone's Safari at three Text Sizes, the scale being what the kit read
@@ -27,6 +27,9 @@ const rootSize = () => document.documentElement.style.fontSize || '16px';
 /** The root size the kit sets at `scale` from a root of `px`. */
 const scaled = (scale: number, px = 16) => (scale === 1 ? '' : `${px * scale}px`);
 
+/** Where the kit keeps the size chosen on this device. */
+const CHOICE_KEY = 'app-kit:text-size';
+
 const comeBack = () => window.dispatchEvent(new Event('focus'));
 const root = () => document.documentElement.style;
 const iPhone = (where: string) => readings.find((r) => r.where === where)!;
@@ -34,6 +37,9 @@ const iPhone = (where: string) => readings.find((r) => r.where === where)!;
 afterEach(() => {
   cleanup();
   resetTextSize();
+  // A root size a test set as the app's own, which resetTextSize puts back as it found it.
+  document.documentElement.style.fontSize = '';
+  localStorage.removeItem(CHOICE_KEY);
   computed?.mockRestore();
   computed = null;
   Object.defineProperty(globalThis, 'CSS', realCSS);
@@ -141,4 +147,134 @@ test('a page with no body yet still reads, and leaves nothing behind', () => {
   }
   expect(probes).toHaveLength(1);
   expect(probes[0]!.isConnected).toBe(false);
+});
+
+test.each(readings as Place[])('a size chosen on this device replaces what $where reads', (place) => {
+  playPlace(place);
+  localStorage.setItem(CHOICE_KEY, '1.5');
+  followTextSize();
+  expect(root().getPropertyValue('--text-scale')).toBe('1.5');
+  expect(root().fontSize).toBe('24px');
+});
+
+test('choosing a size draws the page at it at once, and choosing none follows the phone again', () => {
+  const smallest = iPhone('iPhone Safari, extra-small');
+  playPlace(smallest);
+  followTextSize();
+  chooseTextSize(2);
+  expect(root().fontSize).toBe('32px');
+  expect(localStorage.getItem(CHOICE_KEY)).toBe('2');
+  chooseTextSize(null);
+  expect(localStorage.getItem(CHOICE_KEY)).toBeNull();
+  expect(root().getPropertyValue('--text-scale')).toBe(String(smallest.scale));
+  expect(root().fontSize).toBe(scaled(smallest.scale));
+  // The default size chosen on a phone set smaller holds the page at the default.
+  chooseTextSize(1);
+  expect(root().fontSize).toBe('');
+  expect(root().getPropertyValue('--text-scale')).toBe('1');
+});
+
+test('choosing a size works with no followTextSize call before it', () => {
+  playPlace(iPhone('Mac WebKit'));
+  chooseTextSize(1.25);
+  expect(root().fontSize).toBe('20px');
+});
+
+test('a size chosen in another tab is read when the page comes back in front', () => {
+  playPlace(iPhone('iPhone Safari, large'));
+  followTextSize();
+  localStorage.setItem(CHOICE_KEY, '1.75');
+  comeBack();
+  expect(root().fontSize).toBe('28px');
+});
+
+test('a stored value that is not one of the sizes, and storage the browser blocks, both follow the phone', () => {
+  const largest = iPhone('iPhone Safari, accessibility-extra-extra-extra-large');
+  playPlace(largest);
+  localStorage.setItem(CHOICE_KEY, '3');
+  followTextSize();
+  expect(root().getPropertyValue('--text-scale')).toBe(String(largest.scale));
+  resetTextSize();
+
+  const real = Object.getOwnPropertyDescriptor(window, 'localStorage')!;
+  Object.defineProperty(window, 'localStorage', { get: () => { throw new DOMException('blocked', 'SecurityError'); }, configurable: true });
+  try {
+    followTextSize();
+    expect(root().getPropertyValue('--text-scale')).toBe(String(largest.scale));
+    // Choosing with storage blocked changes nothing and throws nothing.
+    chooseTextSize(1.5);
+    expect(root().getPropertyValue('--text-scale')).toBe(String(largest.scale));
+  } finally {
+    Object.defineProperty(window, 'localStorage', real);
+  }
+});
+
+test("the setting's hook shows the choice and the phone's own size, re-rendering when either changes", () => {
+  const smallest = iPhone('iPhone Safari, extra-small');
+  playPlace(smallest);
+  const { result } = renderHook(() => useTextSize());
+  expect(result.current).toEqual({ scale: smallest.scale, choice: null, phone: smallest.scale });
+  act(() => chooseTextSize(1.5));
+  expect(result.current).toEqual({ scale: 1.5, choice: 1.5, phone: smallest.scale });
+  // The scale is unchanged at 1.5, but the phone's size the setting shows still updates.
+  const largest = iPhone('iPhone Safari, accessibility-extra-extra-extra-large');
+  playPlace(largest);
+  act(comeBack);
+  expect(result.current).toEqual({ scale: 1.5, choice: 1.5, phone: largest.scale });
+});
+
+test('off an iPhone or iPad there is no phone size to follow, and the page draws at 1 until a size is chosen', () => {
+  playPlace(iPhone('Mac WebKit'));
+  const { result } = renderHook(() => useTextSize());
+  expect(result.current).toEqual({ scale: 1, choice: null, phone: null });
+  act(() => chooseTextSize(0.85));
+  expect(result.current.scale).toBe(0.85);
+  expect(TEXT_SIZES).toEqual([0.85, 1, 1.15, 1.25, 1.5, 1.75, 2]);
+});
+
+test('a change made with the page still in front, as from Control Center, is read when the kept probe resizes', () => {
+  // happy-dom lays nothing out, so its observer never fires: this one fires when the test says the probe resized.
+  const observers: { callback: () => void; watching: Element[] }[] = [];
+  const realObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    watching: Element[] = [];
+    constructor(public callback: () => void) {
+      observers.push(this);
+    }
+    observe(element: Element) {
+      this.watching.push(element);
+    }
+    unobserve() {}
+    disconnect() {
+      this.watching = [];
+    }
+  } as unknown as typeof ResizeObserver;
+  try {
+    playPlace(iPhone('iPhone Safari, large'));
+    followTextSize();
+    expect(observers).toHaveLength(1);
+    const [probe] = observers[0]!.watching;
+    expect(probe!.isConnected).toBe(true);
+    expect(probe!.getAttribute('aria-hidden')).toBe('true');
+
+    const largest = iPhone('iPhone Safari, accessibility-extra-extra-extra-large');
+    playPlace(largest);
+    observers[0]!.callback();
+    expect(root().getPropertyValue('--text-scale')).toBe(String(largest.scale));
+    expect(root().fontSize).toBe(scaled(largest.scale));
+
+    // Stopping takes the probe out of the page.
+    resetTextSize();
+    expect(probe!.isConnected).toBe(false);
+    expect(observers[0]!.watching).toEqual([]);
+  } finally {
+    globalThis.ResizeObserver = realObserver;
+  }
+});
+
+test('off an iPhone or iPad nothing is kept in the page to watch', () => {
+  playPlace(iPhone('Chromium'));
+  const before = document.querySelectorAll('[aria-hidden="true"]').length;
+  followTextSize();
+  expect(document.querySelectorAll('[aria-hidden="true"]').length).toBe(before);
 });
