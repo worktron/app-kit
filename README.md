@@ -10,7 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/google`, `app-kit/server/postgres` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, what a refusal from Google means, and the Postgres database opener on Drizzle. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order pages. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -1471,6 +1471,34 @@ test('records a visit', async () => {
 ```
 
 Needs `drizzle-orm` 0.45, `@electric-sql/pglite` 0.5 and `postgres` 3.4, which the kit names as optional peers, so an app without a database installs none of them. An app that uses it installs all three as dependencies, not dev dependencies, whichever database it opens: the one module imports both drivers, so a server that opens only Railway's Postgres still loads PGlite at start, and one on PGlite still loads `postgres`.
+
+### Reading Amazon's order pages
+
+`app-kit/amazon-orders`, kept in `server/amazon-orders/`, for a server or a tool that holds Amazon's order pages: the page's HTML goes in and orders come out, read the same way everywhere, so a change at Amazon is fixed once. It fetches nothing: Amazon has no API and only the person's own browser can get these pages, so `ordersPath` and `orderDetailsPath` say what to ask Amazon for, and whoever asks hands the answer over as text.
+
+```ts
+import { orderDetailsPath, ordersPath, readOrderDetails, readOrders } from 'app-kit/amazon-orders';
+
+const page = await pageFromTheBrowser(ordersPath('months-3', 0));
+for (const order of readOrders(page)) {
+  // A big order's card names a few products and counts the rest. Its details page may name them all, or read as none.
+  const more = order.moreItems ? readOrderDetails(await pageFromTheBrowser(orderDetailsPath(order.orderNumber))) : [];
+}
+```
+
+| Export | What it gives |
+| --- | --- |
+| `readOrders(html)` | One page of order history as `Order[]`: `orderNumber`, `placed` (an ISO date or null), `total` (dollars or null), `status` (Amazon's own line, such as "Delivered October 18", "Arriving tomorrow", "Cancelled" or "Refunded", or null), `items` and `moreItems`, the products the card counted and did not name. A page with no order cards, such as a sign-in page, reads as none. |
+| `readOrderDetails(html)` | The products on one order's details page as `OrderItem[]`: `asin`, `name` and `store`. It reads the item rows of a Fresh or Whole Foods delivery and the lines of an in-store receipt that have a product link. A regular order's page reads as none, and so does loose produce on a receipt. |
+| `ordersPath(period, page)`, `orderDetailsPath(orderNumber)` | The address on amazon.com of each page. The history is asked for in the clear, through the page's own fallback for when its decryption library is missing. |
+| `PERIODS` | The periods the history filters by: `last30`, `months-3`, then this year and the twelve before it, worked out when the module loads. |
+| `parse`, `textOf`, `dollars`, `isoDate` | What the readers read a page with, for another reader of Amazon's pages: a page as a document with its scripts and styles dropped, an element's text with its whitespace collapsed, "$5.97" as a number, "Oct 17, 2026" as "2026-10-17". |
+| `STORES`, `STORE_NAMES`, `storeOfBrand`, `Store` | Amazon's three stores by the names people see (Amazon Fresh, Whole Foods Market, Amazon), and the store for a brand id in Amazon's addresses. |
+
+- **What never comes out.** A details page also holds the delivery address, the card's last digits and products Amazon recommends. The readers read item rows only, so none of them reaches an answer, but the HTML itself holds them: a server keeps what is read and discards the page, and logs no part of it.
+- **A page sent to a server.** Reading fetches nothing a page names and runs nothing in it, which a test holds with a page full of stylesheets, frames and scripts pointed at a server of its own. The size of a page a server accepts is the server's to limit.
+
+Needs `happy-dom` 21, which the kit names as an optional peer, so an app that does not take this part installs none of it. An app that does installs it as a dependency, since its server loads it to read a page. This import name has no folder in it because a tool on a person's own Mac takes it as a server does.
 
 ## look/: the two looks
 
