@@ -5,15 +5,16 @@ import { Window } from 'happy-dom';
 const window = new Window();
 
 /**
- * A page to search with querySelector and querySelectorAll. Scripts and styles are dropped first: nothing read lives in
- * them, and they are most of a page. It is parsed into a template, whose contents are never attached to a document: a
- * parsed document in happy-dom acts on some of what a page holds, sending a preload link's request or throwing where
- * nothing catches it on a relative one, and a page here may have been sent to a server by anyone.
+ * A page to search with querySelector and querySelectorAll, its scripts and styles taken out, since a card's text is read
+ * and nothing read lives in them. It is parsed into a template, whose contents are never attached to a document: a parsed
+ * document in happy-dom acts on some of what a page holds, sending a preload link's request or throwing where nothing
+ * catches it on a relative one, and a page here may have been sent to a server by anyone. They come out after the parse
+ * because a pattern run before it takes time that grows with the square of a page of unclosed script tags.
  */
 export function parse(html: string): DocumentFragment {
-  const lean = html.replace(/<script\b[\s\S]*?<\/script>/gi, '').replace(/<style\b[\s\S]*?<\/style>/gi, '');
   const template = window.document.createElement('template');
-  template.innerHTML = lean;
+  template.innerHTML = html;
+  for (const element of template.content.querySelectorAll('script, style')) element.remove();
   return template.content as unknown as DocumentFragment;
 }
 

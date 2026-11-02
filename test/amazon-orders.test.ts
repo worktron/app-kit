@@ -147,6 +147,19 @@ test('reading a page sent to a server fetches nothing it names and runs nothing 
   }
 });
 
+test('what a script or style holds is not read as part of an order', () => {
+  const page = fixture('orders.html').replace('Delivered October 18', 'Delivered October 18<script>var words = "Cancelled and 9 more";</script><style>.x::after { content: "and 9 more"; }</style>');
+  expect(readOrders(page)[0]).toMatchObject({ status: 'Delivered October 18', moreItems: 6 });
+  expect(parse(page).querySelectorAll('script, style')).toHaveLength(0);
+});
+
+test('a page of unclosed script and style tags reads as none, and at once', () => {
+  // A pattern over the page took half a minute on this size, far past the test's limit; the parse takes milliseconds.
+  expect(readOrders('<script '.repeat(25_000))).toEqual([]);
+  expect(readOrders('<style '.repeat(25_000))).toEqual([]);
+  expect(readOrders(`${'<script></script>'.repeat(100)}${'<script '.repeat(25_000)}`)).toEqual([]);
+});
+
 test('the part has one import name, and happy-dom is an optional peer only it imports, so an app without it needs none', async () => {
   const byName = await import('app-kit/amazon-orders');
   expect(byName.readOrders).toBe(readOrders);
