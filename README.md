@@ -49,7 +49,7 @@ bun add github:worktron/app-kit#v0.33.3
 | The first frame | `firstPaint`, from `app-kit/web/first-paint` | A Vite plugin that paints the page in the app's colors, light or dark or the app's own choice, with the phone's bar to match, before any of the app's code loads. See below. |
 | The first draw after the fonts | `waitForFonts` | Holds the first draw until the app's faces are in, at most a second and a half, so no text swaps from a fallback face. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. The person's own Sign out forgets the account, so the next sign-in screen offers Google plainly; a session the server ends keeps it, so signing back in is one tap. With `signUp`, an emailed code to an address with no account makes the account once the code is checked; without, the address is told it has none (`noAccountFor`). Given a null provider, it draws the app with no sign-in. |
-| Account menu | `AccountMenu` | A quiet Account button at the right end of the app's bar, with a menu that says who is signed in, the app's own items (a screen as a real link, or an act) and Sign out. It draws nothing outside the sign-in gate or with no provider. Optional: an app that wants Sign out elsewhere uses `useSignOut` and `usePerson`. See below. |
+| Account menu | `AccountMenu` | A quiet button at the right end of the app's bar, the word Account or the person's initial in a circle, with a menu that says who is signed in (the name above the address when the provider knows it), the app's own items (a screen as a real link, or an act) and Sign out. It draws nothing outside the sign-in gate or with no provider. Optional: an app that wants Sign out elsewhere uses `useSignOut` and `usePerson`. See below. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
 | The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, the files Vite built kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
 
@@ -85,11 +85,17 @@ Sign out goes in the account menu rather than on a screen of its own:
 ```tsx
 <header>
   <Wordmark />
-  <AccountMenu items={[{ label: 'Settings', href: '/settings' }, { label: 'Switch profile', onSelect: switchProfile }]} />
+  <AccountMenu button="initial" items={[{ label: 'Settings', href: '/settings' }, { label: 'Switch profile', onSelect: switchProfile }]} />
 </header>
 ```
 
-A link item goes through the app's `NavigateProvider`, as `RowLink` does, so ⌘-click opens it in a new tab. In a Tauri window, Sign Out is in the Mac menu bar too (`useWindowMenu`, below), and the account menu still says who is signed in.
+What an app can choose:
+
+- `items`: its own entries, between who is signed in and Sign out, in the order given. `{ label, href }` is one of its screens, a real link through the app's `NavigateProvider`, as `RowLink` is, so ⌘-click opens it in a new tab; `{ label, onSelect }` is an act, such as switching profile or showing diagnostics. With none, the menu holds who is signed in and Sign out.
+- `button`: `'word'` (the default) draws Account; `'initial'` draws the first letter of the person's name, or of the address with no name, in a hairline circle. Either way the button's name for a screen reader is Account.
+- `showName`: the person's name goes above the address when the provider knows it (Clerk's full name; `usePerson().name`). `showName={false}` leaves it out.
+
+Sign out is last, under a line, in the menu's plain text color. In a Tauri window, Sign Out is in the Mac menu bar too (`useWindowMenu`, below), and the account menu still says who is signed in.
 
 ### A page open across a deploy
 
@@ -1190,7 +1196,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 
 ### The adapter
 
-A provider is `{ Root, useSession, GoogleReturn }` (`web/sign-in/provider.ts`): its own context around the app; a hook giving whether it has loaded, who is signed in, a token (fresh on demand), Google sign-in to a callback path naming an account or asking for the list, an emailed code sent and checked, a sign-in with a one-time ticket from the app's server, and sign-out that stays on the page; and a component that finishes the return from Google. Another provider is another adapter, and the apps change only which one they pass to the gate.
+A provider is `{ Root, useSession, GoogleReturn }` (`web/sign-in/provider.ts`): its own context around the app; a hook giving whether it has loaded, who is signed in (an id, the address, and the name when it knows one), a token (fresh on demand), Google sign-in to a callback path naming an account or asking for the list, an emailed code sent and checked, a sign-in with a one-time ticket from the app's server, and sign-out that stays on the page; and a component that finishes the return from Google. Another provider is another adapter, and the apps change only which one they pass to the gate.
 
 Clerk-specific, by design: the Clerk adapter starts Google through Clerk's classic sign-in resource, since its newer one takes no account to sign in as. A part of an app that needs more of Clerk than the adapter asks for uses Clerk's own hooks inside the gate, whose provider is Clerk's. An app with its own `ClerkProvider` and no gate reads the adapter's session with `useClerkSession()` inside it. While nobody is signed in, the adapter keeps the place where Clerk's bot check draws its challenge (`<div id="clerk-captcha" />`) after the app, so a sign-up Clerk suspects can still prove it is a person.
 

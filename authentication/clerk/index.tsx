@@ -77,7 +77,8 @@ export function useClerkSession(): ProviderSession {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const email = user?.primaryEmailAddress?.emailAddress ?? null;
-  const person = useMemo(() => (userId ? { id: userId, email } : null), [userId, email]);
+  const name = user?.fullName ?? null;
+  const person = useMemo(() => (userId ? { id: userId, email, name } : null), [userId, email, name]);
 
   return {
     loaded: isLoaded,

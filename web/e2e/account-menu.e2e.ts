@@ -15,8 +15,11 @@ for (const [name, path, scheme] of [
   ['plain-light', '/account-menu.html', 'light'],
   ['plain-dark', '/account-menu.html', 'dark'],
   ['console', '/account-menu.html?look=console', 'dark'],
+  ['initial-plain-light', '/account-menu.html?button=initial&name', 'light'],
+  ['initial-plain-dark', '/account-menu.html?button=initial&name', 'dark'],
+  ['initial-console', '/account-menu.html?button=initial&name&look=console', 'dark'],
 ] as const) {
-  test(`in the ${name} look, the menu opens under Account at the bar's right end, inside the window, and names who is signed in`, async ({ page }, testInfo) => {
+  test(`in ${name}, the menu opens under Account at the bar's right end, inside the window, and names who is signed in`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width: 900, height: 420 });
     await page.goto(path);

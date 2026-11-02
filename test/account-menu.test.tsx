@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { AccountMenu, type AccountMenuItem } from '../web/AccountMenu';
+import { AccountMenu, type AccountMenuItem, type AccountMenuProps } from '../web/AccountMenu';
 import { NavigateProvider } from '../web/RowLink';
 import { SignInGate } from '../web/sign-in/SignInGate';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
@@ -15,8 +15,8 @@ afterEach(cleanup);
 
 const ana = { id: 'p1', email: 'ana@example.com' };
 
-function draw(provider: StandInSignIn | null, items?: AccountMenuItem[], navigate?: (href: string) => void) {
-  const menu = <AccountMenu items={items} />;
+function draw(provider: StandInSignIn | null, items?: AccountMenuItem[], navigate?: (href: string) => void, props: AccountMenuProps = {}) {
+  const menu = <AccountMenu items={items} {...props} />;
   return render(
     <SignInGate provider={provider} placeholder={<div role="progressbar">app</div>} signedOut={<h1>Sign in</h1>}>
       <header>{navigate ? <NavigateProvider navigate={navigate}>{menu}</NavigateProvider> : menu}</header>
@@ -94,6 +94,31 @@ test('an account with no address has no Signed in as', async () => {
   draw(standInSignIn({ person: { id: 'p2', email: null } }));
   await open();
   expect(screen.queryByText('Signed in as')).toBeNull();
+  expect(menuItems()).toEqual(['Sign out']);
+  await shut();
+});
+
+test("the person's name, when the provider knows it, goes above the address, unless the app says not to", async () => {
+  draw(standInSignIn({ person: { ...ana, name: 'Ana Lima' } }));
+  await open();
+  const header = screen.getByText('Signed in as').parentElement!;
+  expect([...header.children].map((line) => line.textContent)).toEqual(['Signed in as', 'Ana Lima', 'ana@example.com']);
+  await shut();
+  cleanup();
+  draw(standInSignIn({ person: { ...ana, name: 'Ana Lima' } }), undefined, undefined, { showName: false });
+  await open();
+  expect(screen.queryByText('Ana Lima')).toBeNull();
+  expect(screen.getByText('ana@example.com')).toBeTruthy();
+  await shut();
+});
+
+test("with button set to initial, the button is the first letter of the person's name, or of the address with no name, still called Account", async () => {
+  draw(standInSignIn({ person: { ...ana, name: 'Ana Lima' } }), undefined, undefined, { button: 'initial' });
+  expect(screen.getByRole('button', { name: 'Account' }).textContent).toBe('A');
+  cleanup();
+  draw(standInSignIn({ person: { id: 'p3', email: 'zoe@example.com' } }), undefined, undefined, { button: 'initial' });
+  expect(screen.getByRole('button', { name: 'Account' }).textContent).toBe('Z');
+  await open();
   expect(menuItems()).toEqual(['Sign out']);
   await shut();
 });

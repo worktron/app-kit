@@ -17,7 +17,7 @@ export { age, type AgeOptions } from './age';
 export { useNow, NOW_TICK_MS } from './now';
 export { RowLink, NavigateProvider, opensElsewhere, type Navigate } from './RowLink';
 export { NewBuildLine, ConnectionLine, unreachableMessage } from './lines';
-export { AccountMenu, type AccountMenuItem } from './AccountMenu';
+export { AccountMenu, type AccountMenuItem, type AccountMenuProps } from './AccountMenu';
 export {
   SignInGate,
   useSignIn,

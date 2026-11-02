@@ -4,6 +4,8 @@ import type { ComponentType, ReactNode } from 'react';
 export interface SignedInPerson {
   id: string;
   email: string | null;
+  /** The person's name, when the provider knows one; left out or null when it does not. */
+  name?: string | null;
 }
 
 /** Whether a step worked, and if not, what to tell the person, in words that say what to do next. */

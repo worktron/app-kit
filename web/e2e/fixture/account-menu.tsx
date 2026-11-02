@@ -6,11 +6,14 @@ import { AccountMenu, SignInGate, lookTheme } from '../..';
 import { standInSignIn } from '../../../authentication/stand-in';
 
 // The account menu at the right end of an app's bar, in the kit's MUI themes, signed in as the stand-in's person. Opened
-// with ?look=console it draws the console theme; the plain one follows the system's light or dark setting.
+// with ?look=console it draws the console theme; the plain one follows the system's light or dark setting. With
+// ?button=initial the menu opens from the person's initial in a circle, and with ?name the person has a name.
 
-const look = new URLSearchParams(location.search).get('look') === 'console' ? 'console' : 'plain';
+const query = new URLSearchParams(location.search);
+const look = query.get('look') === 'console' ? 'console' : 'plain';
+const button = query.get('button') === 'initial' ? 'initial' : 'word';
 const theme = lookTheme(look === 'console' ? { name: 'console' } : { name: 'plain' });
-const provider = standInSignIn({ person: { id: 'p1', email: 'pat.morgan@example.com' } });
+const provider = standInSignIn({ person: { id: 'p1', email: 'pat.morgan@example.com', name: query.has('name') ? 'Pat Morgan' : null } });
 
 function App() {
   return (
@@ -19,7 +22,7 @@ function App() {
         <Typography variant="h6" component="span" sx={{ flex: 1 }}>
           Errands
         </Typography>
-        <AccountMenu items={[{ label: 'Settings', href: '/settings' }, { label: 'Purchases', href: '/purchases' }]} />
+        <AccountMenu button={button} items={[{ label: 'Settings', href: '/settings' }, { label: 'Purchases', href: '/purchases' }]} />
       </Box>
       <Box component="main" sx={{ maxWidth: 960, mx: 'auto', px: 3, py: 3 }}>
         <Typography variant="h6" component="h1">
