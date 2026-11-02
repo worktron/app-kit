@@ -1,7 +1,7 @@
 // The app-kit command: its usage on no arguments or asking for help, wrong usage exiting 2, and its version with the
 // commit it runs from. The extension commands themselves are tested beside the extension part.
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
 
@@ -42,6 +42,32 @@ test('keep for a Simulator app-kit holds no time for says so and exits 1', () =>
     expect(done.exitCode).toBe(1);
     // A terminal's FORCE_COLOR can color the line; the words are what is checked.
     expect(done.stderr.toString()).toContain('[iphone-simulator] app-kit holds no shut-down time for NO-SUCH-UDID: app-kit iphone run sim did not boot it, or it has shut down already');
+  } finally {
+    rmSync(state, { recursive: true, force: true });
+  }
+});
+
+test('keep moves the shut-down time of a Simulator app-kit holds, and says when', () => {
+  const cache = join(import.meta.dir, '../node_modules/.cache');
+  mkdirSync(cache, { recursive: true });
+  const state = mkdtempSync(join(cache, 'app-kit-keep-'));
+  try {
+    const folder = join(state, 'app-kit/simulators');
+    mkdirSync(folder, { recursive: true });
+    // This test's own process stands for the watcher, alive, so the command starts no other.
+    const held = { udid: 'HELD-UDID', name: 'Sample App', checkout: state, until: Date.now(), runPid: process.pid, watcherPid: process.pid, booted: true };
+    writeFileSync(join(folder, 'HELD-UDID.json'), JSON.stringify(held));
+    const before = Date.now();
+    const done = Bun.spawnSync(['bun', join(import.meta.dir, '../bin/app-kit.ts'), 'iphone-simulator', 'keep', 'HELD-UDID', '5'], {
+      env: { ...process.env, XDG_STATE_HOME: state },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(done.exitCode).toBe(0);
+    expect(done.stdout.toString()).toMatch(/^\[iphone-simulator\] "Sample App" \(HELD-UDID\) shuts down at \d\d:\d\d, in 5 minutes\n$/);
+    const until = (JSON.parse(readFileSync(join(folder, 'HELD-UDID.json'), 'utf8')) as { until: number }).until;
+    expect(until).toBeGreaterThanOrEqual(before + 5 * 60_000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 5 * 60_000);
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
