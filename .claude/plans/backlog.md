@@ -176,3 +176,9 @@ Done when: each of those apps pins app-kit v0.33.3 or later on its main, with it
 Goal: the README's "An app built on it" example calls `signInFromEnvironment(import.meta.env)`, which fails an app's typecheck under Vite 8 with TS2559 ("Type 'ImportMetaEnv' has no properties in common with type 'PageSignInSettings'"): both settings are optional, so TypeScript treats the type as weak, and Vite's ImportMetaEnv declares neither. assay worked around it with a client/src/vite-env.d.ts declaring VITE_CLERK_PUBLISHABLE_KEY and VITE_SIGN_IN. Either the README shows that declaration beside the example, or the kit ships one an app references, so the example compiles as written.
 Done when: an app that copies the README's example and runs its typecheck under Vite 8 gets no error, held by a typecheck of a fixture that uses it.
 Found by: assay/onto-app-kit, 2026-11-02, moving assay onto v0.33.4.
+
+## actool-hang · The icons test's Xcode compile hangs past its limit when the machine is busy
+
+Goal: test/icons.test.ts "the icon sets it fills compile in Xcode for the Mac and the iPhone" runs `xcrun actool --compile` on the icon sets it draws, with a 120 second limit. In the first landing of testflight-icon-check (2026-11-02, load average near 100) the Mac compile ran the whole 120 seconds and was stopped (code -1, nothing printed), so the gates went red and the landing stopped; alone it passes in 4.4 seconds. Why actool hangs is unknown: it may wait on Xcode's shared asset catalog service, which several builds at once contend for. Found by the testflight-icon-check thread.
+
+Done when: the cause is known from a reproduction (actool under a load like the gates' or beside a second actool), and the test either no longer hangs under that load or stops for a reason it names, with no longer limit as the fix.
