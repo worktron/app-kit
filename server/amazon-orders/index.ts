@@ -4,10 +4,17 @@ import { Window } from 'happy-dom';
 
 const window = new Window();
 
-/** A page as a document. Scripts and styles are dropped first: nothing read lives in them, and they are most of a page. */
-export function parse(html: string): Document {
+/**
+ * A page to search with querySelector and querySelectorAll. Scripts and styles are dropped first: nothing read lives in
+ * them, and they are most of a page. It is parsed into a template, whose contents are never attached to a document: a
+ * parsed document in happy-dom acts on some of what a page holds, sending a preload link's request or throwing where
+ * nothing catches it on a relative one, and a page here may have been sent to a server by anyone.
+ */
+export function parse(html: string): DocumentFragment {
   const lean = html.replace(/<script\b[\s\S]*?<\/script>/gi, '').replace(/<style\b[\s\S]*?<\/style>/gi, '');
-  return new window.DOMParser().parseFromString(lean, 'text/html') as unknown as Document;
+  const template = window.document.createElement('template');
+  template.innerHTML = lean;
+  return template.content as unknown as DocumentFragment;
 }
 
 /** An element's text with its whitespace collapsed. */

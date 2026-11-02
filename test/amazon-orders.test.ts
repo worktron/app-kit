@@ -114,6 +114,9 @@ test('dates, dollars, text and stores read as Amazon prints them, and what is no
 
 test('reading a page sent to a server fetches nothing it names and runs nothing in it', async () => {
   const asked: string[] = [];
+  const thrown: unknown[] = [];
+  const onThrown = (reason: unknown) => thrown.push(reason);
+  process.on('unhandledRejection', onThrown);
   const server = Bun.serve({
     port: 0,
     hostname: '127.0.0.1',
@@ -124,16 +127,22 @@ test('reading a page sent to a server fetches nothing it names and runs nothing 
   });
   try {
     const here = `http://127.0.0.1:${server.port}`;
-    const page = `<html><head><link rel="stylesheet" href="${here}/stylesheet"><link rel="modulepreload" href="${here}/module"><meta http-equiv="refresh" content="0;url=${here}/refresh"></head>
-      <body onload="globalThis.amazonOrdersPageRan = true"><img src="${here}/image"><iframe src="${here}/frame"></iframe><object data="${here}/object"></object><embed src="${here}/embed">
+    const page = `<html><head><link rel="stylesheet" href="${here}/stylesheet"><link rel="modulepreload" href="${here}/module"><link rel="preload" as="fetch" href="${here}/preload"><link rel="preload" as="fetch" href="/relative-preload"><meta http-equiv="refresh" content="0;url=${here}/refresh"></head>
+      <body onload="globalThis.amazonOrdersPageRan = true"><img src="${here}/image"><iframe src="${here}/frame"></iframe><iframe srcdoc="<link rel=preload as=fetch href=${here}/frame-preload><link rel=preload as=fetch href=/frame-relative>"></iframe><object data="${here}/object"></object><embed src="${here}/embed">
       <svg><script href="${here}/svg-script"></script></svg><script src="${here}/script-with-no-end">`;
     expect(readOrders(page)).toEqual([]);
     expect(readOrderDetails(page)).toEqual([]);
+    // What happy-dom acts on is what is attached to a document, and nothing here is.
+    const parsed = [...parse(page).querySelectorAll('*')];
+    expect(parsed.length).toBeGreaterThan(5);
+    expect(parsed.filter((element) => element.isConnected)).toEqual([]);
     // Anything the page set off would reach this server before the answer to a request sent after it.
     await fetch(`${here}/after`);
     expect(asked).toEqual(['/after']);
     expect('amazonOrdersPageRan' in globalThis).toBe(false);
+    expect(thrown).toEqual([]);
   } finally {
+    process.off('unhandledRejection', onThrown);
     await server.stop(true);
   }
 });
