@@ -196,3 +196,11 @@ Done when: with no time limit raised, `test/postgres.test.ts` passes five runs i
 Do not touch: time limits in the tests or bunfig.toml; what `openDb` does for apps.
 Needs: nothing.
 Touches: server/postgres/index.ts, test/postgres.test.ts.
+
+## plan-landings-check-public · A landing of only plan files still refuses a personal fact
+
+Goal: a landing that changes only `.claude/plans` skips every gate (`scripts/land.ts`, "the gates are skipped"), so nothing checks that the repository, which is public, stays free of personal facts. On 2026-11-02 a plan landed that way with an address `test/public.test.ts` did not allow, which turned that file's two tests red on main for every other thread until another landing allowed the address at 850283f. Running the file as it is would bring its own fault along: its history tests read `git log --all`, so another thread's unlanded local commit (1db5561 on 2026-11-02) stopped a landing that had nothing to do with it. The check on a landing looks at the files and commits that landing adds to main.
+Done when: a test in `test/land.test.ts` shows a plan-only landing holding a home folder path stopped before it pushes, and one holding only allowed text landing with the other gates still skipped; and a personal fact in a commit on another local branch stops no landing.
+Do not touch: what `test/public.test.ts` counts as a personal fact; the other gates, which plan-only landings keep skipping.
+Needs: nothing.
+Touches: scripts/land.ts, test/public.test.ts, test/land.test.ts.
