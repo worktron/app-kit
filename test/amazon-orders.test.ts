@@ -1,20 +1,13 @@
 // Reading Amazon's order pages. The pages here keep the structure of real recordings, with every product, price, number
-// and name made up (test/fixtures/amazon-orders/README.md). The reader runs on a server, so these run with no simulated page.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+// and name made up (test/fixtures/amazon-orders/README.md).
+import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
 import { dollars, isoDate, orderDetailsPath, ordersPath, parse, PERIODS, readOrderDetails, readOrders, STORE_NAMES, storeOfBrand, textOf } from '../server/amazon-orders';
-import { withoutPage } from './dom';
 
 const FIXTURES = join(import.meta.dir, 'fixtures/amazon-orders');
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), 'utf8');
-
-let putPageBack: () => void;
-beforeAll(async () => {
-  putPageBack = await withoutPage();
-});
-afterAll(() => putPageBack());
 
 test('an order reads as number, date, total, delivery, its products with their store, and how many more it left out', () => {
   expect(readOrders(fixture('orders.html'))).toEqual([
@@ -112,39 +105,13 @@ test('dates, dollars, text and stores read as Amazon prints them, and what is no
   expect(storeOfBrand('unknown')).toBeNull();
 });
 
-test('reading a page sent to a server fetches nothing it names and runs nothing in it', async () => {
-  const asked: string[] = [];
-  const thrown: unknown[] = [];
-  const onThrown = (reason: unknown) => thrown.push(reason);
-  process.on('unhandledRejection', onThrown);
-  const server = Bun.serve({
-    port: 0,
-    hostname: '127.0.0.1',
-    fetch(request) {
-      asked.push(new URL(request.url).pathname);
-      return new Response('globalThis.amazonOrdersPageRan = true', { headers: { 'content-type': 'text/javascript' } });
-    },
-  });
-  try {
-    const here = `http://127.0.0.1:${server.port}`;
-    const page = `<html><head><link rel="stylesheet" href="${here}/stylesheet"><link rel="modulepreload" href="${here}/module"><link rel="preload" as="fetch" href="${here}/preload"><link rel="preload" as="fetch" href="/relative-preload"><meta http-equiv="refresh" content="0;url=${here}/refresh"></head>
-      <body onload="globalThis.amazonOrdersPageRan = true"><img src="${here}/image"><iframe src="${here}/frame"></iframe><iframe srcdoc="<link rel=preload as=fetch href=${here}/frame-preload><link rel=preload as=fetch href=/frame-relative>"></iframe><object data="${here}/object"></object><embed src="${here}/embed">
-      <svg><script href="${here}/svg-script"></script></svg><script src="${here}/script-with-no-end">`;
-    expect(readOrders(page)).toEqual([]);
-    expect(readOrderDetails(page)).toEqual([]);
-    // What happy-dom acts on is what is attached to a document, and nothing here is.
-    const parsed = [...parse(page).querySelectorAll('*')];
-    expect(parsed.length).toBeGreaterThan(5);
-    expect(parsed.filter((element) => element.isConnected)).toEqual([]);
-    // Anything the page set off would reach this server before the answer to a request sent after it.
-    await fetch(`${here}/after`);
-    expect(asked).toEqual(['/after']);
-    expect('amazonOrdersPageRan' in globalThis).toBe(false);
-    expect(thrown).toEqual([]);
-  } finally {
-    process.off('unhandledRejection', onThrown);
-    await server.stop(true);
-  }
+test('reading a page sent to a server fetches nothing it names, runs nothing in it, and leaves the process free to end', () => {
+  const run = Bun.spawnSync(['bun', join(import.meta.dir, 'amazon-orders-child.ts')], { stdout: 'pipe', stderr: 'pipe' });
+  expect(run.stderr.toString()).toBe('');
+  expect(run.exitCode).toBe(0);
+  const seen = JSON.parse(run.stdout.toString());
+  expect(seen.elements).toBeGreaterThan(5);
+  expect(seen).toEqual({ page: 'undefined', orders: [], details: [], elements: seen.elements, attached: 0, asked: ['/after'], thrown: [], ran: false });
 });
 
 test('what a script or style holds is not read as part of an order, wherever it sits', () => {
