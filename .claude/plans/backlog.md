@@ -204,3 +204,11 @@ Done when: a test in `test/land.test.ts` shows a plan-only landing holding a hom
 Do not touch: what `test/public.test.ts` counts as a personal fact; the other gates, which plan-only landings keep skipping.
 Needs: nothing.
 Touches: scripts/land.ts, test/public.test.ts, test/land.test.ts.
+
+## swiftc-build-check-runs · The Swift build's status item check fails when it cannot read the SDK version
+
+Goal: `swift/menu-bar/e2e/swiftc-build.sh` line 18 checks that a theme built with the macOS 27 SDK holds the status item session, and it decides whether to check from `xcrun --show-sdk-version`. In the gates of the landing at 21ef40f on 2026-11-02, `xcrun` said it could not look up the SDK, the version came back empty, and the script printed `[: : integer expected`. A test that errors inside an `if` counts as false, so the check did not run, `set -e` did not stop the script, and the gate passed. A check that can be skipped this way says nothing about the theme. Why `xcrun` could not find the SDK on that run is not known, so find that out too.
+Done when: with `xcrun --show-sdk-version` failing or printing nothing, the script exits non-zero and says it could not read the SDK version, shown by a test that runs it with a stand-in `xcrun`; with a real version the check runs as before; and the ticket's landing says why `xcrun` failed in that gate run.
+Do not touch: the macOS 26 SDK build further down the script; Sources/MenuBarTheme.
+Needs: nothing.
+Touches: swift/menu-bar/e2e/swiftc-build.sh, a test in test/.
