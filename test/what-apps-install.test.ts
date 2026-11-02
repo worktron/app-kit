@@ -24,7 +24,7 @@ test('the archive an app installs still holds what apps use', () => {
 });
 
 test('an instruction file added in a folder later is left out too', () => {
-  for (const path of ['tauri/CLAUDE.md', 'tauri/AGENTS.md', 'tauri/.claude/rules/some.md']) {
+  for (const path of ['tauri/CLAUDE.md', 'tauri/AGENTS.md', 'tauri/.claude']) {
     expect(run(['git', 'check-attr', 'export-ignore', '--', path]).trim()).toEndWith('export-ignore: set');
   }
 });
