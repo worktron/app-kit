@@ -164,3 +164,9 @@ Touches: server/postgres/index.ts, its test, README.
 Goal: an agent or person sees from the run's own output which page address the iPhone build loads. An address that does not answer still builds, exits 0 and prints "running in the Simulator", and the app is blank. In a trial on Getter, an agent lost one whole build to this, because Vite answered on `localhost` and refused `127.0.0.1`. An app whose page is a hosted site also loads the deployed site when given no address, so a page changed on a branch never shows, and nothing printed says so. `TAURI_PAGE_ADDRESS` is read by each app's shell at compile time, so the run can see it in its environment but not an app's own default or another variable, such as Argon's `TAURI_ARGON_URL`. Work out what can be said truthfully for each.
 
 Done when: a Simulator run prints one `[iphone]` line naming the address it was given, or saying it was given none and that the app then loads its compiled-in default, and a test holds it.
+
+## iphone-apps-to-testing-section · the iPhone apps move to a kit whose run names the testing section
+
+Goal: `bun run iphone` in each iPhone app names the README section "Testing the iPhone app yourself", which needs app-kit v0.33.3 or later. On 2026-11-02 Argon Watcher, Getter, Past the Break and Timescale were on 0.25 and Metamax's iPhone app on 0.33.1. The always-loaded rule already points agents at the section on GitHub, so nothing is broken meanwhile; this makes the pointer show in the run itself, and puts the section in each app's own `node_modules`. Each move is that app's own work, in a thread there, since 0.25 to 0.33 may ask something of the app.
+
+Done when: each of those apps pins app-kit v0.33.3 or later on its main, with its gates passing.
