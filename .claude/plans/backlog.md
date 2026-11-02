@@ -170,3 +170,9 @@ Done when: a Simulator run prints one `[iphone]` line naming the address it was 
 Goal: `bun run iphone` in each iPhone app names the README section "Testing the iPhone app yourself", which needs app-kit v0.33.3 or later. On 2026-11-02 Argon Watcher, Getter, Past the Break and Timescale were on 0.25 and Metamax's iPhone app on 0.33.1. The always-loaded rule already points agents at the section on GitHub, so nothing is broken meanwhile; this makes the pointer show in the run itself, and puts the section in each app's own `node_modules`. Each move is that app's own work, in a thread there, since 0.25 to 0.33 may ask something of the app.
 
 Done when: each of those apps pins app-kit v0.33.3 or later on its main, with its gates passing.
+
+## vite-env-example · the README's sign-in example compiles under Vite 8
+
+Goal: the README's "An app built on it" example calls `signInFromEnvironment(import.meta.env)`, which fails an app's typecheck under Vite 8 with TS2559 ("Type 'ImportMetaEnv' has no properties in common with type 'PageSignInSettings'"): both settings are optional, so TypeScript treats the type as weak, and Vite's ImportMetaEnv declares neither. assay worked around it with a client/src/vite-env.d.ts declaring VITE_CLERK_PUBLISHABLE_KEY and VITE_SIGN_IN. Either the README shows that declaration beside the example, or the kit ships one an app references, so the example compiles as written.
+Done when: an app that copies the README's example and runs its typecheck under Vite 8 gets no error, held by a typecheck of a fixture that uses it.
+Found by: assay/onto-app-kit, 2026-11-02, moving assay onto v0.33.4.
