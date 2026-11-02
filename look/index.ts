@@ -33,7 +33,7 @@ export const DEFAULT_ACCENT: Accent = { light: '#2f5fa7', dark: '#8fb0e6' };
 
 export type Look = { name: 'plain'; accent?: Accent } | { name: 'console' };
 
-/** The console look's colors. Its web apps draw only in dark; the menu bar panel follows the Mac's setting. */
+/** The console look's colors, light and dark, by the system's setting on the web and the Mac's in the menu bar panel. */
 export const CONSOLE: { light: Colors; dark: Colors } = {
   dark: {
     text: '#d4d4d4',

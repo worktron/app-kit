@@ -1,9 +1,9 @@
 // The looks' MUI themes (web/theme.ts): built from the tokens file, with MUI's computed colors and typography taking
 // the kit's values, which they would not were the palette passed after createTheme's first argument.
 import { expect, test } from 'bun:test';
-import { CONSOLE, DEFAULT_ACCENT, FONTS, plainColors } from '../look';
+import { colorsOf, CONSOLE, DEFAULT_ACCENT, FONTS, plainColors, type Role } from '../look';
 import { fieldsNeverZoom, FIELD_FONT_SIZE } from '../web/fields';
-import { lookTheme } from '../web/theme';
+import { colorVariables, lookTheme } from '../web/theme';
 
 test('the plain theme computes its palette from the tokens, light and dark, with the accent as primary', () => {
   const theme = lookTheme();
@@ -54,14 +54,50 @@ test("the app's own options merge into the kit's before MUI computes the theme",
   expect(theme.colorSchemes.light!.palette.primary.main).toBe(DEFAULT_ACCENT.light);
 });
 
-test("the console theme is the console apps' dark theme in JetBrains Mono", () => {
+test("the console theme takes the console look's colors in light and in dark, in JetBrains Mono", () => {
   const theme = lookTheme({ name: 'console' });
-  expect(theme.palette.mode).toBe('dark');
-  expect(theme.palette.background.default).toBe(CONSOLE.dark.bg);
-  expect(theme.palette.background.paper).toBe(CONSOLE.dark.surface);
-  expect(theme.palette.text.primary).toBe(CONSOLE.dark.text);
-  expect(theme.palette.primary.main).toBe(CONSOLE.dark.info);
-  expect(theme.palette.divider).toBe(CONSOLE.dark.border);
+  for (const scheme of ['light', 'dark'] as const) {
+    const palette = theme.colorSchemes[scheme]!.palette;
+    const colors = CONSOLE[scheme];
+    expect(palette.mode).toBe(scheme);
+    expect(palette.background.default).toBe(colors.bg);
+    expect(palette.background.paper).toBe(colors.surface);
+    expect(palette.text.primary).toBe(colors.text);
+    expect(palette.primary.main).toBe(colors.info);
+    expect(palette.divider).toBe(colors.border);
+  }
+  // Light and dark follow the system through CSS variables, as the plain theme does.
+  expect(theme.vars?.palette.background.default).toStartWith('var(--mui-palette-background-default');
   expect(theme.typography.body1).toMatchObject({ fontFamily: FONTS.console, fontSize: '0.875rem' });
   expect(theme.shape.borderRadius).toBe(3);
 });
+
+test("the console theme's outlined button tints the accent at 31% and 8%, the hex 50 and 15 it had", () => {
+  const outlined = lookTheme({ name: 'console' }).components?.MuiButton?.styleOverrides?.outlined as Record<string, unknown>;
+  expect(outlined.borderColor).toBe('rgba(var(--mui-palette-primary-mainChannel) / 0.31)');
+  expect(outlined['&:hover']).toMatchObject({ backgroundColor: 'rgba(var(--mui-palette-primary-mainChannel) / 0.08)' });
+  expect(Math.round((0x50 / 255) * 100)).toBe(31);
+  expect(Math.round((0x15 / 255) * 100)).toBe(8);
+});
+
+for (const look of [{ name: 'plain' }, { name: 'console' }] as const) {
+  test(`every role variable is one the ${look.name} theme writes, with the look's value in light and in dark`, () => {
+    const theme = lookTheme(look);
+    const { light, dark } = colorsOf(look);
+    // MUI writes each scheme's variables into a rule of their own, dark's inside its media query.
+    type Rules = { [selector: string]: Rules | string };
+    const rules = (block: Rules): Record<string, string>[] => {
+      const nested = Object.values(block).filter((value): value is Rules => typeof value === 'object');
+      return [block as Record<string, string>, ...nested.flatMap(rules)];
+    };
+    const declared = (theme.generateStyleSheets() as Rules[]).flatMap(rules);
+    const lightVars = declared.find((vars) => vars['--mui-palette-background-default'] === light.bg)!;
+    const darkVars = declared.find((vars) => vars['--mui-palette-background-default'] === dark.bg)!;
+    expect(Object.keys(colorVariables).sort()).toEqual(Object.keys(light).sort());
+    for (const [role, variable] of Object.entries(colorVariables) as [Role, string][]) {
+      const name = variable.slice('var('.length, -1);
+      expect([role, lightVars[name]]).toEqual([role, light[role]]);
+      expect([role, darkVars[name]]).toEqual([role, dark[role]]);
+    }
+  });
+}

@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { CONSOLE, DEFAULT_ACCENT, plainColors } from '../../look';
+import { colorVariables } from '../theme';
 
 // The kit's MUI themes (web/theme.ts) on the fixture's settings page (fixture/look.html), in Chromium: the plain theme
-// in the system's light and dark settings, and the console theme. Each draw is kept as a picture beside the test's
+// and the console theme, each in the system's light and dark settings. Each draw is kept as a picture beside the test's
 // output, for the comparison with the Plain Look Studies page.
 
 /** A CSS color as #rrggbb. */
@@ -52,12 +53,24 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
-test("the console theme draws the page in the console apps' dark colors in JetBrains Mono", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 460, height: 900 });
-  await page.goto('/look.html?look=console');
-  await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
-  expect(await color(page, 'body', 'background-color')).toBe(CONSOLE.dark.bg);
-  expect(await color(page, 'h1', 'color')).toBe(CONSOLE.dark.text);
-  expect(await page.locator('body').evaluate((body) => getComputedStyle(body).fontFamily)).toMatch(/^"JetBrains Mono"/);
-  await page.screenshot({ path: testInfo.outputPath('web-console.png'), fullPage: true, animations: 'disabled' });
-});
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the console theme draws the page in the console look's ${scheme} colors in JetBrains Mono, and its role variables follow`, async ({ page }, testInfo) => {
+    const colors = CONSOLE[scheme];
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 460, height: 900 });
+    await page.goto('/look.html?look=console');
+    await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
+    expect(await color(page, 'body', 'background-color')).toBe(colors.bg);
+    expect(await color(page, 'h1', 'color')).toBe(colors.text);
+    expect(await page.locator('body').evaluate((body) => getComputedStyle(body).fontFamily)).toMatch(/^"JetBrains Mono"/);
+    // An element an app colors by role, with the kit's variables, takes the scheme's value.
+    await page.locator('body').evaluate((body, value) => {
+      const probe = document.createElement('span');
+      probe.id = 'role-probe';
+      probe.style.color = value;
+      body.append(probe);
+    }, colorVariables.secondary);
+    expect(await color(page, '#role-probe', 'color')).toBe(colors.secondary);
+    await page.screenshot({ path: testInfo.outputPath(`web-console-${scheme}.png`), fullPage: true, animations: 'disabled' });
+  });
+}

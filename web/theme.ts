@@ -6,7 +6,7 @@
  * and contrast colors worked out.
  */
 import { createTheme, type CssVarsTheme, type Theme, type ThemeOptions } from '@mui/material/styles';
-import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Accent, type Colors, type Look } from '../look';
+import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Accent, type Colors, type Look, type Role } from '../look';
 import { rem } from './fields';
 
 type Options = Record<string, unknown>;
@@ -26,19 +26,32 @@ const isPlainObject = (value: unknown): value is Options =>
 
 /**
  * The look's MUI theme, with the app's own `options` merged into the kit's before MUI computes it, so an app's
- * components, breakpoints or a color of its own all take part. Pass it to ThemeProvider. Plain follows the system's
- * light or dark setting through CSS variables; console is dark only, as the console apps are. A text field's size on a
- * phone is still the app's to set: pass `{ components: fieldsNeverZoom }` as `options`.
+ * components, breakpoints or a color of its own all take part. Pass it to ThemeProvider. Both looks follow the system's
+ * light or dark setting through CSS variables, so under them `theme.palette` holds the light values only: code that
+ * reads a color in JavaScript reads `theme.vars.palette`. A text field's size on a phone is still the app's to set:
+ * pass `{ components: fieldsNeverZoom }` as `options`.
  */
-export function lookTheme(look?: Extract<Look, { name: 'plain' }>, options?: ThemeOptions): Theme & Pick<CssVarsTheme, 'colorSchemes'>;
-export function lookTheme(look: Look, options?: ThemeOptions): Theme;
-export function lookTheme(look: Look = { name: 'plain' }, options: ThemeOptions = {}): Theme {
+export function lookTheme(look: Look = { name: 'plain' }, options: ThemeOptions = {}): Theme & Pick<CssVarsTheme, 'colorSchemes' | 'generateStyleSheets'> {
   const kit = look.name === 'console' ? consoleOptions() : plainOptions(look.accent);
-  return createTheme(merge(kit, options as Options) as ThemeOptions);
+  return createTheme(merge(kit, options as Options) as ThemeOptions) as Theme & Pick<CssVarsTheme, 'colorSchemes' | 'generateStyleSheets'>;
 }
+
+/** The palette key under which both themes hold every one of the look's colors, so MUI writes a variable for each role. */
+const LOOK_KEY = 'look';
+
+/**
+ * Every role of the look as the CSS variable the theme writes for it, `var(--mui-palette-look-<role>)`, which takes
+ * the light or the dark value with the system's setting. For an app whose code names colors by role, in place of a
+ * fixed object of hex values: `color: colorVariables.secondary`. A see-through tint is
+ * `color-mix(in srgb, ${colorVariables.info} 30%, transparent)`, never hex digits added on the end.
+ */
+export const colorVariables = Object.fromEntries(
+  (Object.keys(CONSOLE.dark) as Role[]).map((role) => [role, `var(--mui-palette-${LOOK_KEY}-${role})`]),
+) as Record<Role, string>;
 
 function palette(colors: Colors) {
   return {
+    [LOOK_KEY]: { ...colors },
     primary: { main: colors.info },
     secondary: { main: colors.secondary },
     success: { main: colors.ok },
@@ -170,22 +183,17 @@ function plainOptions(accent?: Accent): Options {
   };
 }
 
-/** The console look: the four console apps' dark theme, JetBrains Mono on near-black, body text at 14 and smaller text at 13. */
+/**
+ * The console look: the console apps' theme, JetBrains Mono on near-black in dark and on neutral greys in light, body
+ * text at 14 and smaller text at 13.
+ */
 function consoleOptions(): Options {
-  const colors = CONSOLE.dark;
   const mono = FONTS.console;
+  const line = 'var(--mui-palette-divider)';
+  const surface = 'var(--mui-palette-background-paper)';
   return {
-    palette: {
-      mode: 'dark',
-      primary: { main: colors.info },
-      secondary: { main: colors.secondary },
-      success: { main: colors.ok },
-      warning: { main: colors.warn },
-      error: { main: colors.error },
-      background: { default: colors.bg, paper: colors.surface },
-      text: { primary: colors.text, secondary: colors.secondary },
-      divider: colors.border,
-    },
+    cssVariables: true,
+    colorSchemes: { light: { palette: palette(CONSOLE.light) }, dark: { palette: palette(CONSOLE.dark) } },
     typography: {
       fontFamily: mono,
       fontSize: CONSOLE_SIZES.body,
@@ -201,21 +209,22 @@ function consoleOptions(): Options {
     components: {
       MuiCssBaseline: {
         styleOverrides: {
-          body: { scrollbarWidth: 'thin', scrollbarColor: `${colors.border} ${colors.bg}` },
+          html: { backgroundColor: 'var(--mui-palette-background-default)' },
+          body: { scrollbarWidth: 'thin', scrollbarColor: `${line} var(--mui-palette-background-default)` },
           a: { textDecoration: 'none' },
         },
       },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
-      MuiAppBar: { styleOverrides: { root: { backgroundColor: colors.surface, borderBottom: `1px solid ${colors.border}` } } },
+      MuiAppBar: { styleOverrides: { root: { backgroundColor: surface, borderBottom: `1px solid ${line}` } } },
       MuiCard: {
         styleOverrides: {
           root: {
             backgroundImage: 'none',
-            backgroundColor: colors.surface,
+            backgroundColor: surface,
             boxShadow: 'none',
-            border: `1px solid ${colors.border}`,
+            border: `1px solid ${line}`,
             transition: 'border-color 0.15s ease',
-            '&:hover': { borderColor: colors.borderHi },
+            '&:hover': { borderColor: colorVariables.borderHi },
           },
         },
       },
@@ -223,25 +232,29 @@ function consoleOptions(): Options {
         styleOverrides: {
           root: { textTransform: 'none', fontWeight: 500, fontFamily: mono, fontSize: rem(CONSOLE_SIZES.webSmall) },
           contained: { boxShadow: 'none', '&:hover': { boxShadow: 'none' } },
-          outlined: { borderColor: `${colors.info}50`, '&:hover': { borderColor: colors.info, backgroundColor: `${colors.info}15` } },
+          // The accent at 31% and 8%, as the hex 50 and 15 the console apps wrote after it.
+          outlined: {
+            borderColor: 'rgba(var(--mui-palette-primary-mainChannel) / 0.31)',
+            '&:hover': { borderColor: 'var(--mui-palette-primary-main)', backgroundColor: 'rgba(var(--mui-palette-primary-mainChannel) / 0.08)' },
+          },
         },
       },
       MuiChip: { styleOverrides: { root: { fontWeight: 500, fontFamily: mono } } },
-      MuiDialog: { styleOverrides: { paper: { backgroundColor: colors.surface, backgroundImage: 'none', border: `1px solid ${colors.border}` } } },
-      MuiDivider: { styleOverrides: { root: { borderColor: colors.border } } },
+      MuiDialog: { styleOverrides: { paper: { backgroundColor: surface, backgroundImage: 'none', border: `1px solid ${line}` } } },
+      MuiDivider: { styleOverrides: { root: { borderColor: line } } },
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
             fontFamily: mono,
             fontSize: rem(CONSOLE_SIZES.small),
             borderRadius: 3,
-            backgroundColor: colors.surfaceHi,
-            border: `1px solid ${colors.border}`,
-            color: colors.text,
+            backgroundColor: colorVariables.surfaceHi,
+            border: `1px solid ${line}`,
+            color: 'var(--mui-palette-text-primary)',
           },
         },
       },
-      MuiLinearProgress: { styleOverrides: { root: { backgroundColor: colors.border, borderRadius: 2 } } },
+      MuiLinearProgress: { styleOverrides: { root: { backgroundColor: line, borderRadius: 2 } } },
     },
   };
 }
