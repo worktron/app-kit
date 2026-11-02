@@ -25,8 +25,9 @@ beforeEach(() => {
 afterEach(() => place.done());
 
 /** A Mac's Simulators by udid, with their names and whether each is booted, and the clock; `onSleep` runs at each wait. */
-function mac(devices: Record<string, { name: string; booted?: boolean }>, onSleep: (now: number) => void = () => {}) {
+function mac(devices: Record<string, { name: string; booted?: boolean }>, onSleep: (now: number) => void = () => {}, refusals = 0) {
   let now = T0;
+  let refuse = refusals;
   const sleeps: number[] = [];
   const printed: string[] = [];
   const watchers: string[] = [];
@@ -37,6 +38,7 @@ function mac(devices: Record<string, { name: string; booted?: boolean }>, onSlee
       return ok(JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': listed } }));
     }
     if (line.startsWith('xcrun simctl shutdown ')) {
+      if (refuse-- > 0) return { code: 1, out: 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to shutdown device in current state: Booting', stdout: '', stderr: '', timedOut: false };
       const device = devices[command[3]];
       if (device) device.booted = false;
       return ok();
@@ -81,7 +83,8 @@ describe('takePlace', () => {
   test('on a Mac with a free place, it writes the shut-down time and starts the watcher', async () => {
     const m = mac({ MINE: { name: MINE.name }, OTHER: { name: 'Getter', booted: true } });
     const placed = await takePlace(m.lifetime, { ...MINE, checkout });
-    expect(placed).toEqual({ held: { ...MINE, checkout, until: T0 + 10 * MINUTE, runPid: process.pid, watcherPid: process.pid, booted: false } });
+    // Twenty minutes for the boot and install; the run sets ten from the app's start.
+    expect(placed).toEqual({ held: { ...MINE, checkout, until: T0 + 20 * MINUTE, runPid: process.pid, watcherPid: process.pid, booted: false } });
     expect(readHeld(folder, 'MINE')).toEqual((placed as { held: Held }).held);
     expect(m.watchers).toEqual(['MINE']);
     expect(m.sleeps).toEqual([]);
@@ -147,7 +150,7 @@ describe('takePlace', () => {
     const m = mac({ MINE: { name: MINE.name, booted: true }, A: { name: 'A', booted: true }, B: { name: 'B', booted: true } });
     hold({ udid: 'MINE', name: MINE.name, until: T0 + MINUTE, watcherPid: deadPid() });
     const placed = await takePlace(m.lifetime, { ...MINE, checkout });
-    expect(placed).toEqual({ held: expect.objectContaining({ until: T0 + 10 * MINUTE, watcherPid: process.pid, booted: false }) });
+    expect(placed).toEqual({ held: expect.objectContaining({ until: T0 + 20 * MINUTE, watcherPid: process.pid, booted: false }) });
     expect(m.watchers).toEqual(['MINE']);
   });
 });
@@ -159,6 +162,15 @@ describe('the watcher', () => {
     expect(await watchSimulator({ ...m.lifetime, pid: process.pid }, 'MINE')).toBe('shut down');
     expect(m.shutdowns()).toEqual(['xcrun simctl shutdown MINE']);
     expect(m.at()).toBe(T0 + 10 * MINUTE);
+    expect(readHeld(folder, 'MINE')).toBeNull();
+  });
+
+  test('a shut-down simctl refuses is tried again at the next look, with the file kept until it works', async () => {
+    const m = mac({ MINE: { name: MINE.name, booted: true } }, () => {}, 1);
+    hold({ udid: 'MINE', until: T0 });
+    expect(await watchSimulator({ ...m.lifetime, pid: process.pid }, 'MINE')).toBe('shut down');
+    expect(m.shutdowns()).toEqual(['xcrun simctl shutdown MINE', 'xcrun simctl shutdown MINE']);
+    expect(m.at()).toBe(T0 + 15_000);
     expect(readHeld(folder, 'MINE')).toBeNull();
   });
 
@@ -199,6 +211,20 @@ describe('keep and release', () => {
     expect(m.watchers).toEqual(['MINE']);
     expect(setTime(m.lifetime, 'MINE')).toMatchObject({ until: T0 + 15 * MINUTE });
     expect(m.watchers).toEqual(['MINE']);
+  });
+
+  test('a release simctl refuses keeps the file, for the watcher to try again at its time', async () => {
+    const m = mac({ MINE: { name: MINE.name, booted: true } }, () => {}, 1);
+    hold({ udid: 'MINE' });
+    await release(m.lifetime, 'MINE', 'its run failed');
+    expect(readHeld(folder, 'MINE')).not.toBeNull();
+  });
+
+  test('a Simulator already shut down counts as shut down, though simctl refuses', async () => {
+    const m = mac({ MINE: { name: MINE.name } }, () => {}, 1);
+    hold({ udid: 'MINE' });
+    await release(m.lifetime, 'MINE', 'its run failed');
+    expect(readHeld(folder, 'MINE')).toBeNull();
   });
 
   test('release shuts the Simulator down and forgets it; one app-kit holds no time for is left alone', async () => {

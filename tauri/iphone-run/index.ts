@@ -241,7 +241,12 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
       print,
       ...options.lifetime,
     };
-    const place = await takePlace(lifetime, { udid, name, checkout: cwd });
+    let place;
+    try {
+      place = await takePlace(lifetime, { udid, name, checkout: cwd });
+    } catch (error) {
+      return fail(`could not take a place for the Simulator: ${error instanceof Error ? error.message : String(error)}`);
+    }
     if ('refused' in place) return fail(place.refused);
     const held = 'held' in place;
     if (held) holding.current = { folder: lifetime.folder, udid };
@@ -274,7 +279,7 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
     const timed = held ? setTime(lifetime, udid) : null;
     holding.current = null;
     if (timed) {
-      print(`the Simulator shuts down at ${clock(timed.until)}, in ${MINUTES} minutes: app-kit iphone-simulator keep ${udid} gives it ${MINUTES} more, and xcrun simctl shutdown ${udid} ends it when the check is done`);
+      print(`the Simulator shuts down at ${clock(timed.until)}, in ${MINUTES} minutes: app-kit iphone-simulator keep ${udid} moves it to ${MINUTES} minutes from then, and xcrun simctl shutdown ${udid} ends it when the check is done`);
     } else {
       print(`the Simulator was running before this run, booted some other way, so app-kit gives it no shut-down time: xcrun simctl shutdown ${udid} when the check is done`);
     }

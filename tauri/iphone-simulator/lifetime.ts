@@ -33,6 +33,8 @@ import { alive, appendLog, lock } from '../state.ts';
 export const AT_ONCE = 2;
 /** How long a Simulator stays up after its app starts, and how long `keep` gives it, in minutes. */
 export const MINUTES = 10;
+/** How long a run has from taking its place to its app's start, when the 10 minutes begin: a first boot and install can be slow. */
+export const STARTING_MINUTES = 20;
 /** The most `keep` gives at once, in minutes. */
 export const MOST_MINUTES = 30;
 /** How often the watcher looks, in milliseconds. */
@@ -125,7 +127,23 @@ const label = (held: Pick<Held, 'name' | 'udid'>) => `"${held.name}" (${held.udi
 async function devices(run: Run): Promise<SimDevice[] | string> {
   const listing = await run(['xcrun', 'simctl', 'list', 'devices', '-j']);
   if (listing.code !== 0) return `could not list the Simulators: ${listing.out.trim().split('\n').at(-1) ?? ''}`;
-  return listDevices(listing.out);
+  try {
+    return listDevices(listing.out);
+  } catch {
+    return `could not read simctl's list of Simulators: ${listing.out.slice(0, 200)}`;
+  }
+}
+
+/**
+ * Shuts the Simulator down, giving whether it is down: simctl's refusal for one already shut down is a success, read
+ * from its state rather than its words, and any other refusal leaves the kit's file for a later try.
+ */
+async function shutDown(run: Run, udid: string): Promise<true | string> {
+  const done = await run(['xcrun', 'simctl', 'shutdown', udid]);
+  if (done.code === 0) return true;
+  const listed = await devices(run);
+  if (typeof listed !== 'string' && listed.find((d) => d.udid === udid)?.state === 'Shutdown') return true;
+  return done.out.trim().split('\n').at(-1) ?? `exit ${done.code}`;
 }
 
 /** In-process turns at the lock, which the file lock alone cannot give: its holder is this same process. */
@@ -190,7 +208,7 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
       }
       const held: Held = {
         ...device,
-        until: now() + MINUTES * 60_000,
+        until: now() + STARTING_MINUTES * 60_000,
         runPid: lifetime.pid ?? process.pid,
         watcherPid: null,
         booted: false,
@@ -225,7 +243,11 @@ async function shutDownPast(lifetime: Lifetime, run: Run): Promise<void> {
   const now = (lifetime.now ?? Date.now)();
   for (const held of allHeld(lifetime.folder)) {
     if (held.until > now) continue;
-    await run(['xcrun', 'simctl', 'shutdown', held.udid]); // already shut down is fine
+    const down = await shutDown(run, held.udid);
+    if (down !== true) {
+      log(lifetime, `${label(held)}: past its time of ${clock(held.until)}, and simctl would not shut it down (${down}); trying again at the next run`);
+      continue;
+    }
     forget(lifetime.folder, held.udid);
     log(lifetime, `${label(held)}: shut down, past its time of ${clock(held.until)} with no watcher to do it`);
   }
@@ -253,7 +275,12 @@ export function setTime(lifetime: Lifetime, udid: string, minutes = MINUTES): He
 export async function release(lifetime: Lifetime, udid: string, why: string): Promise<void> {
   const held = readHeld(lifetime.folder, udid);
   if (!held) return;
-  await (lifetime.run ?? runCommand)(['xcrun', 'simctl', 'shutdown', udid]);
+  const down = await shutDown(lifetime.run ?? runCommand, udid);
+  if (down !== true) {
+    // The file stays, so its watcher tries again at its time.
+    log(lifetime, `${label(held)}: ${why}, and simctl would not shut it down (${down}); its watcher tries again at ${clock(held.until)}`);
+    return;
+  }
   forget(lifetime.folder, udid);
   log(lifetime, `${label(held)}: shut down, ${why}`);
 }
@@ -262,7 +289,12 @@ export async function release(lifetime: Lifetime, udid: string, why: string): Pr
 export function releaseNow(folder: string, udid: string, why: string, spawnSync = Bun.spawnSync): void {
   const held = readHeld(folder, udid);
   if (!held) return;
-  spawnSync(['xcrun', 'simctl', 'shutdown', udid], { stdout: 'ignore', stderr: 'ignore' });
+  const done = spawnSync(['xcrun', 'simctl', 'shutdown', udid], { stdout: 'ignore', stderr: 'pipe' });
+  if (!done.success) {
+    // Already shut down or not, the watcher settles it at its time: it reads the Simulator's state.
+    appendLog(join(folder, 'simulators.log'), `${new Date().toISOString()} ${label(held)}: ${why}, and simctl would not shut it down (${done.stderr.toString().trim().split('\n').at(-1)}); its watcher tries again at ${clock(held.until)}`);
+    return;
+  }
   forget(folder, udid);
   appendLog(join(folder, 'simulators.log'), `${new Date().toISOString()} ${label(held)}: shut down, ${why}`);
 }
@@ -295,10 +327,13 @@ export async function watchSimulator(lifetime: Lifetime, udid: string): Promise<
     if (held.watcherPid !== null && held.watcherPid !== pid) return 'nothing to do';
     const gone = !existsSync(held.checkout);
     if (gone || now() >= held.until) {
-      await run(['xcrun', 'simctl', 'shutdown', udid]); // already shut down is fine
-      forget(lifetime.folder, udid);
-      log(lifetime, `${label(held)}: shut down by its watcher, ${gone ? `its checkout ${held.checkout} is gone` : `its time of ${clock(held.until)} came`}`);
-      return 'shut down';
+      const down = await shutDown(run, udid);
+      if (down === true) {
+        forget(lifetime.folder, udid);
+        log(lifetime, `${label(held)}: shut down by its watcher, ${gone ? `its checkout ${held.checkout} is gone` : `its time of ${clock(held.until)} came`}`);
+        return 'shut down';
+      }
+      log(lifetime, `${label(held)}: its watcher could not shut it down (${down}); trying again`);
     }
     if (held.booted) {
       const listed = await devices(run);

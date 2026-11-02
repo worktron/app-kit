@@ -196,7 +196,7 @@ describe('iphone run sim', () => {
       `using the Simulator "Sample App" (${SIMULATOR})`,
       '[iphone-simulator] simulator sound already goes to BlackHole (silent)',
       `running in the Simulator ${SIMULATOR}`,
-      `the Simulator shuts down at ${clock(NOW + 10 * 60_000)}, in 10 minutes: app-kit iphone-simulator keep ${SIMULATOR} gives it 10 more, and xcrun simctl shutdown ${SIMULATOR} ends it when the check is done`,
+      `the Simulator shuts down at ${clock(NOW + 10 * 60_000)}, in 10 minutes: app-kit iphone-simulator keep ${SIMULATOR} moves it to 10 minutes from then, and xcrun simctl shutdown ${SIMULATOR} ends it when the check is done`,
       `screenshot: xcrun simctl io ${SIMULATOR} screenshot <file.png>`,
       `to test it yourself, with no window: "${TESTING_SECTION}" in app-kit's README (node_modules/app-kit/README.md)`,
     ]);
