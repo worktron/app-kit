@@ -56,7 +56,8 @@ const USAGE = `app-kit <part> <command>
                               it on this checkout's own Simulator (made once, an iPhone 17,
                               named after the app, and in a worktree after its folder too),
                               with no window and its sound sent to BlackHole; <udid> picks
-                              another Simulator
+                              another Simulator. How to tap and look at it: the README's
+                              "Testing the iPhone app yourself"
   iphone run phone [<udid>]   build it signed for development and start it on the paired
                               iPhone, first adding the phone to the team's development
                               profile when none holds it; <udid> picks the phone

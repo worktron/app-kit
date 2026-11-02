@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { colorWrittenIn, DEVICE_TYPE, pairedPhones, readApp, runIphone, type IphoneRunOptions } from '../tauri/iphone-run/index.ts';
+import { colorWrittenIn, DEVICE_TYPE, pairedPhones, readApp, runIphone, TESTING_SECTION, type IphoneRunOptions } from '../tauri/iphone-run/index.ts';
 import { runCommand } from '../command-line/run.ts';
 import { exit, git, ok, repository, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
 
@@ -156,7 +156,13 @@ describe('iphone run sim', () => {
       '[iphone-simulator] simulator sound already goes to BlackHole (silent)',
       `running in the Simulator ${SIMULATOR}`,
       `screenshot: xcrun simctl io ${SIMULATOR} screenshot <file.png>`,
+      `to test it yourself, with no window: "${TESTING_SECTION}" in app-kit's README (node_modules/app-kit/README.md)`,
     ]);
+  });
+
+  test('the section the run points an agent at is in the README', () => {
+    const readme = readFileSync(join(import.meta.dir, '../README.md'), 'utf8');
+    expect(readme).toContain(`\n#### ${TESTING_SECTION}\n`);
   });
 
   test('every build runs with no FORCE_COLOR, with Rust first on its PATH', async () => {

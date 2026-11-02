@@ -825,6 +825,22 @@ An app replaces its script with two lines in its package.json, and deletes `scri
 
 The script's `SIMULATOR=`, `PHONE=` or `ARGON_PHONE=` becomes the udid argument, `bun run iphone <udid>`. An app that sets something before the build keeps a short script that ends with `exec bun run app-kit iphone run sim "$@"`, as Argon does for its page's address from its dev server (Tauri passes only `TAURI_`-prefixed variables into the Xcode step). The Simulator the old script made, such as `argon`, is no longer used; `xcrun simctl delete argon` removes it.
 
+#### Testing the iPhone app yourself
+
+For an agent, with any version of the kit: run the real app on a Simulator, tap it and look at it before asking anyone to try something. None of this puts a window on the screen or plays a sound.
+
+1. **Choose the page.** A build loads what was compiled into it, and an app whose page is a hosted site loads the deployed site unless told otherwise, so a page changed on this branch never shows and a pass means nothing. For an app whose shell reads `TAURI_PAGE_ADDRESS`, as in [its shell's code above](#a-window-onto-the-hosted-site), run this checkout's server and page and build with `TAURI_PAGE_ADDRESS=http://127.0.0.1:<port> bun run iphone`. An app with another variable or a script of its own says so in its README. An app that bundles its page (`frontendDist` a folder) needs none of this.
+2. **Get past sign-in.** Signed-in screens need no real account: run the local server and page with the app's test sign-in, the kit's stand-in or the app's own bypass settings, which its README names. Only what a person's own account alone shows needs that person.
+3. **Run it.** `bun run iphone` builds the app, starts it on this checkout's own Simulator and prints its udid. Drive only that one: other threads have their own running.
+4. **Look.** `xcrun simctl io <udid> screenshot <file.png> && sips --resampleWidth <width> <file.png>`, then read the file. `<width>` is the screen's width in points: 402 on the iPhone 17 the kit makes, otherwise the first `frame` in `axe describe-ui --udid <udid>`. A pixel of the shrunk picture is then one tap point, so a position read off it is the position to tap, whatever size the agent's image reader shows the full one at. Leave the shrink off to read small detail.
+5. **Tap.** `axe tap --udid <udid> -x <x> -y <y> --post-delay 1.5`, or `axe swipe --udid <udid> --start-x <x> --start-y <y> --end-x <x> --end-y <y>`, or `axe type '<text>' --udid <udid>`. Exit 0 means the tap was sent, not that it landed: on iOS 27 a tap with no delay is dropped with no error. Keep the delay and look after every step.
+6. **Read what is at a position.** `axe describe-ui --point <x>,<y> --udid <udid>` reads the page: the text is in `AXLabel` or `AXValue`, with the exact frame in points, and it answers for whatever is on top there. `axe describe-ui` with no point and `axe tap --label` see only native pieces, such as a menu the page opens; the page itself is not in that tree.
+7. **Shut it down.** `xcrun simctl shutdown <udid>`, the checkout's own Simulator only.
+
+`axe` installs with `brew install cameroncooke/axe/axe`. The Simulator also takes `xcrun simctl push <udid> <bundle id> <payload.json>` for a notification and `xcrun simctl addmedia <udid> <file>` for a photo, and the app's data, its log included, is under `xcrun simctl get_app_container <udid> <bundle id> data`.
+
+A Simulator is not a phone. What only a phone shows, and is worth asking a person to try once all the above has passed: how the app feels and how fast it runs, the sensors, Apple's real push service, and the one-tap hand-back of [Sign-in with one tap](#sign-in-with-one-tap), which never works on a Simulator.
+
 ### A silent iPhone Simulator
 
 `app-kit iphone-simulator quiet <udid>`: a simulator booted with `xcrun simctl boot`, with no window, plays its notification tones and keyboard clicks on the Mac's speakers, and Apple gives no command to mute it; silent mode still plays the notification tone at full volume. The step sends the simulator's sound to BlackHole, a free virtual audio device that plays nowhere, the same setting as Xcode's Sound Output menu. The simulator reads that setting only at boot, so when a booted simulator's sound goes anywhere else the step shuts it down, saves BlackHole in its audio settings file and boots it again, once; a later run finds it silent and touches nothing. On a simulator that is shut down, the step only saves the setting, so its next boot already plays nowhere, with no boot of its own.

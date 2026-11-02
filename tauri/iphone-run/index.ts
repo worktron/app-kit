@@ -31,6 +31,8 @@ import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-l
 const APPLE = 'src-tauri/gen/apple';
 /** The iPhone a new Simulator is: the one the apps' scripts made. */
 export const DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17';
+/** The README's section that tells an agent how to tap and look at the app it just started. */
+export const TESTING_SECTION = 'Testing the iPhone app yourself';
 /** Where Xcode keeps the provisioning profiles it downloads, below the home folder. */
 const PROFILES = 'Library/Developer/Xcode/UserData/Provisioning Profiles';
 
@@ -228,6 +230,7 @@ async function runSteps(options: IphoneRunOptions): Promise<0 | 1> {
     if (launched.code !== 0) return fail(`installed ${basename(bundle)}, but it did not open: ${lastLine(launched.out)}`);
     print(`running in the Simulator ${udid}`);
     print(`screenshot: xcrun simctl io ${udid} screenshot <file.png>`);
+    print(`to test it yourself, with no window: "${TESTING_SECTION}" in app-kit's README (node_modules/app-kit/README.md)`);
     return 0;
   }
 
