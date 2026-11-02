@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  AccountMenu,
   ConnectionLine,
   ErrorBoundary,
   NavigateProvider,
@@ -18,7 +19,6 @@ import {
   useAppDrawn,
   useScreenData,
   useSignIn,
-  useSignOut,
   useTitle,
 } from '../..';
 import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
@@ -157,7 +157,6 @@ function Screen({ title, children }: { title: string | null; children: ReactNode
 
 function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const [address, navigate] = useAddress();
-  const signOut = useSignOut();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
   const path = address.split('?')[0];
   const known = Boolean(item) || ['/', '/later', '/shelf'].includes(path);
@@ -179,7 +178,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
       <header>
         <NewBuildLine appName="the fixture" />
         <ConnectionLine />
-        {signOut && <button onClick={signOut}>Sign out</button>}
+        <AccountMenu items={[{ label: 'Shelf', href: '/shelf' }]} />
       </header>
       <main>
         <h1>The app at {address}</h1>

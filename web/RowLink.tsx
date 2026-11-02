@@ -11,6 +11,9 @@ export function NavigateProvider({ navigate, children }: { navigate: Navigate; c
   return <NavigateContext.Provider value={navigate}>{children}</NavigateContext.Provider>;
 }
 
+/** The navigate a `NavigateProvider` gave, or null, for the kit's other links. */
+export const useNavigate = () => useContext(NavigateContext);
+
 /** A click the browser should handle itself: another button, a key held for a new tab or window, or a download. */
 export function opensElsewhere(e: Pick<MouseEvent, 'button' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'defaultPrevented'>): boolean {
   return e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;

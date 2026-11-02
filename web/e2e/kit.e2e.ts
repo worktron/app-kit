@@ -23,6 +23,12 @@ async function serve(page: Page): Promise<Server> {
   return server;
 }
 
+/** Signs out from the fixture's account menu, as a person does: the button naming the account, then Sign out. */
+async function signOut(page: Page) {
+  await page.getByRole('button', { name: /@example\.com$/ }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+}
+
 /**
  * Plays a deploy of the newer build: the index page names newer.html's entry from now on. With `cachedPage`, the page
  * itself still comes back as the older one, as from a cache that holds it, and only a look past every cache sees the
@@ -62,7 +68,7 @@ test('signing in by emailed code and signing out load no page, and sign-in lands
   await signInByCode(page, 'ana@example.com');
   await expect(heading(page)).toHaveText('The app at /items/2?from=mail');
 
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await signOut(page);
   await expect(heading(page)).toHaveText('Sign in');
   expect(new URL(page.url()).pathname).toBe('/items/2');
   expect(count.loads).toBe(0);
@@ -92,7 +98,7 @@ test("Google costs only the provider's own trip, and lands on the asked address"
   expect(count.loads).toBe(1);
 
   // Signed out by the person, the screen forgets that account and offers Google plainly.
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await signOut(page);
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Continue as/ })).toHaveCount(0);
 });
@@ -195,7 +201,7 @@ test('the server-unreachable line comes and goes by itself', async ({ page }) =>
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
 
   server.down = true;
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await signOut(page);
   await signInByCode(page, 'ana@example.com');
   await expect(page.getByRole('status')).toHaveText('Cannot reach the server. This page reconnects by itself.');
 

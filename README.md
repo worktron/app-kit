@@ -49,6 +49,7 @@ bun add github:worktron/app-kit#v0.33.3
 | The first frame | `firstPaint`, from `app-kit/web/first-paint` | A Vite plugin that paints the page in the app's colors, light or dark or the app's own choice, with the phone's bar to match, before any of the app's code loads. See below. |
 | The first draw after the fonts | `waitForFonts` | Holds the first draw until the app's faces are in, at most a second and a half, so no text swaps from a fallback face. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list. The person's own Sign out forgets the account, so the next sign-in screen offers Google plainly; a session the server ends keeps it, so signing back in is one tap. With `signUp`, an emailed code to an address with no account makes the account once the code is checked; without, the address is told it has none (`noAccountFor`). Given a null provider, it draws the app with no sign-in. |
+| Account menu | `AccountMenu` | Who is signed in, at the right end of the app's bar: a quiet button naming the account, with a menu that says who it is, the app's own items (a screen as a real link, or an act) and Sign out. It draws nothing outside the sign-in gate or with no provider. Optional: an app that wants Sign out elsewhere uses `useSignOut` and `usePerson`. See below. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
 | The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, the files Vite built kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
 
@@ -78,6 +79,17 @@ createRoot(root).render(
 The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Continue as that account (null after the person signs out), `google('remembered')`, `google('choose')` and `google({ account })` for an account chosen in another window, `sendEmailCode` and `checkEmailCode`, and `notice` for what to say above the buttons. Its server answers `/sso-callback` (or the gate's `callbackPath`) with the app, since Google returns there. With `waitForFirstDraw`, the app is rendered from the start, so its requests go out, but none of it shows until it calls `useAppDrawn()`'s function, so the whole screen appears at once. Every screen calls it once its first data is in or has failed to come, and a screen with nothing to load calls it at once: a screen that never calls it stays hidden. Every request goes through `request`.
 
 `web/e2e/fixture` is a whole one, which the kit's own browser test runs.
+
+Sign out goes in the account menu rather than on a screen of its own:
+
+```tsx
+<header>
+  <Wordmark />
+  <AccountMenu items={[{ label: 'Settings', href: '/settings' }, { label: 'Switch profile', onSelect: switchProfile }]} />
+</header>
+```
+
+A link item goes through the app's `NavigateProvider`, as `RowLink` does, so ⌘-click opens it in a new tab. In a Tauri window, Sign Out is in the Mac menu bar too (`useWindowMenu`, below), and the account menu still says who is signed in.
 
 ### A page open across a deploy
 
