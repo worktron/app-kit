@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectFits, largestTextSize } from '../playwright';
 import { CONSOLE, DEFAULT_ACCENT, plainColors } from '../../look';
 import { colorVariables } from '../theme';
 
@@ -72,5 +73,54 @@ for (const scheme of ['light', 'dark'] as const) {
     }, colorVariables.secondary);
     expect(await color(page, '#role-probe', 'color')).toBe(colors.secondary);
     await page.screenshot({ path: testInfo.outputPath(`web-console-${scheme}.png`), fullPage: true, animations: 'disabled' });
+  });
+}
+
+/** The root font size the page draws at, in pixels. */
+const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
+
+test("the Text size row draws the page at the size chosen, at once and after a reload, and Standard goes back to the browser's size", async ({ page }, testInfo) => {
+  await page.goto('/look.html');
+  const menu = page.getByRole('combobox', { name: 'Text size' });
+  // Off a phone there is no phone size to follow: the first choice is the browser's own size.
+  await expect(menu).toHaveText('Standard');
+  expect(await rootSize(page)).toBe('16px');
+  await menu.click();
+  await expect(page.getByRole('option')).toHaveText(['Standard', '85%', '100%', '115%', '125%', '150%', '175%', '200%']);
+  await page.getByRole('option', { name: '150%' }).click();
+  await expect(menu).toHaveText('150%');
+  expect(await rootSize(page)).toBe('24px');
+  await page.screenshot({ path: testInfo.outputPath('text-size-150.png'), fullPage: true, animations: 'disabled' });
+
+  await page.reload();
+  await expect(menu).toHaveText('150%');
+  expect(await rootSize(page)).toBe('24px');
+
+  await menu.click();
+  await page.getByRole('option', { name: 'Standard' }).click();
+  await expect(menu).toHaveText('Standard');
+  expect(await rootSize(page)).toBe('16px');
+});
+
+test("on a phone the first choice names the phone's own size", async ({ page }) => {
+  await largestTextSize(page);
+  await page.goto('/look.html');
+  const menu = page.getByRole('combobox', { name: 'Text size' });
+  await expect(menu).toHaveText('Same as the phone');
+  await menu.click();
+  await expect(page.getByRole('option').first()).toHaveText('Same as the phone312%');
+});
+
+for (const [size, setUp] of [
+  ['200% chosen', (page: Page) => page.addInitScript(() => localStorage.setItem('app-kit:text-size', '2'))],
+  ["the phone's largest Text Size", (page: Page) => largestTextSize(page)],
+] as const) {
+  test(`the settings page fits a phone's width at ${size}`, async ({ page }, testInfo) => {
+    await setUp(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/look.html');
+    await expect(page.getByRole('combobox', { name: 'Text size' })).toBeVisible();
+    await expectFits(page);
+    await page.screenshot({ path: testInfo.outputPath(`text-size-fits-${size.replace(/\W+/g, '-')}.png`), fullPage: true, animations: 'disabled' });
   });
 }

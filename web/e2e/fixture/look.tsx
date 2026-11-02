@@ -2,12 +2,13 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, Button, CssBaseline, List, ListItem, ListItemText, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import { lookTheme } from '../..';
+import { followTextSize, lookTheme, TextSizeSetting } from '../..';
 
 // The kit's MUI themes drawn on a settings page, the Plain Look Studies page's General and Profiles tabs as a web page
 // draws them: section labels, rows between hairlines, status in colored words, a switch, a menu that reads as text, a
-// field, actions as words and a removal in the error color, and the build at the foot. ?look=console draws the console
-// theme; the plain one follows the system's light or dark setting, which the test sets.
+// field, actions as words and a removal in the error color, the kit's Text size row, and the build at the foot.
+// ?look=console draws the console theme. Both follow the system's light or dark setting, which the test sets, and the
+// page's text follows the size chosen in the Text size row.
 
 const look = new URLSearchParams(location.search).get('look') === 'console' ? 'console' : 'plain';
 const theme = lookTheme(look === 'console' ? { name: 'console' } : { name: 'plain' });
@@ -74,12 +75,20 @@ function Settings() {
           <Button color="error">Forget all</Button>
         </ListItem>
       </List>
+      <Typography variant="overline" component="h2" sx={{ display: 'block', mt: 3, mb: 1 }}>
+        Display
+      </Typography>
+      <List disablePadding sx={{ borderTop: 1, borderColor: 'divider' }}>
+        <TextSizeSetting />
+      </List>
       <Typography variant="body2" color="textSecondary" sx={{ mt: 3 }} id="build">
         Beeline 1.0.0, 873623f
       </Typography>
     </Box>
   );
 }
+
+followTextSize();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

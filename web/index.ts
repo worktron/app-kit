@@ -7,6 +7,7 @@ export { chooseTextSize, followTextSize, TEXT_SIZES, useTextScale, useTextSize, 
 export { FIELD_FONT_SIZE, fieldsNeverZoom, rem } from './fields';
 export { waitForFonts, FONT_WAIT_MS } from './fonts';
 export { colorVariables, lookTheme } from './theme';
+export { TextSizeSetting } from './TextSizeSetting';
 export { isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
 export { PullToRefresh, PULL_DISTANCE, type PullToRefreshProps } from './PullToRefresh';
 export { reloadOnFailedLoad, RELOAD_GUARD_MS } from './preload';
