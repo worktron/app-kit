@@ -212,3 +212,11 @@ Done when: with `xcrun --show-sdk-version` failing or printing nothing, the scri
 Do not touch: the macOS 26 SDK build further down the script; Sources/MenuBarTheme.
 Needs: nothing.
 Touches: swift/menu-bar/e2e/swiftc-build.sh, a test in test/.
+
+## owner-recheck · The owner check asks again after a while instead of remembering each answer until restart
+
+Goal: ownerCheckByEmail (authentication/owner/index.ts:15-26 at v0.33.4) keeps each user's yes or no for the life of the process, so an owner who removes or loses their verified address keeps access until the next deploy, and a user who adds the owner address is refused until then. Found while moving reminder-x onto app-kit, 2026-11-02 (a review finding accepted there as the kit's design).
+Done when: a kept answer expires after a set time (a few minutes) and the next request asks the provider again, with a failed ask still not kept; a unit test with a fake clock shows a removed address refused after the expiry and allowed before it.
+Do not touch: requireOwner's refusals and their wording.
+Needs: nothing.
+Touches: authentication/owner/index.ts and its test, the README's owner section.
