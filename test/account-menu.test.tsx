@@ -24,7 +24,7 @@ function draw(provider: StandInSignIn | null, items?: AccountMenuItem[], navigat
   );
 }
 
-const open = () => act(async () => screen.getByRole('button', { name: 'ana@example.com' }).click());
+const open = () => act(async () => screen.getByRole('button', { name: 'Account' }).click());
 const menuItems = () => screen.getAllByRole('menuitem').map((item) => item.textContent);
 /** Escape closes the menu, and the test waits for it to go, so its transitions end inside the test. */
 async function shut() {
@@ -40,9 +40,9 @@ test('outside the sign-in gate, and with no sign-in provider, there is no accoun
   expect(screen.queryByRole('button')).toBeNull();
 });
 
-test('the button names the account, and its menu says who is signed in, above Sign out', async () => {
+test('the Account button\'s menu says who is signed in, above Sign out', async () => {
   draw(standInSignIn({ person: ana }));
-  const button = screen.getByRole('button', { name: 'ana@example.com' });
+  const button = screen.getByRole('button', { name: 'Account' });
   expect(button.getAttribute('aria-haspopup')).toBe('menu');
   await open();
   expect(screen.getByText('Signed in as')).toBeTruthy();
@@ -90,9 +90,9 @@ test('⌘-click on a screen in the menu is left to the browser, which opens a ne
   await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
 });
 
-test('an account with no address is named Account, with no Signed in as', async () => {
+test('an account with no address has no Signed in as', async () => {
   draw(standInSignIn({ person: { id: 'p2', email: null } }));
-  await act(async () => screen.getByRole('button', { name: 'Account' }).click());
+  await open();
   expect(screen.queryByText('Signed in as')).toBeNull();
   expect(menuItems()).toEqual(['Sign out']);
   await shut();

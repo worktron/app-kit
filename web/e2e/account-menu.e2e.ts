@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 // the system's light and dark settings, in the console theme, and on a phone. Each open menu is kept as a picture
 // beside the test's output.
 
-const account = (page: Page) => page.getByRole('button', { name: 'pat.morgan@example.com' });
+const account = (page: Page) => page.getByRole('button', { name: 'Account' });
 
 async function openMenu(page: Page) {
   await account(page).click();
@@ -16,23 +16,25 @@ for (const [name, path, scheme] of [
   ['plain-dark', '/account-menu.html', 'dark'],
   ['console', '/account-menu.html?look=console', 'dark'],
 ] as const) {
-  test(`in the ${name} look, the menu opens under the account at the bar's right end, inside the window`, async ({ page }, testInfo) => {
+  test(`in the ${name} look, the menu opens under Account at the bar's right end, inside the window, and names who is signed in`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width: 900, height: 420 });
     await page.goto(path);
     // Measured before the menu opens, which hides the rest of the page from the accessibility tree.
     const button = (await account(page).boundingBox())!;
     await openMenu(page);
+    await expect(page.getByRole('menu').getByText('Signed in as')).toBeVisible();
+    await expect(page.getByRole('menu').getByText('pat.morgan@example.com')).toBeVisible();
     const menu = (await page.getByRole('menu').boundingBox())!;
     expect(menu.y).toBeGreaterThanOrEqual(button.y + button.height);
     expect(menu.x + menu.width).toBeLessThanOrEqual(900);
-    // Right edges line up, so the menu hangs from the account's end.
+    // Right edges line up, so the menu hangs from Account's end.
     expect(Math.abs(menu.x + menu.width - (button.x + button.width))).toBeLessThan(2);
     await page.screenshot({ path: testInfo.outputPath(`account-menu-${name}.png`), animations: 'disabled' });
   });
 }
 
-test('from the keyboard, Enter opens the menu on its first item and Escape gives the keyboard back to the account', async ({ page }) => {
+test('from the keyboard, Enter opens the menu on its first item and Escape gives the keyboard back to Account', async ({ page }) => {
   await page.goto('/account-menu.html');
   await account(page).focus();
   await page.keyboard.press('Enter');
@@ -45,7 +47,7 @@ test('from the keyboard, Enter opens the menu on its first item and Escape gives
 test.describe('on a phone', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 640 } });
 
-  test('the account is a 44 pixel target, a long address ends in an ellipsis, and the open menu fits the screen', async ({ page }, testInfo) => {
+  test('Account is a 44 pixel target, and the open menu fits the screen', async ({ page }, testInfo) => {
     await page.goto('/account-menu.html');
     const button = (await account(page).boundingBox())!;
     expect(button.height).toBeGreaterThanOrEqual(44);

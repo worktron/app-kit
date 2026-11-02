@@ -23,9 +23,9 @@ async function serve(page: Page): Promise<Server> {
   return server;
 }
 
-/** Signs out from the fixture's account menu, as a person does: the button naming the account, then Sign out. */
+/** Signs out from the fixture's account menu, as a person does: Account, then Sign out. */
 async function signOut(page: Page) {
-  await page.getByRole('button', { name: /@example\.com$/ }).click();
+  await page.getByRole('button', { name: 'Account' }).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
 }
 
