@@ -5,16 +5,26 @@ import { Window } from 'happy-dom';
 const window = new Window();
 
 /**
- * A page to search with querySelector and querySelectorAll, its scripts and styles taken out, since a card's text is read
- * and nothing read lives in them. It is parsed into a template, whose contents are never attached to a document: a parsed
- * document in happy-dom acts on some of what a page holds, sending a preload link's request or throwing where nothing
- * catches it on a relative one, and a page here may have been sent to a server by anyone. They come out after the parse
- * because a pattern run before it takes time that grows with the square of a page of unclosed script tags.
+ * A page without one kind of element. Only the part up to the last closing tag is searched: past it every opening tag
+ * would scan to the end of the page and find nothing, and a page of those takes time that grows with its size squared.
+ */
+function without(html: string, whole: RegExp, closing: RegExp): string {
+  const last = [...html.matchAll(closing)].at(-1);
+  if (!last) return html;
+  const end = last.index + last[0].length;
+  return html.slice(0, end).replace(whole, '') + html.slice(end);
+}
+
+/**
+ * A page to search with querySelector and querySelectorAll. Scripts and styles are dropped first: nothing read lives in
+ * them, and they are most of a page. It is parsed into a template, whose contents are never attached to a document: a
+ * parsed document in happy-dom acts on some of what a page holds, sending a preload link's request or throwing where
+ * nothing catches it on a relative one, and a page here may have been sent to a server by anyone.
  */
 export function parse(html: string): DocumentFragment {
+  const noScripts = without(html, /<script\b[\s\S]*?<\/script>/gi, /<\/script>/gi);
   const template = window.document.createElement('template');
-  template.innerHTML = html;
-  for (const element of template.content.querySelectorAll('script, style')) element.remove();
+  template.innerHTML = without(noScripts, /<style\b[\s\S]*?<\/style>/gi, /<\/style>/gi);
   return template.content as unknown as DocumentFragment;
 }
 

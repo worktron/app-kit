@@ -147,14 +147,22 @@ test('reading a page sent to a server fetches nothing it names and runs nothing 
   }
 });
 
-test('what a script or style holds is not read as part of an order', () => {
-  const page = fixture('orders.html').replace('Delivered October 18', 'Delivered October 18<script>var words = "Cancelled and 9 more";</script><style>.x::after { content: "and 9 more"; }</style>');
-  expect(readOrders(page)[0]).toMatchObject({ status: 'Delivered October 18', moreItems: 6 });
-  expect(parse(page).querySelectorAll('script, style')).toHaveLength(0);
+test('what a script or style holds is not read as part of an order, wherever it sits', () => {
+  const page = fixture('orders.html');
+  const script = '<script>var words = "Cancelled and 9 more";</script>';
+  const style = '<style>.x::after { content: "and 9 more"; }</style>';
+  const inCard = readOrders(page.replace('Delivered October 18', `Delivered October 18${script}${style}`));
+  expect(inCard[0]).toMatchObject({ status: 'Delivered October 18', moreItems: 6 });
+  // happy-dom's parser, given these itself, stops reading at the first in an svg and reads the body of the second as text.
+  const inSvg = readOrders(page.replace('Delivered October 18', `Delivered October 18<svg>${style}${script}</svg>`));
+  expect(inSvg.map((order) => order.orderNumber)).toEqual(['111-0000000-0000001', '111-0000000-0000002']);
+  const inTable = readOrders(page.replace('Delivered October 18', `Delivered October 18<table><tr>${script}<td>x</td></tr></table>`));
+  expect(inTable[0]).toMatchObject({ status: 'Delivered October 18', moreItems: 6 });
+  expect(parse(page.replace('<div', `${script}${style}<div`)).querySelectorAll('script, style')).toHaveLength(0);
 });
 
 test('a page of unclosed script and style tags reads as none, and at once', () => {
-  // A pattern over the page took half a minute on this size, far past the test's limit; the parse takes milliseconds.
+  // A pattern over the whole page took half a minute on this size, far past the test's limit; this takes milliseconds.
   expect(readOrders('<script '.repeat(25_000))).toEqual([]);
   expect(readOrders('<style '.repeat(25_000))).toEqual([]);
   expect(readOrders(`${'<script></script>'.repeat(100)}${'<script '.repeat(25_000)}`)).toEqual([]);
