@@ -5,16 +5,20 @@ import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { runCommand } from '../command-line/run.ts';
 import { join } from 'node:path';
+import { inflateSync } from 'node:zlib';
+import sharp from 'sharp';
 import {
   alreadyUploaded,
   buildEnv,
   compileFailed,
+  ICON_SET,
   ipaProblems,
+  pngOpacities,
   restoreValue,
   upload,
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
-import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, uploadFixture, type Apple } from './testflight-apple-stand-in.ts';
+import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, uploadFixture, type Apple } from './testflight-apple-stand-in.ts';
 import { appStoreConnect, commit, git, KEY, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
@@ -158,6 +162,51 @@ test('a commit main merged from a branch is refused: its count can name another 
   expect((await runUpload(apple())).code).toBe(1);
 });
 
+test('an App Store icon with see-through pixels, or none at all, is refused before anything is built', async () => {
+  // metamax's first upload: `tauri icon` wrote its App Store icon with pixels at 254 of 255, and altool refused it after
+  // the whole build, with 90717.
+  const icon = `${ICON_SET}/AppIcon-512@2x.png`;
+  const contents = `${ICON_SET}/Contents.json`;
+  const xcodeForm = JSON.stringify({
+    images: [
+      { filename: 'AppIcon-iOS.png', idiom: 'universal', platform: 'ios', size: '1024x1024' },
+      { appearances: [{ appearance: 'luminosity', value: 'dark' }], filename: 'AppIcon-dark.png', idiom: 'universal', platform: 'ios', size: '1024x1024' },
+    ],
+  });
+  // getter's and Urge Surfer's: an alpha channel with every pixel at 255, which Apple took.
+  commit(origin, { [icon]: rgba(255) });
+  git(app, 'pull', '-q');
+  expect((await runUpload(apple())).code).toBe(0);
+
+  git(origin, 'rm', '-q', icon);
+  git(origin, 'commit', '-q', '-m', 'no icon');
+  git(app, 'pull', '-q');
+  const missing = await runUpload(apple());
+  expect(missing.printed).toEqual([`! the App Store icon ${icon} is missing: draw the iPhone icons with app-kit icons render --icon-set ${ICON_SET} (app-kit's README, icons), and commit them`]);
+  for (const [files, refusal] of [
+    [{ [icon]: rgba(254) }, `! the App Store icon ${icon} has see-through pixels (the least opaque is 254 of 255), which App Store Connect refuses after the whole build (90717): draw the iPhone icons with app-kit icons render --icon-set ${ICON_SET} (app-kit's README, icons), and commit them`],
+    [{ [icon]: 'not a picture' }, `! the App Store icon ${icon} is not a PNG that can be read`],
+    [{ [contents]: JSON.stringify({ images: [{ size: '60x60', idiom: 'iphone', filename: 'AppIcon-60x60@2x.png', scale: '2x' }] }) }, `! ${ICON_SET} has no App Store icon`],
+  ] as const) {
+    commit(origin, files);
+    git(app, 'pull', '-q');
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toStartWith(refusal);
+    expect(printed[0]).toContain('app-kit icons render');
+    expect(stand.named('rustc')).toEqual([]);
+    expect(stand.named('op')).toEqual([]);
+    expect(stand.named('tauri')).toEqual([]);
+  }
+
+  // Xcode's one-size form: the light entry is the App Store icon; the dark one, which Apple wants see-through, is not.
+  commit(origin, { [contents]: xcodeForm, [`${ICON_SET}/AppIcon-iOS.png`]: rgb(), [`${ICON_SET}/AppIcon-dark.png`]: rgba(0) });
+  git(app, 'pull', '-q');
+  expect((await runUpload(apple())).code).toBe(0);
+});
+
 test('without the token, a watcher run reads nothing and builds nothing; a run by hand uses the signed-in op', async () => {
   const watcher = apple({ token: false });
   const { code, printed } = await runUpload(watcher, { tokenOnly: true });
@@ -283,6 +332,83 @@ describe('the pure parts', () => {
       'its beta-reports-active is not true, so it is not signed for TestFlight',
       'its get-task-allow is not false, so it is signed for development',
     ]);
+  });
+
+  test("a PNG's pixels at each opacity, decoded", async () => {
+    const least = (bytes: Uint8Array) => pngOpacities(bytes)?.findIndex((count) => count > 0) ?? null;
+    expect(least(rgb())).toBe(255); // no alpha channel, as app-kit icons render draws the iPhone icons
+    expect(least(rgba(255))).toBe(255); // an alpha channel, every pixel opaque, as getter's went up
+    expect(least(rgba(254))).toBe(254); // metamax's, refused
+    expect(pngOpacities(rgba(254))?.filter((count) => count > 0)).toEqual([1, 3]);
+    expect(least(png(4, [[7, 255], [7, 0]]))).toBe(0); // grey with alpha
+    expect(least(png(6, [[1, 2, 3, 65535], [1, 2, 3, 65534]], { depth: 16 }))).toBe(254); // 16 bits: only a full alpha is 255
+    expect(least(png(6, [[1, 2, 3, 65535], [1, 2, 3, 65535]], { depth: 16 }))).toBe(255);
+    // A palette's transparency counts only for the entries the pixels use.
+    const palette: [string, number[]][] = [['PLTE', [9, 9, 9, 8, 8, 8]], ['tRNS', [255, 0]]];
+    expect(least(png(3, [[0], [0]], { chunks: palette }))).toBe(255);
+    expect(least(png(3, [[0], [1]], { chunks: palette }))).toBe(0);
+    // A colour marked see-through counts only where a pixel is that colour.
+    const key: [string, number[]][] = [['tRNS', [0, 1, 0, 2, 0, 3]]];
+    expect(least(png(2, [[9, 9, 9], [9, 9, 9]], { chunks: key }))).toBe(255);
+    expect(least(png(2, [[9, 9, 9], [1, 2, 3]], { chunks: key }))).toBe(0);
+
+    // As an encoder writes them, read pixel for pixel the same as sharp reads them back: bands of rows that make it
+    // choose each of the five row filters, the alpha varying in all but the first, and noise at a fixed seed.
+    let seed = 1;
+    const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) >> 16;
+    const [width, height] = [64, 80];
+    const raw = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        for (let channel = 0; channel < 4; channel++) {
+          const band = Math.floor(y / 16);
+          const value = [
+            channel === 3 ? 255 : (x + y + channel) & 1, // no filter
+            (x * 3 + channel * 40) & 255, // across
+            ((x * 7) ^ (channel * 50)) & 255, // down
+            (x * 5 + y * 3 + channel) & 255, // average and Paeth
+            random(),
+          ][band]!;
+          raw[(y * width + x) * 4 + channel] = channel === 3 && band > 0 ? 128 + (value & 127) : value;
+        }
+      }
+    }
+    const filtersOf = (bytes: Buffer) => {
+      const data: Buffer[] = [];
+      for (let at = 8; at < bytes.length; at += 12 + bytes.readUInt32BE(at)) {
+        if (bytes.toString('latin1', at + 4, at + 8) === 'IDAT') data.push(bytes.subarray(at + 8, at + 8 + bytes.readUInt32BE(at)));
+      }
+      const rows = inflateSync(Buffer.concat(data));
+      return new Set(Array.from({ length: height }, (_, y) => rows[y * (width * 4 + 1)]));
+    };
+    const asSharpReads = async (bytes: Buffer) => {
+      const { data } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const counts = new Array<number>(256).fill(0);
+      for (let at = 3; at < data.length; at += 4) counts[data[at]!]!++;
+      return counts;
+    };
+    const image = () => sharp(raw, { raw: { width, height, channels: 4 } });
+    const filtered = await image().png({ adaptiveFiltering: true }).toBuffer();
+    expect(filtersOf(filtered)).toEqual(new Set([0, 1, 2, 3, 4]));
+    expect(pngOpacities(filtered)).toEqual(await asSharpReads(filtered));
+    // Interlaced: seven passes, each filtered on its own.
+    const interlaced = await image().png({ progressive: true, adaptiveFiltering: true }).toBuffer();
+    expect(interlaced[28]).toBe(1);
+    expect(pngOpacities(interlaced)).toEqual(await asSharpReads(interlaced));
+    // A palette sharp makes, with its transparency.
+    const quantized = await image().png({ palette: true }).toBuffer();
+    expect(quantized[25]).toBe(3);
+    expect(pngOpacities(quantized)).toEqual(await asSharpReads(quantized));
+
+    // Xcode's crushed PNGs, found inside a built app, put a chunk of their own before the header.
+    const crushed = rgb();
+    crushed.write('CgBI', 12, 'latin1');
+    expect(pngOpacities(crushed)).toBeNull();
+    expect(pngOpacities(Buffer.from('not a picture, but long enough to read a header from'))).toBeNull();
+    expect(pngOpacities(rgba(255).subarray(0, 20))).toBeNull();
+    // Image data cut short.
+    const whole = rgba(255);
+    expect(pngOpacities(whole.subarray(0, whole.length - 20))).toBeNull();
   });
 
   test('only the value the build wrote is put back, so an edit made during the build survives', () => {

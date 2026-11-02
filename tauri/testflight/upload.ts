@@ -20,6 +20,9 @@
  *   fails with "Copy failed", so a folder holding a link to /usr/bin/rsync goes first on PATH.
  * - Tauri passes FORCE_COLOR into the Xcode build step as a flag, where a terminal's FORCE_COLOR=3 reads as a chip
  *   architecture, so it is removed, with the key, by the build environment every iPhone build shares (../build-env.ts).
+ * - App Store Connect refuses an App Store icon with a pixel that is not fully opaque (90717), and altool says so only
+ *   after the whole build; `tauri icon` writes every iPhone icon with an alpha channel, metamax's with pixels at 254, so
+ *   the icon's pixels are read before the build, and the refusal names `app-kit icons render`, which draws them opaque.
  * - Tauri writes the export method and the build number into tracked files; only the values it wrote are put back,
  *   so an edit made to either file during the build survives.
  *
@@ -29,6 +32,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { AppStoreConnect, type AppStoreConnectOptions, type TestFlightKey } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
 import { buildEnv, type Env } from '../build-env.ts';
@@ -72,6 +76,132 @@ function cleanupOnStop(cleanup: () => void): () => void {
 /** Whether altool refused the upload because App Store Connect already holds this build number. */
 export function alreadyUploaded(output: string): boolean {
   return /Redundant Binary Upload|ITMS-90189|already uploaded a build with build number|ENTITY_ERROR\.ATTRIBUTE\.INVALID\.DUPLICATE/.test(output);
+}
+
+/** The iPhone app's icon set, in the Tauri project's generated Xcode project, where `tauri ios init` puts it. */
+export const ICON_SET = 'src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset';
+
+/** Each colour type's samples per pixel: grey, colour, palette, grey with alpha, colour with alpha. */
+const PNG_CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+/** Adam7's seven passes over an interlaced image: the first column and row of each, and its steps across and down. */
+const ADAM7 = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]] as const;
+
+/**
+ * How many of a PNG's pixels are at each opacity, from 0 (see-through) to 255 (opaque), a 16-bit alpha rounded down so
+ * only a full one counts as 255; null when the bytes are not a PNG whose first chunk is its header, or its image data
+ * cannot be read. An image with no alpha channel and no transparency chunk is opaque without being decoded; any other is
+ * decoded whole: every colour type, bit depth, row filter and Adam7's interlacing, so a transparency only an unused
+ * palette entry or colour carries counts for nothing, as on the phone.
+ */
+export function pngOpacities(bytes: Uint8Array): number[] | null {
+  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (view.length < 33 || !view.subarray(0, 8).equals(signature) || view.toString('latin1', 12, 16) !== 'IHDR') return null;
+  const [width, height, depth, colourType, interlace] = [view.readUInt32BE(16), view.readUInt32BE(20), view[24]!, view[25]!, view[28]!];
+  const channels = PNG_CHANNELS[colourType];
+  if (!channels || !width || !height || ![1, 2, 4, 8, 16].includes(depth) || interlace > 1) return null;
+  let transparency: Buffer | undefined;
+  const data: Buffer[] = [];
+  for (let at = 8; at + 12 <= view.length; ) {
+    const length = view.readUInt32BE(at);
+    const type = view.toString('latin1', at + 4, at + 8);
+    const body = view.subarray(at + 8, at + 8 + length);
+    if (type === 'tRNS') transparency = body;
+    if (type === 'IDAT') data.push(body);
+    if (type === 'IEND') break;
+    at += 12 + length;
+  }
+  const counts = new Array<number>(256).fill(0);
+  if (colourType !== 4 && colourType !== 6 && !transparency) {
+    counts[255] = width * height;
+    return counts;
+  }
+  let pixels: Buffer;
+  try {
+    pixels = inflateSync(Buffer.concat(data));
+  } catch {
+    return null;
+  }
+  const max = (1 << depth) - 1;
+  const bits = channels * depth;
+  const step = Math.max(1, bits >> 3);
+  const sample = (row: Buffer, x: number, channel: number) => {
+    if (depth === 16) return row.readUInt16BE((x * channels + channel) * 2);
+    if (depth === 8) return row[x * channels + channel]!;
+    const bit = (x * channels + channel) * depth;
+    return (row[bit >> 3]! >> (8 - depth - (bit & 7))) & max;
+  };
+  const key = transparency && (colourType === 0 || colourType === 2) ? Array.from({ length: channels }, (_, at) => transparency.readUInt16BE(at * 2)) : null;
+  const opacity = (row: Buffer, x: number): number => {
+    if (colourType === 4 || colourType === 6) {
+      const alpha = sample(row, x, channels - 1);
+      return depth === 16 ? Math.floor(alpha / 257) : alpha;
+    }
+    if (colourType === 3) return transparency![sample(row, x, 0)] ?? 255;
+    return key!.every((value, channel) => sample(row, x, channel) === value) ? 0 : 255;
+  };
+  let at = 0;
+  for (const [left, top, across, down] of interlace ? ADAM7 : [[0, 0, 1, 1] as const]) {
+    const passWidth = Math.ceil((width - left) / across);
+    const passHeight = Math.ceil((height - top) / down);
+    if (passWidth <= 0 || passHeight <= 0) continue;
+    const rowBytes = Math.ceil((passWidth * bits) / 8);
+    let previous = Buffer.alloc(rowBytes);
+    for (let y = 0; y < passHeight; y++, at += 1 + rowBytes) {
+      if (at + 1 + rowBytes > pixels.length) return null;
+      const filter = pixels[at]!;
+      const row = Buffer.from(pixels.subarray(at + 1, at + 1 + rowBytes));
+      for (let i = 0; i < rowBytes; i++) {
+        const leftByte = i >= step ? row[i - step]! : 0;
+        const up = previous[i]!;
+        const upLeft = i >= step ? previous[i - step]! : 0;
+        if (filter === 1) row[i] = row[i]! + leftByte;
+        else if (filter === 2) row[i] = row[i]! + up;
+        else if (filter === 3) row[i] = row[i]! + ((leftByte + up) >> 1);
+        else if (filter === 4) {
+          const guess = leftByte + up - upLeft;
+          const [toLeft, toUp, toUpLeft] = [Math.abs(guess - leftByte), Math.abs(guess - up), Math.abs(guess - upLeft)];
+          row[i] = row[i]! + (toLeft <= toUp && toLeft <= toUpLeft ? leftByte : toUp <= toUpLeft ? up : upLeft);
+        } else if (filter !== 0) return null;
+      }
+      for (let x = 0; x < passWidth; x++) counts[opacity(row, x)]!++;
+      previous = row;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Why the App Store icon would make Apple refuse the upload, or null. It is the set's 1024 entry for the App Store: Tauri
+ * writes it as ios-marketing, Xcode's one-size form as universal for iOS, beside dark and tinted entries Apple wants
+ * see-through, which are not it. altool refuses one with a pixel that is not fully opaque (90717), but only after the
+ * whole build, so it is checked first. An alpha channel alone is not refused: getter's and Urge Surfer's App Store icons
+ * have one, every pixel at 255, and went up; metamax's least opaque pixel was 254, and it was refused.
+ */
+export function appStoreIconProblem(cwd: string): string | null {
+  const redraw = `draw the iPhone icons with app-kit icons render --icon-set ${ICON_SET} (app-kit's README, icons), and commit them`;
+  const contents = join(cwd, ICON_SET, 'Contents.json');
+  if (!existsSync(contents)) return `${ICON_SET} has no Contents.json, so the build would have no App Store icon: run bunx tauri ios init, then ${redraw}`;
+  type Entry = { idiom?: string; platform?: string; size?: string; filename?: string; appearances?: unknown[] };
+  let images: Entry[];
+  try {
+    images = (JSON.parse(readFileSync(contents, 'utf8')) as { images?: Entry[] }).images ?? [];
+  } catch (error) {
+    return `${ICON_SET}/Contents.json is not JSON (${error instanceof Error ? error.message : String(error)})`;
+  }
+  const entry = images.find(
+    (image) => image.size === '1024x1024' && !image.appearances?.length && (image.idiom === 'ios-marketing' || (image.idiom === 'universal' && image.platform === 'ios')),
+  );
+  if (!entry?.filename) return `${ICON_SET} has no App Store icon (a 1024x1024 ios-marketing entry with a file), which App Store Connect requires: ${redraw}`;
+  const file = join(cwd, ICON_SET, entry.filename);
+  if (!existsSync(file)) return `the App Store icon ${ICON_SET}/${entry.filename} is missing: ${redraw}`;
+  const opacities = pngOpacities(readFileSync(file));
+  if (opacities === null) return `the App Store icon ${ICON_SET}/${entry.filename} is not a PNG that can be read: ${redraw}`;
+  const least = opacities.findIndex((count) => count > 0);
+  if (least < 255) {
+    return `the App Store icon ${ICON_SET}/${entry.filename} has see-through pixels (the least opaque is ${least} of 255), which App Store Connect refuses after the whole build (90717): ${redraw}`;
+  }
+  return null;
 }
 
 /** What the built app says about itself: its Info.plist and its signed entitlements, each as JSON. */
@@ -186,6 +316,9 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
       `HEAD (${head.slice(0, 7)}) is not a commit on origin/main's first-parent line: a build number names one, and a number from a branch makes Apple refuse main's lower ones. Fetch, and check out main.`,
     );
   }
+
+  const icon = appStoreIconProblem(cwd);
+  if (icon) return fail(icon);
 
   const sysroot = await run(['rustc', '--print', 'sysroot'], { cwd, env });
   if (sysroot.code !== 0) return fail(`rustc not found in ${env.PATH?.split(':')[0]} or on PATH: install Rust from https://rustup.rs`);

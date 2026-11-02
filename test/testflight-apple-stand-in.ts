@@ -3,6 +3,7 @@
 // tests and by testflight-upload-child.ts, which the tests run as a process of its own to stop it.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import { runCommand } from '../command-line/run.ts';
 import { commit, exit, git, ITEM_JSON, KEY, ok, repository, standInRunner, TOKEN, type Answer, type StandInBuild } from './testflight-stand-in.ts';
 
@@ -19,6 +20,48 @@ export const ENTITLEMENTS_PUSH = plist(
 export const ENTITLEMENTS_DEVELOPMENT = plist('\t<key>aps-environment</key>\n\t<string>development</string>\n\t<key>get-task-allow</key>\n\t<true/>\n');
 
 /**
+ * A small PNG written by hand, unfiltered: `pixels` are its samples in rows `width` long, at `depth` bits (8 or 16), and
+ * `chunks` go between its header and its image data, as a palette and its transparency do. Colour type 2 is colour with
+ * no alpha channel, as `app-kit icons render` draws the iPhone icons; 6 is colour with alpha, as `tauri icon` writes them.
+ */
+export function png(colourType: number, pixels: number[][], { width = 2, depth = 8, chunks = [] }: { width?: number; depth?: 8 | 16; chunks?: [string, number[]][] } = {}): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, 'latin1');
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(Bun.hash.crc32(Buffer.concat([head.subarray(4), data])) >>> 0, 0);
+    return Buffer.concat([head, data, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(pixels.length / width, 4);
+  header[8] = depth;
+  header[9] = colourType;
+  const rows: number[] = [];
+  pixels.forEach((samples, at) => {
+    if (at % width === 0) rows.push(0);
+    for (const value of samples) rows.push(...(depth === 16 ? [value >> 8, value & 0xff] : [value]));
+  });
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return Buffer.concat([
+    signature,
+    chunk('IHDR', header),
+    ...chunks.map(([type, data]) => chunk(type, Buffer.from(data))),
+    chunk('IDAT', deflateSync(Buffer.from(rows))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/** A 2 by 2 icon in colour with an alpha channel, every pixel opaque but the last, at `last`. */
+export const rgba = (last: number) => png(6, [[9, 9, 9, 255], [9, 9, 9, 255], [9, 9, 9, 255], [9, 9, 9, last]]);
+/** A 2 by 2 icon in colour, with no alpha channel. */
+export const rgb = () => png(2, [[9, 9, 9], [9, 9, 9], [9, 9, 9], [9, 9, 9]]);
+
+/** The icon set Tauri's `ios init` writes, cut to its App Store entry. */
+export const ICON_CONTENTS = JSON.stringify({ images: [{ size: '1024x1024', idiom: 'ios-marketing', filename: 'AppIcon-512@2x.png', scale: '1x' }], info: { version: 1, author: 'xcode' } });
+
+/**
  * An app's origin with main two commits long, its clone checked out at main, and a cargo folder holding rustc. With
  * `appFolder`, the Tauri project is in that subfolder of the repository, as Timescale's is in `desktop/`.
  */
@@ -28,6 +71,8 @@ export function uploadFixture(folder: string, appFolder = '') {
     [inApp('src-tauri/tauri.conf.json')]: JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../dist' } }),
     [inApp('src-tauri/gen/apple/ExportOptions.plist')]: EXPORT_OPTIONS,
     [inApp('src-tauri/gen/apple/past-the-break_iOS/Info.plist')]: INFO,
+    [inApp('src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/Contents.json')]: ICON_CONTENTS,
+    [inApp('src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png')]: rgb(),
     '.gitignore': `${inApp('src-tauri/gen/apple/build/')}\n`,
   });
   commit(origin, { 'src/app.ts': 'export {};\n' }, 'the page');

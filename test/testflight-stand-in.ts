@@ -145,7 +145,7 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 /** A repository whose main starts with `files`. */
-export function repository(folder: string, files: Record<string, string>): string {
+export function repository(folder: string, files: Record<string, string | Uint8Array>): string {
   mkdirSync(folder, { recursive: true });
   git(folder, 'init', '-q');
   commit(folder, files, 'the app');
@@ -153,7 +153,7 @@ export function repository(folder: string, files: Record<string, string>): strin
 }
 
 /** Writes `files` and commits them on the branch checked out; gives the commit. */
-export function commit(folder: string, files: Record<string, string>, message = 'a change'): string {
+export function commit(folder: string, files: Record<string, string | Uint8Array>, message = 'a change'): string {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(folder, path)), { recursive: true });
     writeFileSync(join(folder, path), text);
