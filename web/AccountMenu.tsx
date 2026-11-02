@@ -1,10 +1,38 @@
-import { useId, useState, type MouseEvent } from 'react';
+import { useEffect, useId, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { Box, Button, Divider, ListSubheader, Menu, MenuItem, Typography } from '@mui/material';
 import { opensElsewhere, useNavigate } from './RowLink';
 import { usePerson, useSignOut } from './sign-in/SignInGate';
 
 /** One of the app's own items in the account menu: a link to one of its screens, or an act. */
 export type AccountMenuItem = { label: string; href: string } | { label: string; onSelect: () => void };
+
+/** How far the pointer moves from where it rested before a row under it may paint as hovered. */
+export const POINTER_REACH_PX = 16;
+
+/**
+ * Whether the pointer has moved with intent since the menu opened or a key was last pressed, as practices' interface
+ * rules ask: a pointer resting where a row appears paints nothing, and a hand's nudge of a few pixels is no move.
+ */
+function usePointerReached(open: boolean) {
+  const [reached, setReached] = useState(false);
+  const rest = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const restart = () => {
+      rest.current = null;
+      setReached(false);
+    };
+    restart();
+    window.addEventListener('keydown', restart, true);
+    return () => window.removeEventListener('keydown', restart, true);
+  }, [open]);
+  const onPointerMove = (e: PointerEvent) => {
+    const at = { x: e.screenX, y: e.screenY };
+    if (!rest.current) rest.current = at;
+    else if (Math.hypot(at.x - rest.current.x, at.y - rest.current.y) >= POINTER_REACH_PX) setReached(true);
+  };
+  return { reached, onPointerMove };
+}
 
 export interface AccountMenuProps {
   /** The app's own items, between who is signed in and Sign out: Settings, Diagnostics, a profile to switch to. */
@@ -26,6 +54,7 @@ export function AccountMenu({ items = [], button = 'word', showName = true }: Ac
   const navigate = useNavigate();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const menuId = useId();
+  const pointer = usePointerReached(Boolean(anchor));
   if (!signOut) return null;
   const email = person?.email ?? null;
   const name = showName ? (person?.name ?? null) : null;
@@ -77,7 +106,19 @@ export function AccountMenu({ items = [], button = 'word', showName = true }: Ac
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         slotProps={{
           // A hairline and no shadow, as the plain look draws everything.
-          paper: { elevation: 0, sx: { mt: 0.5, minWidth: 220, maxWidth: 'calc(100vw - 32px)', border: 1, borderColor: 'divider' } },
+          paper: {
+            elevation: 0,
+            onPointerMove: pointer.onPointerMove,
+            sx: {
+              mt: 0.5,
+              minWidth: 220,
+              maxWidth: 'calc(100vw - 32px)',
+              border: 1,
+              borderColor: 'divider',
+              // MUI paints a row under a still pointer; until the pointer moves with intent, it paints none.
+              ...(pointer.reached ? {} : { '& .MuiMenuItem-root:hover:not(.Mui-focusVisible)': { backgroundColor: 'transparent' } }),
+            },
+          },
         }}
       >
         {(name || email) && (

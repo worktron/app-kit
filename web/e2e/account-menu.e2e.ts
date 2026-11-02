@@ -8,7 +8,13 @@ const account = (page: Page) => page.getByRole('button', { name: 'Account' });
 
 async function openMenu(page: Page) {
   await account(page).click();
+  await grown(page);
+}
+
+/** The menu has finished growing open, so where its rows are is where they stay. */
+async function grown(page: Page) {
   await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+  await expect.poll(() => page.locator('.MuiMenu-paper').evaluate((paper) => getComputedStyle(paper).transform)).toBe('none');
 }
 
 for (const [name, path, scheme] of [
@@ -45,6 +51,35 @@ test('from the keyboard, Enter opens the menu on its first item and Escape gives
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(account(page)).toBeFocused();
+});
+
+test('a row under a resting pointer paints nothing until the pointer moves with intent', async ({ page }) => {
+  await page.goto('/account-menu.html');
+  // Where Sign out appears, found by opening the menu once.
+  await openMenu(page);
+  const signOut = page.getByRole('menuitem', { name: 'Sign out' });
+  const box = (await signOut.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+
+  // The hand rests there, and the menu opens from the keyboard over it.
+  await page.mouse.move(at.x, at.y);
+  await account(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
+  await grown(page);
+  expect(await signOut.evaluate((row) => row.matches(':hover'))).toBe(true);
+  const paint = () => signOut.evaluate((row) => getComputedStyle(row).backgroundColor);
+  // A nudge of a few pixels is still a resting hand.
+  await page.mouse.move(at.x + 3, at.y);
+  await page.mouse.move(at.x, at.y);
+  await expect.poll(paint).toBe('rgba(0, 0, 0, 0)');
+
+  // A real move, up the menu and back, paints the row.
+  await page.mouse.move(at.x, at.y - 30, { steps: 3 });
+  await page.mouse.move(at.x, at.y, { steps: 3 });
+  await expect.poll(paint).not.toBe('rgba(0, 0, 0, 0)');
 });
 
 test.describe('on a phone', () => {
