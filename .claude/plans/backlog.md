@@ -158,3 +158,9 @@ Done when: openDb's Postgres connections close themselves after an idle period s
 Do not touch: the PGlite path.
 Needs: nothing.
 Touches: server/postgres/index.ts, its test, README.
+
+## iphone-run-prints-page-address · `app-kit iphone run sim` says which page the build loads
+
+Goal: an agent or person sees from the run's own output which page address the iPhone build loads. An address that does not answer still builds, exits 0 and prints "running in the Simulator", and the app is blank. In a trial on Getter, an agent lost one whole build to this, because Vite answered on `localhost` and refused `127.0.0.1`. An app whose page is a hosted site also loads the deployed site when given no address, so a page changed on a branch never shows, and nothing printed says so. `TAURI_PAGE_ADDRESS` is read by each app's shell at compile time, so the run can see it in its environment but not an app's own default or another variable, such as Argon's `TAURI_ARGON_URL`. Work out what can be said truthfully for each.
+
+Done when: a Simulator run prints one `[iphone]` line naming the address it was given, or saying it was given none and that the app then loads its compiled-in default, and a test holds it.
