@@ -39,11 +39,8 @@ export interface LandOptions {
   env?: Record<string, string | undefined>
 }
 
-/**
- * The exact trailer the version commit ends with. Its address is joined from two parts because test/public.test.ts
- * fails on any address in a file other than example.com and worktron.com ones, in every commit on every branch.
- */
-export const TRAILER = ['Co-Authored-By: Claude <noreply', 'anthropic.com>'].join('@')
+/** The exact trailer the version commit ends with. */
+export const TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>'
 const KINDS: Kind[] = ['none', 'patch', 'minor']
 const PLANS = '.claude/plans/'
 

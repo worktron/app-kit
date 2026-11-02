@@ -14,8 +14,8 @@ const EMAIL = /[\w.+-]+@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
 const HOME_FOLDER = /\\?\/(?:Users|home)\\?\/[\w.-]+/g;
 /** A real Google Cloud project, by number, or an OAuth client of one. A test's stand-in project is a short number. */
 const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]+\.apps\.googleusercontent\.com/g;
-const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$/;
-const ALLOWED_IN_HISTORY = new Set(['noreply@anthropic.com']);
+/** Test addresses, the project's own, and the Co-Authored-By trailer's, which names no one and a plan may quote. */
+const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$|^noreply@anthropic\.com$/;
 const COMMIT_NAMES = new Set(['Worktron']);
 /** Addresses that name no one, in commits from before example.com was the rule: GitHub's SSH user and two made up. */
 const NAMES_NO_ONE = new Set(['git@github.com', 'a@b.co', 'x@y.co']);
@@ -38,6 +38,8 @@ function personalFacts(text: string, allowed: (email: string) => boolean = (e) =
 test('a personal email or a home folder is found, and test addresses are not', () => {
   expect(personalFacts('Signed in as someone@gmail.com from /Users/someone/Workspace')).toEqual(['someone@gmail.com', '/Users/someone']);
   expect(personalFacts('ana@example.com, kit@worktron.com, ./users/list')).toEqual([]);
+  // The trailer's address names no one; anyone else's at the same company is a person's.
+  expect(personalFacts('Co-Authored-By: Claude <noreply@anthropic.com>, from someone@anthropic.com')).toEqual(['someone@anthropic.com']);
   expect(personalFacts('"dataPath" : "\\/Users\\/someone\\/Library"')).toEqual(['\\/Users\\/someone']);
 });
 
@@ -73,7 +75,7 @@ test('no file in any commit ever named a personal email or home folder, though a
 });
 
 test('no commit names a person, or a personal email or home folder, as author, committer or in its message', () => {
-  const allowed = (e: string) => ALLOWED_EMAIL.test(e) || ALLOWED_IN_HISTORY.has(e);
+  const allowed = (e: string) => ALLOWED_EMAIL.test(e);
   const found: string[] = [];
   for (const commit of git('log', '--all', '--format=%H%x00%an%x00%cn%x00%ae %ce%n%B%x01').split('\x01')) {
     const [sha, author, committer, text] = commit.trim().split('\0');
