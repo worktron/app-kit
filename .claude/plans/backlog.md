@@ -182,3 +182,9 @@ Found by: assay/onto-app-kit, 2026-11-02, moving assay onto v0.33.4.
 Goal: test/icons.test.ts "the icon sets it fills compile in Xcode for the Mac and the iPhone" runs `xcrun actool --compile` on the icon sets it draws, with a 120 second limit. In the first landing of testflight-icon-check (2026-11-02, load average near 100) the Mac compile ran the whole 120 seconds and was stopped (code -1, nothing printed), so the gates went red and the landing stopped; alone it passes in 4.4 seconds. Why actool hangs is unknown: it may wait on Xcode's shared asset catalog service, which several builds at once contend for. Found by the testflight-icon-check thread.
 
 Done when: the cause is known from a reproduction (actool under a load like the gates' or beside a second actool), and the test either no longer hangs under that load or stops for a reason it names, with no longer limit as the fix.
+
+## offline-audio-slow · The offline-audio browser test of a page left mid-sound takes 27 of its 30 seconds in Chromium
+
+Goal: web/e2e/offline-audio.e2e.ts:373 "a page left while its sound plays under Playwright's clock never crashes, and the next page plays" took 27.4 seconds in Chromium run alone on 2026-11-02 (WebKit's took 10.6), and timed out at 30 in a full gate run at load 245, failing the gates. A test that close to its limit fails whenever the machine is busy. Where its time goes is unknown: the clock steps, the page's leaving, or the kit's offline audio catching up. Found by the testflight-icon-check thread.
+
+Done when: the test's time is measured step by step, the slow part is fixed where it lives (in the test's waiting or in the kit), and the Chromium run takes a small part of its limit; no longer timeout as the fix.
