@@ -111,7 +111,9 @@ export function pngOpacities(bytes: Uint8Array): number[] | null {
     if (type === 'IEND') break;
     at += 12 + length;
   }
-  const counts = new Array<number>(256).fill(0);
+  // A colour key holds a two-byte value for each channel; one cut short cannot say which colour it makes see-through.
+  if (transparency && (colourType === 0 || colourType === 2) && transparency.length < channels * 2) return null;
+  const counts = Array.from({ length: 256 }, () => 0);
   if (colourType !== 4 && colourType !== 6 && !transparency) {
     counts[255] = width * height;
     return counts;

@@ -351,6 +351,7 @@ describe('the pure parts', () => {
     const key: [string, number[]][] = [['tRNS', [0, 1, 0, 2, 0, 3]]];
     expect(least(png(2, [[9, 9, 9], [9, 9, 9]], { chunks: key }))).toBe(255);
     expect(least(png(2, [[9, 9, 9], [1, 2, 3]], { chunks: key }))).toBe(0);
+    expect(pngOpacities(png(2, [[9, 9, 9], [9, 9, 9]], { chunks: [['tRNS', [0, 1, 0]]] }))).toBeNull(); // a key cut short
 
     // As an encoder writes them, read pixel for pixel the same as sharp reads them back: bands of rows that make it
     // choose each of the five row filters, the alpha varying in all but the first, and noise at a fixed seed.
@@ -383,7 +384,7 @@ describe('the pure parts', () => {
     };
     const asSharpReads = async (bytes: Buffer) => {
       const { data } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      const counts = new Array<number>(256).fill(0);
+      const counts = Array.from({ length: 256 }, () => 0);
       for (let at = 3; at < data.length; at += 4) counts[data[at]!]!++;
       return counts;
     };
