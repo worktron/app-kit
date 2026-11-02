@@ -17,6 +17,8 @@ import { isColor, renderIcons } from '../icons/render.ts'
 import packageJson from '../package.json'
 import { runIphone } from '../tauri/iphone-run/index.ts'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
+import { clock, MINUTES, MOST_MINUTES, setTime, watchSimulator } from '../tauri/iphone-simulator/lifetime.ts'
+import { stateFolder } from '../tauri/state.ts'
 import { upload } from '../tauri/testflight/upload.ts'
 import { watch } from '../tauri/testflight/watch.ts'
 
@@ -56,11 +58,16 @@ const USAGE = `app-kit <part> <command>
                               it on this checkout's own Simulator (made once, an iPhone 17,
                               named after the app, and in a worktree after its folder too),
                               with no window and its sound sent to BlackHole; <udid> picks
-                              another Simulator. How to tap and look at it: the README's
+                              another Simulator. At most two run on the Mac at once, and one
+                              this boots shuts down 10 minutes after the app starts, or when
+                              the checkout is gone. How to tap and look at it: the README's
                               "Testing the iPhone app yourself"
   iphone run phone [<udid>]   build it signed for development and start it on the paired
                               iPhone, first adding the phone to the team's development
                               profile when none holds it; <udid> picks the phone
+  iphone-simulator keep <udid> [<minutes>]
+                              move the shut-down time of a Simulator iphone run sim booted
+                              to <minutes> from now, 10 by default and 30 at most
   iphone-simulator quiet <udid>
                               send the simulator <udid>'s sound to BlackHole: a booted
                               one restarts once when it plays elsewhere, a shut-down
@@ -206,8 +213,26 @@ async function iphone([command, target, udid, ...extra]: string[]): Promise<bool
   return true
 }
 
-function iphoneSimulator([command, udid, ...extra]: string[]): boolean {
-  if (command !== 'quiet' || !udid || extra.length) return false
+async function iphoneSimulator([command, udid, ...extra]: string[]): Promise<boolean> {
+  if (!udid || udid.startsWith('-')) return false
+  const folder = stateFolder('simulators')
+  if (command === 'keep' && extra.length <= 1) {
+    const minutes = extra.length ? Number(extra[0]) : MINUTES
+    if (!Number.isInteger(minutes) || minutes < 1) return false
+    const held = setTime({ folder }, udid, minutes)
+    if (!held) {
+      console.error(`[iphone-simulator] app-kit holds no shut-down time for ${udid}: app-kit iphone run sim did not boot it, or it has shut down already`)
+      process.exit(1)
+    }
+    console.log(`[iphone-simulator] "${held.name}" (${udid}) shuts down at ${clock(held.until)}, in ${Math.min(minutes, MOST_MINUTES)} minutes`)
+    return true
+  }
+  // The watcher `iphone run sim` starts for a Simulator it boots, in a session of its own; not a command for people.
+  if (command === 'watch' && (extra.length === 0 || (extra.length === 2 && extra[0] === '--every' && Number(extra[1]) > 0))) {
+    await watchSimulator({ folder, watchEveryMs: extra.length ? Number(extra[1]) : undefined }, udid)
+    return true
+  }
+  if (command !== 'quiet' || extra.length) return false
   const { code, line } = quietSimulator(udid)
   if (code === 0) console.log(line)
   else {
@@ -223,7 +248,7 @@ async function main(args: string[]) {
   if (part === 'extension' && (await extension(rest))) return
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
-  if (part === 'iphone-simulator' && iphoneSimulator(rest)) return
+  if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return
   if (part === 'testflight' && (await testflight(rest))) return
   wrongUsage(USAGE)
 }

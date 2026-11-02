@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCommand, type RunOptions, type RunResult } from '../command-line/run.ts';
-import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, lock, watch, type Limits } from '../tauri/testflight/watch.ts';
+import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, watch, type Limits } from '../tauri/testflight/watch.ts';
+import { lock } from '../tauri/state.ts';
 import { appStoreConnect, commit, emptyCommits, exit, git, ITEM_JSON, ok, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.

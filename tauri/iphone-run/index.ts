@@ -11,6 +11,10 @@
  *   threads running the same app never install over each other's build or screenshot the other's.
  * - The sound step (../iphone-simulator) runs before the boot, so a new Simulator's first boot is already silent and
  *   no second boot is needed.
+ * - A Simulator left booted costs the Mac about 250 processes and 4 GB until someone shuts it down, and three left for
+ *   hours made it barely usable; so before the boot the run takes one of two places on the Mac and gives the Simulator
+ *   a shut-down time and a watcher (../iphone-simulator/lifetime.ts), and a run that fails after the boot, or is
+ *   stopped, shuts it down itself.
  * - Signing for a phone needs the phone in the team's development profile for the app. Xcode adds it during a build
  *   for that phone; Tauri's own build is a generic one that never does, so when no profile holds the phone, one Xcode
  *   build for it runs first. That build stops at the Rust step, which only runs under Tauri; the profile is what it is
@@ -25,6 +29,8 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
+import { clock, type Lifetime, markBooted, MINUTES, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
+import { stateFolder } from '../state.ts';
 import { lastLine } from '../testflight/key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
@@ -51,6 +57,8 @@ export type IphoneRunOptions = {
   fail?: (line: string) => void;
   /** The build's own output as it comes. */
   output?: (chunk: string) => void;
+  /** The Simulator's shut-down time and place: its state folder, clock and watcher, which tests replace. */
+  lifetime?: Partial<Lifetime>;
 };
 
 /** What the command reads from the app's Tauri config and Xcode project. */
@@ -146,21 +154,29 @@ function built(folder: string, extension: string, names: string[]): string | nul
  */
 export async function runIphone(options: IphoneRunOptions): Promise<0 | 1> {
   const say = options.fail ?? ((line: string) => console.error(`[iphone] ${line}`));
+  const holding: Holding = { current: null };
   const onSignal = (signal: NodeJS.Signals) => {
     say(`stopped by ${signal}; stopping the programs it started`);
     stopRunning('SIGTERM');
     stopRunning('SIGKILL');
+    if (holding.current) {
+      say(`shutting down the Simulator ${holding.current.udid} it booted`);
+      releaseNow(holding.current.folder, holding.current.udid, `its run was stopped by ${signal}`);
+    }
     process.exit(1);
   };
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
-    return await runSteps(options);
+    return await runSteps(options, holding);
   } finally {
     for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
   }
 }
 
-async function runSteps(options: IphoneRunOptions): Promise<0 | 1> {
+/** The Simulator a run holds a place for, which a stop by signal shuts down. */
+type Holding = { current: { folder: string; udid: string } | null };
+
+async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 | 1> {
   const { cwd } = options;
   const run = options.run ?? runCommand;
   const home = options.home ?? homedir();
@@ -191,13 +207,14 @@ async function runSteps(options: IphoneRunOptions): Promise<0 | 1> {
 
   async function simulator(): Promise<0 | 1> {
     let udid = options.udid;
+    let name = udid ?? '';
     if (udid) {
       print(`using the Simulator ${udid}`);
     } else {
       // In a linked worktree, git's own folder is not the shared one.
       const where = await run(['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'], { cwd, env });
       const [gitDir, commonDir, top] = where.out.trim().split('\n');
-      const name = where.code === 0 && gitDir !== commonDir ? `${app.name} (${basename(top)})` : app.name;
+      name = where.code === 0 && gitDir !== commonDir ? `${app.name} (${basename(top)})` : app.name;
       const listing = await run(['xcrun', 'simctl', 'list', 'devices', '-j'], { cwd, env });
       if (listing.code !== 0) return fail(`could not list the Simulators (${lastLine(listing.out)}): is Xcode installed, with an iOS Simulator runtime?`);
       const found = findSimulator(listing.out, name);
@@ -216,19 +233,51 @@ async function runSteps(options: IphoneRunOptions): Promise<0 | 1> {
     if (!(await build('--debug', '--target', 'aarch64-sim'))) return fail('the Simulator build failed; its output is above');
     const bundle = built(join(cwd, APPLE, 'build/arm64-sim'), '.app', [app.name]);
     if (!bundle) return fail(`the build made no .app in ${APPLE}/build/arm64-sim`);
+    // The place is taken after the build, which needs none, and before the sound step, which can boot the Simulator.
+    // The lifetime's own calls run from wherever the process is: the checkout's folder is no part of them.
+    const lifetime: Lifetime = {
+      folder: stateFolder('simulators', options.env ?? process.env, home),
+      run: (command, more) => run(command, { env, ...more }),
+      print,
+      ...options.lifetime,
+    };
+    const place = await takePlace(lifetime, { udid, name, checkout: cwd });
+    if ('refused' in place) return fail(place.refused);
+    const held = 'held' in place;
+    if (held) holding.current = { folder: lifetime.folder, udid };
+    const id = udid;
+    const failed = async (line: string): Promise<1> => {
+      if (held) {
+        await release(lifetime, id, `its run failed: ${line}`);
+        holding.current = null;
+        say(line);
+        say(`shut down the Simulator ${id}, since the run that booted it failed`);
+        return 1;
+      }
+      return fail(line);
+    };
     // Before the boot: a shut-down Simulator has the setting saved for the boot, and a booted one restarts once.
     const quiet = (options.quiet ?? quietSimulator)(udid);
-    if (quiet.code !== 0) return fail(quiet.line);
+    if (quiet.code !== 0) return failed(quiet.line);
     print(quiet.line);
     // Booting through simctl opens no Simulator window.
     const booted = await run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], { cwd, env });
-    if (booted.code !== 0) return fail(`the Simulator ${udid} did not boot: ${lastLine(booted.out)}`);
+    if (booted.code !== 0) return failed(`the Simulator ${udid} did not boot: ${lastLine(booted.out)}`);
+    if (held) markBooted(lifetime, udid);
     await run(['xcrun', 'simctl', 'terminate', udid, app.bundleId], { cwd, env }); // not running is fine
     const installed = await run(['xcrun', 'simctl', 'install', udid, bundle], { cwd, env });
-    if (installed.code !== 0) return fail(`could not install ${basename(bundle)} in the Simulator: ${lastLine(installed.out)}`);
+    if (installed.code !== 0) return failed(`could not install ${basename(bundle)} in the Simulator: ${lastLine(installed.out)}`);
     const launched = await run(['xcrun', 'simctl', 'launch', udid, app.bundleId], { cwd, env });
-    if (launched.code !== 0) return fail(`installed ${basename(bundle)}, but it did not open: ${lastLine(launched.out)}`);
+    if (launched.code !== 0) return failed(`installed ${basename(bundle)}, but it did not open: ${lastLine(launched.out)}`);
     print(`running in the Simulator ${udid}`);
+    // The time counts from the app's start, not the place's.
+    const timed = held ? setTime(lifetime, udid) : null;
+    holding.current = null;
+    if (timed) {
+      print(`the Simulator shuts down at ${clock(timed.until)}, in ${MINUTES} minutes: app-kit iphone-simulator keep ${udid} gives it ${MINUTES} more, and xcrun simctl shutdown ${udid} ends it when the check is done`);
+    } else {
+      print(`the Simulator was running before this run, booted some other way, so app-kit gives it no shut-down time: xcrun simctl shutdown ${udid} when the check is done`);
+    }
     print(`screenshot: xcrun simctl io ${udid} screenshot <file.png>`);
     print(`to test it yourself, with no window: "${TESTING_SECTION}" in app-kit's README (node_modules/app-kit/README.md)`);
     return 0;

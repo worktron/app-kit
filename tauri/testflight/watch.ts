@@ -17,16 +17,13 @@
  *   <app>/record.json      the main commit last judged, the last failure (commit, step, time), and when to judge an
  *                          unmoved main again because the newest build nears its expiry
  */
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 import { UPLOADING } from './upload.ts';
-import { lock } from './lock.ts';
-
-export { lock };
+import { appendLog, lock, stateFolder } from '../state.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -37,7 +34,6 @@ export const LIMITS: Limits = { fetch: 2 * 60_000, install: 10 * 60_000, build: 
 export const RETRY_MS = 60 * 60 * 1000;
 /** How long before Apple expires the newest build a fresh one goes up: on day 75 of its 90. */
 export const RENEW_BEFORE_EXPIRY_MS = 15 * 24 * 60 * 60 * 1000;
-const LOG_MAX = 1_000_000;
 const BUILD_LOGS_KEPT = 10;
 
 export type Failure = { commit: string; step: string; time: string; held?: boolean };
@@ -47,10 +43,6 @@ export type Failure = { commit: string; step: string; time: string; held?: boole
  */
 export type AppRecord = { judgedHead: string | null; failure: Failure | null; fetchFailingSince?: string | null; expiryCheckAt?: string | null };
 
-/** The folder the watcher keeps its clones, logs and records in. */
-export function stateFolder(env: Env, home = homedir()): string {
-  return join(env.XDG_STATE_HOME || join(home, '.local', 'state'), 'app-kit', 'testflight');
-}
 
 /** An app's name from its git address: https://github.com/worktron/argon-watcher.git, or its SSH form, is argon-watcher. */
 export function appName(url: string): string {
@@ -186,7 +178,7 @@ export type WatchOptions = {
 /** One pass over every app; gives how many of them had a step fail in it, each failure logged. */
 export async function watch(options: WatchOptions): Promise<number> {
   const env = options.env ?? process.env;
-  const state = stateFolder(env, options.home);
+  const state = stateFolder('testflight', env, options.home);
   const lockFile = join(state, 'testflight.lock');
   // Another pass is building; it has written its own lines.
   if (!lock(lockFile)) return 0;
@@ -221,13 +213,7 @@ export async function watch(options: WatchOptions): Promise<number> {
 }
 
 function log(state: string, line: string) {
-  const file = join(state, 'testflight.log');
-  try {
-    if (statSync(file).size > LOG_MAX) renameSync(file, `${file}.1`);
-  } catch {
-    // no log yet
-  }
-  appendFileSync(file, `${line}\n`);
+  appendLog(join(state, 'testflight.log'), line);
 }
 
 function readRecord(file: string): AppRecord {

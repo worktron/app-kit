@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type Profile, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
-import { lock } from './lock.ts';
+import { lock } from '../state.ts';
 import {
   bundleIdentifier,
   certificateFacts,
