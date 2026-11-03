@@ -18,8 +18,8 @@ import {
   upload,
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
-import { projectToPutBack } from '../tauri/testflight/signing.ts';
-import { apple as appleFor, keychainHolds, SHA1, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
+import { projectToPutBack, writeSecurityRecorder } from '../tauri/testflight/signing.ts';
+import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
 import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
@@ -52,7 +52,6 @@ async function runUpload(stand: ReturnType<typeof apple>, overrides: Partial<Upl
     run: stand.run,
     env: { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome },
     home: place.folder,
-    keychainHolds,
     appStoreConnect: asc.options,
     now: () => clock,
     sleep: async (ms) => {
@@ -301,14 +300,15 @@ test('stopped by the watcher\'s time limit, the upload stops the programs it sta
     if (at === 'altool') expect(existsSync(readFileSync(`${marker}.keys`, 'utf8'))).toBe(false);
     // Stopped mid-build, Tauri's keychain, which holds the private key, and its copy of the profile are removed too.
     const keychains = join(place.folder, 'Library/Keychains');
-    expect(existsSync(keychains) ? readdirSync(keychains) : []).toEqual([]);
+    expect(existsSync(keychains) ? readdirSync(keychains).filter((name) => !name.startsWith('.')) : []).toEqual([]);
     const copies = join(place.folder, 'Library/MobileDevice/Provisioning Profiles');
     expect(existsSync(copies) ? readdirSync(copies) : []).toEqual([]);
   }
 });
 
 describe('signing with the certificate from 1Password', () => {
-  const keychains = () => (existsSync(join(place.folder, 'Library/Keychains')) ? readdirSync(join(place.folder, 'Library/Keychains')) : []);
+  // Without its dotfiles: macOS's security, deleting a stand-in keychain it cannot open, leaves a temporary file beside it.
+  const keychains = () => (existsSync(join(place.folder, 'Library/Keychains')) ? readdirSync(join(place.folder, 'Library/Keychains')).filter((name) => !name.startsWith('.')) : []);
   const tauriCopies = () => {
     const folder = join(place.folder, 'Library/MobileDevice/Provisioning Profiles');
     return existsSync(folder) ? readdirSync(folder) : [];
@@ -316,11 +316,13 @@ describe('signing with the certificate from 1Password', () => {
   const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
 
   test('the build signs with the certificate from 1Password and the profile from App Store Connect, and what Tauri leaves is put back', async () => {
-    // The login keychain, one of Tauri's shape made before this build, and one of that shape another tool makes during
-    // it, holding another certificate.
+    // The login keychain, one of Tauri's shape from another build, one another tool makes during this one, and a copy
+    // of the same profile someone put in Tauri's folder before.
     mkdirSync(join(place.folder, 'Library/Keychains'), { recursive: true });
     writeFileSync(join(place.folder, 'Library/Keychains/login.keychain-db'), 'the login keychain');
-    writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), `a keychain a killed build left, holding ${SHA1}`);
+    writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), 'a keychain another build made');
+    mkdirSync(join(place.folder, 'Library/MobileDevice/Provisioning Profiles'), { recursive: true });
+    writeFileSync(join(place.folder, 'Library/MobileDevice/Provisioning Profiles/theirs.mobileprovision'), Buffer.from(profileContent('uuid-0001'), 'base64'));
     const stand = apple();
     const tauri = stand.run;
     stand.run = async (command, options) => {
@@ -335,10 +337,10 @@ describe('signing with the certificate from 1Password', () => {
     expect(env.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-0001'));
     // The certificate was matched to Apple's record by its serial, which Apple writes without the leading zero.
     expect(asc.requests).toContain('/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=200&fields[certificates]=serialNumber,expirationDate');
-    // Xcode's folder holds the profile by its uuid; Tauri's copy and the keychain it made are gone, and the keychains
-    // that were there before, one of Tauri's shape among them, are not: this build cannot tell whose that one is.
+    // Xcode's folder holds the profile by its uuid; the copy Tauri wrote and the keychain it made are gone, and nothing
+    // this build did not make is touched.
     expect(readFileSync(xcodeProfile('uuid-0001'))).toEqual(Buffer.from(profileContent('uuid-0001'), 'base64'));
-    expect(tauriCopies()).toEqual([]);
+    expect(tauriCopies()).toEqual(['theirs.mobileprovision']);
     expect(keychains().sort()).toEqual(['AnotherTool00000.keychain-db', 'LeftBehind000000.keychain-db', 'login.keychain-db']);
     expect(git(app, 'status', '--porcelain')).toBe('');
     // Its .p12 was written for openssl in a folder of its own, removed after.
@@ -460,6 +462,17 @@ describe('signing with the certificate from 1Password', () => {
     }
   });
 
+  test("the build's security notes each keychain it is asked to create, never the password, and hands every call on", () => {
+    const folder = join(place.folder, 'tools');
+    mkdirSync(folder);
+    writeSecurityRecorder(folder, '/bin/echo');
+    const made = Bun.spawnSync([join(folder, 'security'), 'create-keychain', '-p', 'the-password', '/a/b/Made.keychain-db'], { stdout: 'pipe' });
+    expect(made.stdout.toString()).toBe('create-keychain -p the-password /a/b/Made.keychain-db\n');
+    const listed = Bun.spawnSync([join(folder, 'security'), 'list-keychain', '-d', 'user'], { stdout: 'pipe' });
+    expect(listed.stdout.toString()).toBe('list-keychain -d user\n');
+    expect(readFileSync(join(folder, 'keychains-made'), 'utf8')).toBe('/a/b/Made.keychain-db\n');
+  });
+
   test("the .p12 is read with macOS's own openssl, never the first on PATH", async () => {
     const stand = apple();
     expect((await runUpload(stand, { env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome } })).code).toBe(0);
@@ -469,7 +482,10 @@ describe('signing with the certificate from 1Password', () => {
 
 describe('the pure parts', () => {
   test("the build's environment", () => {
-    const env = buildEnv({ PATH: '/opt/homebrew/bin:/usr/bin', FORCE_COLOR: '3', APPLE_API_KEY: 'k', OP_SERVICE_ACCOUNT_TOKEN: 't', HOME: '/h' }, '/h');
+    const env = buildEnv(
+      { PATH: '/opt/homebrew/bin:/usr/bin', FORCE_COLOR: '3', APPLE_API_KEY: 'k', OP_SERVICE_ACCOUNT_TOKEN: 't', IOS_CERTIFICATE: 'c', IOS_CERTIFICATE_PASSWORD: 'p', IOS_MOBILE_PROVISION: 'm', HOME: '/h' },
+      '/h',
+    );
     expect(env).toEqual({ PATH: '/h/.cargo/bin:/opt/homebrew/bin:/usr/bin', HOME: '/h', LANG: 'en_US.UTF-8' });
     expect(buildEnv({ PATH: '/usr/bin', CARGO_HOME: '/rust' }, '/h').PATH).toBe('/rust/bin:/usr/bin');
   });

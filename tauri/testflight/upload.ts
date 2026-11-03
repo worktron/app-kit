@@ -19,7 +19,8 @@
  * - The build number goes in as bundleVersion, not --build-number, which Tauri appends to the version (0.1.0.389),
  *   and App Store Connect takes at most three numbers.
  * - The export copies with rsync and passes options only Apple's accepts; Homebrew's rsync, ahead of it on PATH,
- *   fails with "Copy failed", so a folder holding a link to /usr/bin/rsync goes first on PATH.
+ *   fails with "Copy failed", so a folder holding a link to /usr/bin/rsync goes first on PATH, with the `security`
+ *   that notes Tauri's keychain (signing.ts).
  * - Tauri passes FORCE_COLOR into the Xcode build step as a flag, where a terminal's FORCE_COLOR=3 reads as a chip
  *   architecture, so it is removed, with the key, by the build environment every iPhone build shares (../build-env.ts).
  * - App Store Connect refuses an App Store icon with a pixel that is not fully opaque (90717), and altool says so only
@@ -38,7 +39,17 @@ import { inflateSync } from 'node:zlib';
 import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type Profile, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
 import { lock } from './lock.ts';
-import { bundleIdentifier, certificateFacts, deleteNewTauriKeychains, installProfile, projectToPutBack, removeTauriProfileCopies, tauriCliProblem, tauriKeychains } from './signing.ts';
+import {
+  bundleIdentifier,
+  certificateFacts,
+  deleteRecordedKeychains,
+  installProfile,
+  projectToPutBack,
+  removeTauriProfileCopy,
+  tauriCliProblem,
+  tauriProfileFiles,
+  writeSecurityRecorder,
+} from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
@@ -258,8 +269,6 @@ export type UploadOptions = {
   env?: Env;
   /** The home folder whose keychains and profile folders Tauri and Xcode use. */
   home?: string;
-  /** Whether a keychain holds the certificate with this SHA-1; `security find-certificate` unless the tests stand in. */
-  keychainHolds?: (path: string, sha1: string) => boolean;
   appStoreConnect?: AppStoreConnectOptions;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -374,15 +383,17 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
     if (committed !== null) restores.push({ file, key: plistKey, wrote, committed });
   }
 
-  // One signing build on a Mac at a time, so every keychain of Tauri's shape is this build's or one left behind.
+  // One signing build on a Mac at a time: two Tauri builds signing at once drop each other's keychain from the list.
   const home = options.home ?? homedir();
   const signingLock = join(home, 'Library/Caches/app-kit/testflight-signing.lock');
   if (!lock(signingLock)) return fail(`another signing build is running on this Mac (its process id is in ${signingLock}); try again once it ends`);
   const changedProjects: string[] = [];
-  const keychainsBefore = tauriKeychains(home);
-  const appleRsync = mkdtempSync(join(tmpdir(), 'app-kit-testflight-rsync-'));
+  const profileFilesBefore = tauriProfileFiles(home);
+  // The folder first on the build's PATH: Apple's rsync, and the security that writes down Tauri's keychain.
+  const tools = mkdtempSync(join(tmpdir(), 'app-kit-testflight-tools-'));
   const putBack = cleanupOnStop(() => {
-    rmSync(appleRsync, { recursive: true, force: true });
+    deleteRecordedKeychains(tools);
+    rmSync(tools, { recursive: true, force: true });
     for (const r of restores) {
       const path = join(cwd, r.file);
       if (existsSync(path)) writeFileSync(path, restoreValue(readFileSync(path, 'utf8'), r.key, r.wrote, r.committed));
@@ -394,20 +405,20 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
       if (text === null) changedProjects.push(project.file);
       else writeFileSync(path, text);
     }
-    deleteNewTauriKeychains(home, keychainsBefore, signing.sha1, options.keychainHolds);
-    removeTauriProfileCopies(home, signing.profile.content);
+    removeTauriProfileCopy(home, signing.profile.content, profileFilesBefore);
     if (existsSync(signingLock) && readFileSync(signingLock, 'utf8') === String(process.pid)) rmSync(signingLock, { force: true });
   });
   try {
     installProfile(home, signing.profile.uuid, signing.profile.content);
-    symlinkSync('/usr/bin/rsync', join(appleRsync, 'rsync'));
+    symlinkSync('/usr/bin/rsync', join(tools, 'rsync'));
+    writeSecurityRecorder(tools);
     print(`building build ${buildNumber} (${short})`);
     const config = JSON.stringify({ bundle: { iOS: { bundleVersion: String(buildNumber) } } });
     const built = await run(['bunx', 'tauri', 'ios', 'build', '--ci', '--export-method', 'app-store-connect', '--config', config], {
       cwd,
       env: {
         ...env,
-        PATH: `${appleRsync}:${env.PATH}`,
+        PATH: `${tools}:${env.PATH}`,
         IOS_CERTIFICATE: certificate.p12,
         IOS_CERTIFICATE_PASSWORD: certificate.password,
         IOS_MOBILE_PROVISION: signing.profile.content,
@@ -483,7 +494,7 @@ async function signingFiles(
   run: Run,
   env: Env,
   now: () => number,
-): Promise<{ profile: Profile; team: string; sha1: string } | string> {
+): Promise<{ profile: Profile; team: string } | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-certificate-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
   let facts: Awaited<ReturnType<typeof certificateFacts>>;
@@ -493,7 +504,7 @@ async function signingFiles(
     remove();
   }
   if ('error' in facts) return facts.error;
-  const { team, sha1 } = facts;
+  const { team } = facts;
   try {
     const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
@@ -501,9 +512,9 @@ async function signingFiles(
     const bundleId = await appStoreConnect.bundleId(identifier);
     if (!bundleId) return `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses`;
     const found = await appStoreConnect.appStoreProfile(bundleId, record.id);
-    if (found) return { profile: found, team, sha1 };
+    if (found) return { profile: found, team };
     try {
-      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team, sha1 };
+      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team };
     } catch (error) {
       if (error instanceof AppStoreConnectError && error.status === 403) {
         return `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${record.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`;

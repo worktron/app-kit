@@ -1,7 +1,7 @@
 // The upload's stand-ins for Apple's side: an app's checkout as Tauri lays it out, Rust as rustup installs it, and
 // Tauri, codesign, altool, the keychain and 1Password as they answered in the first real uploads. Shared by the upload's
 // tests and by testflight-upload-child.ts, which the tests run as a process of its own to stop it.
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { runCommand } from '../command-line/run.ts';
@@ -120,12 +120,6 @@ export function uploadFixture(folder: string, appFolder = '') {
   return { origin, app, cargoHome };
 }
 
-/** The certificate's SHA-1, as `security find-certificate -Z` prints it. */
-export const SHA1 = 'AB'.repeat(20);
-
-/** Whether a stand-in keychain holds the certificate: the stand-in Tauri writes its SHA-1 into the file. */
-export const keychainHolds = (path: string, sha1: string) => existsSync(path) && readFileSync(path, 'utf8').includes(sha1);
-
 /** Installs a stand-in @tauri-apps/cli at `version` in the app's node_modules, as bun install does. */
 export function tauriCli(appFolder: string, version: string) {
   mkdirSync(join(appFolder, 'node_modules/@tauri-apps/cli'), { recursive: true });
@@ -171,18 +165,21 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       return ok('-----BEGIN CERTIFICATE-----\nstand-in\n-----END CERTIFICATE-----\n');
     }
     if (command[0] === '/usr/bin/openssl' && command[1] === 'x509') {
-      return ok(`serial=${SERIAL}\nsubject= /UID=TEAM000000/CN=Apple Distribution: Team (TEAM000000)/OU=TEAM000000/O=Team/C=US\nSHA1 Fingerprint=${SHA1.match(/../g)!.join(':')}\n`);
+      return ok(`serial=${SERIAL}\nsubject= /UID=TEAM000000/CN=Apple Distribution: Team (TEAM000000)/OU=TEAM000000/O=Team/C=US\n`);
     }
     if (line.startsWith('bunx tauri ios build')) {
-      // Signing by hand, Tauri makes a keychain of its own and copies the profile into the folder it uses, both under
-      // HOME, and writes the signing settings into the Xcode project.
+      // Signing by hand, Tauri makes a keychain of its own at a random path with the `security` it finds on PATH, which
+      // the upload's notes it in the file beside it as the real one would, copies the profile into the folder it uses,
+      // both under HOME, and writes the signing settings into the Xcode project.
       const env = runOptions.env ?? {};
       const home = env.HOME ?? '';
       let keychain: string | null = null;
       if (env.IOS_CERTIFICATE && env.IOS_CERTIFICATE_PASSWORD && env.IOS_MOBILE_PROVISION) {
-        keychain = join(home, 'Library/Keychains', `${Math.random().toString(36).slice(2, 10).padEnd(8, 'x')}${'K'.repeat(8)}.keychain-db`);
+        keychain = join(home, 'Library/Keychains', `${Math.random().toString(36).slice(2, 18)}.keychain-db`);
         mkdirSync(join(home, 'Library/Keychains'), { recursive: true });
-        writeFileSync(keychain, `a keychain holding the certificate ${SHA1}`);
+        writeFileSync(keychain, 'a keychain holding the private key');
+        const tools = (env.PATH ?? '').split(':')[0]!;
+        if (existsSync(join(tools, 'security'))) appendFileSync(join(tools, 'keychains-made'), `${keychain}\n`);
         mkdirSync(join(home, 'Library/MobileDevice/Provisioning Profiles'), { recursive: true });
         writeFileSync(join(home, 'Library/MobileDevice/Provisioning Profiles', `${Math.random().toString(36).slice(2, 18)}.mobileprovision`), Buffer.from(env.IOS_MOBILE_PROVISION, 'base64'));
         const project = join(cwd, XCODE_PROJECT_FILE);
