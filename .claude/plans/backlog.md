@@ -244,3 +244,11 @@ Done when: a test with the clock moved across New Year holds that the periods as
 Do not touch: `ordersPath`, `orderDetailsPath` and the readers.
 Needs: nothing.
 Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts, README.md.
+
+## amazon-orders-server-types · The part typechecks in a server or tool compiled without the DOM library
+
+Goal: `parse` returns the global `DocumentFragment` (`server/amazon-orders/index.ts:24`, with a cast at `:28`) and `textOf` takes the global `Element` (`:32`). The README says this part is for a server or a tool, and an app compiled with `lib: ["ESNext"]` should report `Cannot find name 'DocumentFragment'` in the kit's source. Nobody has compiled it that way yet, so first reproduce it. The kit's own `tsconfig.json` includes `DOM` and `DOM.Iterable`, so its gates cannot catch this. happy-dom exports its own types, which would also remove the cast.
+Done when: a test typechecks `server/amazon-orders/index.ts` under a config with no DOM library and finds no errors; the kit's own typecheck stays at zero errors; and amazon-connector's and getter's use of `querySelector` and `querySelectorAll` on what `parse` returns still typechecks, shown by the shape the test uses.
+Do not touch: what the functions do at run time.
+Needs: nothing.
+Touches: server/amazon-orders/index.ts, a test in test/.
