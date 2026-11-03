@@ -137,19 +137,27 @@ export class AppStoreConnect {
     return page.data.find((bundle) => bundle.attributes?.identifier === identifier)?.id ?? null;
   }
 
-  /** The active App Store profile for the bundle id that signs with the certificate, or null when there is none. */
+  /**
+   * The active App Store profile for the bundle id that signs with the certificate, or null when there is none. Apple
+   * refuses `include` on a bundle id's own profile list, so the team's list is read, filtered, with both linked.
+   */
   async appStoreProfile(bundleId: string, certificateId: string): Promise<Profile | null> {
-    const page = await this.get(
-      `/v1/bundleIds/${encodeURIComponent(bundleId)}/profiles?limit=200&fields[profiles]=profileType,profileState,uuid,profileContent,certificates&include=certificates&limit[certificates]=50`,
-    );
-    for (const profile of page.data) {
-      const a = profile.attributes ?? {};
-      if (a.profileType !== 'IOS_APP_STORE' || a.profileState !== 'ACTIVE') continue;
-      const linked = profile.relationships?.certificates?.data;
-      const certificates = Array.isArray(linked) ? linked : linked ? [linked] : [];
-      if (certificates.some((c) => c.id === certificateId) && typeof a.uuid === 'string' && typeof a.profileContent === 'string') {
-        return { uuid: a.uuid, content: a.profileContent };
+    let next: string | undefined =
+      '/v1/profiles?filter[profileType]=IOS_APP_STORE&filter[profileState]=ACTIVE&limit=200&fields[profiles]=profileType,profileState,uuid,profileContent,bundleId,certificates&include=bundleId,certificates&limit[certificates]=50';
+    for (let pages = 0; next && pages < 20; pages++) {
+      const page: Page = await this.get(next);
+      for (const profile of page.data) {
+        const a = profile.attributes ?? {};
+        if (a.profileType !== 'IOS_APP_STORE' || a.profileState !== 'ACTIVE') continue;
+        const ids = (name: string) => {
+          const linked = profile.relationships?.[name]?.data;
+          return (Array.isArray(linked) ? linked : linked ? [linked] : []).map((resource) => resource.id);
+        };
+        if (ids('bundleId').includes(bundleId) && ids('certificates').includes(certificateId) && typeof a.uuid === 'string' && typeof a.profileContent === 'string') {
+          return { uuid: a.uuid, content: a.profileContent };
+        }
       }
+      next = page.links?.next;
     }
     return null;
   }
