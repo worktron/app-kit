@@ -220,3 +220,11 @@ Done when: a kept answer expires after a set time (a few minutes) and the next r
 Do not touch: requireOwner's refusals and their wording.
 Needs: nothing.
 Touches: authentication/owner/index.ts and its test, the README's owner section.
+
+## amazon-orders-status-line · An order's status comes from Amazon's marked delivery line, so "Arriving" lines stop reading as null or cut short
+
+Goal: `readOrders` in `server/amazon-orders/index.ts:120` finds an order's status with a pattern over the whole card's text. `Arriving [a-zA-Z0-9 ]+?(?= [A-Z])` only ends at a following space and capital letter, so "Arriving tomorrow" followed by "and 6 more" reads as null, "Arriving tomorrow by 8 PM" reads as "Arriving tomorrow by 8", and "Arriving Nov 3 - Nov 5" reads as null. "Delivered today" reads as null too. The pattern moved unchanged from the source when the part was made in v0.34.0. The fixtures mark the line with `.delivery-box__primary-text` (`test/fixtures/amazon-orders/orders.html:6` and `:14`), and the reader ignores it. The shapes above come from reading the code and running the pattern on made-up cards, and the exact wording of real "Arriving" cards is not in this repository: check against recorded real pages on the owner's machine, read-only, printing only counts and equality, before changing it.
+Done when: a test over a made-up card holding each of those lines reads the whole line as `status`; a card with no marked line still reads "Cancelled" and "Refunded" as now; and over the real recordings the new reader's answers differ from the old one's only where the old one read null or cut the line short, reported as counts.
+Do not touch: `Order`'s shape and field names; the other readers.
+Needs: nothing.
+Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts, test/fixtures/amazon-orders/.
