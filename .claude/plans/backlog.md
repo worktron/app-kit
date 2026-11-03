@@ -228,3 +228,11 @@ Done when: a test over a made-up card holding each of those lines reads the whol
 Do not touch: `Order`'s shape and field names; the other readers.
 Needs: nothing.
 Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts, test/fixtures/amazon-orders/.
+
+## amazon-orders-unclosed-tags · A script or style with no closing tag is gone from the parsed page too
+
+Goal: `parse` in `server/amazon-orders/index.ts:24-29` strips scripts and styles with patterns that search only up to the last closing tag, which keeps it linear on a page of unclosed tags. A `<script>` or `<style>` after that point reaches the parser and stays in the page, and a direct check found its trailing text read as `moreItems` from inside a card. The patterns also miss `</script >` and `</style >`, which HTML allows. So the README's "with its scripts and styles dropped" is untrue for such a page. Only a crafted page does this: over the 10 real order recordings the reader matched its source. Removing what is left after the parse, as well as before it, should be enough, since the before-parse strip is there because happy-dom's parser mishandles these tags inside `<svg>` and `<table>`.
+Done when: a test holds that a page with an unclosed script inside a card, and one closed with `</script >`, has no `script` or `style` element after `parse` and that card's `moreItems` reads as its real count; the test "a page of unclosed script and style tags reads as none, and at once" still passes at its size; and "reading a page sent to a server fetches nothing it names, runs nothing in it, and leaves the process free to end" still passes.
+Do not touch: the template parse, which is what keeps a page from acting on the server.
+Needs: nothing.
+Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts.
