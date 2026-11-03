@@ -2,7 +2,7 @@
 // upload with the key in a folder of its own, and the wait for Apple's processing, against stand-ins for Tauri, altool,
 // codesign, the keychain, 1Password and App Store Connect, in a real git repository reached over file://.
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { runCommand } from '../command-line/run.ts';
 import { dirname, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
@@ -315,7 +315,7 @@ describe('signing with the certificate from 1Password', () => {
   const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
 
   test('the build signs with the certificate from 1Password and the profile from App Store Connect, and what Tauri leaves is put back', async () => {
-    // A keychain other software made, and Tauri's from a build killed before, holding the private key.
+    // The login keychain, and one of Tauri's shape made before this build.
     mkdirSync(join(place.folder, 'Library/Keychains'), { recursive: true });
     writeFileSync(join(place.folder, 'Library/Keychains/login.keychain-db'), 'the login keychain');
     writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), 'a keychain a killed build left');
@@ -328,11 +328,11 @@ describe('signing with the certificate from 1Password', () => {
     expect(env.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-0001'));
     // The certificate was matched to Apple's record by its serial, which Apple writes without the leading zero.
     expect(asc.requests).toContain('/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=200&fields[certificates]=serialNumber,expirationDate');
-    // Xcode's folder holds the profile by its uuid; Tauri's copy, its keychain and the one left behind are gone, the
-    // login keychain is not, and the Xcode project is as committed.
+    // Xcode's folder holds the profile by its uuid; Tauri's copy and the keychain it made are gone, and the keychains
+    // that were there before, one of Tauri's shape among them, are not: this build cannot tell whose that one is.
     expect(readFileSync(xcodeProfile('uuid-0001'))).toEqual(Buffer.from(profileContent('uuid-0001'), 'base64'));
     expect(tauriCopies()).toEqual([]);
-    expect(keychains()).toEqual(['login.keychain-db']);
+    expect(keychains().sort()).toEqual(['LeftBehind000000.keychain-db', 'login.keychain-db']);
     expect(git(app, 'status', '--porcelain')).toBe('');
     // Its .p12 was written for openssl in a folder of its own, removed after.
     expect(existsSync(dirname(stand.named('/usr/bin/openssl pkcs12')[0].command[3]))).toBe(false);
@@ -425,11 +425,30 @@ describe('signing with the certificate from 1Password', () => {
     expect(stand.named('altool')).toEqual([]);
   });
 
-  test('only the signing settings are taken out when the project is compared', () => {
+  test("the project is put back only when the build changed nothing but Tauri's signing lines for this certificate and profile", () => {
+    const signedWith = { team: 'TEAM000000', profileUuid: 'uuid-0001' };
     const signed = signedProject(XCODE_PROJECT, 'uuid-0001');
     expect(signed).not.toBe(XCODE_PROJECT);
-    expect(projectToPutBack(XCODE_PROJECT, signed)).toBe(XCODE_PROJECT);
-    expect(projectToPutBack(XCODE_PROJECT, signed.replace('PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;', 'PRODUCT_BUNDLE_IDENTIFIER = x;'))).toBeNull();
+    expect(projectToPutBack(XCODE_PROJECT, signed, signedWith)).toBe(XCODE_PROJECT);
+    // Something else changed too.
+    expect(projectToPutBack(XCODE_PROJECT, signed.replace('PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;', 'PRODUCT_BUNDLE_IDENTIFIER = x;'), signedWith)).toBeNull();
+    // A signing setting someone set meanwhile, to another team or profile, is not this build's.
+    expect(projectToPutBack(XCODE_PROJECT, signed.replace('PROVISIONING_PROFILE_SPECIFIER = uuid-0001;', 'PROVISIONING_PROFILE_SPECIFIER = someone-elses;'), signedWith)).toBeNull();
+    expect(projectToPutBack(XCODE_PROJECT, signed.replaceAll('DEVELOPMENT_TEAM = TEAM000000;', 'DEVELOPMENT_TEAM = OTHERTEAM1;'), signedWith)).toBeNull();
+  });
+
+  test('a Tauri CLI a workspace hoists to the repository root is found', async () => {
+    const sub = scratch('testflight-upload-hoisted-');
+    try {
+      const fixture = uploadFixture(sub.folder, 'desktop');
+      const desktop = join(fixture.app, 'desktop');
+      rmSync(join(desktop, 'node_modules'), { recursive: true });
+      tauriCli(fixture.app, '2.12.4');
+      const { code } = await runUpload(appleFor(desktop, asc.builds), { cwd: desktop, env: { PATH: '/usr/bin:/bin', HOME: sub.folder, CARGO_HOME: fixture.cargoHome }, home: sub.folder });
+      expect(code).toBe(0);
+    } finally {
+      sub.done();
+    }
   });
 
   test("the .p12 is read with macOS's own openssl, never the first on PATH", async () => {

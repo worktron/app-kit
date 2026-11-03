@@ -164,7 +164,7 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       if (written !== CERTIFICATE.p12 || runOptions.env?.APP_KIT_P12_PASSWORD !== CERTIFICATE.password) return exit(1, 'Mac verify error: invalid password?');
       return ok('-----BEGIN CERTIFICATE-----\nstand-in\n-----END CERTIFICATE-----\n');
     }
-    if (command[0] === '/usr/bin/openssl' && command[1] === 'x509') return ok(`serial=${SERIAL}\n`);
+    if (command[0] === '/usr/bin/openssl' && command[1] === 'x509') return ok(`serial=${SERIAL}\nsubject= /UID=TEAM000000.distribution/CN=Apple Distribution: Team (TEAM000000)/OU=TEAM000000/O=Team/C=US\n`);
     if (line.startsWith('bunx tauri ios build')) {
       // Signing by hand, Tauri makes a keychain of its own and copies the profile into the folder it uses, both under
       // HOME, and writes the signing settings into the Xcode project.

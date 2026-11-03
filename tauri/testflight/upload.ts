@@ -38,7 +38,7 @@ import { inflateSync } from 'node:zlib';
 import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type Profile, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
 import { lock } from './lock.ts';
-import { bundleIdentifier, certificateSerial, deleteTauriKeychains, installProfile, projectToPutBack, removeTauriProfileCopies, tauriCliProblem } from './signing.ts';
+import { bundleIdentifier, certificateFacts, deleteNewTauriKeychains, installProfile, projectToPutBack, removeTauriProfileCopies, tauriCliProblem, tauriKeychains } from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
@@ -377,6 +377,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   const signingLock = join(home, 'Library/Caches/app-kit/testflight-signing.lock');
   if (!lock(signingLock)) return fail(`another signing build is running on this Mac (its process id is in ${signingLock}); try again once it ends`);
   const changedProjects: string[] = [];
+  const keychainsBefore = tauriKeychains(home);
   const appleRsync = mkdtempSync(join(tmpdir(), 'app-kit-testflight-rsync-'));
   const putBack = cleanupOnStop(() => {
     rmSync(appleRsync, { recursive: true, force: true });
@@ -387,17 +388,16 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
     for (const project of projects) {
       const path = join(cwd, project.file);
       if (!existsSync(path)) continue;
-      const text = projectToPutBack(project.before, readFileSync(path, 'utf8'));
+      const text = projectToPutBack(project.before, readFileSync(path, 'utf8'), { team: signing.team, profileUuid: signing.profile.uuid });
       if (text === null) changedProjects.push(project.file);
       else writeFileSync(path, text);
     }
-    deleteTauriKeychains(home);
-    removeTauriProfileCopies(home, signing.content);
+    deleteNewTauriKeychains(home, keychainsBefore);
+    removeTauriProfileCopies(home, signing.profile.content);
     if (existsSync(signingLock) && readFileSync(signingLock, 'utf8') === String(process.pid)) rmSync(signingLock, { force: true });
   });
   try {
-    deleteTauriKeychains(home);
-    installProfile(home, signing.uuid, signing.content);
+    installProfile(home, signing.profile.uuid, signing.profile.content);
     symlinkSync('/usr/bin/rsync', join(appleRsync, 'rsync'));
     print(`building build ${buildNumber} (${short})`);
     const config = JSON.stringify({ bundle: { iOS: { bundleVersion: String(buildNumber) } } });
@@ -408,7 +408,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
         PATH: `${appleRsync}:${env.PATH}`,
         IOS_CERTIFICATE: certificate.p12,
         IOS_CERTIFICATE_PASSWORD: certificate.password,
-        IOS_MOBILE_PROVISION: signing.content,
+        IOS_MOBILE_PROVISION: signing.profile.content,
       },
       output,
     });
@@ -474,26 +474,34 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
  * The App Store profile the build signs with, after checking the certificate against Apple's record of it; or why the
  * build cannot sign. The profile is made when the app has none, which Apple refuses a key whose role may not do.
  */
-async function signingFiles(certificate: Certificate, identifier: string, appStoreConnect: AppStoreConnect, run: Run, env: Env, now: () => number): Promise<Profile | string> {
+async function signingFiles(
+  certificate: Certificate,
+  identifier: string,
+  appStoreConnect: AppStoreConnect,
+  run: Run,
+  env: Env,
+  now: () => number,
+): Promise<{ profile: Profile; team: string } | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-certificate-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
-  let serial: string | { error: string };
+  let facts: Awaited<ReturnType<typeof certificateFacts>>;
   try {
-    serial = await certificateSerial(certificate, folder, run, env);
+    facts = await certificateFacts(certificate, folder, run, env);
   } finally {
     remove();
   }
-  if (typeof serial !== 'string') return serial.error;
+  if ('error' in facts) return facts.error;
+  const { team } = facts;
   try {
-    const record = await appStoreConnect.distributionCertificate(serial);
+    const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
     if (record.expires && Date.parse(record.expires) <= now()) return `the distribution certificate expired on ${record.expires.slice(0, 10)}: ${MAKE_CERTIFICATE}`;
     const bundleId = await appStoreConnect.bundleId(identifier);
     if (!bundleId) return `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses`;
     const found = await appStoreConnect.appStoreProfile(bundleId, record.id);
-    if (found) return found;
+    if (found) return { profile: found, team };
     try {
-      return await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id);
+      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team };
     } catch (error) {
       if (error instanceof AppStoreConnectError && error.status === 403) {
         return `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${record.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`;

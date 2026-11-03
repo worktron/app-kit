@@ -159,7 +159,8 @@ export class AppStoreConnect {
     const made = await this.request('/v1/profiles', {
       data: {
         type: 'profiles',
-        attributes: { name: `app-kit ${identifier} ${certificateId}`, profileType: 'IOS_APP_STORE' },
+        // Apple keeps a profile's name after it turns invalid, and names are unique, so each one made carries its time.
+        attributes: { name: `app-kit ${identifier} ${new Date(this.now()).toISOString().slice(0, 19)}`, profileType: 'IOS_APP_STORE' },
         relationships: { bundleId: { data: { type: 'bundleIds', id: bundleId } }, certificates: { data: [{ type: 'certificates', id: certificateId }] } },
       },
     });

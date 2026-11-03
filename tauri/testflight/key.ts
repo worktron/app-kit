@@ -55,9 +55,9 @@ export function certificateFromItem(json: string): Certificate | string {
   return typeof values === 'string' ? values : { p12: values.certificate!.replace(/\s+/g, ''), password: values.password! };
 }
 
-/** Whether `op` said the item is not in the vault, rather than failing to read it. */
+/** Whether `op` said the item is not in the vault, rather than failing to read it, as for a vault it cannot reach. */
 function notFound(out: string): boolean {
-  return /isn't an item|not found|no item/i.test(out);
+  return /isn't an item in the "[^"]*" vault/.test(out);
 }
 
 /** Reads one item of the vault, through the token when the keychain holds one. */
