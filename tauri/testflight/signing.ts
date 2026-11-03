@@ -8,10 +8,9 @@
  * - It makes a keychain of its own, ~/Library/Keychains/<16 letters and digits>.keychain-db, puts it on the user's
  *   keychain list, unlocks it for an hour and imports the certificate into it; it deletes it only when it ends
  *   normally, so a build stopped by the watcher's time limit leaves it, holding the private key. The keychains of that
- *   shape are listed before the build, and those that appeared during it are deleted after it, on a stop by signal too.
- *   Signing builds run under a lock, one on a Mac at a time, so a keychain that appeared is this build's unless some
- *   other tool made one of the same shape in those minutes. One left by an upload killed outright (SIGKILL), which no
- *   handler sees, stays: locked after an hour, behind a random password nobody kept.
+ *   shape are listed before the build, and after it, on a stop by signal too, each that appeared during it and holds
+ *   this certificate, found by its SHA-1, is deleted: no other's is touched. One left by an upload killed outright
+ *   (SIGKILL), which no handler sees, stays: locked after an hour, behind a random password nobody kept.
  * - It writes the profile into ~/Library/MobileDevice/Provisioning Profiles under a random name and leaves it; Xcode 16
  *   and later read ~/Library/Developer/Xcode/UserData/Provisioning Profiles, so the profile is written there by its
  *   uuid, which is not secret and the next run writes again, and Tauri's copy is removed by its bytes.
@@ -87,8 +86,11 @@ export function bundleIdentifier(cwd: string): string | null {
   return read('tauri.ios.conf.json') ?? read('tauri.conf.json');
 }
 
-/** What the upload reads from the certificate: its serial number, which Apple's record is found by, and its team id. */
-export type CertificateFacts = { serial: string; team: string };
+/**
+ * What the upload reads from the certificate: its serial number, which Apple's record is found by, its team id, and its
+ * SHA-1, which tells Tauri's keychain holding it from any other.
+ */
+export type CertificateFacts = { serial: string; team: string; sha1: string };
 
 /** The certificate's serial number and team from the .p12, read by macOS's openssl, or why they could not be read. */
 export async function certificateFacts(certificate: Certificate, folder: string, run: Run, env: Env): Promise<CertificateFacts | { error: string }> {
@@ -99,12 +101,13 @@ export async function certificateFacts(certificate: Certificate, folder: string,
   if (pem.code !== 0 || !pem.stdout.includes('BEGIN CERTIFICATE')) {
     return { error: 'openssl could not read the certificate from the .p12 in 1Password: is its "password" the one it was made with?' };
   }
-  const read = await run([OPENSSL, 'x509', '-noout', '-serial', '-subject'], { env, input: pem.stdout });
+  const read = await run([OPENSSL, 'x509', '-noout', '-serial', '-subject', '-fingerprint', '-sha1'], { env, input: pem.stdout });
   const serial = read.stdout.match(/serial=([0-9A-Fa-f]+)/)?.[1];
   // Apple writes the team id as the subject's organizational unit: /UID=.../CN=.../OU=TEAMID/O=.../C=...
   const team = read.stdout.match(/\bOU\s*=\s*([A-Z0-9]+)/)?.[1];
-  if (!serial || !team) return { error: `openssl read no serial number or team from the certificate: ${read.out.trim()}` };
-  return { serial, team };
+  const sha1 = read.stdout.match(/SHA1 Fingerprint=([0-9A-Fa-f:]+)/)?.[1]?.replaceAll(':', '').toUpperCase();
+  if (!serial || !team || !sha1) return { error: `openssl read no serial number, team or SHA-1 from the certificate: ${read.out.trim()}` };
+  return { serial, team, sha1 };
 }
 
 /** Where Xcode 16 and later look for profiles, and where Tauri writes its copy. */
@@ -140,20 +143,38 @@ export function tauriKeychains(home: string): string[] {
   return existsSync(folder) ? readdirSync(folder).filter((name) => TAURI_KEYCHAIN.test(name)).map((name) => join(folder, name)) : [];
 }
 
+/** Whether the keychain at `path` holds the certificate whose SHA-1 is `sha1`: `security find-certificate` lists each one's. */
+export function keychainHolds(path: string, sha1: string): boolean {
+  const listed = Bun.spawnSync(['/usr/bin/security', 'find-certificate', '-a', '-Z', path], { stdout: 'pipe', stderr: 'ignore' });
+  return listed.exitCode === 0 && listed.stdout.toString().toUpperCase().includes(`SHA-1 HASH: ${sha1}`);
+}
+
 /**
- * Deletes the keychains of Tauri's shape that are not in `before`, which also takes each off the keychain list; the
- * ones it deleted. Synchronous, since it also runs in a signal's handler.
+ * Deletes each keychain of Tauri's shape that is not in `before` and holds the certificate, which also takes it off
+ * the keychain list; the ones it deleted. Synchronous, since it also runs in a signal's handler.
  */
-export function deleteNewTauriKeychains(home: string, before: string[]): string[] {
+export function deleteNewTauriKeychains(home: string, before: string[], sha1: string, holds = keychainHolds): string[] {
   const deleted: string[] = [];
   for (const path of tauriKeychains(home)) {
-    if (before.includes(path)) continue;
+    if (before.includes(path) || !holds(path, sha1)) continue;
     Bun.spawnSync(['/usr/bin/security', 'delete-keychain', path], { stdout: 'ignore', stderr: 'ignore' });
     // One security could not delete is removed as a file; off the list, it is nothing more.
     rmSync(path, { force: true });
     deleted.push(path);
   }
   return deleted;
+}
+
+/** The signing lines of `text` beyond those of `other`, each line counted as often as it appears. */
+function beyond(text: string, other: string): string[] {
+  const left = new Map<string, number>();
+  for (const line of other.split('\n')) if (SIGNING_SETTING.test(line)) left.set(line, (left.get(line) ?? 0) + 1);
+  return text.split('\n').filter((line) => {
+    if (!SIGNING_SETTING.test(line)) return false;
+    const count = left.get(line) ?? 0;
+    if (count) left.set(line, count - 1);
+    return !count;
+  });
 }
 
 /** The project's text without the signing settings, to compare what else changed. */
@@ -166,13 +187,20 @@ function withoutSigning(text: string): string {
 
 /**
  * The Xcode project's text to write back after the build: the text before it, when the build changed nothing in it
- * but the signing settings and each signing line it added or changed is what Tauri writes for this certificate and
- * profile (Manual, or a value naming the team or the profile); null otherwise, so an edit made meanwhile is not lost.
+ * but the signing settings, each signing line it added or changed is what Tauri writes for this certificate and
+ * profile (Manual, or a value naming the team or the profile), and none was removed; null otherwise, so an edit made
+ * meanwhile is not lost.
  */
 export function projectToPutBack(before: string, after: string, signedWith: { team: string; profileUuid: string }): string | null {
   if (withoutSigning(before) !== withoutSigning(after)) return null;
-  const earlier = new Set(before.split('\n'));
-  const added = after.split('\n').filter((line) => SIGNING_SETTING.test(line) && !earlier.has(line));
+  // Counted, not as sets: each build configuration repeats the same lines.
+  const added = beyond(after, before);
+  const removed = beyond(before, after);
+  // Tauri replaces a setting's line, never removes one: a signing line gone with none of the same name in its place
+  // was removed by someone else.
+  const name = (line: string) => line.slice(0, line.indexOf('=')).trim();
+  const addedNames = added.map(name);
+  if (!removed.every((line) => addedNames.includes(name(line)))) return null;
   const tauriWrote = (line: string) => {
     const value = line.slice(line.indexOf('=') + 1);
     return /^\s*CODE_SIGN_STYLE\s*=\s*Manual;\s*$/.test(line) || value.includes(signedWith.team) || value.includes(signedWith.profileUuid);

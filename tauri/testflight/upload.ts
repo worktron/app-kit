@@ -258,6 +258,8 @@ export type UploadOptions = {
   env?: Env;
   /** The home folder whose keychains and profile folders Tauri and Xcode use. */
   home?: string;
+  /** Whether a keychain holds the certificate with this SHA-1; `security find-certificate` unless the tests stand in. */
+  keychainHolds?: (path: string, sha1: string) => boolean;
   appStoreConnect?: AppStoreConnectOptions;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -392,7 +394,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
       if (text === null) changedProjects.push(project.file);
       else writeFileSync(path, text);
     }
-    deleteNewTauriKeychains(home, keychainsBefore);
+    deleteNewTauriKeychains(home, keychainsBefore, signing.sha1, options.keychainHolds);
     removeTauriProfileCopies(home, signing.profile.content);
     if (existsSync(signingLock) && readFileSync(signingLock, 'utf8') === String(process.pid)) rmSync(signingLock, { force: true });
   });
@@ -481,7 +483,7 @@ async function signingFiles(
   run: Run,
   env: Env,
   now: () => number,
-): Promise<{ profile: Profile; team: string } | string> {
+): Promise<{ profile: Profile; team: string; sha1: string } | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-certificate-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
   let facts: Awaited<ReturnType<typeof certificateFacts>>;
@@ -491,7 +493,7 @@ async function signingFiles(
     remove();
   }
   if ('error' in facts) return facts.error;
-  const { team } = facts;
+  const { team, sha1 } = facts;
   try {
     const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
@@ -499,9 +501,9 @@ async function signingFiles(
     const bundleId = await appStoreConnect.bundleId(identifier);
     if (!bundleId) return `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses`;
     const found = await appStoreConnect.appStoreProfile(bundleId, record.id);
-    if (found) return { profile: found, team };
+    if (found) return { profile: found, team, sha1 };
     try {
-      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team };
+      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team, sha1 };
     } catch (error) {
       if (error instanceof AppStoreConnectError && error.status === 403) {
         return `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${record.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`;

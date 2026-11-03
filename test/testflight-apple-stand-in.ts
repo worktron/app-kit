@@ -120,6 +120,12 @@ export function uploadFixture(folder: string, appFolder = '') {
   return { origin, app, cargoHome };
 }
 
+/** The certificate's SHA-1, as `security find-certificate -Z` prints it. */
+export const SHA1 = 'AB'.repeat(20);
+
+/** Whether a stand-in keychain holds the certificate: the stand-in Tauri writes its SHA-1 into the file. */
+export const keychainHolds = (path: string, sha1: string) => existsSync(path) && readFileSync(path, 'utf8').includes(sha1);
+
 /** Installs a stand-in @tauri-apps/cli at `version` in the app's node_modules, as bun install does. */
 export function tauriCli(appFolder: string, version: string) {
   mkdirSync(join(appFolder, 'node_modules/@tauri-apps/cli'), { recursive: true });
@@ -164,7 +170,9 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       if (written !== CERTIFICATE.p12 || runOptions.env?.APP_KIT_P12_PASSWORD !== CERTIFICATE.password) return exit(1, 'Mac verify error: invalid password?');
       return ok('-----BEGIN CERTIFICATE-----\nstand-in\n-----END CERTIFICATE-----\n');
     }
-    if (command[0] === '/usr/bin/openssl' && command[1] === 'x509') return ok(`serial=${SERIAL}\nsubject= /UID=TEAM000000.distribution/CN=Apple Distribution: Team (TEAM000000)/OU=TEAM000000/O=Team/C=US\n`);
+    if (command[0] === '/usr/bin/openssl' && command[1] === 'x509') {
+      return ok(`serial=${SERIAL}\nsubject= /UID=TEAM000000/CN=Apple Distribution: Team (TEAM000000)/OU=TEAM000000/O=Team/C=US\nSHA1 Fingerprint=${SHA1.match(/../g)!.join(':')}\n`);
+    }
     if (line.startsWith('bunx tauri ios build')) {
       // Signing by hand, Tauri makes a keychain of its own and copies the profile into the folder it uses, both under
       // HOME, and writes the signing settings into the Xcode project.
@@ -174,7 +182,7 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       if (env.IOS_CERTIFICATE && env.IOS_CERTIFICATE_PASSWORD && env.IOS_MOBILE_PROVISION) {
         keychain = join(home, 'Library/Keychains', `${Math.random().toString(36).slice(2, 10).padEnd(8, 'x')}${'K'.repeat(8)}.keychain-db`);
         mkdirSync(join(home, 'Library/Keychains'), { recursive: true });
-        writeFileSync(keychain, 'a keychain holding the private key');
+        writeFileSync(keychain, `a keychain holding the certificate ${SHA1}`);
         mkdirSync(join(home, 'Library/MobileDevice/Provisioning Profiles'), { recursive: true });
         writeFileSync(join(home, 'Library/MobileDevice/Provisioning Profiles', `${Math.random().toString(36).slice(2, 18)}.mobileprovision`), Buffer.from(env.IOS_MOBILE_PROVISION, 'base64'));
         const project = join(cwd, XCODE_PROJECT_FILE);

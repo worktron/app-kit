@@ -19,7 +19,7 @@ import {
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
 import { projectToPutBack } from '../tauri/testflight/signing.ts';
-import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
+import { apple as appleFor, keychainHolds, SHA1, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
 import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
@@ -52,6 +52,7 @@ async function runUpload(stand: ReturnType<typeof apple>, overrides: Partial<Upl
     run: stand.run,
     env: { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome },
     home: place.folder,
+    keychainHolds,
     appStoreConnect: asc.options,
     now: () => clock,
     sleep: async (ms) => {
@@ -315,11 +316,17 @@ describe('signing with the certificate from 1Password', () => {
   const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
 
   test('the build signs with the certificate from 1Password and the profile from App Store Connect, and what Tauri leaves is put back', async () => {
-    // The login keychain, and one of Tauri's shape made before this build.
+    // The login keychain, one of Tauri's shape made before this build, and one of that shape another tool makes during
+    // it, holding another certificate.
     mkdirSync(join(place.folder, 'Library/Keychains'), { recursive: true });
     writeFileSync(join(place.folder, 'Library/Keychains/login.keychain-db'), 'the login keychain');
-    writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), 'a keychain a killed build left');
+    writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), `a keychain a killed build left, holding ${SHA1}`);
     const stand = apple();
+    const tauri = stand.run;
+    stand.run = async (command, options) => {
+      if (command.join(' ').startsWith('bunx tauri ios build')) writeFileSync(join(place.folder, 'Library/Keychains/AnotherTool00000.keychain-db'), 'another certificate');
+      return tauri(command, options);
+    };
     const { code } = await runUpload(stand);
     expect(code).toBe(0);
     const env = stand.named('tauri ios build')[0].options.env!;
@@ -332,7 +339,7 @@ describe('signing with the certificate from 1Password', () => {
     // that were there before, one of Tauri's shape among them, are not: this build cannot tell whose that one is.
     expect(readFileSync(xcodeProfile('uuid-0001'))).toEqual(Buffer.from(profileContent('uuid-0001'), 'base64'));
     expect(tauriCopies()).toEqual([]);
-    expect(keychains().sort()).toEqual(['LeftBehind000000.keychain-db', 'login.keychain-db']);
+    expect(keychains().sort()).toEqual(['AnotherTool00000.keychain-db', 'LeftBehind000000.keychain-db', 'login.keychain-db']);
     expect(git(app, 'status', '--porcelain')).toBe('');
     // Its .p12 was written for openssl in a folder of its own, removed after.
     expect(existsSync(dirname(stand.named('/usr/bin/openssl pkcs12')[0].command[3]))).toBe(false);
@@ -435,6 +442,8 @@ describe('signing with the certificate from 1Password', () => {
     // A signing setting someone set meanwhile, to another team or profile, is not this build's.
     expect(projectToPutBack(XCODE_PROJECT, signed.replace('PROVISIONING_PROFILE_SPECIFIER = uuid-0001;', 'PROVISIONING_PROFILE_SPECIFIER = someone-elses;'), signedWith)).toBeNull();
     expect(projectToPutBack(XCODE_PROJECT, signed.replaceAll('DEVELOPMENT_TEAM = TEAM000000;', 'DEVELOPMENT_TEAM = OTHERTEAM1;'), signedWith)).toBeNull();
+    // One someone removed meanwhile, with nothing in its place.
+    expect(projectToPutBack(XCODE_PROJECT, signed.replace('\t\t\t\tDEVELOPMENT_TEAM = TEAM000000;\n', ''), signedWith)).toBeNull();
   });
 
   test('a Tauri CLI a workspace hoists to the repository root is found', async () => {

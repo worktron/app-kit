@@ -2,7 +2,7 @@
 //   bun test/testflight-upload-child.ts <app checkout> <cargo folder> <build|altool> <marker>
 // It hangs at the build or at altool, printing a line with the marker, and is never itself a test.
 import { dirname } from 'node:path';
-import { apple } from './testflight-apple-stand-in.ts';
+import { apple, keychainHolds } from './testflight-apple-stand-in.ts';
 import { appStoreConnect } from './testflight-stand-in.ts';
 import { upload } from '../tauri/testflight/upload.ts';
 
@@ -18,5 +18,6 @@ const code = await upload({
   env: { PATH: '/usr/bin:/bin', HOME: dirname(cargoHome), CARGO_HOME: cargoHome },
   home: dirname(cargoHome),
   appStoreConnect: asc.options,
+  keychainHolds,
 });
 process.exit(code);
