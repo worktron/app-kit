@@ -386,6 +386,18 @@ describe('signing with the certificate from 1Password', () => {
     expect(refused.named('tauri')).toEqual([]);
   });
 
+  test("another app's profile is passed over, and a match on a later page is found", async () => {
+    await asc.stop();
+    const other = { id: 'OTHER', uuid: 'uuid-other', content: profileContent('uuid-other'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id], bundle: 'BUNDLE0002' };
+    const ours = { id: 'OURS', uuid: 'uuid-ours', content: profileContent('uuid-ours'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id] };
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', profiles: [other, ours], pageSize: 1 });
+    const stand = apple();
+    expect((await runUpload(stand)).code).toBe(0);
+    expect(stand.named('tauri ios build')[0].options.env?.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-ours'));
+    expect(asc.requests.filter((r) => r.startsWith('/v1/profiles'))).toHaveLength(2);
+    expect(asc.requests).not.toContain('POST /v1/profiles');
+  });
+
   test("the bundle id is the iPhone config's when it sets one", async () => {
     commit(origin, { 'src-tauri/tauri.ios.conf.json': JSON.stringify({ identifier: 'app.pastthebreak.phone' }) });
     git(app, 'pull', '-q');

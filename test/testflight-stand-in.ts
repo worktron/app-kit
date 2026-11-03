@@ -43,7 +43,7 @@ export const CERTIFICATE_JSON = JSON.stringify({
 export type StandInCertificate = { id: string; serialNumber: string; expirationDate: string };
 export const CERTIFICATE_RECORD: StandInCertificate = { id: 'CERT000001', serialNumber: 'ABC123', expirationDate: '2099-01-01T00:00:00.000+00:00' };
 /** An App Store profile Apple holds for the app. */
-export type StandInProfile = { id: string; uuid: string; content: string; type: string; state: string; certificates: string[] };
+export type StandInProfile = { id: string; uuid: string; content: string; type: string; state: string; certificates: string[]; bundle?: string };
 export const profileContent = (uuid: string) => Buffer.from(`a stand-in profile ${uuid}`).toString('base64');
 
 const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;
@@ -101,7 +101,7 @@ export async function appStoreConnect(config: {
     type: 'profiles',
     id: p.id,
     attributes: { profileType: p.type, profileState: p.state, uuid: p.uuid, profileContent: p.content },
-    relationships: { bundleId: { data: { type: 'bundleIds', id: bundleResource } }, certificates: { data: p.certificates.map((id) => ({ type: 'certificates', id })) } },
+    relationships: { bundleId: { data: { type: 'bundleIds', id: p.bundle ?? bundleResource } }, certificates: { data: p.certificates.map((id) => ({ type: 'certificates', id })) } },
   });
   const answer = (method: string, url: URL, authorization: string | null, body: string): [number, unknown] => {
     requests.push(`${method === 'GET' ? '' : `${method} `}${url.pathname}${url.search}`);
@@ -121,7 +121,11 @@ export async function appStoreConnect(config: {
       // Apple's filters, and the links the upload matches on; Apple refuses `include` on a bundle id's own list.
       const listed = profiles.filter((p) => (!q('filter[profileType]') || p.type === q('filter[profileType]')) && (!q('filter[profileState]') || p.state === q('filter[profileState]')));
       if (q('include') !== 'bundleId,certificates') return [400, { errors: [{ status: '400', title: 'include must name bundleId and certificates' }] }];
-      return [200, { data: listed.map(profileResource) }];
+      // One profile a page when the test asks, so a match on a later page is reached through links.next.
+      const size = config.pageSize ?? listed.length;
+      const from = Number(q('cursor') ?? 0);
+      const next = from + size < listed.length ? new URL(`${url.pathname}${url.search.replace(/&cursor=\d+/, '')}&cursor=${from + size}`, url).href : undefined;
+      return [200, { data: listed.slice(from, from + size).map(profileResource), links: { next } }];
     }
     if (method === 'POST' && url.pathname === '/v1/profiles') {
       if (config.refuseProfiles) return [403, { errors: [{ status: '403', title: 'The API key in use does not allow this request', detail: 'FORBIDDEN_ERROR' }] }];
