@@ -2,9 +2,9 @@
 // upload with the key in a folder of its own, and the wait for Apple's processing, against stand-ins for Tauri, altool,
 // codesign, the keychain, 1Password and App Store Connect, in a real git repository reached over file://.
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { runCommand } from '../command-line/run.ts';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import sharp from 'sharp';
 import {
@@ -18,8 +18,9 @@ import {
   upload,
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
-import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, uploadFixture, type Apple } from './testflight-apple-stand-in.ts';
-import { appStoreConnect, commit, git, KEY, scratch, TOKEN } from './testflight-stand-in.ts';
+import { projectToPutBack } from '../tauri/testflight/signing.ts';
+import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
+import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
 setDefaultTimeout(15_000);
@@ -50,6 +51,7 @@ async function runUpload(stand: ReturnType<typeof apple>, overrides: Partial<Upl
     tokenOnly: false,
     run: stand.run,
     env: { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome },
+    home: place.folder,
     appStoreConnect: asc.options,
     now: () => clock,
     sleep: async (ms) => {
@@ -79,8 +81,8 @@ test('a clean commit of main is built, checked, uploaded, and waited on until Ap
   expect(asc.requests.at(-1)).toContain('include=buildBetaDetail');
   // Only the values Tauri wrote are put back, so the tree is as committed.
   expect(git(app, 'status', '--porcelain')).toBe('');
-  // The key is read once.
-  expect(stand.named('op item get')).toHaveLength(1);
+  // The key and the certificate are each read once.
+  expect(stand.named('op item get').map((c) => c.command[3])).toEqual(['App Store Connect API', 'TestFlight distribution certificate']);
 });
 
 test('run from a Tauri project in a subfolder, it puts back only the values Tauri wrote', async () => {
@@ -90,7 +92,7 @@ test('run from a Tauri project in a subfolder, it puts back only the values Taur
     const fixture = uploadFixture(sub.folder, 'desktop');
     const desktop = join(fixture.app, 'desktop');
     const stand = appleFor(desktop, asc.builds);
-    const { code } = await runUpload(stand, { cwd: desktop, env: { PATH: '/usr/bin:/bin', HOME: sub.folder, CARGO_HOME: fixture.cargoHome } });
+    const { code } = await runUpload(stand, { cwd: desktop, env: { PATH: '/usr/bin:/bin', HOME: sub.folder, CARGO_HOME: fixture.cargoHome }, home: sub.folder });
     expect(code).toBe(0);
     expect(stand.named('tauri ios build')[0].options.cwd).toBe(desktop);
     // Tauri wrote the build number and the export method into both plists; the tree is as committed again.
@@ -113,6 +115,13 @@ test('the key, its token and APPLE_API_* never reach the build, and the token re
   const op = stand.named('op item get')[0];
   expect(op.command).toEqual(['op', 'item', 'get', 'App Store Connect API', '--vault', 'TestFlight', '--format', 'json']);
   expect(op.options.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(TOKEN);
+  // The certificate reaches only Tauri's build, and its password only that and the openssl that reads the .p12.
+  for (const call of stand.calls) {
+    const text = JSON.stringify(call.options.env ?? {});
+    const isTauri = call.command.join(' ').startsWith('bunx tauri ios build');
+    if (!isTauri) expect(Object.keys(call.options.env ?? {}).filter((n) => n.startsWith('IOS_'))).toEqual([]);
+    if (!isTauri && !(call.command[0] === '/usr/bin/openssl' && call.command[1] === 'pkcs12')) expect(text).not.toContain(CERTIFICATE.password);
+  }
   const build = stand.named('tauri ios build')[0].options.env!;
   expect(build.LANG).toBe('en_US.UTF-8');
   // Apple's rsync first, then Rust's folder.
@@ -289,7 +298,145 @@ test('stopped by the watcher\'s time limit, the upload stops the programs it sta
     expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
     expect(git(app, 'status', '--porcelain')).toBe('');
     if (at === 'altool') expect(existsSync(readFileSync(`${marker}.keys`, 'utf8'))).toBe(false);
+    // Stopped mid-build, Tauri's keychain, which holds the private key, and its copy of the profile are removed too.
+    const keychains = join(place.folder, 'Library/Keychains');
+    expect(existsSync(keychains) ? readdirSync(keychains) : []).toEqual([]);
+    const copies = join(place.folder, 'Library/MobileDevice/Provisioning Profiles');
+    expect(existsSync(copies) ? readdirSync(copies) : []).toEqual([]);
   }
+});
+
+describe('signing with the certificate from 1Password', () => {
+  const keychains = () => (existsSync(join(place.folder, 'Library/Keychains')) ? readdirSync(join(place.folder, 'Library/Keychains')) : []);
+  const tauriCopies = () => {
+    const folder = join(place.folder, 'Library/MobileDevice/Provisioning Profiles');
+    return existsSync(folder) ? readdirSync(folder) : [];
+  };
+  const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
+
+  test('the build signs with the certificate from 1Password and the profile from App Store Connect, and what Tauri leaves is put back', async () => {
+    // A keychain other software made, and Tauri's from a build killed before, holding the private key.
+    mkdirSync(join(place.folder, 'Library/Keychains'), { recursive: true });
+    writeFileSync(join(place.folder, 'Library/Keychains/login.keychain-db'), 'the login keychain');
+    writeFileSync(join(place.folder, 'Library/Keychains/LeftBehind000000.keychain-db'), 'a keychain a killed build left');
+    const stand = apple();
+    const { code } = await runUpload(stand);
+    expect(code).toBe(0);
+    const env = stand.named('tauri ios build')[0].options.env!;
+    expect(env.IOS_CERTIFICATE).toBe(CERTIFICATE.p12);
+    expect(env.IOS_CERTIFICATE_PASSWORD).toBe(CERTIFICATE.password);
+    expect(env.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-0001'));
+    // The certificate was matched to Apple's record by its serial, which Apple writes without the leading zero.
+    expect(asc.requests).toContain('/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=200&fields[certificates]=serialNumber,expirationDate');
+    // Xcode's folder holds the profile by its uuid; Tauri's copy, its keychain and the one left behind are gone, the
+    // login keychain is not, and the Xcode project is as committed.
+    expect(readFileSync(xcodeProfile('uuid-0001'))).toEqual(Buffer.from(profileContent('uuid-0001'), 'base64'));
+    expect(tauriCopies()).toEqual([]);
+    expect(keychains()).toEqual(['login.keychain-db']);
+    expect(git(app, 'status', '--porcelain')).toBe('');
+    // Its .p12 was written for openssl in a folder of its own, removed after.
+    expect(existsSync(dirname(stand.named('/usr/bin/openssl pkcs12')[0].command[3]))).toBe(false);
+    // The lock is let go, so the next build signs.
+    expect((await runUpload(apple())).code).toBe(0);
+  });
+
+  test('without the certificate in 1Password, nothing is built and the README is named', async () => {
+    const stand = apple({ certificate: false });
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toEqual([`! the vault "TestFlight" has no "TestFlight distribution certificate", which the build signs with: make it as app-kit's README, TestFlight, "The distribution certificate", says`]);
+    expect(stand.named('tauri')).toEqual([]);
+  });
+
+  test('a certificate Apple says has expired, or no longer lists, is refused before the build', async () => {
+    await asc.stop();
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', certificates: [{ ...CERTIFICATE_RECORD, expirationDate: '2026-11-01T00:00:00.000+00:00' }] });
+    const expired = apple();
+    const late = await runUpload(expired, { now: () => Date.parse('2026-11-03T00:00:00Z') });
+    expect(late.printed).toEqual([`! the distribution certificate expired on 2026-11-01: make it as app-kit's README, TestFlight, "The distribution certificate", says`]);
+    expect(expired.named('tauri')).toEqual([]);
+    await asc.stop();
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', certificates: [] });
+    const revoked = await runUpload(apple());
+    expect(revoked.printed[0]).toStartWith('! Apple lists no distribution certificate with the serial number of the one in 1Password');
+  });
+
+  test("the app's App Store profile is made when it has none, and a refusal names the developer site", async () => {
+    await asc.stop();
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', profiles: [{ id: 'OLD', uuid: 'uuid-old', content: profileContent('uuid-old'), type: 'IOS_APP_STORE', state: 'INVALID', certificates: [CERTIFICATE_RECORD.id] }] });
+    const stand = apple();
+    expect((await runUpload(stand)).code).toBe(0);
+    expect(asc.requests).toContain('POST /v1/profiles');
+    expect(stand.named('tauri ios build')[0].options.env?.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-0002'));
+    await asc.stop();
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', profiles: [], refuseProfiles: true });
+    const refused = apple();
+    const { code, printed } = await runUpload(refused);
+    expect(code).toBe(1);
+    expect(printed).toEqual([`! Apple refused the key making the App Store profile for app.pastthebreak: make it once on Apple's developer site (Profiles, +, App Store Connect, app.pastthebreak, the certificate expiring 2099-01-01), and the next upload fetches it`]);
+    expect(refused.named('tauri')).toEqual([]);
+  });
+
+  test("the bundle id is the iPhone config's when it sets one", async () => {
+    commit(origin, { 'src-tauri/tauri.ios.conf.json': JSON.stringify({ identifier: 'app.pastthebreak.phone' }) });
+    git(app, 'pull', '-q');
+    const { code, printed } = await runUpload(apple());
+    expect(code).toBe(1);
+    expect(printed[0]).toBe("! the team has no bundle id app.pastthebreak.phone: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses");
+  });
+
+  test('a Tauri CLI older than 2.12.1 is refused, since it puts the profile outside the iPhone target', async () => {
+    tauriCli(app, '2.11.4');
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed[0]).toStartWith("! the app's Tauri CLI is 2.11.4, and signing with the certificate needs 2.12.1 or later");
+    expect(stand.named('op')).toEqual([]);
+    tauriCli(app, '2.12.1');
+    expect((await runUpload(apple())).code).toBe(0);
+  });
+
+  test('a second signing build on the Mac is refused while the first holds the lock', async () => {
+    const lockFile = join(place.folder, 'Library/Caches/app-kit/testflight-signing.lock');
+    mkdirSync(dirname(lockFile), { recursive: true });
+    const holder = Bun.spawn(['sleep', '30']);
+    try {
+      writeFileSync(lockFile, String(holder.pid));
+      const stand = apple();
+      const { code, printed } = await runUpload(stand);
+      expect(code).toBe(1);
+      expect(printed.at(-1)).toBe(`! another signing build is running on this Mac (its process id is in ${lockFile}); try again once it ends`);
+      expect(stand.named('tauri')).toEqual([]);
+      expect(readFileSync(lockFile, 'utf8')).toBe(String(holder.pid));
+    } finally {
+      holder.kill();
+    }
+    // A lock whose holder is gone is taken over.
+    await holder.exited;
+    expect((await runUpload(apple())).code).toBe(0);
+  });
+
+  test('an Xcode project changed beyond its signing settings is left as the build wrote it, and nothing goes up', async () => {
+    const stand = apple({ projectEdit: true });
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed.at(-1)).toBe(`! the build changed ${XCODE_PROJECT_FILE} beyond its signing settings, so it is left as the build wrote it: look at git diff, and put it back or commit it`);
+    expect(readFileSync(join(app, XCODE_PROJECT_FILE), 'utf8')).toContain('app.pastthebreak.edited');
+    expect(stand.named('altool')).toEqual([]);
+  });
+
+  test('only the signing settings are taken out when the project is compared', () => {
+    const signed = signedProject(XCODE_PROJECT, 'uuid-0001');
+    expect(signed).not.toBe(XCODE_PROJECT);
+    expect(projectToPutBack(XCODE_PROJECT, signed)).toBe(XCODE_PROJECT);
+    expect(projectToPutBack(XCODE_PROJECT, signed.replace('PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;', 'PRODUCT_BUNDLE_IDENTIFIER = x;'))).toBeNull();
+  });
+
+  test("the .p12 is read with macOS's own openssl, never the first on PATH", async () => {
+    const stand = apple();
+    expect((await runUpload(stand, { env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome } })).code).toBe(0);
+    expect(stand.calls.filter((c) => c.command.includes('pkcs12') || c.command.includes('x509')).map((c) => c.command[0])).toEqual(['/usr/bin/openssl', '/usr/bin/openssl']);
+  });
 });
 
 describe('the pure parts', () => {

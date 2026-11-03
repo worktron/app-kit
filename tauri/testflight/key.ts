@@ -1,6 +1,8 @@
 /*
- * The team's App Store Connect API key, read from 1Password. It is the item "App Store Connect API" in the vault
- * "TestFlight", with the fields "key id", "issuer id" and "private key" (the text of the .p8 file Apple gives once).
+ * What the TestFlight part reads from 1Password, in the vault "TestFlight": the team's App Store Connect API key, the
+ * item "App Store Connect API" with the fields "key id", "issuer id" and "private key" (the text of the .p8 file Apple
+ * gives once), and the team's distribution certificate, the item "TestFlight distribution certificate" with the fields
+ * "certificate" (the .p12 file, base64) and "password" (the .p12's password).
  *
  * A background job cannot answer 1Password's Touch ID prompt, so it reads the item through a 1Password service account
  * that may read only that vault. The service account's token is kept in the Mac's login keychain, under the service
@@ -13,6 +15,10 @@ import type { Run } from '../../command-line/run.ts';
 export const KEYCHAIN_SERVICE = 'app-kit testflight';
 export const VAULT = 'TestFlight';
 export const ITEM = 'App Store Connect API';
+export const CERTIFICATE_ITEM = 'TestFlight distribution certificate';
+
+/** The team's Apple Distribution certificate with its private key, as a .p12 file in base64, and the file's password. */
+export type Certificate = { p12: string; password: string };
 
 /** The service account's token from the login keychain, or null when the keychain holds none. */
 export async function readToken(run: Run): Promise<string | null> {
@@ -23,21 +29,44 @@ export async function readToken(run: Run): Promise<string | null> {
 
 export type KeyResult = { key: TestFlightKey } | { missing: 'token' } | { error: string };
 
-/** The fields of `op item get --format json`, by label. */
-export function keyFromItem(json: string): TestFlightKey | string {
+/** The fields of `op item get --format json`, by label, or why they cannot be read. */
+function fieldsOf(json: string, item: string, labels: string[]): Record<string, string> | string {
   let fields: { label?: string; value?: string }[];
   try {
     fields = (JSON.parse(json) as { fields?: { label?: string; value?: string }[] }).fields ?? [];
   } catch {
-    return `1Password's answer for "${ITEM}" is not JSON`;
+    return `1Password's answer for "${item}" is not JSON`;
   }
-  const field = (label: string) => fields.find((f) => f.label === label)?.value?.trim() ?? '';
-  const key = { keyId: field('key id'), issuerId: field('issuer id'), privateKey: field('private key') };
-  const missing = Object.entries({ 'key id': key.keyId, 'issuer id': key.issuerId, 'private key': key.privateKey })
-    .filter(([, value]) => !value)
-    .map(([label]) => `"${label}"`);
-  if (missing.length) return `the 1Password item "${ITEM}" in the vault "${VAULT}" has no ${missing.join(', ')}`;
-  return key;
+  const values = Object.fromEntries(labels.map((label) => [label, fields.find((f) => f.label === label)?.value?.trim() ?? '']));
+  const missing = labels.filter((label) => !values[label]).map((label) => `"${label}"`);
+  if (missing.length) return `the 1Password item "${item}" in the vault "${VAULT}" has no ${missing.join(', ')}`;
+  return values;
+}
+
+/** The App Store Connect key from its item's fields. */
+export function keyFromItem(json: string): TestFlightKey | string {
+  const values = fieldsOf(json, ITEM, ['key id', 'issuer id', 'private key']);
+  return typeof values === 'string' ? values : { keyId: values['key id']!, issuerId: values['issuer id']!, privateKey: values['private key']! };
+}
+
+/** The distribution certificate from its item's fields. */
+export function certificateFromItem(json: string): Certificate | string {
+  const values = fieldsOf(json, CERTIFICATE_ITEM, ['certificate', 'password']);
+  return typeof values === 'string' ? values : { p12: values.certificate!.replace(/\s+/g, ''), password: values.password! };
+}
+
+/** Whether `op` said the item is not in the vault, rather than failing to read it. */
+function notFound(out: string): boolean {
+  return /isn't an item|not found|no item/i.test(out);
+}
+
+/** Reads one item of the vault, through the token when the keychain holds one. */
+async function readItem(run: Run, env: Record<string, string | undefined>, options: { tokenOnly: boolean }, item: string) {
+  const token = await readToken(run);
+  if (!token && options.tokenOnly) return { missing: 'token' as const };
+  const opEnv = { ...env };
+  if (token) opEnv.OP_SERVICE_ACCOUNT_TOKEN = token;
+  return run(['op', 'item', 'get', item, '--vault', VAULT, '--format', 'json'], { env: opEnv, timeoutMs: 120_000 });
 }
 
 /**
@@ -45,14 +74,25 @@ export function keyFromItem(json: string): TestFlightKey | string {
  * nothing; otherwise it falls back to the signed-in `op`.
  */
 export async function readKey(run: Run, env: Record<string, string | undefined>, options: { tokenOnly: boolean }): Promise<KeyResult> {
-  const token = await readToken(run);
-  if (!token && options.tokenOnly) return { missing: 'token' };
-  const opEnv = { ...env };
-  if (token) opEnv.OP_SERVICE_ACCOUNT_TOKEN = token;
-  const item = await run(['op', 'item', 'get', ITEM, '--vault', VAULT, '--format', 'json'], { env: opEnv, timeoutMs: 120_000 });
+  const item = await readItem(run, env, options, ITEM);
+  if ('missing' in item) return item;
   if (item.code !== 0) return { error: `op could not read "${ITEM}" in the vault "${VAULT}": ${lastLine(item.out)}` };
   const key = keyFromItem(item.out);
   return typeof key === 'string' ? { error: key } : { key };
+}
+
+export type CertificateResult = { certificate: Certificate } | { missing: 'token' | 'certificate' } | { error: string };
+
+/** Reads the distribution certificate once, the way `readKey` reads the key; `missing: 'certificate'` when the vault has no such item. */
+export async function readCertificate(run: Run, env: Record<string, string | undefined>, options: { tokenOnly: boolean }): Promise<CertificateResult> {
+  const item = await readItem(run, env, options, CERTIFICATE_ITEM);
+  if ('missing' in item) return item;
+  if (item.code !== 0) {
+    if (notFound(item.out)) return { missing: 'certificate' };
+    return { error: `op could not read "${CERTIFICATE_ITEM}" in the vault "${VAULT}": ${lastLine(item.out)}` };
+  }
+  const certificate = certificateFromItem(item.out);
+  return typeof certificate === 'string' ? { error: certificate } : { certificate };
 }
 
 /** The last line of a program's output that says something, for a one-line report. */

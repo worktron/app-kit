@@ -26,6 +26,25 @@ export const ITEM_JSON = JSON.stringify({
   ],
 });
 export const TOKEN = 'ops_stand-in-token';
+/** The distribution certificate's .p12 as 1Password holds it, in base64; the stand-in openssl reads SERIAL from it. */
+export const CERTIFICATE = { p12: Buffer.from('a stand-in p12').toString('base64'), password: 'stand-in-password' };
+/** Its serial as openssl prints it, with a leading zero Apple's record leaves out. */
+export const SERIAL = '0ABC123';
+/** 1Password's answer for the certificate item, cut to what is read. */
+export const CERTIFICATE_JSON = JSON.stringify({
+  title: 'TestFlight distribution certificate',
+  vault: { name: 'TestFlight' },
+  fields: [
+    { label: 'certificate', value: CERTIFICATE.p12 },
+    { label: 'password', value: CERTIFICATE.password },
+  ],
+});
+/** The team's distribution certificate as Apple records it. */
+export type StandInCertificate = { id: string; serialNumber: string; expirationDate: string };
+export const CERTIFICATE_RECORD: StandInCertificate = { id: 'CERT000001', serialNumber: 'ABC123', expirationDate: '2099-01-01T00:00:00.000+00:00' };
+/** An App Store profile Apple holds for the app. */
+export type StandInProfile = { id: string; uuid: string; content: string; type: string; state: string; certificates: string[] };
+export const profileContent = (uuid: string) => Buffer.from(`a stand-in profile ${uuid}`).toString('base64');
 
 const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;
 
@@ -62,15 +81,52 @@ export type StandInBuild = {
  * node:http server, since the unit tests' simulated page replaces the global Response; the client is handed Bun's own
  * fetch for the same reason (`options` below).
  */
-export async function appStoreConnect(config: { bundleId: string; appId?: string; builds?: StandInBuild[]; pageSize?: number }) {
+export async function appStoreConnect(config: {
+  bundleId: string;
+  appId?: string;
+  builds?: StandInBuild[];
+  pageSize?: number;
+  certificates?: StandInCertificate[];
+  profiles?: StandInProfile[];
+  /** Whether Apple refuses the key making a profile, as it refuses a role that may not. */
+  refuseProfiles?: boolean;
+}) {
   const appId = config.appId ?? '1000000001';
+  const bundleResource = 'BUNDLE0001';
   const builds: StandInBuild[] = config.builds ?? [];
+  const certificates = config.certificates ?? [CERTIFICATE_RECORD];
+  const profiles: StandInProfile[] = config.profiles ?? [{ id: 'PROFILE001', uuid: 'uuid-0001', content: profileContent('uuid-0001'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id] }];
   const requests: string[] = [];
-  const answer = (url: URL, authorization: string | null): [number, unknown] => {
-    requests.push(`${url.pathname}${url.search}`);
+  const profileResource = (p: StandInProfile) => ({
+    type: 'profiles',
+    id: p.id,
+    attributes: { profileType: p.type, profileState: p.state, uuid: p.uuid, profileContent: p.content },
+    relationships: { certificates: { data: p.certificates.map((id) => ({ type: 'certificates', id })) } },
+  });
+  const answer = (method: string, url: URL, authorization: string | null, body: string): [number, unknown] => {
+    requests.push(`${method === 'GET' ? '' : `${method} `}${url.pathname}${url.search}`);
     const problem = tokenProblem(authorization);
     if (problem) return [401, { errors: [{ status: '401', title: 'Authentication credentials are missing or invalid.', detail: problem }] }];
     const q = (name: string) => url.searchParams.get(name);
+    if (url.pathname === '/v1/certificates' && q('filter[certificateType]') === 'DISTRIBUTION') {
+      return [200, { data: certificates.map((c) => ({ type: 'certificates', id: c.id, attributes: { serialNumber: c.serialNumber, expirationDate: c.expirationDate } })) }];
+    }
+    if (url.pathname === '/v1/bundleIds') {
+      const identifier = q('filter[identifier]');
+      // Apple's filter matches part of an identifier, so an app's id with a suffix comes back too.
+      const all = [config.bundleId, `${config.bundleId}.widget`].map((id, at) => ({ type: 'bundleIds', id: at ? 'BUNDLE0002' : bundleResource, attributes: { identifier: id } }));
+      return [200, { data: all.filter((b) => identifier && b.attributes.identifier.includes(identifier)) }];
+    }
+    if (url.pathname === `/v1/bundleIds/${bundleResource}/profiles`) return [200, { data: profiles.map(profileResource) }];
+    if (method === 'POST' && url.pathname === '/v1/profiles') {
+      if (config.refuseProfiles) return [403, { errors: [{ status: '403', title: 'The API key in use does not allow this request', detail: 'FORBIDDEN_ERROR' }] }];
+      const made = JSON.parse(body) as { data: { relationships: { bundleId: { data: { id: string } }; certificates: { data: { id: string }[] } } } };
+      if (made.data.relationships.bundleId.data.id !== bundleResource) return [409, { errors: [{ status: '409', title: 'wrong bundle id' }] }];
+      const uuid = `uuid-${String(profiles.length + 1).padStart(4, '0')}`;
+      const profile = { id: `PROFILE${profiles.length + 1}`, uuid, content: profileContent(uuid), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: made.data.relationships.certificates.data.map((c) => c.id) };
+      profiles.push(profile);
+      return [201, { data: profileResource(profile) }];
+    }
     if (url.pathname === '/v1/apps') {
       return [200, { data: q('filter[bundleId]') === config.bundleId ? [{ type: 'apps', id: appId, attributes: { bundleId: config.bundleId } }] : [] }];
     }
@@ -110,14 +166,19 @@ export async function appStoreConnect(config: { bundleId: string; appId?: string
     return [404, { errors: [{ status: '404', title: 'Not found' }] }];
   };
   const server = createServer((request, response) => {
-    const [status, body] = answer(new URL(request.url ?? '/', baseUrl), request.headers.authorization ?? null);
-    response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    let received = '';
+    request.on('data', (chunk: Buffer) => (received += chunk.toString()));
+    request.on('end', () => {
+      const [status, body] = answer(request.method ?? 'GET', new URL(request.url ?? '/', baseUrl), request.headers.authorization ?? null, received);
+      response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     baseUrl,
     builds,
+    profiles,
     requests,
     options: { baseUrl, fetch: Bun.fetch as typeof fetch },
     stop: () => new Promise<void>((resolve) => server.close(() => resolve())),

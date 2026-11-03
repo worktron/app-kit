@@ -19,11 +19,14 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 import { UPLOADING } from './upload.ts';
+import { lock } from './lock.ts';
+
+export { lock };
 
 type Env = Record<string, string | undefined>;
 
@@ -168,37 +171,6 @@ export async function commitForNumber(number: number, line: string[], count: (co
     else high = middle - 1;
   }
   return null;
-}
-
-/** One pass at a time: launchd never overlaps its own job, but a pass by hand can meet one. A lock whose holder is gone is taken over. */
-export function lock(file: string, pid = process.pid): boolean {
-  mkdirSync(dirname(file), { recursive: true });
-  try {
-    writeFileSync(file, String(pid), { flag: 'wx' });
-    return true;
-  } catch {
-    // held
-  }
-  if (held(file, pid)) return false;
-  writeFileSync(file, String(pid));
-  return true;
-}
-
-/** Whether a live process other than this one holds the lock file. */
-function held(file: string, pid: number): boolean {
-  let holder: number;
-  try {
-    holder = Number(readFileSync(file, 'utf8'));
-  } catch {
-    return false;
-  }
-  if (!holder || holder === pid) return false;
-  try {
-    process.kill(holder, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export type WatchOptions = {

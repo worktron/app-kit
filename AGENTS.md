@@ -32,7 +32,8 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  iphone-run/, `app-kit iphone run sim|phone`, which builds an app and starts it on a Simulator or a paired iPhone, and points an agent at the README's section on tapping and looking at it;
                  iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole;
                  testflight/, `app-kit testflight upload` (upload.ts) and `app-kit testflight watch` (watch.ts), with the
-                 App Store Connect calls and the key read from 1Password;
+                 App Store Connect calls, the key and the distribution certificate read from 1Password, the signing
+                 with them and what Tauri leaves that is put back (signing.ts), and the lock both use (lock.ts);
                  apple-token.ts, the ES256 token Apple's push service and App Store Connect both take;
                  build-env.ts, the environment every iPhone build runs in, with no FORCE_COLOR;
                  playwright.js, the Tauri bridge faked for apps' browser tests, with desktop sign-in's steps (app-kit/tauri/playwright)
