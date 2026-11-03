@@ -236,3 +236,11 @@ Done when: a test holds that a page with an unclosed script inside a card, and o
 Do not touch: the template parse, which is what keeps a page from acting on the server.
 Needs: nothing.
 Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts.
+
+## amazon-orders-periods-year · The order history's periods follow the year on a server that runs past New Year
+
+Goal: `PERIODS` in `server/amazon-orders/index.ts:85` is worked out once, when the module loads, from `new Date().getFullYear()`, as the README's table says. A server started in December and still running in January keeps asking for last year as "this year" and never asks for the new one, so orders placed in the new year are found only through `last30` and `months-3`. Getter and amazon-connector import `PERIODS` as an array, so a change has to say how they move.
+Done when: a test with the clock moved across New Year holds that the periods asked for include the new year and still number 15, with the first two as they are; importers' move is written in the README's section; and the release line says minor if apps have to change.
+Do not touch: `ordersPath`, `orderDetailsPath` and the readers.
+Needs: nothing.
+Touches: server/amazon-orders/index.ts, test/amazon-orders.test.ts, README.md.
