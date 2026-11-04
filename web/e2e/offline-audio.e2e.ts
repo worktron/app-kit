@@ -373,33 +373,83 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
     test("a page left while its sound plays under Playwright's clock never crashes, and the next page plays", async () => {
       const browser = await launch();
       try {
-        // Moving the clock and then leaving the page runs the kit's step in the page that was left, where WebKit has
-        // already torn the audio down; resuming the engine there crashed WebKit's page within a few pages, most often
-        // early in a browser context.
-        const now = Date.now();
-        for (let round = 0; round < 6; round++) {
-          const { context, page } = await openPage(browser, { startsOnTap: true });
-          let crashed = false;
-          page.on('crash', () => (crashed = true));
-          try {
-            for (let hour = 1; hour <= 10; hour++) {
-              await page.getByRole('button', { name: 'Play' }).click();
-              await page.clock.pauseAt(new Date(now + (round * 10 + hour) * 3_600_000));
-              await page.clock.resume();
-              await page.goto(ADDRESS);
-            }
-            await page.getByRole('button', { name: 'Play' }).click();
-            await page.evaluate(() => new Promise<void>((resolve) => (function moved() {
-              if (window.contexts[0]!.state === 'running' && window.contexts[0]!.currentTime > 0.1) resolve();
-              else setTimeout(moved, 10);
-            })()));
-          } catch (error) {
-            expect(crashed, 'the page crashed').toBe(false);
-            throw error;
-          }
+        const { page } = await openPage(browser, { startsOnTap: true });
+        let crashed = false;
+        page.on('crash', () => (crashed = true));
+        try {
+          await page.getByRole('button', { name: 'Play' }).click();
+          // Playing, with the kit's step waiting on the clock, as an app's sound is when its test moves the clock and
+          // leaves the page.
+          await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(0);
+          await page.clock.pauseAt(new Date(Date.now() + 60_000));
+          await page.clock.resume();
+          await page.goto(ADDRESS);
+          // The clock goes on in the next page, and so does the kit's sound there.
+          await page.getByRole('button', { name: 'Play' }).click();
+          await page.evaluate(() => new Promise<void>((resolve) => (function moved() {
+            if (window.contexts[0]!.state === 'running' && window.contexts[0]!.currentTime > 0.1) resolve();
+            else setTimeout(moved, 10);
+          })()));
+        } catch (error) {
           expect(crashed, 'the page crashed').toBe(false);
-          await context.close();
+          throw error;
         }
+        expect(crashed, 'the page crashed').toBe(false);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    test('a step the kit runs after its frame is gone never crashes the page, and the page plays again', async () => {
+      const browser = await launch();
+      try {
+        // Under Playwright's clock, a test that leaves a page can run the kit's step in the page it left, where WebKit has
+        // already torn the audio down. WebKit's OfflineAudioContext then resumes rendering with no check that its document
+        // is gone (starting and suspending have one), and the render fails RELEASE_ASSERT(context().isInitialized()),
+        // killing the page. Leaving pages only hits that by a race, so this makes it certain: a context plays in a frame
+        // whose timers the page holds, the frame is removed, and the page runs the kit's waiting step itself.
+        const { context, page } = await openPage(browser, {});
+        await context.route(`${ADDRESS}frame`, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><p>Frame</p>' }));
+        let crashed = false;
+        page.on('crash', () => (crashed = true));
+        try {
+          await page.evaluate(async (address) => {
+            const frame = document.createElement('iframe');
+            frame.src = address;
+            await new Promise((resolve) => {
+              frame.onload = resolve;
+              document.body.append(frame);
+            });
+            const inner = frame.contentWindow as Window & typeof globalThis;
+            window.held = [];
+            inner.setTimeout = ((step: () => void) => {
+              window.held.push(step);
+              return 0;
+            }) as typeof setTimeout;
+            window.inFrame = new inner.AudioContext();
+            window.inFrame.createOscillator().connect(window.inFrame.destination);
+          }, `${ADDRESS}frame`);
+          await expect
+            .poll(() => page.evaluate(() => window.inFrame.state === 'running' && window.held.length > 0), {
+              message: "the kit set its step's timer in the frame",
+            })
+            .toBe(true);
+          await page.evaluate(() => {
+            document.querySelector('iframe')!.remove();
+            for (const step of window.held) step();
+          });
+          await page.evaluate(() => new Promise<void>((resolve) => {
+            const again = new AudioContext();
+            (function moved() {
+              if (again.state === 'running' && again.currentTime > 0.1) resolve();
+              else setTimeout(moved, 10);
+            })();
+          }));
+        } catch (error) {
+          expect(crashed, 'the page crashed').toBe(false);
+          throw error;
+        }
+        expect(crashed, 'the page crashed').toBe(false);
       } finally {
         await browser.close();
       }
@@ -415,6 +465,8 @@ declare global {
     states: AudioContextState[][];
     settled: string[];
     timersSet: number;
+    held: (() => void)[];
+    inFrame: AudioContext;
     play: (context: AudioContext) => Promise<{ audio: number; clock: number; peak: number; swell: number; ended: boolean }>;
   }
 }

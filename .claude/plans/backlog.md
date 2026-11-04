@@ -183,12 +183,6 @@ Goal: test/icons.test.ts "the icon sets it fills compile in Xcode for the Mac an
 
 Done when: the cause is known from a reproduction (actool under a load like the gates' or beside a second actool), and the test either no longer hangs under that load or stops for a reason it names, with no longer limit as the fix.
 
-## offline-audio-slow · The offline-audio browser test of a page left mid-sound takes 27 of its 30 seconds in Chromium
-
-Goal: web/e2e/offline-audio.e2e.ts:373 "a page left while its sound plays under Playwright's clock never crashes, and the next page plays" took 27.4 seconds in Chromium run alone on 2026-11-02 (WebKit's took 10.6), and timed out at 30 in a full gate run at load 245, failing the gates. A test that close to its limit fails whenever the machine is busy. Where its time goes is unknown: the clock steps, the page's leaving, or the kit's offline audio catching up. Found by the testflight-icon-check thread.
-
-Done when: the test's time is measured step by step, the slow part is fixed where it lives (in the test's waiting or in the kit), and the Chromium run takes a small part of its limit; no longer timeout as the fix.
-
 ## postgres-tests-do-less-work · test/postgres.test.ts stops timing out on a busy machine because it does less work
 
 Goal: the database tests build real embedded Postgres databases under a fixed time limit, and on a busy machine they run out of it, which stops landings that changed none of their files. On 2026-11-02 the file failed all three times it was run alone at load 250 to 310, a different test timing out each run; a clean copy of main failed in it too; and a landing with 686 of 687 tests passing stopped on the `openTestDb` set-up taking 18.9 seconds against its 15 at load above 400. The time taken is all that is measured so far: where it goes is not traced, so trace it first. `server/postgres/index.ts` makes an empty database once per test process, and its comment says PGlite starts from files in about a tenth of the time, so saving those files once per test run is the first idea to try, untested. `test/land.test.ts` and `test/command.test.ts` also time out at load around 300, on clean main too, cause unknown: this ticket does not settle them, and says what it learned about them.
