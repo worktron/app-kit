@@ -274,18 +274,23 @@ export function setTime(lifetime: Lifetime, udid: string, minutes = MINUTES): He
   return next;
 }
 
-/** Shuts the Simulator down now and forgets it, for a run that failed or was stopped after taking its place. */
-export async function release(lifetime: Lifetime, udid: string, why: string): Promise<void> {
+/**
+ * Shuts the Simulator down now and forgets it, for a run that failed or was stopped after taking its place. Gives true
+ * once it is down, or, when simctl would not shut it down, why and when its watcher tries again.
+ */
+export async function release(lifetime: Lifetime, udid: string, why: string): Promise<true | string> {
   const held = readHeld(lifetime.folder, udid);
-  if (!held) return;
+  if (!held) return true;
   const down = await shutDown(lifetime.run ?? runCommand, udid);
   if (down !== true) {
     // The file stays, so its watcher tries again at its time.
-    log(lifetime, `${label(held)}: ${why}, and simctl would not shut it down (${down}); its watcher tries again at ${clock(held.until)}`);
-    return;
+    const still = `simctl would not shut it down (${down}); its watcher tries again at ${clock(held.until)}`;
+    log(lifetime, `${label(held)}: ${why}, and ${still}`);
+    return still;
   }
   forget(lifetime.folder, udid);
   log(lifetime, `${label(held)}: shut down, ${why}`);
+  return true;
 }
 
 /** The same, for a signal handler, which cannot wait on a promise. */

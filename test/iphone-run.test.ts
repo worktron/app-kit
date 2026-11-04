@@ -92,6 +92,8 @@ type Stand = {
   others?: Record<string, string>;
   /** What simctl's listing prints after the build, in place of the devices. */
   listingAfterBuild?: string;
+  /** simctl refuses to shut a Simulator down. */
+  shutdownRefused?: boolean;
 };
 
 /** Stand-ins for Apple's tools and Tauri, recording each call; the sound step and the watcher are recorded among them. */
@@ -113,6 +115,7 @@ function apple(stand: Stand = {}) {
       return ok();
     }
     if (line.startsWith('xcrun simctl shutdown ')) {
+      if (stand.shutdownRefused) return exit(149, 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to shutdown device in current state: Booted');
       booted.delete(command[3]);
       return ok();
     }
@@ -227,6 +230,17 @@ describe('iphone run sim', () => {
       `! shut down the Simulator ${SIMULATOR}, since the run that booted it failed`,
     ]);
     expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).toBeNull();
+  });
+
+  test('a failed run whose Simulator simctl will not shut down says it is still running, and keeps its time for the watcher', async () => {
+    const stand = apple({ launch: 1, shutdownRefused: true });
+    const { code, printed } = await runIn(app, stand, { target: 'sim' });
+    expect(code).toBe(1);
+    expect(stand.booted.has(SIMULATOR)).toBe(true);
+    expect(printed.at(-1)).toBe(
+      `! the Simulator ${SIMULATOR} is still running, since simctl would not shut it down (Unable to shutdown device in current state: Booted); its watcher tries again at ${clock(NOW + 20 * 60_000)}`,
+    );
+    expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).not.toBeNull();
   });
 
   test('a Simulator already running, booted some other way, is used with no shut-down time and left running when the run fails', async () => {

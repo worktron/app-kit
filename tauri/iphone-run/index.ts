@@ -253,10 +253,10 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
     const id = udid;
     const failed = async (line: string): Promise<1> => {
       if (held) {
-        await release(lifetime, id, `its run failed: ${line}`);
+        const down = await release(lifetime, id, `its run failed: ${line}`);
         holding.current = null;
         say(line);
-        say(`shut down the Simulator ${id}, since the run that booted it failed`);
+        say(down === true ? `shut down the Simulator ${id}, since the run that booted it failed` : `the Simulator ${id} is still running, since ${down}`);
         return 1;
       }
       return fail(line);
