@@ -252,3 +252,10 @@ Done when: a test typechecks `server/amazon-orders/index.ts` under a config with
 Do not touch: what the functions do at run time.
 Needs: nothing.
 Touches: server/amazon-orders/index.ts, a test in test/.
+
+## menu-bar-plain-copy-line · the menu bar theme's copy line in a plain tone
+
+Goal: `ItemLine` in `swift/menu-bar/Sources/MenuBarTheme/Pieces.swift` always draws its text red, because it was made for problems. Fleet's menu bar app (worktron/fleet, `apps/menubar/Sources/Panel.swift` `LaterLine`) needed the same line in plain text for by-hand installs ("when you have a minute"), and wrote its own, which copies on click but cannot join the arrow keys since `Selectable` is internal. Add a tone to `ItemLine` (default `.error`, as today) so an app can draw a plain or secondary line with the theme's selection and "copy"/"copied".
+Done when: `ItemLine(text, copy:, tone: .text)` draws in the given tone with arrow-key selection, its snapshot sample is in the theme's gallery, and a release tag exists; fleet's `LaterLine` can then be replaced by it at that tag (a fleet change, after).
+Needs: none.
+Touches: `swift/menu-bar/Sources/MenuBarTheme/Pieces.swift`, the snapshot samples.
