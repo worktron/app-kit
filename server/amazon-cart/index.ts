@@ -9,6 +9,7 @@
 //   cart page shows the grocery carts too, collapsed, each with its own checkout box, so only the expanded one counts.
 // - regular Amazon's cart page has its active cart, #sc-active-cart. A signed-out page has one too, empty, so a page
 //   whose header says "Hello, sign in" throws first.
+// A cart whose count Amazon gives as more than none, with no line the reader knows, throws too: its lines changed shape.
 import { dollars, parse, STORES, storeOfBrand, textOf, type Store } from '../amazon-orders/index.ts';
 
 export type CartLine = { asin: string; name: string; price: number | null; quantity: number; lineId: string };
@@ -84,6 +85,8 @@ export function readCart(html: string, store: Store): Cart {
     lines = [...cart.querySelectorAll('[data-itemtype="active"][data-itemid]:not([data-localmarket-brand])')];
     counted = itemCount(cart.getAttribute('data-cart-total-item-count'));
   }
+  // Amazon counting items the page shows no line for means the lines changed shape, not that the cart is empty.
+  if (counted && !lines.length) throw new NotTheCart(store, 'not-this-cart', `Amazon counts ${counted} items in the ${store} cart, but the page has no line the reader knows`);
   const read = lines.map((line) => ({
     asin: line.getAttribute('data-asin') ?? '',
     name: (line.getAttribute('data-producttitle') ?? '').trim(),

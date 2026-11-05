@@ -93,6 +93,14 @@ test('a page refusing the request, a page of nothing, and a grocery cart with no
   });
 });
 
+test('a cart Amazon counts items in, with no line the reader knows, throws instead of reading as empty', () => {
+  // Lines whose shape changed at Amazon: the cart's mark and count stay, and its lines lose the attribute read.
+  const regular = fixture('cart-regular.html').replace('data-itemtype="active"', 'data-itemtype="changed"');
+  expect(refusal(regular, 'Amazon')).toEqual({ kind: 'not-this-cart', message: 'Amazon counts 2 items in the Amazon cart, but the page has no line the reader knows' });
+  const fresh = fixture('cart-fresh.html').replaceAll('data-itemtype="active"', 'data-itemtype="changed"');
+  expect(refusal(fresh, 'Amazon Fresh')).toEqual({ kind: 'not-this-cart', message: 'Amazon counts 3 items in the Amazon Fresh cart, but the page has no line the reader knows' });
+});
+
 test('each cart has its own address', () => {
   expect(cartPath('Amazon Fresh')).toBe('/cart/localmarket?almBrandId=QW1hem9uIEZyZXNo');
   expect(cartPath('Whole Foods Market')).toBe('/cart/localmarket?almBrandId=VUZHIFdob2xlIEZvb2Rz');

@@ -1622,7 +1622,7 @@ try {
 | Export | What it gives |
 | --- | --- |
 | `readCart(html, store)` | The store's cart as `Cart`: `store`, `lines` (each `asin`, `name`, `price` in dollars or null, `quantity` and `lineId`, Amazon's id for the line), `items`, Amazon's own count of the items, which can differ from the lines' quantities added up, and `url`, the cart's address, where the person checks out. "Buy it again" suggestions, saved-for-later items and the other stores' carts shown on the same page are not lines. |
-| `NotTheCart` | What `readCart` throws for a page that is not that store's cart, so it never reads as an empty cart: `kind` is `signed-out` when Amazon showed the page to someone not signed in, and `not-this-cart` for anything else (another store's cart, a page refusing the request, a change at Amazon), with `store` and a message giving the reason. |
+| `NotTheCart` | What `readCart` throws for a page that is not that store's cart, so it never reads as an empty cart: `kind` is `signed-out` when Amazon showed the page to someone not signed in, and `not-this-cart` for anything else (another store's cart, a page refusing the request, a change at Amazon, including a cart Amazon counts items in with no line the reader knows), with `store` and a message giving the reason. |
 | `cartPath(store)` | The address on amazon.com of the store's cart page: each grocery store has its own, and regular Amazon's shows the grocery carts collapsed. |
 | `Cart`, `CartLine`, `NotTheCartKind` | The types. |
 
