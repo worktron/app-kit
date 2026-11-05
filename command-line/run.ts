@@ -58,7 +58,11 @@ export const runCommand: Run = ([program, ...args], options = {}) =>
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let grace: ReturnType<typeof setTimeout> | undefined;
-    const child = spawn(program, args, {
+    // Bun hands a child's standard input over as a socket, and some programs read input only from a pipe: 1Password's
+    // op ignores a template on anything else and asks for a category. With input, the program is the end of a shell
+    // pipeline, whose standard input is a pipe; exec keeps its exit code and its place in the group.
+    const [file, argv] = options.input === undefined ? [program, args] : ['/bin/sh', ['-c', 'cat | exec "$0" "$@"', program, ...args]];
+    const child = spawn(file, argv, {
       cwd: options.cwd,
       env: options.env ?? process.env,
       detached: true,

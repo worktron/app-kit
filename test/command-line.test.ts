@@ -217,6 +217,15 @@ test("a program's output and its errors come back apart as well as together, and
   expect(missing.stderr).toContain('no-such-program-anywhere');
 });
 
+test('input reaches a program through a pipe, which 1Password reads a template from and a socket it ignores', async () => {
+  // op item create reads its template only when standard input is a pipe (op 2.41.1, 2026-11-05).
+  const piped = await runCommand(['sh', '-c', 'if test -p /dev/stdin; then echo pipe; else echo other; fi; cat; exit 3', 'ignored'], { input: 'the "template" $HOME' });
+  expect(piped).toMatchObject({ code: 3, stdout: 'pipe\nthe "template" $HOME' });
+  const missing = await runCommand(['no-such-program-anywhere'], { input: 'x' });
+  expect(missing.code).toBe(127);
+  expect(missing.stderr).toContain('no-such-program-anywhere');
+});
+
 test('a character whose bytes arrive in two reads comes through whole', async () => {
   const place = scratch('command-line-split-');
   try {
