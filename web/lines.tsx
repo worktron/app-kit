@@ -2,7 +2,8 @@ import { Box, Button } from '@mui/material';
 import { useServerReachable } from './connection';
 import { useNewBuild } from './new-build';
 
-const line = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, px: 2, py: 0.5, typography: 'body2', color: 'text.secondary' } as const;
+/** The look of the quiet lines under an app's bar, shared with the Mac app's update line (tauri/window/lines.tsx). */
+export const line = { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, px: 2, py: 0.5, typography: 'body2', color: 'text.secondary' } as const;
 
 /**
  * A quiet line once a newer build is deployed, with Reload. It never says "new version", which a desktop app's own

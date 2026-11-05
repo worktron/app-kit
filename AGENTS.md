@@ -25,7 +25,8 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
                  copy.ts, and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
                  an app's shell builds, with desktop sign-in's shell half, the Mac menu bar (src/menu.rs) and updates from
-                 the app's releases (src/updates.rs), and the page half (index.ts) and the names both share (names.ts);
+                 the app's releases (src/updates.rs), and the page half (index.ts), with the update line (lines.tsx),
+                 and the names both share (names.ts);
                  mac-release/, `app-kit mac release` (release.ts), which publishes a Mac release the installed app
                  updates itself to, `app-kit mac key` (key.ts), which makes the key that signs it, and what both read
                  from the app (app.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
