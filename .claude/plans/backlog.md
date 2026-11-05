@@ -269,3 +269,8 @@ Done when: a WebKit bug report with a minimal page that reproduces the crash (no
 
 Goal: in the gates, swift/menu-bar/e2e/swiftc-build.sh prints `xcodebuild: error: SDK "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" cannot be located`, `xcrun: error: unable to lookup item 'SDKVersion'` and `swiftc-build.sh: line 18: [: : integer expected`, then passes (seen in the offline-audio-slow landing's gates, 2026-11-04). What its line 18 compares is empty, so whatever that check guards is not being checked.
 Done when: the script finds the SDK the way the rest of the gates do, or fails loudly saying which SDK is missing, and its line 18 compares a real value.
+
+## webkit-copy-launch · The first WebKit launch in each test process takes about 3.7 seconds from the kit's fresh Dock-free copy
+
+Goal: web/e2e/offline-audio.e2e.ts launches WebKit through webkitWithoutDockIcon (web/playwright-webkit.js) into a per-process scratch folder, so every Playwright worker makes its own copy, and its first launch took 3.7 s against about 0.16 s afterwards (timed step by step on 2026-11-04; later launches in the same process are fast). With 9 workers that is paid up to 9 times per gate run, and an app's tests pay it the same way.
+Done when: the cause of the slow first launch is known (the copy itself, or macOS checking a newly copied app), and either one copy is shared across test processes or the first launch is no slower than later ones, measured the same way.
