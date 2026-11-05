@@ -264,3 +264,8 @@ Touches: `swift/menu-bar/Sources/MenuBarTheme/`, its tests.
 
 Goal: web/playwright-offline-audio.js guards `if (!document.defaultView) return;` because WebKit's `OfflineAudioContext::resumeRendering` has no `isStopped()` check (its `startRendering` and `suspendRendering` have one), so resuming in a torn-down document starts a render that fails `RELEASE_ASSERT(context().isInitialized())` in `OfflineAudioDestinationNode::renderOnAudioThread` and kills the page. The Web Audio spec says `resume()` there should reject with InvalidStateError. No public WebKit bug was found for it on 2026-11-04. web/e2e/offline-audio.e2e.ts "a step the kit runs after its frame is gone never crashes the page, and the page plays again" holds the reproduction: a context in a frame, the frame removed, the kit's held step run.
 Done when: a WebKit bug report with a minimal page that reproduces the crash (no kit needed) is filed, and the guard's comment names the bug's address.
+
+## menu-bar-swiftc-sdk · The menu bar theme's bare swiftc build check finds no Mac SDK and goes on quietly
+
+Goal: in the gates, swift/menu-bar/e2e/swiftc-build.sh prints `xcodebuild: error: SDK "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" cannot be located`, `xcrun: error: unable to lookup item 'SDKVersion'` and `swiftc-build.sh: line 18: [: : integer expected`, then passes (seen in the offline-audio-slow landing's gates, 2026-11-04). What its line 18 compares is empty, so whatever that check guards is not being checked.
+Done when: the script finds the SDK the way the rest of the gates do, or fails loudly saying which SDK is missing, and its line 18 compares a real value.
