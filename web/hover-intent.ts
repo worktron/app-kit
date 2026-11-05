@@ -9,10 +9,12 @@ import { useEffect, useRef } from 'react';
  *    only marks where it rests.
  * 2. Once it has travelled TRAVEL_PX in a straight line from there, it has reached: `onOver` hears the target under it
  *    at once and on every change, so a row lights as the pointer enters it and goes dark as it leaves, as a menu's
- *    highlight does. A hand on the mouse nudges it a pixel or a few, back and forth, which never adds up to a travel:
- *    the distance is from one point, not summed.
- * 3. What it selects, opens or focuses waits for a hold: within HOLD_PX for the surface's wait (LIST_WAIT_MS in a
- *    list, FOCUS_WAIT_MS for focus), then `onHold`. A sweep on the way somewhere else opens nothing.
+ *    highlight does. In a menu, where the lit row is the keyboard's selection, that row is the selection. A hand on
+ *    the mouse nudges it a pixel or a few, back and forth, which never adds up to a travel: the distance is from one
+ *    point, not summed.
+ * 3. What it opens or focuses, and selecting a row that opens something, waits for a hold: within HOLD_PX for the
+ *    surface's wait (LIST_WAIT_MS in a list, FOCUS_WAIT_MS for focus), then `onHold`. A sweep on the way somewhere
+ *    else opens nothing.
  * 4. A key pressed and the window losing the keyboard put it back to 1: the keyboard's choice stands until the pointer
  *    travels again. A click always acts, at once; that is the surface's own.
  *
@@ -29,7 +31,7 @@ import { useEffect, useRef } from 'react';
 export const TRAVEL_PX = 16;
 /** How still a holding pointer stays: a resting hand's drift, short of a move. */
 export const HOLD_PX = 6;
-/** A list selects or opens what the pointer holds on this long. */
+/** A list opens what the pointer holds on this long, as a row's submenu. */
 export const LIST_WAIT_MS = 100;
 /** Focus follows the pointer into a pane or a window once it holds this long. */
 export const FOCUS_WAIT_MS = 250;
@@ -47,9 +49,9 @@ export const screenPointOf = (e: { screenX: number; screenY: number }): Point =>
 export interface HoverIntentOptions<T> {
   /** How long the pointer holds before `onHold`: LIST_WAIT_MS or FOCUS_WAIT_MS. */
   waitMs: number;
-  /** The pointer held on `target`: select, open or focus it. */
+  /** The pointer held on `target`: open or focus it, or select a row that opens something. */
   onHold: (target: T, at: Point) => void;
-  /** The pointer, having travelled, is over `target` now, or over nothing (null): light it. */
+  /** The pointer, having travelled, is over `target` now, or over nothing (null): light it, and in a menu select it. */
   onOver?: (target: T | null) => void;
   /** The pointer travelled, `moved` px from where it rested. */
   onTravel?: (moved: number) => void;
