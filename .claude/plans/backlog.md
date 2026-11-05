@@ -274,3 +274,10 @@ Done when: the script finds the SDK the way the rest of the gates do, or fails l
 
 Goal: web/e2e/offline-audio.e2e.ts launches WebKit through webkitWithoutDockIcon (web/playwright-webkit.js) into a per-process scratch folder, so every Playwright worker makes its own copy, and its first launch took 3.7 s against about 0.16 s afterwards (timed step by step on 2026-11-04; later launches in the same process are fast). With 9 workers that is paid up to 9 times per gate run, and an app's tests pay it the same way.
 Done when: the cause of the slow first launch is known (the copy itself, or macOS checking a newly copied app), and either one copy is shared across test processes or the first launch is no slower than later ones, measured the same way.
+
+## simulator-slimmer · A Simulator app-kit boots runs fewer iOS processes
+
+Goal: on 2026-11-02 three booted Getter Simulators ran about 620 processes between them, and the Mac's load reached about 300. Since v0.36.0 a Simulator `app-kit iphone run sim` boots shuts itself down and at most two run at once, but each one still starts every iOS service a phone runs. Find which services an app check never needs (photo analysis, Siri, search indexing, and the like), turn them off in the Simulator the kit boots, keep the push notification service (apsd) and whatever sign-in and the app itself need, and measure the processes and load of one booted Simulator before and after.
+Done when: one Simulator the kit boots runs measurably fewer processes, with the counts before and after in the commit; `app-kit iphone run sim` still installs and opens an app; the iPhone notifications and sign-in checks still work in it.
+Needs: nothing.
+Touches: tauri/iphone-simulator/, tauri/iphone-run/index.ts.
