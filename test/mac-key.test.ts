@@ -2,7 +2,7 @@
 // program's arguments or a file, and the block for tauri.conf.json printed. The key maker's output is the shape Tauri's
 // command-line tool 2.12.4 printed on 2026-11-05, its keys replaced.
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generatedKeys, makeKey } from '../tauri/mac-release/key.ts';
 import { exit, ok, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
@@ -25,6 +25,17 @@ Environment variables used to sign:
 
 ATTENTION: If you lose your private key OR password, you'll not be able to sign your update package and updates will not work
 `;
+// What op answered for each category of the key's template (fixtures/mac-release/op-item-create.json says how it was
+// recorded): it refuses a Password item with no password, so the stand-in refuses one too, and a category never recorded.
+const RECORDED = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/mac-release/op-item-create.json'), 'utf8')) as {
+  answers: Record<string, { code: number; out: string }>;
+};
+function opCreates(template: string | undefined) {
+  const category = (JSON.parse(template ?? '{}') as { category?: string }).category ?? '';
+  const answer = RECORDED.answers[category];
+  if (!answer) throw new Error(`op's answer to a ${category || 'missing'} category was never recorded`);
+  return answer.code === 0 ? ok(answer.out) : exit(answer.code, answer.out);
+}
 const NOT_FOUND = exit(1, `[ERROR] 2026/11/05 12:00:00 "Example App update signing key" isn't an item in the "Personal" vault. Specify the item with its UUID, name, or domain.\n`);
 
 let place: ReturnType<typeof scratch>;
@@ -40,10 +51,10 @@ beforeEach(() => {
 afterEach(() => place.done());
 
 async function runKey(answers: { get?: ReturnType<typeof ok>; create?: ReturnType<typeof ok>; generated?: string } = {}) {
-  const answer: Answer = (command) => {
+  const answer: Answer = (command, options) => {
     const words = command.join(' ');
     if (words.startsWith('op item get')) return answers.get ?? NOT_FOUND;
-    if (words.startsWith('op item create')) return answers.create ?? ok('{"id":"made"}');
+    if (words.startsWith('op item create')) return answers.create ?? opCreates(options.input);
     if (words === 'bunx tauri signer generate --ci') return ok(answers.generated ?? GENERATED);
     return undefined;
   };
@@ -62,6 +73,8 @@ test('the key goes to 1Password on standard input, and the block for tauri.conf.
   expect(create!.command).toEqual(['op', 'item', 'create', '--vault', 'Personal', '-']);
   const item = JSON.parse(create!.options.input!) as { title: string; fields: { label: string; value: string; type: string }[] };
   expect(item.title).toBe('Example App update signing key');
+  // An API Credential, which op takes with only these fields; a Password item it refuses for having no password.
+  expect((item as unknown as { category: string }).category).toBe('API_CREDENTIAL');
   expect(item.fields.map((field) => [field.label, field.type, field.value])).toEqual([
     ['private key', 'CONCEALED', PRIVATE],
     ['public key', 'STRING', PUBLIC],

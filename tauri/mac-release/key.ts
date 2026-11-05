@@ -36,11 +36,14 @@ export function generatedKeys(printed: string): { privateKey: string; publicKey:
   return privateKey && publicKey ? { privateKey, publicKey } : null;
 }
 
-/** The 1Password item, as the template `op item create` reads on standard input. */
+/**
+ * The 1Password item, as the template `op item create` reads on standard input: an API Credential, since
+ * op refuses a Password item with no password field ("Password item requires ps value").
+ */
 export function itemTemplate(title: string, keys: { privateKey: string; publicKey: string }): string {
   return JSON.stringify({
     title,
-    category: 'PASSWORD',
+    category: 'API_CREDENTIAL',
     fields: [
       { id: 'private_key', type: 'CONCEALED', label: 'private key', value: keys.privateKey },
       { id: 'public_key', type: 'STRING', label: 'public key', value: keys.publicKey },

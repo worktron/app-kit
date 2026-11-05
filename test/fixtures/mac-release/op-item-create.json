@@ -1,0 +1,13 @@
+{
+  "recorded": "op 2.41.1, 2026-11-05: `op item create --dry-run --format json -` with the template on a pipe, the title \"Example App update signing key\" and the fields \"private key\" (CONCEALED) and \"public key\" (STRING), stand-in values; ids replaced",
+  "answers": {
+    "PASSWORD": {
+      "code": 1,
+      "out": "[ERROR] 2026/11/05 17:53:38 unable to process line 1: Validation: (validateVaultItem failed to Validate), Couldn't validate the item: \"[ItemValidator] has found 1 errors, 0 warnings: \\nErrors:{1. Password item requires ps value}\"\n"
+    },
+    "API_CREDENTIAL": {
+      "code": 0,
+      "out": "{\"id\":\"item-id\",\"title\":\"Example App update signing key\",\"version\":1,\"vault\":{\"id\":\"vault-id\",\"name\":\"Private\"},\"category\":\"API_CREDENTIAL\",\"fields\":[{\"id\":\"notesPlain\",\"type\":\"STRING\",\"purpose\":\"NOTES\",\"label\":\"notesPlain\"},{\"id\":\"private_key\",\"type\":\"CONCEALED\",\"label\":\"private key\",\"value\":\"stand-in-private\"},{\"id\":\"public_key\",\"type\":\"STRING\",\"label\":\"public key\",\"value\":\"stand-in-public\"}]}\n"
+    }
+  }
+}
