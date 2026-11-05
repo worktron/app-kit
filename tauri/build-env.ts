@@ -1,6 +1,7 @@
 /*
  * The environment every build of a Tauri app's iPhone app runs in, the TestFlight upload's and `app-kit iphone run`'s
- * alike, and every Xcode call beside it.
+ * alike, and every Xcode call beside it; and the Mac release's build (mac-release/release.ts), which also takes out
+ * APPLE_SIGNING_IDENTITY, so the identity the app's tauri.conf.json names is the one that signs.
  *
  * FORCE_COLOR is the one learned the hard way: the Xcode project's Rust build step passes ${FORCE_COLOR} to Tauri as a
  * flag, and regenerating the project bakes in whatever the shell holds, so a terminal's FORCE_COLOR=3 reached Tauri as

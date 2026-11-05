@@ -29,15 +29,24 @@ export async function readToken(run: Run): Promise<string | null> {
 
 export type KeyResult = { key: TestFlightKey } | { missing: 'token' } | { error: string };
 
-/** The fields of `op item get --format json`, by label, or why they cannot be read. */
-function fieldsOf(json: string, item: string, labels: string[]): Record<string, string> | string {
+/**
+ * The fields of `op item get --format json` named `labels`, each trimmed and empty when the item lacks it, or why the
+ * answer cannot be read. The Mac release reads its update key with it too.
+ */
+export function itemFields(json: string, item: string, labels: string[]): Record<string, string> | string {
   let fields: { label?: string; value?: string }[];
   try {
     fields = (JSON.parse(json) as { fields?: { label?: string; value?: string }[] }).fields ?? [];
   } catch {
     return `1Password's answer for "${item}" is not JSON`;
   }
-  const values = Object.fromEntries(labels.map((label) => [label, fields.find((f) => f.label === label)?.value?.trim() ?? '']));
+  return Object.fromEntries(labels.map((label) => [label, fields.find((f) => f.label === label)?.value?.trim() ?? '']));
+}
+
+/** The fields of `op item get --format json`, by label, every one of them required, or why they cannot be read. */
+function fieldsOf(json: string, item: string, labels: string[]): Record<string, string> | string {
+  const values = itemFields(json, item, labels);
+  if (typeof values === 'string') return values;
   const missing = labels.filter((label) => !values[label]).map((label) => `"${label}"`);
   if (missing.length) return `the 1Password item "${item}" in the vault "${VAULT}" has no ${missing.join(', ')}`;
   return values;
@@ -56,7 +65,7 @@ export function certificateFromItem(json: string): Certificate | string {
 }
 
 /** Whether `op` said the item is not in the vault, rather than failing to read it, as for a vault it cannot reach. */
-function notFound(out: string): boolean {
+export function notFound(out: string): boolean {
   return /isn't an item in the "[^"]*" vault/.test(out);
 }
 

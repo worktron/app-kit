@@ -26,6 +26,12 @@ import {
   NEWER_BUILD_FLAG,
   RESTART_HOST,
   restartLink,
+  UPDATE_EVENT,
+  UPDATE_FLAG,
+  UPDATE_HOST,
+  UPDATE_STATES,
+  updateLink,
+  useAppUpdate,
   useNewerBuildInstalled,
   useWindowFullScreen,
   useWindowMenu,
@@ -41,6 +47,7 @@ afterEach(() => {
   cleanup();
   delete page[FULL_SCREEN_FLAG];
   delete page[NEWER_BUILD_FLAG];
+  delete page[UPDATE_FLAG];
   delete page.__TAURI_INTERNALS__;
 });
 
@@ -61,6 +68,15 @@ test('the Mac window tells the page under the names its hooks read', () => {
   expect(constant(rust, 'NEWER_BUILD_FLAG')).toBe(NEWER_BUILD_FLAG);
   expect(constant(rust, 'NEWER_BUILD_EVENT')).toBe(NEWER_BUILD_EVENT);
   expect(constant(rust, 'RESTART_HOST')).toBe(RESTART_HOST);
+});
+
+test('the Mac window tells the page where an update stands under the names its hook reads', () => {
+  const rust = read('src/updates.rs');
+  expect(constant(rust, 'UPDATE_FLAG')).toBe(UPDATE_FLAG);
+  expect(constant(rust, 'UPDATE_EVENT')).toBe(UPDATE_EVENT);
+  expect(constant(rust, 'UPDATE_HOST')).toBe(UPDATE_HOST);
+  const states = [...rust.matchAll(/UpdateState::\w+ => "([^"]+)"/g)].map((match) => match[1]);
+  expect(states).toEqual([...UPDATE_STATES]);
 });
 
 test("the Mac menu hands the page Settings and Sign Out under the names its hook reads", () => {
@@ -98,8 +114,27 @@ test('the newer-build hook is false until the window says so, and true from then
   expect(renderHook(() => useNewerBuildInstalled()).result.current).toBe(true);
 });
 
-test("the restart link is the app's own scheme with the host the window takes", () => {
+test("the restart and update links are the app's own scheme with the hosts the window takes", () => {
   expect(restartLink('com.example.app')).toBe('com.example.app://restart');
+  expect(updateLink('com.example.app')).toBe('com.example.app://update');
+});
+
+test('the update hook reads a state set before it listened, follows each one, and ignores what it does not know', () => {
+  expect(renderHook(() => useAppUpdate()).result.current).toBeNull();
+  cleanup();
+  page[UPDATE_FLAG] = 'available';
+  const { result } = renderHook(() => useAppUpdate());
+  expect(result.current).toBe('available');
+  const tellUpdate = (state: unknown) => {
+    page[UPDATE_FLAG] = state;
+    window.dispatchEvent(new Event(UPDATE_EVENT));
+  };
+  act(() => tellUpdate('installing'));
+  expect(result.current).toBe('installing');
+  act(() => tellUpdate('failed'));
+  expect(result.current).toBe('failed');
+  act(() => tellUpdate('something newer'));
+  expect(result.current).toBeNull();
 });
 
 test("on the iPhone, window.open hands its address, made whole, to the opener and opens nothing in the page", async () => {

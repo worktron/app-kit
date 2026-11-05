@@ -1,0 +1,10 @@
+{
+  "version": "{version}",
+  "pub_date": "{pub_date}",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "{signature}",
+      "url": "{url}"
+    }
+  }
+}

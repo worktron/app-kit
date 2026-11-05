@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the plain look's stylesheet for their pages, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the bridge faked for browser tests. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
@@ -574,7 +574,7 @@ extend({
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: a window onto the hosted site, desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+What a Tauri app's page, shell and server share: a window onto the hosted site, Mac releases the installed app updates itself to, desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
 
 ### A window onto the hosted site
 
@@ -584,7 +584,8 @@ A Tauri plugin for the shell, in `tauri/window/plugin/` (`tauri-plugin-app-kit-w
 - Links. The site and its subdomains stay in the window; other sites go to the default browser, and mail, phone and text links to their apps; files, scripts and other schemes do nothing; desktop sign-in's browser page always goes out. A request for a new window (a link with target=_blank, `window.open`) goes out the same way, on the iPhone too, whose web view otherwise drops it.
 - The page's grant, named as local and remote. A built app counts a page under `frontendDist` as local, and a grant for remote pages alone left an installed app's page with no permissions at all, which a debug build hid.
 - On the Mac: closing hides the window and the app runs on; a Dock click brings it back; the page is not suspended while hidden (WebKit suspends a hidden page after about five minutes, which stops its polls); the window opens centered, back where it was, and maximized without the zoom animation; View's Actual Size, Zoom In and Zoom Out are kept across launches; and the page hears when the window goes into or out of full screen and when a newer build has been installed over the running one, for it to offer Restart.
-- On the Mac, the menu bar practices' desktop app rule asks for (`AppMenu`): the app's menu with About, which shows the version and the commit the build was made from, Settings… (⌘,) and Sign Out when the app has them, Services, Hide and Quit; File's Close Window (⌘W); the Edit menu, without which a text field loses ⌘C and ⌘V; View's zoom, Reload (⌘R) and Enter Full Screen; and Window's Minimize (⌘M), Zoom and Bring All to Front, where macOS lists the open windows.
+- On the Mac, updates from the app's releases, when its `tauri.conf.json` has `plugins.updater` (Releases and updates, below).
+- On the Mac, the menu bar practices' desktop app rule asks for (`AppMenu`): the app's menu with About, which shows the version and the commit the build was made from, Check for Updates… when the app updates itself, Settings… (⌘,) and Sign Out when the app has them, Services, Hide and Quit; File's Close Window (⌘W); the Edit menu, without which a text field loses ⌘C and ⌘V; View's zoom, Reload (⌘R) and Enter Full Screen; and Window's Minimize (⌘M), Zoom and Bring All to Front, where macOS lists the open windows.
 
 Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be.
 
@@ -665,13 +666,15 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
 The page:
 
 ```tsx
-import { restartLink, useNewerBuildInstalled, useWindowFullScreen, useWindowMenu } from 'app-kit/tauri/window';
+import { restartLink, updateLink, useAppUpdate, useNewerBuildInstalled, useWindowFullScreen, useWindowMenu } from 'app-kit/tauri/window';
 
 const fullScreen = useWindowFullScreen(); // the window's buttons are hidden: the top bar starts at its usual margin
 const newer = useNewerBuildInstalled();
+const update = useAppUpdate(); // 'available', 'installing' or 'failed' once a release is found, else null
 useWindowMenu('settings', () => navigate('/settings')); // Settings… (⌘,), with the window already brought forward
 useWindowMenu('sign-out', () => void signOut());
 {newer && <a href={restartLink('com.example.app')}>Restart</a>}
+{update === 'installing' ? 'Updating…' : update && <a href={updateLink('com.example.app')}>Update</a>}
 ```
 
 Restart works only once a newer build is installed, so no page or frame can restart the app at will. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows. A menu item is told once, by its event, as a click is.
@@ -679,6 +682,49 @@ Restart works only once a newer build is installed, so no page or frame can rest
 An app moving onto the plugin drops its own copy of the sign-in Rust and the test that held it to the kit's names. An app that had its own names for full screen or a newer build ships its shell on the plugin first and moves its page to these hooks once that build is installed, or the first install misses its Restart offer.
 
 The decisions are tested in Rust (`cargo test` in `tauri/window/plugin/`), the menu bar as macOS holds it in `plugin/tests/menu.rs`, which builds it on the main thread and reads it back, never shown, and the shared names, the page hooks and the iPhone's `window.open` script in `test/tauri-window.test.ts`; `plugin/tests/readme.rs` compiles the shell above. What needs a screen is checked in the first app that takes the plugin, by its log: `the window was closed, so it is hidden`, `a newer build is installed`, `sent a link for https://… out of the window`.
+
+### Releases and updates
+
+`app-kit mac release` and `app-kit mac key`, and the window plugin's half: a Mac app on the kit publishes a release with one command, and every installed copy finds it and offers to update, so a Mac without a checkout stays current. The releases live in a public GitHub repository of the app's own, which holds only built apps; Tauri's updater reads its newest release's `latest.json` and checks the update's signature against the public key in the app's `tauri.conf.json` before it puts the update in place.
+
+Once per Mac that releases: a code signing identity in its keychain, the same for every build, since macOS ties an app's permissions (Full Disk Access, for one) to its signature, and a build signed ad hoc is signed differently each time. A self-signed one is enough for apps that run only on your own Macs: Keychain Access, Certificate Assistant, Create a Certificate, type Code Signing. `security find-identity -p codesigning` lists what the keychain holds; the release takes one macOS does not trust, as a self-signed one is until it is marked trusted.
+
+Once per app:
+
+1. The releases repository, public and not empty: `gh repo create <owner>/<app>-releases --public --add-readme`.
+2. The key that signs its updates, from the folder holding `src-tauri`: `bun run app-kit mac key <owner>/<app>-releases`. It makes the key with no password, keeps it in 1Password's Personal vault as "<productName> update signing key" (the private key and the public key as two fields), and prints the block for `tauri.conf.json`. It never replaces an item that exists, since a new key would strand every installed copy; the key is in no program's arguments and no file.
+3. In `src-tauri/tauri.conf.json`, the printed block under `plugins`, and the identity:
+
+   ```json
+   "bundle": { "macOS": { "signingIdentity": "Example Code Signing" } },
+   "plugins": {
+     "updater": {
+       "pubkey": "<the public key>",
+       "endpoints": ["https://github.com/<owner>/<app>-releases/releases/latest/download/latest.json"],
+       "requireSignedVersion": true
+     }
+   }
+   ```
+
+   `requireSignedVersion` has the updater refuse a release whose signature was made for another version, so nobody can pass an older signed build off as a newer one in `latest.json`. Anything the build needs made before Tauri's own (Argon's icon, compiled by `actool`) goes in `build.beforeBuildCommand`, which the release's `tauri build` runs first.
+
+Each release, from the folder holding `src-tauri`, at landed code:
+
+```sh
+bun run app-kit mac release
+```
+
+It refuses a Mac that is not Apple silicon, a checkout with uncommitted changes anywhere in it, a HEAD not on `origin/main`, and a folder that differs from `origin/main` (after fetching it); a config with no signing identity, one the keychain lacks, or no updater settings; an endpoint that is not a GitHub release's `latest.json`; a releases repository that is not public, is empty, or gh may not write to; and a key whose public half is not the config's. The version is one past the higher of the last release and the config's `version`, so raising the config's version starts a new minor version; only gh's "release not found" counts as no releases, and any other failure stops it. It reads the key from 1Password, which asks for Touch ID, runs `bun install --frozen-lockfile`, and builds with `bunx tauri build --bundles app --config '{"version": …, "bundle": {"createUpdaterArtifacts": true}}'`, the key in the build's environment alone and `APP_COMMIT` set to the commit, which About shows. It then refuses a build not signed by the identity, an update whose signature does not name the version (Tauri's command-line tool records it from 2.12.0), and a checkout that changed during the build. It publishes the archive under a name GitHub keeps as it is (`Past.the.Break.app.tar.gz` for "Past the Break"), its signature and `latest.json` as release `v<version>`, marked the latest; gh makes the release a draft until every file is up, so no installed copy sees half of one. Every line starts `[mac release]`; it exits 0 published and 1 for anything else. It does not install the build: the copy in Applications takes it as an update, as every other Mac does.
+
+The first install on a Mac, from the release, with nothing marked as downloaded from the web, so macOS opens it without asking:
+
+```sh
+gh release download --repo <owner>/<app>-releases --pattern '*.app.tar.gz' --dir /tmp/<app>-release && tar -xzf /tmp/<app>-release/*.app.tar.gz -C /Applications
+```
+
+The installed app, on the window plugin, with no line in its shell: when `tauri.conf.json` has `plugins.updater`, the plugin registers Tauri's updater itself and asks the releases at launch and each time the window comes forward, at most once an hour, never while an update installs. A newer version found is offered in the menu, whose Check for Updates… after About asks at once and shows the answer in place (up to date, Update to 0.1.9, Updating to 0.1.9…, or that it could not), and to the page by `useAppUpdate` (above), which is told again as each page loads. Update, from the menu or the page's link to `updateLink(scheme)`, downloads the update, checks its signature, puts it in place of the app and restarts into it; a later release found meanwhile takes the place of the one offered. A build run outside an app bundle, as `tauri dev` runs one, never asks, and its menu says updates come only in the installed app. A copy built by hand carries the config's version, below every release, so it is offered the last release; nothing is lost by taking it. An app that builds its own menu instead of `AppMenu` adds `update_item(app)` to it. Each decision is in the app's log: `updates are on`, `version 0.1.9 is released, running 0.1.8, offering Update`, `no newer version is released`, `version 0.1.9 installed, restarting into it`.
+
+The release is tested against stand-ins for gh, 1Password, the keychain, codesign and Tauri's build in `test/mac-release.test.ts`, and the key in `test/mac-key.test.ts`; the window's half in Rust (`plugin/src/updates.rs`), against a releases feed the test serves with a release signed as Tauri signs one, through the check, the offer to the page and a download whose signature is checked, and a feed signed by another key or for another version, which is refused. Putting an update in place of a running app and restarting it need the app installed and its window on the screen, so they are checked in the first app that takes it, by its log.
 
 ### Desktop sign-in
 

@@ -8,7 +8,8 @@
 //! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops;
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
-//!   only once it is back where it was (mac.rs), and the menu bar every app shows (menu.rs).
+//!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), and updates from the app's
+//!   releases when its tauri.conf.json has plugins.updater (updates.rs).
 //!
 //! Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be. README.md's
 //! "A window onto the hosted site" shows an app's shell.
@@ -22,9 +23,11 @@ mod iphone;
 mod mac;
 #[cfg(target_os = "macos")]
 mod menu;
+#[cfg(target_os = "macos")]
+mod updates;
 
 #[cfg(target_os = "macos")]
-pub use menu::{AppMenu, FILE_MENU, VIEW_MENU};
+pub use menu::{update_item, AppMenu, FILE_MENU, VIEW_MENU};
 
 use links::{link_decision, loggable, new_window_decision, Link};
 use tauri::ipc::CapabilityBuilder;
@@ -132,7 +135,10 @@ impl Site {
                     return Err(MISSING_OPENER.into());
                 }
                 #[cfg(target_os = "macos")]
-                app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
+                {
+                    app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
+                    updates::start(app);
+                }
                 Ok(())
             })
             .on_navigation(move |webview, url| navigation(webview, url, &for_navigation))
@@ -221,6 +227,11 @@ fn navigation<R: Runtime>(webview: &Webview<R>, url: &Url, site: &Site) -> bool 
         restart(webview.app_handle());
         return false;
     }
+    #[cfg(target_os = "macos")]
+    if updates::is_update_link(url, site.scheme.as_deref()) {
+        updates::install_update(webview.app_handle().clone());
+        return false;
+    }
     match link_decision(url, &site.address, &site.kept) {
         Link::Keep => true,
         Link::SendOut => {
@@ -254,6 +265,7 @@ fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
         RunEvent::MenuEvent(event) => {
             change_zoom(app, event.id().as_ref());
             menu::menu_event(app, event.id().as_ref());
+            updates::menu_event(app, event.id().as_ref());
         }
         _ => {}
     }
@@ -312,8 +324,9 @@ fn mac_window_event<R: Runtime>(app: &AppHandle<R>, event: &tauri::WindowEvent) 
             log::info!("the window was closed, so it is hidden and the app runs on; Quit ends it");
         }
         // Each time the window comes forward it looks whether a newer build has been installed, and if so tells the
-        // page, which offers Restart.
+        // page, which offers Restart, and asks the releases for a newer version, at most once an hour.
         WindowEvent::Focused(true) => {
+            updates::came_forward(app);
             let state = app.state::<MacWindow>();
             if state.launched.newer_build_installed() {
                 log::info!("a newer build is installed than the one running, telling the page");
@@ -343,7 +356,7 @@ fn tell_full_screen<R: Runtime>(app: &AppHandle<R>, page_loaded: bool) {
 }
 
 /// A page that has just loaded, as after Reload or a sign-in, is told again what an earlier one was: full screen, a
-/// newer build, and the zoom, set again whatever WebKit did with it.
+/// newer build, where an update stands, and the zoom, set again whatever WebKit did with it.
 #[cfg(target_os = "macos")]
 fn mac_page_loaded<R: Runtime>(webview: &Webview<R>) {
     let app = webview.app_handle();
@@ -351,6 +364,9 @@ fn mac_page_loaded<R: Runtime>(webview: &Webview<R>) {
     tell_full_screen(app, true);
     if state.launched.newer_build_installed() {
         let _ = webview.eval(mac::newer_build_script());
+    }
+    if let Some(script) = updates::page_loaded_script(app) {
+        let _ = webview.eval(script);
     }
     let _ = webview.set_zoom(state.zoom(app));
 }

@@ -1,12 +1,13 @@
 //! The Mac menu bar every window app on the kit shows, as practices' desktop app rule lists it: the app's menu with
-//! About, Settings… (⌘,) and Sign Out when the app has them, Services, Hide and Quit; File's Close Window (⌘W); the Edit
+//! About, Check for Updates… when the app updates itself (updates.rs), Settings… (⌘,) and Sign Out when the app has
+//! them, Services, Hide and Quit; File's Close Window (⌘W); the Edit
 //! menu, without which a text field loses ⌘C and ⌘V; View's zoom, Reload (⌘R) and full screen; and Window's Minimize
 //! (⌘M), Zoom and Bring All to Front, where macOS lists the open windows. Close Window, Minimize and the rest of macOS's
 //! own items are macOS's, with its shortcuts and its handling. The window carries out Reload and the zoom; Settings
 //! and Sign Out are the page's, which the window brings forward and tells (`MENU_EVENT`).
 //! The page's names are tauri/window/names.ts's, and test/tauri-window.test.ts holds them to it.
 
-use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder, WINDOW_SUBMENU_ID};
+use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder, WINDOW_SUBMENU_ID};
 use tauri::{AppHandle, Manager, Runtime};
 
 /// The window event that hands the page a menu item it carries out, with the item's name as its detail.
@@ -71,7 +72,11 @@ impl AppMenu {
         let about = self.about(info, app.config().bundle.copyright.clone());
         // macOS would name About, Hide and Quit after the program's file; the app's own name is the one it shows.
         let name = &info.name;
-        let mut first = SubmenuBuilder::new(app, name).about_with_text(format!("About {name}"), Some(about)).separator();
+        let mut first = SubmenuBuilder::new(app, name).about_with_text(format!("About {name}"), Some(about));
+        if crate::updates::configured(app.config()) {
+            first = first.item(&update_item(app)?);
+        }
+        first = first.separator();
         if self.settings {
             first = first
                 .item(&MenuItemBuilder::with_id(SETTINGS_ITEM, "Settings…").accelerator("CmdOrCtrl+,").build(app)?)
@@ -101,6 +106,17 @@ impl AppMenu {
             .build()?;
         MenuBuilder::new(app).items(&[&first, &file, &edit, &view, &window]).build()
     }
+}
+
+/// Check for Updates…, for an app that builds its own menu instead of `AppMenu`, which adds it after About when the
+/// app's tauri.conf.json has plugins.updater. The plugin carries it out, and its words follow the update: checking, up
+/// to date, Update to the version found, installing, or failed.
+pub fn update_item<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<MenuItem<R>> {
+    use crate::updates::{keep_menu_item, update_item_text, UpdateItem, UPDATE_ITEM};
+    let (text, enabled) = update_item_text(UpdateItem::Check);
+    let item = MenuItemBuilder::with_id(UPDATE_ITEM, text).enabled(enabled).build(app)?;
+    keep_menu_item(app, item.clone());
+    Ok(item)
 }
 
 /// The page's name for a menu item it carries out, or None for an item that is not the page's.

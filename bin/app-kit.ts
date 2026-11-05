@@ -5,8 +5,10 @@
 // why nothing is connected. The iPhone part builds a Tauri app and starts it on
 // a Simulator or a paired iPhone. The iPhone simulator part sends a
 // simulator's sound to BlackHole so it plays nowhere. The TestFlight part uploads
-// an iPhone build, and watches apps' main to upload after each landing. The icons
-// part draws every icon an app ships from its drawings.
+// an iPhone build, and watches apps' main to upload after each landing. The Mac
+// part publishes a Mac app's release, which its installed copies update to, and
+// makes the key that signs it. The icons part draws every icon an app ships from
+// its drawings.
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -14,6 +16,8 @@ import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/in
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import { isColor, renderIcons } from '../icons/render.ts'
+import { makeKey } from '../tauri/mac-release/key.ts'
+import { release } from '../tauri/mac-release/release.ts'
 import packageJson from '../package.json'
 import { runIphone } from '../tauri/iphone-run/index.ts'
 import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
@@ -74,6 +78,16 @@ const USAGE = `app-kit <part> <command>
                               one has the setting saved for its next boot; prints
                               one line, and exits 0 even when BlackHole is missing,
                               1 only when the simulator did not boot again
+  mac release                 from a Tauri app's folder, at landed code: build its Mac app
+                              signed by the identity tauri.conf.json names, sign the update
+                              with the key in 1Password (Touch ID), and publish it as the
+                              next release in the public GitHub repository its updater
+                              asks, which every installed copy then offers as an update
+  mac key <owner>/<repository>
+                              make the key that signs the app's updates, once, keep it in
+                              1Password's Personal vault, and print the plugins.updater
+                              block for tauri.conf.json, with <owner>/<repository> the
+                              releases' public repository; refuses when the key exists
   testflight upload [--token-only]
                               from a Tauri app's checkout at a commit of origin/main:
                               build its iPhone app, check it, upload it to TestFlight
@@ -193,6 +207,15 @@ async function icons([command, ...args]: string[]): Promise<boolean> {
   return true
 }
 
+async function mac([command, ...args]: string[]): Promise<boolean> {
+  let code: number
+  if (command === 'release' && args.length === 0) code = await release({ cwd: process.cwd() })
+  else if (command === 'key' && args.length === 1 && !args[0]!.startsWith('-')) code = await makeKey({ cwd: process.cwd(), repository: args[0]! })
+  else return false
+  if (code !== 0) process.exit(code)
+  return true
+}
+
 async function testflight([command, ...args]: string[]): Promise<boolean> {
   if (command === 'upload' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
     const code = await upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
@@ -249,6 +272,7 @@ async function main(args: string[]) {
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return
+  if (part === 'mac' && (await mac(rest))) return
   if (part === 'testflight' && (await testflight(rest))) return
   wrongUsage(USAGE)
 }

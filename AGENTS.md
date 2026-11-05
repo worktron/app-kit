@@ -24,8 +24,11 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
                  copy.ts, and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
-                 an app's shell builds, with desktop sign-in's shell half and the Mac menu bar (src/menu.rs), and the page half (index.ts) and the names
-                 both share (names.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
+                 an app's shell builds, with desktop sign-in's shell half, the Mac menu bar (src/menu.rs) and updates from
+                 the app's releases (src/updates.rs), and the page half (index.ts) and the names both share (names.ts);
+                 mac-release/, `app-kit mac release` (release.ts), which publishes a Mac release the installed app
+                 updates itself to, `app-kit mac key` (key.ts), which makes the key that signs it, and what both read
+                 from the app (app.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
                  and its server routes (server.ts, app-kit/tauri/sign-in/server); iphone-notifications/, notifications through
                  Apple's push service: the page half (index.ts), the sending (server.ts), the names both share with the
                  plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds;
@@ -36,10 +39,11 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  and how long a Simulator `iphone run sim` boots stays up and how many run at once, with its watcher and
                  `app-kit iphone-simulator keep` (lifetime.ts);
                  testflight/, `app-kit testflight upload` (upload.ts) and `app-kit testflight watch` (watch.ts), with the
-                 App Store Connect calls, the key and the distribution certificate read from 1Password, the signing
+                 App Store Connect calls, the key and the distribution certificate read from 1Password (key.ts, whose
+                 item readers the Mac release uses too), the signing
                  with them and what Tauri leaves that is put back (signing.ts);
                  apple-token.ts, the ES256 token Apple's push service and App Store Connect both take;
-                 build-env.ts, the environment every iPhone build runs in, with no FORCE_COLOR;
+                 build-env.ts, the environment every iPhone build and the Mac release's build run in, with no FORCE_COLOR;
                  state.ts, the folder under ~/.local/state/app-kit each part keeps its state in, with its lock and log,
                  which the TestFlight watcher and the Simulators' shut-down times share, and whose lock the TestFlight
                  upload's one signing build at a time takes too;
