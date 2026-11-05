@@ -295,3 +295,9 @@ Goal: two rare races remain from the v0.36.0 Simulator work, both raised by its 
 Done when: a test holds two takeovers of a dead holder's lock and only one wins, and a test holds keep against a watcher at the same moment and the Simulator stays up with the new time; both fail on the code before.
 Needs: nothing.
 Touches: tauri/state.ts, tauri/iphone-simulator/lifetime.ts.
+
+## swiftc-build-no-sdk · the bare swiftc build stops when xcrun names no SDK version, instead of skipping its macOS 27 check
+
+Goal: swift/menu-bar/e2e/swiftc-build.sh checks that a theme built with the macOS 27 SDK holds the status item session (`[ "$(xcrun --show-sdk-version | cut -d. -f1)" -ge 27 ]`). On a Mac whose Command Line Tools cannot find their default SDK, xcrun prints "unable to lookup item 'SDKVersion'", the version is empty, `[` fails with "integer expected", the check reads as false, and the gate passes with it skipped. Seen in scripts/gates.sh output on 2026-11-02, twice. The script should stop with a clear line naming the missing SDK, or find the SDK it builds with another way, so the check never passes by not running.
+
+Done when: swiftc-build.sh with an xcrun that answers no SDK version exits non-zero with a line that says so, held by a test, and the gates still pass on a Mac with a working SDK.
