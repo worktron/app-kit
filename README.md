@@ -10,7 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order pages. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order pages. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -1434,6 +1434,30 @@ listen(app, { onStop: async () => { await stopTriage(); await db.close(); } });
 - **Stopping.** `stop()` ends the clock and waits for a run in progress, so the database is closed after the last run, not under it. Bun.cron's stop does not wait.
 - `runAtStart` runs the job as soon as `every` is called, rather than first after one interval. An interval that is not a number of milliseconds above 0, or is past the longest delay a timer holds (`LONGEST_DELAY_MS`, about 24.8 days, which Bun cuts to 1ms), is refused, since the job would run back to back.
 - It imports nothing, so a worker with no web server takes it too. It is for one server: two copies of the app on two machines each run it, and a job that must run once across them takes a lock of its own.
+
+### What a Mac process has used
+
+`app-kit/server/process-usage`: one reading of one macOS process's CPU time, memory and disk, finished child processes included. `ps` and every other reader miss a process that lived between two samples. The kernel adds a child's CPU time, and all its own children's, to its parent's child total when the child is reaped, so that time is still there to read in the parent.
+
+```ts
+import { readProcessUsage } from 'app-kit/server/process-usage';
+
+const usage = readProcessUsage(pid);
+if (usage) console.log(usage.ownCpuSeconds + usage.finishedChildrenCpuSeconds, usage.footprintBytes);
+```
+
+| Field | What it is |
+| --- | --- |
+| `pid` | The pid it read. |
+| `startedAt` | A bigint, only for comparing: the same pid and the same `startedAt` is the same process, since macOS reuses a pid. |
+| `ownCpuSeconds` | User and system CPU time of the process itself, as `ps -o time=` shows it. |
+| `finishedChildrenCpuSeconds` | User and system CPU time of its reaped children and of theirs, which `ps` never shows. A child still running, or one that has ended and is not yet reaped, is not in it. |
+| `residentBytes`, `footprintBytes` | Memory in physical pages, as `ps -o rss=` shows it, and the physical footprint Activity Monitor calls Memory, which counts what is compressed and swapped too. |
+| `diskReadBytes`, `diskWriteBytes` | What it has read from and written to disk since it started. A read the file cache answers is not in it. |
+
+- **Null.** It answers null when macOS will not say: another user's process, a process gone, or not macOS. A pid that is not a whole number a C int holds is null too, since the kernel would read some other process.
+- **One reading.** Every number is a total since the process started. Sampling, the differences between readings and who owns a process stay in the app. A difference is only good between two readings with the same `pid` and `startedAt`.
+- **Where to run it.** It calls `proc_pid_rusage` through `bun:ffi`, which Bun marks experimental and which a Bun runtime alone has, and it takes a process of its own for a server that must not go down with a crash there. Importing it loads nothing: `bun:ffi` and the two libraries are opened at the first reading on a Mac, and never off one.
 
 ### What a refusal from Google means
 

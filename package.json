@@ -41,6 +41,7 @@
     "./server/postgres": "./server/postgres/index.ts",
     "./server/start": "./server/start/index.ts",
     "./server/every": "./server/every/index.ts",
+    "./server/process-usage": "./server/process-usage/index.ts",
     "./amazon-orders": "./server/amazon-orders/index.ts",
     "./testing/start-up": "./testing/start-up.ts",
     "./command-line": "./command-line/index.ts",
