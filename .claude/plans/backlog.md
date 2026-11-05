@@ -253,3 +253,9 @@ Goal: `ItemLine` in `swift/menu-bar/Sources/MenuBarTheme/Pieces.swift` always dr
 Done when: `ItemLine(text, copy:, tone: .text)` draws in the given tone with arrow-key selection, its snapshot sample is in the theme's gallery, and a release tag exists; fleet's `LaterLine` can then be replaced by it at that tag (a fleet change, after).
 Needs: none.
 Touches: `swift/menu-bar/Sources/MenuBarTheme/Pieces.swift`, the snapshot samples.
+
+## filled-button · the menu bar theme has a filled button for the one step a window asks for
+
+Goal: Fleet's per-Mac window (fleet `apps/menubar/Sources/Window.swift`, struct FilledButton) needed a solid button for its one next step ("Set up m3", "Try again") and the menu bar theme (`swift/menu-bar/Sources/MenuBarTheme`) has none, so Fleet drew its own: the theme's text color as the fill, the background color as the label, the body size at semibold, rounded, in both looks. Add one to the theme in its tokens so Fleet, and any app on the theme, uses the theme's instead, with a snapshot in the theme's own tests in dark and light.
+Done when: MenuBarTheme exports a filled button drawn in dark and light by the theme's snapshot tests, a release tag carries it, and fleet can replace its own FilledButton with it by moving to that tag.
+Touches: `swift/menu-bar/Sources/MenuBarTheme/`, its tests.
