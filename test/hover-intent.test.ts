@@ -141,7 +141,8 @@ describe('the keyboard puts the pointer back to rest', () => {
     h.intent.move({ x: 501, y: 340 }, 'row 6');
     h.intent.move({ x: 503, y: 345 }, 'row 7');
     h.elapse();
-    expect(h.lit).toEqual(['row 6']);
+    // The pointer's row went dark with the key, and nothing lit after it.
+    expect(h.lit).toEqual(['row 6', null]);
     expect(h.held.map((s) => s.target)).toEqual(['row 6']);
   });
 
@@ -154,6 +155,14 @@ describe('the keyboard puts the pointer back to rest', () => {
     expect(h.held).toEqual([]);
   });
 
+  test('a key with nothing lit says nothing, and a pointer that then leaves without travelling says nothing either', () => {
+    const h = harness();
+    h.intent.move({ x: 500, y: 300 }, 'row 5');
+    h.intent.restart();
+    h.intent.leave();
+    expect(h.lit).toEqual([]);
+  });
+
   test('after a key, a real travel counts from where the pointer then rested, and lights the row it is over again', () => {
     const h = harness();
     h.intent.move({ x: 500, y: 300 }, 'row 5');
@@ -161,7 +170,7 @@ describe('the keyboard puts the pointer back to rest', () => {
     h.intent.restart();
     h.intent.move({ x: 500, y: 341 }, 'row 6');
     h.intent.move({ x: 500, y: 341 + TRAVEL_PX }, 'row 6');
-    expect(h.lit).toEqual(['row 6', 'row 6']);
+    expect(h.lit).toEqual(['row 6', null, 'row 6']);
     h.elapse();
     expect(h.held.map((s) => s.target)).toEqual(['row 6']);
   });

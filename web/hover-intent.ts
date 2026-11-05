@@ -118,12 +118,15 @@ export class HoverIntent<T> {
     if (this.travelled) this.light(null);
   }
 
-  /** A key, or the keyboard going elsewhere: the next report marks a new rest, and the keyboard's choice stands. */
+  /**
+   * A key, or the keyboard going elsewhere: what the pointer lit goes dark, so only the keyboard's choice shows, and
+   * the next report marks a new rest.
+   */
   restart(): void {
     this.stopTimer();
     this.still = null;
     this.target = null;
-    this.over = null;
+    this.light(null);
     this.rest = null;
     this.last = null;
     this.travelled = false;
