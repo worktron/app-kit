@@ -43,6 +43,7 @@
     "./server/every": "./server/every/index.ts",
     "./server/process-usage": "./server/process-usage/index.ts",
     "./amazon-orders": "./server/amazon-orders/index.ts",
+    "./amazon-cart": "./server/amazon-cart/index.ts",
     "./testing/start-up": "./testing/start-up.ts",
     "./command-line": "./command-line/index.ts",
     "./package.json": "./package.json"

@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/look`, `app-kit/testing/start-up`, and one that names no folder, `app-kit/amazon-orders`, which lives in `server/amazon-orders/`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/look`, `app-kit/testing/start-up`, and two that name no folder, `app-kit/amazon-orders` and `app-kit/amazon-cart`, which live in `server/amazon-orders/` and `server/amazon-cart/`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -78,7 +78,10 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  process-usage/ (one reading of a macOS process's CPU time, memory and disk, finished child processes
                  included, through bun:ffi opened only at the first reading, app-kit/server/process-usage),
                  amazon-orders/ (reading Amazon's order pages from their HTML, on happy-dom, the only file that imports it,
-                 app-kit/amazon-orders; test/fixtures/amazon-orders holds the tests' made-up pages)
+                 app-kit/amazon-orders; test/fixtures/amazon-orders holds the tests' made-up pages),
+                 amazon-cart/ (reading one store's Amazon cart page, which throws on a page that is not that store's cart,
+                 through amazon-orders' parse, app-kit/amazon-cart; test/fixtures/amazon-cart holds the tests' made-up
+                 pages, and its README what marks each store's cart and what is not yet known)
 look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
                  and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
                  test/look-swift.test.ts

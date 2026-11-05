@@ -10,7 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order pages. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders`, `app-kit/amazon-cart` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order and cart pages. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -1601,6 +1601,34 @@ for (const order of readOrders(page)) {
 - **A page sent to a server.** Reading fetches nothing a page names and runs nothing in it, since a page is parsed into a template, which is never attached to a document. A test holds that with a page full of preload links, stylesheets, frames and scripts pointed at a server of its own. The size of a page a server accepts is the server's to limit: the largest real order page recorded is about 1 MB and reads in about 350 ms, and a page nested tens of thousands of levels deep throws a RangeError, which the server catches as it would any page it cannot read.
 
 Needs `happy-dom` 21, which the kit names as an optional peer, so an app that does not take this part installs none of it. An app that does installs it as a dependency, since its server loads it to read a page. This import name has no folder in it because a tool on a person's own Mac takes it as a server does.
+
+### Reading an Amazon cart page
+
+`app-kit/amazon-cart`, kept in `server/amazon-cart/`, reads one store's cart page the way `app-kit/amazon-orders` reads order pages: the page's HTML goes in, the cart's lines come out, and nothing is fetched. `cartPath(store)` says what to ask Amazon for. It reads with `app-kit/amazon-orders`' `parse`, so it needs `happy-dom` the same way, and takes its `Store` names from there.
+
+```ts
+import { cartPath, NotTheCart, readCart } from 'app-kit/amazon-cart';
+
+const page = await pageFromTheBrowser(cartPath('Amazon Fresh'));
+try {
+  const cart = readCart(page, 'Amazon Fresh');
+  // cart.lines: what is in the cart now; an empty list is a cart with nothing in it.
+} catch (error) {
+  if (!(error instanceof NotTheCart)) throw error;
+  // Not the cart: say nothing about what is in it, and log error.kind and error.message.
+}
+```
+
+| Export | What it gives |
+| --- | --- |
+| `readCart(html, store)` | The store's cart as `Cart`: `store`, `lines` (each `asin`, `name`, `price` in dollars or null, `quantity` and `lineId`, Amazon's id for the line), `items`, Amazon's own count of the items, which can differ from the lines' quantities added up, and `url`, the cart's address, where the person checks out. "Buy it again" suggestions, saved-for-later items and the other stores' carts shown on the same page are not lines. |
+| `NotTheCart` | What `readCart` throws for a page that is not that store's cart, so it never reads as an empty cart: `kind` is `signed-out` when Amazon showed the page to someone not signed in, and `not-this-cart` for anything else (another store's cart, a page refusing the request, a change at Amazon), with `store` and a message giving the reason. |
+| `cartPath(store)` | The address on amazon.com of the store's cart page: each grocery store has its own, and regular Amazon's shows the grocery carts collapsed. |
+| `Cart`, `CartLine`, `NotTheCartKind` | The types. |
+
+- **How a page is known as the store's cart.** A grocery cart page (Amazon Fresh, Whole Foods Market) has one expanded grocery cart whose checkout box names the store's brand id; regular Amazon's has its active cart; and a header reading "Hello, sign in" is a signed-out page, whatever else it holds. These marks are read from real pages, recorded on 2026-10-22 and 2026-11-05.
+- **An empty grocery cart has never been recorded.** Whether its page keeps the checkout box naming the store is unknown. If it does, it reads as a cart with no lines; if not, `readCart` throws `NotTheCart` with the reason "The page's grocery cart has no checkout box naming its store", rather than guessing that the cart is empty. A signed-in empty regular cart has not been recorded either: signed out, its active cart is there, empty, so it is expected to read as a cart with no lines. `test/fixtures/amazon-cart/README.md` keeps what is known and how to record the rest.
+- **What never comes out.** A cart page's header holds the person's name and delivery town; the reader reads the cart's lines and counts only. A server keeps what is read and discards the page.
 
 ## look/: the two looks
 
