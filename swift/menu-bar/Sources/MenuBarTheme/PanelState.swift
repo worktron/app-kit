@@ -8,7 +8,8 @@ import SwiftUI
 @MainActor
 @Observable
 public final class PanelState {
-    /// The selected line's id, painted as hovered: the arrow keys move it, and the pointer moves it only on intent.
+    /// The selected line's id, painted as hovered: the arrow keys move it, and the pointer moves it once it has
+    /// travelled from where it rested (`PointerIntent`).
     public var selected: AnyHashable?
     /// The text last copied from this panel, whose copy says "copied" until another copy or the panel closes.
     public internal(set) var copied: String?
@@ -19,8 +20,16 @@ public final class PanelState {
     let side = Surface()
     /// The side pages the list's rows carry, with where each row is, handed over on every update of the list.
     var sidePages: [SidePage] = []
-    /// The line under the pointer, which becomes the selection once the pointer means it.
-    var pointerOver: AnyHashable?
+    /// The line under the pointer, which the lines report as it enters and leaves them. Once the pointer has travelled
+    /// it is the selection, so a line lights as the pointer enters it and goes dark as it leaves.
+    var pointerOver: AnyHashable? {
+        didSet { if pointerReached, pointerOver != oldValue { selected = pointerOver } }
+    }
+    /// Whether the pointer has travelled since it last rested, which the panel sets from its `PointerIntent`. Until it
+    /// has, the pointer lights nothing, so a key's choice and a list scrolled under a still pointer stay as they are.
+    var pointerReached = false {
+        didSet { if pointerReached, !oldValue { selected = pointerOver } }
+    }
     /// How many times the panel has closed, so its content scrolls back to the top for the next open.
     var closes = 0
     /// Called when a side page opens, swaps or closes, and on each update of the list's rows, so the panel can put the
@@ -84,7 +93,8 @@ public final class PanelState {
         if opensSide { openSide(id) } else { action() }
     }
 
-    /// The pointer came to rest on `id`: it is selected, and a row's side page opens, swaps or closes to match it.
+    /// The pointer held still on `id`: it is selected, and a row's side page opens, swaps or closes to match it. Only a
+    /// hold does this, so crossing other rows on the way into an open side page leaves the page open.
     func pointed(at id: AnyHashable) {
         selected = id
         guard let line = list.lines.first(where: { $0.id == id }) else { return }
@@ -121,6 +131,7 @@ public final class PanelState {
     func reset() {
         selected = nil
         copied = nil
+        pointerReached = false
         pointerOver = nil
         sidePage = nil
         side.lines = []

@@ -106,7 +106,7 @@ public final class MenuBarPanel: NSPanel {
         fit(top: button.minY - Self.gap, visibleFrame: visibleFrame)
         // Opened again while open: a side page still open follows the list.
         fitSide()
-        intent.reset()
+        restPointer()
         isOpen = true
         guard !Self.staysOffScreen else { return }
         let outside: (NSEvent) -> Void = { [weak self] _ in self?.clicked(at: NSEvent.mouseLocation) }
@@ -155,7 +155,7 @@ public final class MenuBarPanel: NSPanel {
 
     public override func resignKey() {
         super.resignKey()
-        intent.reset()
+        restPointer()
         close()
     }
 
@@ -169,7 +169,7 @@ public final class MenuBarPanel: NSPanel {
     /// item's key. The side panel never takes the keys, so this is where its keys come too.
     public override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown {
-            intent.reset()
+            restPointer()
             if handle(key: event) { return }
         }
         super.sendEvent(event)
@@ -199,8 +199,11 @@ public final class MenuBarPanel: NSPanel {
         return true
     }
 
+    /// The pointer moved: once it has travelled, the line under it lights at once, and what it holds on opens after the
+    /// hold.
     func pointerMoved(to point: NSPoint, at time: TimeInterval) {
         intent.moved(to: point, at: time)
+        state.pointerReached = intent.reached
         intentTimer?.invalidate()
         intentTimer = Timer.scheduledTimer(withTimeInterval: PointerIntent.wait, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.pointerHeld(at: ProcessInfo.processInfo.systemUptime) }
@@ -209,6 +212,14 @@ public final class MenuBarPanel: NSPanel {
 
     func pointerHeld(at time: TimeInterval) {
         if intent.tick(at: time), let over = state.pointerOver { state.pointed(at: over) }
+    }
+
+    /// The panel opened, a key was pressed or the keyboard went elsewhere: the pointer's next report is where it rests,
+    /// and it lights nothing until it travels again.
+    func restPointer() {
+        intent.reset()
+        intentTimer?.invalidate()
+        state.pointerReached = false
     }
 
     /// Sizes the panel to its content, up to what the screen allows, keeping its top where it is.

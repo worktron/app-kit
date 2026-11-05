@@ -7,6 +7,8 @@ The app baseline as one public package, which apps install from GitHub at a tag.
 ```
 web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, lookTheme), fetch wrapper, connection, new build, preload reload, error boundary and its reload after a crash, saved copies, row links,
                  how long ago (age.ts, with no React, also app-kit/web/age, and now.ts, useNow),
+                 hover intent (hover-intent.ts), when the pointer may light, select or focus, with the menu bar theme's
+                 PointerIntent.swift held to its numbers by test/hover-intent-swift.test.ts,
                  the phone's Text Size, fields that never zoom, pull to refresh, the font wait, the sign-in gate and the
                  provider interface it takes (sign-in/provider.ts); first-paint.js, the Vite plugin for the first frame (app-kit/web/first-paint);
                  server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;

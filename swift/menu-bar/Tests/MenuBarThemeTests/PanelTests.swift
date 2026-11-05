@@ -481,6 +481,94 @@ import Testing
         #expect(panel.state.sidePage == nil)
     }
 
+    /// The pointer's report at `y`, `time` seconds after the panel opened.
+    func move(_ panel: MenuBarPanel, to y: CGFloat, at time: TimeInterval) {
+        panel.pointerMoved(to: NSPoint(x: 0, y: y), at: time)
+    }
+
+    @Test func aRowLightsAsThePointerEntersItAndGoesDarkAsItLeaves() {
+        let panel = panel()
+        move(panel, to: 0, at: 0)
+        // Under a pointer that has not travelled, the row it is over stays dark.
+        panel.state.pointerOver = "alpha"
+        #expect(panel.state.selected == nil)
+        // 16 points of travel, and the row lights with no wait.
+        move(panel, to: PointerIntent.travel, at: 0.01)
+        #expect(panel.state.selected == AnyHashable("alpha"))
+        panel.state.pointerOver = "bravo"
+        #expect(panel.state.selected == AnyHashable("bravo"))
+        panel.state.pointerOver = nil
+        #expect(panel.state.selected == nil)
+        panel.state.pointerOver = "charlie"
+        #expect(panel.state.selected == AnyHashable("charlie"))
+    }
+
+    @Test func aKeysChoiceStandsUntilThePointerTravelsAgain() {
+        let panel = panel()
+        move(panel, to: 0, at: 0)
+        panel.state.pointerOver = "alpha"
+        move(panel, to: 20, at: 0.01)
+        panel.sendEvent(key(Self.down, code: 125))
+        #expect(panel.state.selected == AnyHashable("bravo"))
+        // The list scrolled under the still pointer, or a bump crossed into the next row: the keys' choice stands.
+        panel.state.pointerOver = "charlie"
+        move(panel, to: 25, at: 0.2)
+        #expect(panel.state.selected == AnyHashable("bravo"))
+        panel.pointerHeld(at: 1)
+        #expect(panel.state.selected == AnyHashable("bravo"))
+        // A real travel from where it then rested lights the row it is over.
+        move(panel, to: 25 + PointerIntent.travel, at: 1.1)
+        #expect(panel.state.selected == AnyHashable("charlie"))
+    }
+
+    @Test func aRowLightsAtOnceAndOpensItsSidePageOnlyAfterTheHold() {
+        let panel = linksPanel()
+        move(panel, to: 0, at: 0)
+        panel.state.pointerOver = "b"
+        move(panel, to: 20, at: 0.01)
+        #expect(panel.state.selected == AnyHashable("b"))
+        panel.pointerHeld(at: 0.05)
+        #expect(panel.state.sidePage == nil)
+        panel.pointerHeld(at: 0.01 + PointerIntent.wait)
+        #expect(panel.state.sidePage == AnyHashable("b"))
+    }
+
+    @Test func crossingRowsOnTheWayIntoTheSidePageLeavesItOpen() {
+        let panel = linksPanel()
+        rest(panel, on: "b")
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        // At an angle, through row c and into the page: c lights as the pointer crosses it, and the page stays.
+        panel.state.pointerOver = "c"
+        move(panel, to: 60, at: 2)
+        #expect(panel.state.selected == AnyHashable("c"))
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        panel.state.pointerOver = ["b", "work"]
+        move(panel, to: 80, at: 2.03)
+        panel.pointerHeld(at: 2.05)
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        panel.pointerHeld(at: 2.03 + PointerIntent.wait)
+        #expect(panel.state.sidePage == AnyHashable("b"))
+        #expect(panel.state.selected == AnyHashable(["b", "work"]))
+    }
+
+    @Test func onlyTheSelectableLinesReadThePointer() throws {
+        // The pointer reaches the panel only through PointerIntent: the lines report where it is (`onHover`, in
+        // `Selectable`), the panel feeds it moves, and nothing else watches the pointer to light or open a line.
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/MenuBarTheme")
+        let allowed = ["PanelState.swift": 1, "Panel.swift": 1]
+        var found: [String: Int] = [:]
+        for file in try FileManager.default.contentsOfDirectory(atPath: sources.path) where file.hasSuffix(".swift") {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            let watches = text.components(separatedBy: "\n").filter {
+                $0.contains(".onHover") || $0.contains(".onContinuousHover") || $0.contains("NSTrackingArea")
+                    || $0.contains("matching: .mouseMoved") || $0.contains("func mouseMoved") || $0.contains("func mouseEntered")
+            }
+            if !watches.isEmpty { found[file] = watches.count }
+        }
+        #expect(found == allowed)
+    }
+
     @Test func aClickInTheSidePageKeepsBothOpenAndOutsideClosesBoth() throws {
         let panel = linksPanel()
         rest(panel, on: "a")

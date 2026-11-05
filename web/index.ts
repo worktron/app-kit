@@ -15,6 +15,17 @@ export { NotFound } from './NotFound';
 export { nameApp, titleFor, useTitle } from './title';
 export { age, type AgeOptions } from './age';
 export { useNow, NOW_TICK_MS } from './now';
+export {
+  HoverIntent,
+  useHoverIntent,
+  screenPointOf,
+  TRAVEL_PX,
+  HOLD_PX,
+  LIST_WAIT_MS,
+  FOCUS_WAIT_MS,
+  type Point,
+  type HoverIntentOptions,
+} from './hover-intent';
 export { RowLink, NavigateProvider, opensElsewhere, type Navigate } from './RowLink';
 export { NewBuildLine, ConnectionLine, unreachableMessage } from './lines';
 export { AccountMenu, type AccountMenuItem, type AccountMenuProps } from './AccountMenu';
