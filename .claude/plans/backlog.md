@@ -281,3 +281,10 @@ Goal: on 2026-11-02 three booted Getter Simulators ran about 620 processes betwe
 Done when: one Simulator the kit boots runs measurably fewer processes, with the counts before and after in the commit; `app-kit iphone run sim` still installs and opens an app; the iPhone notifications and sign-in checks still work in it.
 Needs: nothing.
 Touches: tauri/iphone-simulator/, tauri/iphone-run/index.ts.
+
+## simulator-device-cleanup · A deleted worktree's Simulator device is deleted too
+
+Goal: `app-kit iphone run sim` makes one Simulator per linked worktree, named after it, and since v0.36.0 its watcher shuts it down once the worktree is deleted. The device itself stays in simctl's list and on disk (each holds an iOS data folder of its own), so they pile up as worktrees come and go. Delete the device once its worktree is gone, only for a device the kit made for a worktree, never one made by hand or a shared one.
+Done when: a test shows the watcher deleting the device it shut down once its checkout is gone, and leaving alone a device the kit did not make; a device made by hand keeps working.
+Needs: nothing.
+Touches: tauri/iphone-simulator/lifetime.ts, tauri/iphone-run/index.ts.
