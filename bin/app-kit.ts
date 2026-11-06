@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
+import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } from '../extension/listing.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import { isColor, renderIcons } from '../icons/render.ts'
 import { makeKey } from '../tauri/mac-release/key.ts'
@@ -34,6 +35,13 @@ const USAGE = `app-kit <part> <command>
                               refuses a folder whose copies live in a folder below it
   extension check <folder>    exit 3 when <folder>'s worker files or look.css differ from this kit's
   extension id [<folder>]     the extension's ID, from the key in <folder>/manifest.json
+  extension listing [<folder>] [--json]
+                              hold <folder>'s store-listing.md, the Chrome Web Store
+                              listing, to its manifest.json, . by default: the summary,
+                              each permission's reason, the remote-code answer, the 128
+                              icon and the privacy link; prints passed, failed or yours
+                              (the dashboard's steps) per line, or a JSON list with
+                              --json, and exits 1 when any failed
   extension install-host <name> <host> [<folder>] --description <text> [--from-worktree]
                               tell Chrome about the native host <name>: a launcher that
                               runs <host> (a program, or a TypeScript or JavaScript file
@@ -144,6 +152,23 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
       console.log(JSON.stringify({ connected: false, ...diagnoseHost({ name, extensionFolder: folder }) }, null, 2))
       process.exit(4)
     }
+    return true
+  }
+  if (command === 'listing') {
+    const json = args.includes('--json')
+    const words = args.filter((word) => word !== '--json')
+    if (words.length > 1 || words[0]?.startsWith('-')) return false
+    const folder = words[0] ?? '.'
+    const items = listingChecklist(folder)
+    const link = privacyPolicyLink(folder)
+    const firstYours = items.findIndex((item) => item.result === 'yours')
+    if (link) items.splice(firstYours === -1 ? items.length : firstYours, 0, await privacyPolicyAnswers(link))
+    if (json) console.log(JSON.stringify(items, null, 2))
+    else {
+      for (const item of items) console.log(`${item.result.padEnd(6)}  ${item.line}`)
+      console.log('These checks compare the listing file with the manifest. Whether each sentence is true is yours to read.')
+    }
+    if (items.some((item) => item.result === 'failed')) process.exit(1)
     return true
   }
   const [argument, ...extra] = args

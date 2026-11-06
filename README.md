@@ -453,6 +453,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for an extension's unit tests, with the network refused unless the test answers it. See below. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
 | Layout check | `app-kit/extension/layout` | `layoutProblems(folder)` says what is wrong with where the extension's manifest sits, and is empty when it is at the root of its git checkout. See below. |
+| Store listing check | `app-kit extension listing`, `app-kit/extension/listing` | Holds the extension's Chrome Web Store listing, `store-listing.md` beside the manifest, to the manifest, and lists the steps only the owner can take in the Store's dashboard. See below. |
 
 An extension's `manifest.json` sits at the root of its repository, and its paths point into a folder for the code, so Chrome's Load unpacked takes the checkout itself, the main one, which follows main:
 
@@ -654,6 +655,54 @@ extend({
   contextMenus: { create: () => {}, onClicked: new ChromeEvent() },
   identity: { getAuthToken: async () => ({ token: 'token-1' }) },
 })
+```
+
+### The Store listing
+
+The Chrome Web Store's API uploads and publishes an extension's zip and nothing else: the listing text, the privacy answers, the screenshots and the visibility are typed into the Store's developer dashboard, and an item whose answers disagree with what it does can be removed. So an extension headed for the Store keeps those answers in `store-listing.md` beside its `manifest.json`, and `app-kit extension listing` holds the file to the manifest:
+
+- the Summary is the manifest's `description`, which is what the Store shows, and is at most 132 characters (a `__MSG_…__` description from `_locales` is left to the owner);
+- the Description, Single purpose, Remote code and Privacy policy answers are there, since Google rejects an item without the remote-code answer, and the Privacy policy answer holds a web address;
+- every permission, optional permission, host permission and content script's site in the manifest has its reason under Privacy practices, and no reason is left for one the manifest no longer asks for;
+- the manifest's 128 icon is a 128 by 128 PNG, by its header (the image itself is not decoded);
+- the privacy policy's address answers with a page (the command only, within five seconds).
+
+It prints a line per item, `passed`, `failed` or `yours`, or a JSON list with `--json`, and exits 1 when any check failed, so a release script runs it before it uploads:
+
+```json
+"extension:publish": "app-kit extension listing && bun scripts/extension-zip.ts --upload"
+```
+
+The `yours` lines are the dashboard's: the dashboard says what the file says, the store icon and at least one 1280 by 800 screenshot uploaded, the data-use answers and certifications, visibility and testers, and the first release, and the first after any visibility change made in the dashboard, submitted for review there rather than through the API. The checks compare the file with the manifest; whether each sentence is true stays the owner's to read. An extension can hold the same checks in its own tests, with `listingChecklist(folder)` from `app-kit/extension/listing`, failing on any item whose `result` is `failed`.
+
+The file's shape, which the check reads by its two headings and its bullet labels (a permission or a host is quoted, and the lines indented under a bullet are its answer):
+
+```markdown
+# Shelf in the Chrome Web Store
+
+## Store listing
+
+- Name: Shelf (from the manifest)
+- Summary (from the manifest's description): Reads your orders on shop.example.com for Shelf.
+- Category: Shopping
+- Description:
+
+  Shelf keeps the list of things you need. It reads nothing until you connect it.
+
+## Privacy practices
+
+- Single purpose: Reads the person's own orders for Shelf.
+- `alarms`: Reads orders every few hours, which Chrome's alarms survive the worker being stopped to do.
+- `storage`: Keeps the key Shelf's page gives it.
+- Host `https://shop.example.com/*`: Reads the person's order history with their own sign-in.
+- Remote code: No, I am not using remote code.
+- Data collected:
+  - Website content: the order pages' content.
+- Privacy policy: https://shelf.example.com/privacy
+
+## Distribution
+
+- Visibility: Private, to trusted testers.
 ```
 
 ## tauri/: Mac and iPhone apps

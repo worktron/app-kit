@@ -30,6 +30,7 @@
     "./extension/testing/host": "./extension/testing/host.ts",
     "./extension/copy": "./extension/copy.ts",
     "./extension/layout": "./extension/layout.ts",
+    "./extension/listing": "./extension/listing.ts",
     "./extension/worker/*": "./extension/worker/*",
     "./tauri/sign-in": "./tauri/sign-in/index.ts",
     "./tauri/sign-in/server": "./tauri/sign-in/server.ts",
