@@ -314,8 +314,9 @@ pub struct Batch {
     /// The highest ROWID examined, skipped rows included: the next read
     /// starts after it. Equal to the start when nothing was examined.
     pub scanned_to: i64,
-    /// The database's highest ROWID. Below the stored mark means Messages
-    /// rebuilt its database, and the page starts over (catchUp).
+    /// The highest ROWID Messages has written, deleted rows included. Below
+    /// the stored mark means Messages rebuilt its database, and the page
+    /// starts over (catchUp).
     pub max_rowid: i64,
     /// False when Contacts could not be read: then nobody is unknown.
     pub contacts_read: bool,
@@ -348,7 +349,22 @@ pub fn read_since(
     held: &mut HashMap<i64, u32>,
 ) -> rusqlite::Result<Batch> {
     let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-    let max_rowid: i64 = conn.query_row("SELECT COALESCE(MAX(ROWID), 0) FROM message", [], |r| r.get(0))?;
+    let table = |name: &str| -> rusqlite::Result<bool> {
+        Ok(conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", params![name], |_| Ok(())).optional()?.is_some())
+    };
+    // The highest row Messages has ever written: AUTOINCREMENT's counter, which deleting the newest texts does not
+    // lower, so only a rebuilt database ends below a mark.
+    let max_rowid: i64 = if table("sqlite_sequence")? {
+        conn.query_row(
+            "SELECT MAX(COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'message'), 0), COALESCE((SELECT MAX(ROWID) FROM message), 0))",
+            [],
+            |r| r.get(0),
+        )?
+    } else {
+        conn.query_row("SELECT COALESCE(MAX(ROWID), 0) FROM message", [], |r| r.get(0))?
+    };
+    // Where Messages keeps a deleted text's chat for 30 days (Recently Deleted, macOS 13 and later).
+    let recoverable = table("chat_recoverable_message_join")?;
     let since_apple_ns = (since_ms - APPLE_EPOCH_UNIX_MS).saturating_mul(1_000_000);
     let start = match after_rowid {
         Some(r) => r,
@@ -391,6 +407,8 @@ pub fn read_since(
         })?
         .collect::<rusqlite::Result<_>>()?;
 
+    let read_all = rows.len() < limit;
+    let mut held_below = false;
     let mut texts = Vec::new();
     let mut scanned_to = start;
     let mut seen = std::collections::HashSet::new();
@@ -401,10 +419,18 @@ pub fn read_since(
             continue;
         }
         let (Some(chat_id), Some(chat_guid)) = (row.chat_id, row.chat_guid.clone()) else {
+            if recoverable && deleted(&conn, row.rowid)? {
+                // Deleted by the person: its chat link moved to Recently Deleted, and none is coming.
+                log::info!("[apple-messages] skipped row {}: deleted, in Recently Deleted", row.rowid);
+                held.remove(&row.rowid);
+                scanned_to = row.rowid;
+                continue;
+            }
             let ticks = held.entry(row.rowid).or_insert(0);
             *ticks += 1;
             if *ticks < HOLD_READS {
                 // Its chat link may not be written yet: stop below it.
+                held_below = true;
                 break;
             }
             log::warn!("[apple-messages] skipped row {}: no chat after {HOLD_READS} reads", row.rowid);
@@ -457,11 +483,17 @@ pub fn read_since(
         let (sender_handle, sender_name, sender_kind) = if row.from_me {
             ("me".to_string(), None, "me")
         } else {
-            let handle = row.sender.clone().unwrap_or_else(|| participants.first().map_or_else(String::new, |p| p.handle.clone()));
+            // A text with no sender row is from the chat's one other person; in a group, nobody can say who.
+            let handle = match (row.sender.clone(), participants.as_slice()) {
+                (Some(handle), _) => handle,
+                (None, [only]) => only.handle.clone(),
+                (None, _) => String::new(),
+            };
             let (name, kind) = sender_of(&handle, contacts);
             (handle, name, kind)
         };
         if sender_handle.is_empty() {
+            log::warn!("[apple-messages] skipped row {}: no sender, in a chat of {} people", row.rowid, participants.len());
             continue;
         }
         let field = |v: String| fit(v, MAX_FIELD_UNITS);
@@ -484,7 +516,18 @@ pub fn read_since(
             text: fit(words, MAX_TEXT_UNITS),
         });
     }
+    // Read to the end with nothing held: every row up to the highest ever written is examined, deleted ones included.
+    if read_all && !held_below {
+        scanned_to = scanned_to.max(max_rowid);
+    }
     Ok(Batch { texts, scanned_to, max_rowid, contacts_read: contacts.is_ok() })
+}
+
+fn deleted(conn: &Connection, rowid: i64) -> rusqlite::Result<bool> {
+    Ok(conn
+        .query_row("SELECT 1 FROM chat_recoverable_message_join WHERE message_id = ?1 LIMIT 1", params![rowid], |_| Ok(()))
+        .optional()?
+        .is_some())
 }
 
 fn sender_of(handle: &str, contacts: Result<&Contacts, &str>) -> (Option<String>, &'static str) {
@@ -890,6 +933,53 @@ mod tests {
         let last = read_since(&db, Err("none"), Some(mark), 0, 500, &mut held).unwrap();
         assert_eq!(last.scanned_to, never);
         assert!(last.texts.is_empty());
+    }
+
+    #[test]
+    fn a_deleted_text_is_skipped_at_once_rather_than_held() {
+        let dir = tempdir("deleted");
+        let (db, conn) = messages_fixture(&dir);
+        conn.execute_batch("CREATE TABLE chat_recoverable_message_join (chat_id INTEGER, message_id INTEGER, delete_date INTEGER);").unwrap();
+        let gone = add(&conn, "gone", Some("deleted last week"), None, 1, false, None, 0, NOV_2_9AM_MS);
+        conn.execute("INSERT INTO chat_recoverable_message_join VALUES (1, ?1, 0)", params![gone]).unwrap();
+        let kept = add(&conn, "kept", Some("still here"), None, 1, false, Some(1), 0, NOV_2_9AM_MS + 1);
+        let mut held = HashMap::new();
+        let batch = read_since(&db, Err("none"), Some(0), 0, 500, &mut held).unwrap();
+        assert_eq!(batch.texts.iter().map(|x| x.guid.as_str()).collect::<Vec<_>>(), vec!["kept"]);
+        assert_eq!(batch.scanned_to, kept);
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn a_text_with_no_sender_row_is_from_the_one_other_person_and_never_guessed_in_a_group() {
+        let dir = tempdir("no-sender");
+        let (db, conn) = messages_fixture(&dir);
+        add(&conn, "one", Some("just us"), None, 0, false, Some(1), 0, NOV_2_9AM_MS);
+        add(&conn, "group", Some("who said this?"), None, 0, false, Some(3), 0, NOV_2_9AM_MS + 1);
+        let batch = read_since(&db, Err("none"), Some(0), 0, 500, &mut HashMap::new()).unwrap();
+        let rows: Vec<(&str, &str)> = batch.texts.iter().map(|x| (x.guid.as_str(), x.sender_handle.as_str())).collect();
+        assert_eq!(rows, vec![("one", "+12015550134")]);
+        assert_eq!(batch.scanned_to, 2);
+    }
+
+    #[test]
+    fn deleting_the_newest_text_is_not_a_rebuilt_database() {
+        let dir = tempdir("newest-deleted");
+        let (db, conn) = messages_fixture(&dir);
+        add(&conn, "a", Some("first"), None, 1, false, Some(1), 0, NOV_2_9AM_MS);
+        let newest = add(&conn, "b", Some("spam"), None, 1, false, Some(1), 0, NOV_2_9AM_MS + 1);
+        let first = read_since(&db, Err("none"), Some(0), 0, 500, &mut HashMap::new()).unwrap();
+        assert_eq!(first.scanned_to, newest);
+        conn.execute("DELETE FROM message WHERE ROWID = ?1", params![newest]).unwrap();
+        let next = read_since(&db, Err("none"), Some(first.scanned_to), 0, 500, &mut HashMap::new()).unwrap();
+        assert_eq!(next.max_rowid, newest, "not below the mark, so no read starts over");
+        assert_eq!(next.scanned_to, newest, "and the read is at the end");
+
+        // A text written and deleted between two reads leaves the read at the end too.
+        let between = add(&conn, "c", Some("gone in a minute"), None, 1, false, Some(1), 0, NOV_2_9AM_MS + 2);
+        conn.execute("DELETE FROM message WHERE ROWID = ?1", params![between]).unwrap();
+        let after = read_since(&db, Err("none"), Some(next.scanned_to), 0, 500, &mut HashMap::new()).unwrap();
+        assert_eq!((after.scanned_to, after.max_rowid), (between, between));
     }
 
     /// The log lines this test process writes, for a test that a decision is logged.
