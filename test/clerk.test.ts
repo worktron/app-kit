@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, SIGN_UP_UNFINISHED, type EmailCodeSignIn, type EmailCodeSignUp } from '../authentication/clerk/email-code';
-import { clerkMove, startGoogle, whileGoogleReturns, type GoogleStartSignIn } from '../authentication/clerk/google';
+import { clerkMove, finishGoogleReturn, startGoogle, whileGoogleReturns, type GoogleStartSignIn, type RedirectClerk } from '../authentication/clerk/google';
 import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
 import { TICKET_FAILED } from '../web/sign-in/provider';
 import recorded from './fixtures/clerk-sign-up.json';
@@ -143,6 +143,65 @@ describe('the trip to Google', () => {
     // Outside a return, every move Clerk makes loads, as it does with no router given.
     clerkMove('/sso-callback', { windowNavigate });
     expect(loads).toEqual(['/sign-in', '/sso-callback']);
+  });
+
+  describe('through the loaded Clerk', () => {
+    const page = globalThis as { Clerk?: RedirectClerk };
+    afterEach(() => {
+      delete page.Clerk;
+      window.history.replaceState(null, '', '/');
+    });
+
+    /**
+     * The loaded Clerk, finishing a return when the test lets it: as clerk-js 6.42.3 does, the session made, it moves
+     * to the after-sign-in address through its router; with none, it calls the function it was given.
+     */
+    function loadedClerk(signsIn: boolean) {
+      let letGo = () => {};
+      const held = new Promise<void>((resolve) => (letGo = resolve));
+      const loads: string[] = [];
+      const clerk: RedirectClerk = {
+        session: null,
+        async handleRedirectCallback(params, customNavigate) {
+          await held;
+          if (!signsIn) return customNavigate?.('/sign-in');
+          clerk.session = { id: 'sess_1' };
+          clerkMove(params.signInFallbackRedirectUrl, { windowNavigate: (to) => void loads.push(new URL(to).pathname) });
+        },
+      };
+      return { clerk, loads, letGo };
+    }
+
+    /** Clerk React's useClerk() as 6.18.1 has it: starts the loaded Clerk's handling, neither waiting nor passing it on. */
+    const reactWrapper = (loaded: RedirectClerk): RedirectClerk => ({
+      session: null,
+      async handleRedirectCallback(params) {
+        loaded.handleRedirectCallback(params).catch(() => {});
+      },
+    });
+
+    test('a sign-in Clerk had to make an account for stays on the page, however long Clerk takes', async () => {
+      window.history.replaceState(null, '', '/sso-callback');
+      const { clerk, loads, letGo } = loadedClerk(true);
+      page.Clerk = clerk;
+      let unfinished = 0;
+      const finishing = finishGoogleReturn(reactWrapper(clerk), () => unfinished++);
+      letGo();
+      await finishing;
+      expect(loads).toEqual([]);
+      expect(unfinished).toBe(0);
+    });
+
+    test('a return Clerk ends with no session says so to the gate', async () => {
+      window.history.replaceState(null, '', '/sso-callback');
+      const { clerk, letGo } = loadedClerk(false);
+      page.Clerk = clerk;
+      let unfinished = 0;
+      const finishing = finishGoogleReturn(reactWrapper(clerk), () => unfinished++);
+      letGo();
+      await finishing;
+      expect(unfinished).toBe(1);
+    });
   });
 
   test('a return Clerk fails still lets later moves load', async () => {

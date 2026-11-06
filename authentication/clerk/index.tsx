@@ -3,7 +3,7 @@ import { ClerkProvider, useAuth, useClerk, useSignIn, useSignUp, useUser } from 
 import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../../web/sign-in/provider';
 import { standInSignIn } from '../stand-in';
 import { checkEmailCode, messageFor, sendEmailCode } from './email-code';
-import { clerkMove, startGoogle, whileGoogleReturns } from './google';
+import { clerkMove, finishGoogleReturn, startGoogle } from './google';
 import { signInWithTicket } from './ticket';
 import { tokenStillGood } from './token-now';
 
@@ -102,7 +102,7 @@ export function useClerkSession(): ProviderSession {
 /**
  * Finishes the sign-in Google has sent back with Clerk's own redirect handling. With a session made, the gate moves on
  * to the asked address: Clerk's own move back to this page, which it makes when it had to make or link an account on
- * the way, stays in the page (`whileGoogleReturns`). Without one, the sign-in did not finish.
+ * the way, stays in the page (`finishGoogleReturn`). Without one, the sign-in did not finish.
  */
 function GoogleReturn({ onUnfinished }: GoogleReturnProps) {
   const clerk = useClerk();
@@ -110,12 +110,7 @@ function GoogleReturn({ onUnfinished }: GoogleReturnProps) {
   useEffect(() => {
     if (!clerk.loaded || ran.current) return;
     ran.current = true;
-    const here = window.location.pathname;
-    whileGoogleReturns(here, () =>
-      clerk.handleRedirectCallback({ signInFallbackRedirectUrl: here, signUpFallbackRedirectUrl: here }, async () => {
-        if (!clerk.session) onUnfinished();
-      }),
-    ).catch(onUnfinished);
+    void finishGoogleReturn(clerk, onUnfinished);
   }, [clerk, clerk.loaded, onUnfinished]);
   return null;
 }

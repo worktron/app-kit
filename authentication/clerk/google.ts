@@ -74,3 +74,33 @@ export const clerkMove: ClerkMove = (to, metadata) => {
   if (metadata?.windowNavigate) metadata.windowNavigate(address);
   else window.location.assign(address.href);
 };
+
+/** Clerk as a return from Google uses it. */
+export interface RedirectClerk {
+  session: unknown;
+  handleRedirectCallback(
+    params: { signInFallbackRedirectUrl: string; signUpFallbackRedirectUrl: string },
+    customNavigate?: (to: string) => Promise<unknown>,
+  ): Promise<unknown>;
+}
+
+/**
+ * Finishes the sign-in Google has sent back to this page with Clerk's own handling, and calls `onUnfinished` when it
+ * ends with no session. It calls the loaded Clerk, which the page holds as `window.Clerk`, rather than `useClerk()`'s:
+ * Clerk React's own `handleRedirectCallback` (6.18.1) starts Clerk's without waiting for it, drops the function Clerk
+ * calls when the sign-in is not done, and swallows its errors. `clerk` is used only before Clerk has loaded.
+ */
+export async function finishGoogleReturn(clerk: RedirectClerk, onUnfinished: () => void): Promise<void> {
+  const loaded = (globalThis as { Clerk?: RedirectClerk }).Clerk ?? clerk;
+  const here = window.location.pathname;
+  try {
+    await whileGoogleReturns(here, () =>
+      loaded.handleRedirectCallback({ signInFallbackRedirectUrl: here, signUpFallbackRedirectUrl: here }, async () => {
+        if (!loaded.session) onUnfinished();
+      }),
+    );
+  } catch (error) {
+    console.warn('[app-kit clerk] back from Google: Clerk could not finish the sign-in', error);
+    onUnfinished();
+  }
+}
