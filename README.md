@@ -82,6 +82,24 @@ The app draws its own sign-in screen with `useSignIn()`: `lastAccount` for Conti
 
 `web/e2e/fixture` is a whole one, which the kit's own browser test runs.
 
+#### A home page at the root
+
+Signed out, an app's root is its home page: what the app is and does, with its sign-in on the same page, never a separate about page beside a root that only asks someone to sign in. The signed-out screen picks it by address, reading the address each time it draws, so a sign-out at the root shows the home page too:
+
+```tsx
+import { isTauriApp } from 'app-kit/web';
+
+function SignedOut() {
+  return window.location.pathname === '/' && !isTauriApp() ? <SignInScreen home /> : <SignInScreen />;
+}
+
+<SignInGate provider={provider} placeholder={<Wordmark />} signedOut={<SignedOut />}>
+```
+
+Everywhere else (a link someone was sent to another screen, the Mac or iPhone app) it is the sign-in screen alone, and sign-in lands back at that address. The gate draws the signed-out screen inside its sign-in context, so the home page calls `useSignIn()` as the sign-in screen does, and signing in from it draws the app at the root with no page load. Keep the sign-in screen's email and code fields on the home page: an app's browser tests that sign in at the root find them there.
+
+A Google consent screen names the root as the app's home page, and Google reads it before it lets the consent screen into production: the app's name exactly as the consent screen shows it, what the app does, which Google data it reads and why, and a link to the same privacy policy the consent screen names. A page that is only a sign-in form fails. The home page is drawn in the browser, so `index.html` carries the name in its `<title>` and the one-line purpose in `<meta name="description">`, for a checker that reads the served page without running it. Google asks for verification again whenever the home page link changes, and refuses one that redirects: an app whose consent screen still names an older page, such as `/about`, keeps that page as it is until the consent screen names the root and verification has passed.
+
 Sign out goes in the account menu rather than on a screen of its own:
 
 ```tsx
