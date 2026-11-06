@@ -2,6 +2,13 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.45.6
+
+Urgency: next round
+
+- an app that mounts messagesServiceRoutes passes `account` (how the person knows their own account, such as their email), and a page calls openConnectLink(teamId, link)
+- an app that wants texts from Messages Service mounts messagesServiceRoutes from app-kit/tauri/apple-messages/server (README "Reading Apple Messages"); nothing changes for one that does not
+
 ## v0.45.4
 
 Urgency: rides along
