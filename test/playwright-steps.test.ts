@@ -13,7 +13,7 @@ afterAll(() => rmSync(app, { recursive: true, force: true }));
 /** Every plain JavaScript steps file, by its import name, and what it exports. */
 const STEPS = {
   'app-kit/authentication/stand-in/playwright': 'STAND_IN_CODE hidePage lockFor serveNewerBuild showPage signInByCode',
-  'app-kit/web/playwright': 'countLoads expectFits expectSteady finger largestTextSize noNewWindows takeFrames watchFrames',
+  'app-kit/web/playwright': 'countLoads expectFits expectQuietSignIn expectSteady finger largestTextSize noNewWindows takeFrames watchFrames',
   'app-kit/tauri/playwright': 'IPHONE_USER_AGENT fakeTauri handOverSignIn launchedByTap loadWithSignIn tapNotification tauriCalls windowAsksForSignIn',
   'app-kit/authentication/clerk/playwright': 'removeThrowawayUsers signInWithTicket throwawayUser withClerkBackoff',
 };
@@ -34,4 +34,10 @@ test('an app loads every Playwright steps file by its import name with Node, fro
   const done = Bun.spawnSync(['node', '--input-type=module', '-e', load], { cwd: app, stdout: 'pipe', stderr: 'pipe' });
   expect(done.stderr.toString()).toBe('');
   expect(done.stdout.toString().trim().split('\n')).toEqual(Object.values(STEPS));
+});
+
+test('the mark the sign-in gate puts on the page is the one the quiet sign-in step reads', async () => {
+  const { GATE_SHOWS_ATTRIBUTE } = await import('../web/sign-in/SignInGate');
+  const steps = await Bun.file(join(root, 'web/playwright.js')).text();
+  expect(steps).toContain(`const GATE_SHOWS_ATTRIBUTE = '${GATE_SHOWS_ATTRIBUTE}';`);
 });

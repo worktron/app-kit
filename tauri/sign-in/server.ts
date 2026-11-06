@@ -1,5 +1,6 @@
 import { Hono, type Context, type Env } from 'hono';
 import { fingerprint, HEX_32, randomHex } from './fingerprint';
+import { LOG_PREFIX } from './names';
 
 // The server imports this entry alone, never the page's, which needs React.
 export { DESKTOP_SIGN_IN_OPEN_PATH, DESKTOP_SIGN_IN_ROUTES } from './names';
@@ -19,8 +20,7 @@ export const CODE_GOOD_MS = 60_000;
 /** How long a code is remembered, past the minute it can be used in, for the browser tab asking whether it was taken. */
 export const CODE_KEPT_MS = 2 * 60_000;
 
-/** What every log line of the server half starts with. */
-export const LOG_PREFIX = '[desktop-sign-in]';
+export { LOG_PREFIX };
 
 export interface DesktopSignInRoutesOptions<E extends Env> {
   /**

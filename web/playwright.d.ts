@@ -64,3 +64,13 @@ export function largestTextSize(target: Page | BrowserContext): Promise<void>;
  * element and the start of its text.
  */
 export function expectFits(page: Page): Promise<void>;
+
+/**
+ * Fails unless every screen from `start` to the app's screen is the wordmark with at most one line: the sign-in gate
+ * never shows the app's sign-in screen, and no button is disabled. It reads what the gate shows from the mark it puts
+ * on the page, so it needs no app's labels. The page up when it is called counts from its next click, so `start` is
+ * the tap on Continue with Google; every page loaded after counts from its first frame, so `start` may as well be a
+ * `page.goto` of the page Apple's sheet opens. Each frame is judged as it paints, and across page loads, until the gate
+ * shows the app; the failure lists what it showed, address by address.
+ */
+export function expectQuietSignIn(page: Page, start: () => Promise<unknown>, options?: { timeout?: number }): Promise<void>;

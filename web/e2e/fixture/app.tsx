@@ -22,6 +22,10 @@ import {
 } from '../..';
 import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
 import { UpdateLine } from '../../../tauri/window';
+import { iphoneSignInForGate } from '../../../tauri/iphone-sign-in';
+import { DESKTOP_SIGN_IN_PATH, useDesktopSignInBrowserPage } from '../../../tauri/sign-in';
+
+const SCHEME = 'com.example.fixture';
 
 // Opened with ?sign-up, only ana@example.com has an account and the gate makes one for any other address.
 const signUp = new URLSearchParams(window.location.search).has('sign-up');
@@ -149,6 +153,24 @@ function Shelf() {
   );
 }
 
+/**
+ * The page Apple's sheet opens, once signed in: the account that goes to the app, and the click that hands it over.
+ * Signed out, the gate goes to Google before any of this is drawn.
+ */
+function HandOver() {
+  const session = provider.useSession();
+  const page = useDesktopSignInBrowserPage({ session, scheme: SCHEME });
+  const appDrawn = useAppDrawn();
+  useLayoutEffect(() => appDrawn(), [appDrawn]);
+  return (
+    <main>
+      <h1>Hand over to the app</h1>
+      <p role="status">{page.state === 'ready' ? `Sign the app in as ${session.person?.email}` : page.state}</p>
+      {page.state === 'ready' && <button onClick={page.handOver}>Sign in to the app</button>}
+    </main>
+  );
+}
+
 /** One screen, with its page title, as each of an app's screens sets its own. */
 function Screen({ title, children }: { title: string | null; children: ReactNode }) {
   useTitle(title);
@@ -159,6 +181,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const [address, navigate] = useAddress();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
   const path = address.split('?')[0];
+  if (path === DESKTOP_SIGN_IN_PATH) return <HandOver />;
   const known = Boolean(item) || ['/', '/later', '/shelf'].includes(path);
   // A screen with no data to wait for is drawn at once; the list, the shelf and the not-found page each say so themselves.
   const appDrawn = useAppDrawn();
@@ -192,6 +215,12 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
 }
 
 const placeholder = <div role="progressbar">fixture</div>;
+const placeholderWithLine = (line: string) => (
+  <div role="progressbar">
+    fixture <p role="status">{line}</p>
+  </div>
+);
+const iphoneSignIn = iphoneSignInForGate({ scheme: SCHEME });
 
 /** Starts the fixture app, given how this build reads the list out of the server's answer. */
 export function start(itemsOf: (answer: Answer) => Item[]) {
@@ -201,7 +230,15 @@ export function start(itemsOf: (answer: Answer) => Item[]) {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ErrorBoundary placeholder={placeholder}>
-        <SignInGate provider={provider} placeholder={placeholder} signedOut={<SignInScreen />} waitForFirstDraw signUp={signUp}>
+        <SignInGate
+          provider={provider}
+          placeholder={placeholder}
+          placeholderWithLine={placeholderWithLine}
+          iphoneSignIn={iphoneSignIn}
+          signedOut={<SignInScreen />}
+          waitForFirstDraw
+          signUp={signUp}
+        >
           <App itemsOf={itemsOf} />
         </SignInGate>
       </ErrorBoundary>

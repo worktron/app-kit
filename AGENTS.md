@@ -10,7 +10,8 @@ web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, 
                  hover intent (hover-intent.ts), when the pointer may light, select or focus, with the menu bar theme's
                  PointerIntent.swift held to its numbers by test/hover-intent-swift.test.ts,
                  the phone's Text Size, fields that never zoom, pull to refresh, the font wait, the sign-in gate and the
-                 provider interface it takes (sign-in/provider.ts); first-paint.js, the Vite plugin for the first frame (app-kit/web/first-paint);
+                 provider interface it takes (sign-in/provider.ts), and the iPhone sign-in it takes (sign-in/iphone-sign-in.ts),
+                 which tauri/iphone-sign-in makes, so nothing under web/ imports Tauri; first-paint.js, the Vite plugin for the first frame (app-kit/web/first-paint);
                  server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;
                  playwright-webkit.js, Playwright's WebKit run from a copy macOS keeps out of the Dock (app-kit/web/playwright-webkit);
                  playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens,

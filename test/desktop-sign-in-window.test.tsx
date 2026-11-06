@@ -251,3 +251,25 @@ test('signed in already, a link is dropped, and never tried after a later sign-o
   expect(provider.calls.tickets).toEqual([]);
   expect(sent).toEqual([]);
 });
+
+test('a second listener taking the hand-back from one still mounted says so, and one after an unmount does not', () => {
+  const provider = standInSignIn();
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
+  try {
+    const first = render(<Window provider={provider} />);
+    expect(warned).toEqual([]);
+    render(<Window provider={provider} />);
+    expect(warned).toEqual([
+      "[desktop-sign-in] a second listener took the hand-back from one still mounted: take it in one place, the sign-in gate's iphoneSignIn or useDesktopSignInWindow",
+    ]);
+    cleanup();
+    void first;
+    warned.length = 0;
+    render(<Window provider={provider} />);
+    expect(warned).toEqual([]);
+  } finally {
+    console.warn = warn;
+  }
+});

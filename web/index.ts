@@ -40,9 +40,13 @@ export {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_UNFINISHED,
   SESSION_ENDED,
+  OPENING_GOOGLE,
+  SIGNING_IN_WITH_GOOGLE,
+  GATE_SHOWS_ATTRIBUTE,
   type SignIn,
   type GoogleAccount,
   type SignInGateProps,
 } from './sign-in/SignInGate';
 export { noAccountFor, TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome } from './sign-in/provider';
 export { lastAccount } from './sign-in/remembered';
+export type { IphoneSignIn, IphoneSignInWindow } from './sign-in/iphone-sign-in';

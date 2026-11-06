@@ -48,3 +48,6 @@ export const DESKTOP_SIGN_IN_LISTENING = '__APP_KIT_TAKES_DESKTOP_SIGN_IN__';
  */
 export const TICKET_PARAM = 'desktop_sign_in_ticket';
 export const NONCE_PARAM = 'desktop_sign_in_nonce';
+
+/** What every log line of desktop sign-in starts with, the server half's and the window's. */
+export const LOG_PREFIX = '[desktop-sign-in]';

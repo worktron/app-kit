@@ -175,3 +175,73 @@ export async function expectFits(page) {
   expect(found.past, `elements past the right edge of a ${width}px screen, outside any box that scrolls sideways`).toEqual([]);
   expect(found.pageWidth, `the page's width on a ${width}px screen`).toBeLessThanOrEqual(width);
 }
+
+/** What the sign-in gate puts on `<html>` saying what it shows, as `GATE_SHOWS_ATTRIBUTE` in web/sign-in/SignInGate.tsx. */
+const GATE_SHOWS_ATTRIBUTE = 'data-sign-in-gate';
+
+let quietSignInCalls = 0;
+
+/** @type {typeof import('./playwright').expectQuietSignIn} */
+export async function expectQuietSignIn(page, start, { timeout = 10_000 } = {}) {
+  /** @typedef {{ shows: string | null; disabled: string[]; address: string }} Seen */
+  /** @type {Seen[]} */
+  const seen = [];
+  let done = false;
+  /** @type {() => void} */
+  let reachedApp = () => {};
+  const app = new Promise((resolve) => (reachedApp = () => resolve(undefined)));
+  // A name of its own each call, since a page keeps every binding and init script it was given.
+  const binding = `__appKitQuietSignIn${++quietSignInCalls}`;
+  await page.exposeBinding(binding, (_source, /** @type {Seen} */ report) => {
+    if (done) return;
+    seen.push(report);
+    if (report.shows === 'app') reachedApp();
+  });
+  /** @param {{ binding: string; attribute: string; armed: boolean }} options */
+  const watch = ({ binding, attribute, armed }) => {
+    const report = /** @type {(seen: unknown) => void} */ (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))[binding]);
+    let on = armed;
+    let last = '';
+    const look = () => {
+      if (!on) return;
+      const shows = document.documentElement.getAttribute(attribute);
+      const disabled =
+        shows === 'app'
+          ? []
+          : [...document.querySelectorAll('button:disabled, [aria-disabled="true"]')].map(
+              (element) => (element.textContent ?? '').trim() || element.getAttribute('aria-label') || element.tagName.toLowerCase(),
+            );
+      const now = JSON.stringify({ shows, disabled, address: location.pathname });
+      if (now === last) return;
+      last = now;
+      report(JSON.parse(now));
+    };
+    // The page already up arms on the tap, so the screen tapped on is not counted; the first frame after it is.
+    if (!on) addEventListener('click', () => void (on = true), { capture: true, once: true });
+    const frame = () => {
+      look();
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    // A disabled button drawn and gone within one frame is still seen.
+    new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'aria-disabled', attribute] });
+    look();
+  };
+  // Every page loaded from here on counts from its first frame; the page up now counts from the tap.
+  await page.addInitScript(watch, { binding, attribute: GATE_SHOWS_ATTRIBUTE, armed: true });
+  await page.evaluate(watch, { binding, attribute: GATE_SHOWS_ATTRIBUTE, armed: false }).catch(() => undefined);
+  await start();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  const reached = await Promise.race([app.then(() => true), new Promise((resolve) => (timer = setTimeout(() => resolve(false), timeout)))]);
+  clearTimeout(timer);
+  done = true;
+  const steps = seen.map((step) => `${step.address}: ${step.shows ?? 'nothing from the gate'}${step.disabled.length ? `, with disabled ${step.disabled.join(', ')}` : ''}`);
+  if (!reached) throw new Error(`expectQuietSignIn: the app's screen was not drawn within ${timeout}ms. The gate showed:\n${steps.join('\n')}`);
+  const loud = seen.filter((step) => step.shows === 'sign-in' || step.disabled.length > 0);
+  if (loud.length) {
+    throw new Error(
+      `expectQuietSignIn: between the start and the app's screen, every screen should be the wordmark with at most one line, but the gate showed:\n${steps.join('\n')}`,
+    );
+  }
+}

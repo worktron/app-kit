@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { TICKET_FAILED, type Outcome, type ProviderSession } from '../../web/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
-import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, NONCE_PARAM, TICKET_PARAM } from './names';
+import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, LOG_PREFIX, NONCE_PARAM, TICKET_PARAM } from './names';
 import { fingerprint, HEX_32, randomHex } from './fingerprint';
 import { post } from './requests';
 
@@ -143,8 +143,10 @@ export type DesktopSignInWindow = { state: 'waiting' } | { state: 'signing-in' }
 /**
  * In the desktop app's window: signs in with each link the browser hands over. The first is taken; any that come while
  * it is being taken, as from a second click on the browser's Open the app, are dropped. Signed in already, a link is
- * dropped rather than held, so it is never tried after a later sign-out. The app draws what the state says: a quiet
- * line while signing in, and its sign-in screen with the message after a failure.
+ * dropped rather than held, so it is never tried after a later sign-out. The app draws what the state says: its
+ * wordmark with one line while signing in, never its sign-in screen, and that screen with the message after a failure.
+ * On an iPhone the sign-in gate does all of this when given `iphoneSignInForGate`; an app that gives it calls this
+ * nowhere, since only one listener takes the hand-back.
  */
 export function useDesktopSignInWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token'>): DesktopSignInWindow {
   const [now, setNow] = useState<DesktopSignInWindow>({ state: 'waiting' });
@@ -166,6 +168,9 @@ export function useDesktopSignInWindow(session: Pick<ProviderSession, 'loaded' |
         setNow(outcome.ok ? { state: 'signed-in' } : { state: 'failed', message: outcome.message });
       });
     };
+    // One listener at a time: an app whose screen still takes the hand-back while the sign-in gate does would lose it
+    // to whichever mounted last, and to nobody once that one unmounts.
+    if (take) console.warn(`${LOG_PREFIX} a second listener took the hand-back from one still mounted: take it in one place, the sign-in gate's iphoneSignIn or useDesktopSignInWindow`);
     take = listener;
     const waiting = held;
     held = null;

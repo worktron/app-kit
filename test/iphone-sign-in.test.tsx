@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import { signInInSheet as openSheet, type Invoke, type SheetSignInOptions } from '../tauri/iphone-sign-in';
+import { iphoneSignInForGate, signInInSheet as openSheet, type Invoke, type SheetSignInOptions } from '../tauri/iphone-sign-in';
+import { SignInGate, useSignIn } from '../web/sign-in/SignInGate';
+import type { IphoneSignIn } from '../web/sign-in/iphone-sign-in';
+import { rememberAccount } from '../web/sign-in/remembered';
 import { appLink, backLink, desktopSignInAddress, listenForDesktopSignIn, resetDesktopSignIn, useDesktopSignInWindow, type DesktopSignInAccount } from '../tauri/sign-in';
 import { standInSignIn, standInTicket, type StandInSignIn } from '../authentication/stand-in';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
@@ -12,6 +15,7 @@ let lines: string[] = [];
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   resetDesktopSignIn();
   listenForDesktopSignIn();
   lines = [];
@@ -200,4 +204,78 @@ test('asked to hand back over https on a browser engine without URL.canParse, as
     if (canParse) Object.defineProperty(URL, 'canParse', canParse);
     else delete (URL as { canParse?: unknown }).canParse;
   }
+});
+
+/** The app's sign-in screen with the gate running the steps: only a button, which calls the gate's own Google. */
+function GateSignInScreen() {
+  const signIn = useSignIn();
+  return (
+    <main>
+      <h1>Sign in</h1>
+      {signIn.notice && <p role="alert">{signIn.notice}</p>}
+      <button onClick={() => void signIn.google('remembered')}>Continue with Google</button>
+    </main>
+  );
+}
+
+function gate(provider: StandInSignIn, iphone: IphoneSignIn) {
+  return render(
+    <SignInGate
+      provider={provider}
+      placeholder={<div role="progressbar">wordmark</div>}
+      placeholderWithLine={(line) => <p role="status">{line}</p>}
+      iphoneSignIn={iphone}
+      signedOut={<GateSignInScreen />}
+    >
+      <h1>The app</h1>
+    </SignInGate>,
+  );
+}
+
+test('through the gate, the tap opens the sheet for the last account, and the sign-in it hands back signs the app in', async () => {
+  rememberAccount('ana@example.com');
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn();
+  let asked: URL | null = null;
+  let code = '';
+  const s = sheet((url) => {
+    asked = url;
+    return { callbackUrl: appLink(SCHEME, code, nonceOf(url)) };
+  });
+  // In the iPhone app: the test's page has no Tauri bridge, so only that answer is the test's.
+  gate(provider, { ...iphoneSignInForGate({ scheme: SCHEME, invoke: s.invoke }), opensSheet: () => true });
+  code = await codeFor(nonceOf(new URL(desktopSignInAddress(null))));
+  await act(async () => screen.getByRole('button', { name: 'Continue with Google' }).click());
+  await waitFor(() => expect(screen.getByRole('heading').textContent).toBe('The app'));
+  expect(asked!.searchParams.get('account')).toBe('ana@example.com');
+  expect(provider.calls.google).toEqual([]);
+});
+
+test('through the gate, with nobody remembered the sheet asks for Google’s list', async () => {
+  const s = sheet(() => {
+    throw new Error('cancelled');
+  });
+  gate(standInSignIn(), { ...iphoneSignInForGate({ scheme: SCHEME, invoke: s.invoke }), opensSheet: () => true });
+  await act(async () => screen.getByRole('button', { name: 'Continue with Google' }).click());
+  expect(new URL((s.calls[0]!.args as { payload: { url: string } }).payload.url).searchParams.get('account')).toBe('choose');
+  expect(screen.getByRole('heading').textContent).toBe('Sign in');
+});
+
+test('the gate’s iPhone sign-in reads the page the sheet opens: the account asked for, or Google’s list for whoever', () => {
+  const iphone = iphoneSignInForGate({ scheme: SCHEME });
+  expect(iphone.asked()).toBeNull();
+  const nonce = 'a'.repeat(64);
+  window.history.replaceState(null, '', `/desktop-sign-in?nonce=${nonce}&account=ana%40example.com`);
+  expect(iphone.asked()).toEqual({ account: 'ana@example.com' });
+  window.history.replaceState(null, '', `/desktop-sign-in?nonce=${nonce}&account=choose`);
+  expect(iphone.asked()).toBe('choose');
+  window.history.replaceState(null, '', `/desktop-sign-in?nonce=${nonce}`);
+  expect(iphone.asked()).toBe('choose');
+  expect(iphone.wentToGoogle()).toBe(false);
+  expect(iphone.noteGoingToGoogle()).toBe(true);
+  expect(iphone.noteGoingToGoogle()).toBe(false);
+  expect(iphone.wentToGoogle()).toBe(true);
+  // Outside a Tauri app the sheet never opens.
+  expect(iphone.opensSheet()).toBe(false);
+  window.history.replaceState(null, '', '/');
 });

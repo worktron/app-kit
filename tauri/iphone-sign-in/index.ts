@@ -7,7 +7,19 @@
  * An app whose build is associated with its site can have the sheet wait for an address on that site instead, which
  * iOS gives only to the app the site names, and then the browser page hands over with no click.
  */
-import { desktopSignInArrived, type DesktopSignInLink } from '../sign-in';
+import type { GoogleAccount } from '../../web/sign-in/SignInGate';
+import type { IphoneSignIn } from '../../web/sign-in/iphone-sign-in';
+import { isIphoneApp } from '../../web/installed-app';
+import {
+  desktopSignInAddress,
+  desktopSignInArrived,
+  desktopSignInRequest,
+  googleStartedHere,
+  startGoogleHere,
+  useDesktopSignInWindow,
+  type DesktopSignInAccount,
+  type DesktopSignInLink,
+} from '../sign-in';
 import { DESKTOP_SIGN_IN_BACK_PATH, LINK_HOST } from '../sign-in/names';
 import { ANSWER_KEY, COMMANDS, LOG_PREFIX, PLUGIN } from './names';
 
@@ -92,4 +104,34 @@ export async function signInInSheet(address: string, options: SheetSignInOptions
   console.log(`${LOG_PREFIX} sheet returned a sign-in link: handed to the window`);
   desktopSignInArrived(link);
   return true;
+}
+
+/**
+ * The Google account the sheet asks for: the one last used, or Google's list, as a browser tab's sign-in asks Google,
+ * so a first sign-in shows the list rather than taking whoever Safari is signed in as.
+ */
+function sheetAccount(choice: GoogleAccount, lastAccount: string | null): DesktopSignInAccount {
+  if (choice === 'remembered') return lastAccount ? { account: lastAccount } : 'choose';
+  return choice;
+}
+
+/**
+ * iPhone sign-in for the sign-in gate's `iphoneSignIn`, so the gate runs every step between the tap and the app's
+ * screen: in the iPhone app its Continue with Google opens Apple's sheet on desktop sign-in's browser page and takes the
+ * sign-in it hands back; on that page, signed out, it goes to Google without drawing the app's sign-in screen.
+ */
+export function iphoneSignInForGate(options: SheetSignInOptions): IphoneSignIn {
+  return {
+    asked: () => {
+      const asked = desktopSignInRequest();
+      if (!asked) return null;
+      // Whoever the browser is signed in as, with nobody signed in, is Google's list.
+      return asked.account === null ? 'choose' : asked.account;
+    },
+    wentToGoogle: () => googleStartedHere(),
+    noteGoingToGoogle: () => startGoogleHere(),
+    opensSheet: isIphoneApp,
+    open: (choice, lastAccount) => signInInSheet(desktopSignInAddress(sheetAccount(choice, lastAccount)), options),
+    useWindow: useDesktopSignInWindow,
+  };
 }
