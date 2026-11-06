@@ -4,7 +4,7 @@
 // typecheck (2026-11-06). The compile runs the kit's own tsc over the exports, with the kit's options and those two
 // changed, from a tsconfig in this test's own temporary folder.
 import { expect, test } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import packageJson from '../package.json';
@@ -25,8 +25,12 @@ test("every exported file compiles under an app's stricter settings: no .ts endi
   const config = join(folder, 'tsconfig.json');
   const compilerOptions = { ...tsconfig.compilerOptions, allowImportingTsExtensions: false, noUncheckedIndexedAccess: true, typeRoots: [join(kit, 'node_modules/@types')] };
   writeFileSync(config, JSON.stringify({ compilerOptions, files }));
-  const child = Bun.spawn([join(kit, 'node_modules/.bin/tsc'), '--noEmit', '--pretty', 'false', '-p', config], { cwd: kit, stdout: 'pipe', stderr: 'pipe' });
-  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  expect(`${out}${err}`.trim()).toBe('');
-  expect(code).toBe(0);
+  try {
+    const child = Bun.spawn([join(kit, 'node_modules/.bin/tsc'), '--noEmit', '--pretty', 'false', '-p', config], { cwd: kit, stdout: 'pipe', stderr: 'pipe' });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(`${out}${err}`.trim()).toBe('');
+    expect(code).toBe(0);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
