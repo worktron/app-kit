@@ -725,7 +725,7 @@ The file's shape, which the check reads by its two headings and its bullet label
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: a window onto the hosted site, Mac releases the installed app updates itself to, desktop sign-in, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+What a Tauri app's page, shell and server share: a window onto the hosted site, Mac releases the installed app updates itself to, desktop sign-in, reading Apple Messages on the Mac, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
 
 ### A window onto the hosted site
 
@@ -825,7 +825,7 @@ useWindowMenu('sign-out', () => void signOut());
 <UpdateLine appName="Example" scheme="com.example.app" /> // "Example has an update." with Update for a deploy, a release or a newer build installed, else nothing
 ```
 
-The restart link (`restartLink(scheme)`, which `UpdateLine` opens) works only once a newer build is installed, so no page or frame can restart the app at will. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows. A menu item is told once, by its event, as a click is.
+The restart link (`restartLink(scheme)`, which `UpdateLine` opens) works only once a newer build is installed, so no page or frame can restart the app at will; reading Apple Messages' `reopen` is the one other restart a page can ask for, and only while the app cannot yet read Messages. The window tells the page by a flag as well as an event, and again as each page loads, so a page that listens late still knows. A menu item is told once, by its event, as a click is.
 
 An app moving onto the plugin drops its own copy of the sign-in Rust and the test that held it to the kit's names. An app that had its own names for full screen or a newer build ships its shell on the plugin first and moves its page to these hooks once that build is installed, or the first install misses its offer to restart into the newer build.
 
@@ -903,6 +903,77 @@ app.route(DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes({
 ```
 
 Every request the part makes carries the session's own token, so it works without the gate. The server half needs Hono 4.
+
+### Reading Apple Messages
+
+`app-kit/tauri/apple-messages` for the page, `app-kit/tauri/apple-messages/server` for the server, and a Tauri plugin for the Mac shell, in `tauri/apple-messages/plugin/`: a Mac app reads the texts in Apple Messages, with names from Contacts, and hands them to its server batch by batch from where the last upload stopped. Apple offers no server access to Messages and no API for it on the Mac: macOS keeps every text in `~/Library/Messages/chat.db` and opens it only to an app the person has added to Full Disk Access, which no prompt can ask for. argon-watcher is the first app.
+
+What it reads: every text, in the order Messages wrote them, with its chat, the chat's people, the sender, the service (iMessage, SMS or RCS) and when it was sent; the words from the text column or decoded from the archived body Messages has written since macOS 13. Names come from the Contacts database files, read under the same Full Disk Access, all or nothing: when Contacts cannot be read, nobody is called unknown. What it leaves: reactions, edits and unsends after a text is first read, and attachments beyond a line, "[photo]" or "[attachment]". It never writes to either database, and opens them read-only while Messages writes, which is right for a database in write-ahead-log mode. Every decision logs a line starting `[apple-messages]` in the app's log, including a text whose body did not decode, which is left out rather than guessed at.
+
+The shell builds the plugin from the kit that bun installed, for the Mac build only. In `src-tauri/Cargo.toml`, with the path from `src-tauri` to the `node_modules` that holds the kit:
+
+```toml
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-apple-messages = { path = "../node_modules/app-kit/tauri/apple-messages/plugin" }
+```
+
+The plugin reads with rusqlite 0.41 and its bundled SQLite, and Cargo lets an app hold only one version of SQLite's library: an app that also uses another SQLite crate (sqlx, Tauri's SQL plugin) takes a version that agrees with it.
+
+In the shell, the plugin and its permission both only on the Mac, since a permission the shell names that no plugin defines stops the app at launch, as it would on the iPhone:
+
+```rust
+use tauri::ipc::CapabilityBuilder;
+use tauri::Runtime;
+
+/// Only the Mac has Messages to read, so the plugin is registered for the Mac build only.
+fn with_messages<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_apple_messages::init());
+    builder
+}
+
+/// The page's capability, which on the iPhone must not name a plugin that is not built there.
+fn page_capability(page: CapabilityBuilder) -> CapabilityBuilder {
+    #[cfg(target_os = "macos")]
+    let page = page.permission("apple-messages:default");
+    page
+}
+```
+
+The page's four commands, through `macMessages()`:
+
+- `status()`: `{ access, contactsRead }`, where `access` is `granted`, `denied` (not in Full Disk Access yet, or added and not reopened since) or `no_database` (Messages never used on this Mac).
+- `since(afterRowid, sinceMs)`: up to 500 texts after a row, or with `afterRowid` null from the first text sent since `sinceMs`, as `{ texts, scannedTo, maxRowid, contactsRead }`. It rejects with its reason as a string.
+- `openFullDiskAccess()`: System Settings at Privacy & Security, Full Disk Access, that address only.
+- `reopen()`: quits and opens the app again, since macOS may apply a new grant only at launch. It works only while `status()` is not `granted`, so no page can restart the app at will, and rejects otherwise.
+
+The setup page is the app's, in words like these: what the app reads and where the texts go; then "Open System Settings" (`openFullDiskAccess`), "Turn on the switch beside the app, or add it with the + button", and once the person comes back still denied, "Reopen" (`reopen`). Check `status()` again whenever the window comes back into view.
+
+`catchUp` reads from the app's mark to the end, batch by batch, and hands each batch to the app's upload; the app runs it on its own clock (once a minute, beside its other polls) for each place its texts go:
+
+```ts
+import { catchUp, macMessages } from 'app-kit/tauri/apple-messages';
+
+const messages = macMessages();
+const { uploaded, toEnd } = await catchUp({
+  mark: { readMark, readFrom }, // the server's mark (null before the first upload), and the first day read
+  now: Date.now(),
+  read: messages.since,
+  upload: (batch) => request('/api/messages', { method: 'POST', body: JSON.stringify(batch) }),
+});
+```
+
+Each batch is `{ texts, scannedTo, reset }`. The server stores the texts keyed by `guid`, so a repeat stores nothing twice, and keeps `scannedTo` as the mark for the next read. `scannedTo` counts rows the reader skipped (reactions, rows older than `readFrom`), so a batch of only reactions still moves it. `reset` is true when Messages rebuilt its database below the mark: the read starts again from `FIRST_READ_DAYS` (14) back, and the mark moves back to `scannedTo`. Rows count only in the Mac's own database, so the app keeps which Mac a mark belongs to, and refuses another Mac's upload, under the same lock it stores with. A first read goes back from `readFrom`, which the app sets when the person turns reading on (14 days before then, in argon), and every later read keeps to it, so an old text Messages syncs in late stays out.
+
+The server checks each upload against the limits the plugin cuts to, so a batch the plugin read is never refused: `MAX_TEXT_UNITS` (20,000), `MAX_FIELD_UNITS` (300, for a chat's id and name and a person's handle and name), `MAX_PARTICIPANTS` (100), `MAX_GUID_UNITS` (200), `MAX_SERVICE_UNITS` (40) and `BATCH_SIZE` (500), each counted as JavaScript counts a string's length:
+
+```ts
+import { MAX_FIELD_UNITS, MAX_TEXT_UNITS, type MacText } from 'app-kit/tauri/apple-messages/server';
+```
+
+A development build run from a terminal is checked against the terminal's Full Disk Access, not the app's, and reads that Mac's real Messages if the terminal has it: a check of the reader runs its tests, which read made-up databases, never a development build against the Mac's own.
+
+An app moving onto the plugin from its own reader ships its Mac release first: the page comes from the server and the shell from the installed build, so a page that calls the plugin before that build is installed reads nothing.
 
 ### iPhone notifications
 

@@ -1,0 +1,3 @@
+[default]
+description = "Lets the page read Apple Messages on the Mac: whether it can, new texts, System Settings at Full Disk Access, and reopening the app while it cannot read yet"
+permissions = ["allow-access", "allow-since", "allow-open-full-disk-access", "allow-reopen"]

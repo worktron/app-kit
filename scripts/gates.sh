@@ -2,7 +2,9 @@
 # The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium, the kit's
 # WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, and the Rust and Swift of the iPhone notifications
-# and iPhone sign-in plugins built for the iPhone simulator, and the window plugin's Rust tests and its lint, for the Mac
+# and iPhone sign-in plugins built for the iPhone simulator, the Apple Messages plugin's Rust tests, which read made-up
+# Messages and Contacts databases, and its lint, for the Mac, and the iPhone simulator it builds nothing for, with no
+# warnings, and the window plugin's Rust tests and its lint, for the Mac
 # and the iPhone simulator, with no warnings, since its warnings would show in every app's build, and the Swift
 # packages' tests and their bare swiftc builds, the menu bar theme's and the Mac app package's, with no warnings either.
 set -euo pipefail
@@ -40,6 +42,10 @@ export CARGO_TARGET_DIR="$HOME/Library/Caches/app-kit/cargo-target"
 for plugin in tauri/iphone-notifications/plugin tauri/iphone-sign-in/plugin; do
   (cd "$plugin" && cargo build --locked --quiet --target aarch64-apple-ios-sim && cargo check --locked --quiet)
 done
+(cd tauri/apple-messages/plugin \
+  && cargo clippy --locked --quiet --all-targets -- -D warnings \
+  && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
+  && cargo test --locked --quiet)
 (cd tauri/window/plugin \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \

@@ -1,0 +1,28 @@
+# app-kit's reader of Apple Messages, for a Tauri app's Mac shell: the Mac's Messages database and Contacts, read under
+# Full Disk Access, and the page's four commands. README.md's "Reading Apple Messages" says how an app takes it in. An
+# app's shell builds it from the kit bun installed, by a Cargo path into node_modules, for its Mac build only.
+[package]
+name = "tauri-plugin-apple-messages"
+version = "0.1.0"
+description = "Reads Apple Messages on the Mac, under Full Disk Access, for app-kit's Tauri apps"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+links = "tauri-plugin-apple-messages"
+
+[dependencies]
+# 2.12.5 restarts a Mac app through macOS (LaunchServices), so Reopen brings it back in front as itself.
+tauri = "2.12.5"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+
+# The Messages and Contacts databases, read-only. Bundled, so the build does not depend on the system's SQLite. An app
+# that also uses another SQLite crate matches this one's libsqlite3-sys (README.md says so).
+[target.'cfg(target_os = "macos")'.dependencies]
+rusqlite = { version = "0.41", features = ["bundled"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dev-dependencies]
+tauri = { version = "2.12.5", features = ["test"] }
