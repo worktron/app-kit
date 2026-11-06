@@ -12,6 +12,12 @@ bun run typecheck
 bun run lint
 bun test
 bash scripts/e2e.sh
+# The Clerk browser test against the App Kit development instance, only for a change to the Clerk steps or to a Clerk
+# package's version: it needs the network and a 1Password read, which no other landing should wait on.
+base=$(git merge-base HEAD origin/main)
+if [ -n "$(git diff --name-only "$base" HEAD -- authentication/clerk)" ] || git diff "$base" HEAD -- package.json | grep -q '^[-+].*"@clerk/'; then
+  bash scripts/e2e-clerk.sh
+fi
 bun test ./extension/e2e/harness.e2e.ts
 
 # The menu bar theme: built and tested as the Swift package an Xcode app adds (Swift 6), then the bare swiftc way, as its

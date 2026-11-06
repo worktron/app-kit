@@ -1,13 +1,14 @@
 // Steps for an app's Playwright tests against a Clerk development instance: waiting as Clerk asks when it refuses too
-// many requests, a throwaway user per test with a one-time ticket, signing the page in with it, and removing the
-// throwaway users a run left, so the instance never reaches its cap of 100 users. Plain JavaScript, typed by
+// many requests, a throwaway user with a one-time ticket, signing the page in with it, one user signed in once per
+// worker and shared by its tests, and removing the throwaway users a run left, so the instance never reaches its cap of
+// 100 users. Plain JavaScript, typed by
 // playwright.d.ts, since Playwright's test runner loads nothing written in TypeScript from inside node_modules, where an
 // app has the kit.
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createClerkClient } from '@clerk/backend';
 import { isClerkAPIResponseError } from '@clerk/backend/errors';
-import { clerk } from '@clerk/testing/playwright';
+import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright';
 
 /** @param {number} ms */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,6 +95,62 @@ export async function signInWithTicket(page, ticket, { maxWaitMs = 60_000 } = {}
   // The testing library returns once Clerk took the ticket, before the session is the page's.
   await page.waitForFunction(() => Boolean(/** @type {{ Clerk?: { user?: unknown } }} */ (/** @type {unknown} */ (window)).Clerk?.user));
 }
+
+/** @type {typeof import('./playwright').testSignedInPerWorker} */
+export function testSignedInPerWorker(test, { secretKey, domain, prefix, apiUrl, signInPath = '/', cleanAccount, signInWaitMs = 150_000 }) {
+  /** @type {any} Playwright's extend is typed for the app's own fixtures, which this generic function cannot name. */
+  const base = test;
+  return base.extend({
+    // One user and one sign-in for the worker, made when its first test asks for the shared sign-in, and removed when
+    // the worker ends; a worker that fails to sign in removes its user too. Its own time limit covers waiting out
+    // Clerk's refusals, which a busy machine's other runs bring, past the test's.
+    clerkSharedSignIn: [
+      /** @param {{ browser: import('@playwright/test').Browser }} fixtures */
+      async ({ browser }, /** @type {(value: unknown) => Promise<void>} */ use, /** @type {import('@playwright/test').WorkerInfo} */ workerInfo) => {
+        const user = await throwawayUser({ secretKey, domain, prefix, apiUrl });
+        /** @type {import('@playwright/test').BrowserContext | undefined} */
+        let context;
+        try {
+          context = await browser.newContext({ baseURL: workerInfo.project.use.baseURL });
+          // The page signed in on is the app's, and plays no sound aloud, as a test's own page does. Loaded here: it
+          // imports @playwright/test, which fails beside the unit tests' simulated page.
+          const { offlineAudio } = await import('../../web/playwright-offline-audio.js');
+          await offlineAudio(context);
+          await setupClerkTestingToken({ context });
+          const page = await context.newPage();
+          await page.goto(signInPath);
+          await signInWithTicket(page, await user.ticket(), { maxWaitMs: signInWaitMs });
+          // Kept in memory only: a file would hand a later run the session of a user this worker removes.
+          const storageState = await context.storageState();
+          await context.close();
+          context = undefined;
+          console.log(`[app-kit clerk] worker ${workerInfo.workerIndex} signed in ${user.email} once for its tests`);
+          await use({ user: { email: user.email, userId: user.userId }, storageState });
+        } finally {
+          await context?.close();
+          await user.remove().catch((error) => console.warn(`[app-kit clerk] could not remove the worker's user ${user.userId}`, error));
+        }
+      },
+      { scope: 'worker', timeout: signInWaitMs + 60_000 },
+    ],
+    /** @param {{ clerkSharedSignIn: SharedSignIn }} fixtures */
+    storageState: async ({ clerkSharedSignIn }, /** @type {(value: unknown) => Promise<void>} */ use) => {
+      if (cleanAccount) await cleanAccount(clerkSharedSignIn.user);
+      await use(clerkSharedSignIn.storageState);
+    },
+    /** @param {{ context: import('@playwright/test').BrowserContext }} fixtures */
+    context: async ({ context }, /** @type {(value: unknown) => Promise<void>} */ use) => {
+      await setupClerkTestingToken({ context });
+      await use(context);
+    },
+    /** @param {{ clerkSharedSignIn: SharedSignIn }} fixtures */
+    clerkUser: async ({ clerkSharedSignIn }, /** @type {(value: unknown) => Promise<void>} */ use) => {
+      await use(clerkSharedSignIn.user);
+    },
+  });
+}
+
+/** @typedef {{ user: import('./playwright').ClerkTestUser; storageState: unknown }} SharedSignIn */
 
 /**
  * The running test's info, or null outside a test, as in a global setup. Loaded only here, when a wait needs it:

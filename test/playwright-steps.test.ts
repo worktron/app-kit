@@ -15,7 +15,7 @@ const STEPS = {
   'app-kit/authentication/stand-in/playwright': 'STAND_IN_CODE hidePage lockFor serveNewerBuild showPage signInByCode',
   'app-kit/web/playwright': 'countLoads expectFits expectQuietSignIn expectSteady finger largestTextSize noNewWindows takeFrames watchFrames',
   'app-kit/tauri/playwright': 'IPHONE_USER_AGENT fakeTauri handOverSignIn launchedByTap loadWithSignIn tapNotification tauriCalls windowAsksForSignIn',
-  'app-kit/authentication/clerk/playwright': 'removeThrowawayUsers signInWithTicket throwawayUser withClerkBackoff',
+  'app-kit/authentication/clerk/playwright': 'removeThrowawayUsers signInWithTicket testSignedInPerWorker throwawayUser withClerkBackoff',
 };
 
 test('an app loads every Playwright steps file by its import name with Node, from inside node_modules', () => {

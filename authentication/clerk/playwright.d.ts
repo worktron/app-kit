@@ -1,6 +1,6 @@
 // The types of playwright.js, which is plain JavaScript because Playwright's test runner loads nothing written in
 // TypeScript from inside node_modules, where an app has the kit.
-import type { Page } from '@playwright/test';
+import type { Page, PlaywrightTestArgs, PlaywrightTestOptions, PlaywrightWorkerArgs, PlaywrightWorkerOptions, TestType } from '@playwright/test';
 
 /** The seconds Clerk asked to wait, or null when `error` is not a refusal for too many requests. */
 export type RefusedFor = (error: unknown) => number | null;
@@ -54,6 +54,41 @@ export function throwawayUser(options: ClerkInstance & { domain: string; prefix:
  * sign-ins run in Chromium.
  */
 export function signInWithTicket(page: Page, ticket: string, options?: { maxWaitMs?: number }): Promise<void>;
+
+/** The user a worker shares with its tests. */
+export interface ClerkTestUser {
+  email: string;
+  userId: string;
+}
+
+export interface SignedInPerWorkerOptions extends ClerkInstance {
+  /** The throwaway user's address, as `throwawayUser` takes them. */
+  domain: string;
+  prefix: string;
+  /** A page of the app that loads Clerk, where the worker signs in; `/` by default. */
+  signInPath?: string;
+  /**
+   * The app's own step that puts the shared user's account back as a new one's, in its own database, run before each
+   * test that takes the shared sign-in.
+   */
+  cleanAccount?: (user: ClerkTestUser) => Promise<void>;
+  /** How long the worker's sign-in waits out Clerk's refusals; two and a half minutes by default. */
+  signInWaitMs?: number;
+}
+
+/**
+ * The app's `test` with one throwaway user per worker: made and signed in once, when the worker's first test needs it,
+ * its sign-in saved in memory and given as `storageState` to every test the worker runs, and removed when the worker
+ * ends. Before each such test it runs `cleanAccount` with the user. Every context gets Clerk's testing token. `clerkUser`
+ * says who the shared user is. A test that signs out, is about sign-in itself or changes the user in Clerk takes
+ * `test.use({ storageState: { cookies: [], origins: [] } })` and makes a user of its own with `throwawayUser` and
+ * `signInWithTicket`: signing out ends the shared session for every later test in the worker. Playwright starts a new
+ * worker after a failed test, which signs in again.
+ */
+export function testSignedInPerWorker<T extends PlaywrightTestArgs & PlaywrightTestOptions, W extends PlaywrightWorkerArgs & PlaywrightWorkerOptions>(
+  test: TestType<T, W>,
+  options: SignedInPerWorkerOptions,
+): TestType<T & { clerkUser: ClerkTestUser }, W & { clerkSharedSignIn: { user: ClerkTestUser; storageState: unknown } }>;
 
 /**
  * Removes the users `throwawayUser` made with this `prefix` and `domain` that are older than `olderThanMs` (an hour by

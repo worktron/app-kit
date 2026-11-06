@@ -243,6 +243,50 @@ export default () => clerkSetup();
 
 The development instance answers every sign-in from Playwright's WebKit with "Too many requests", so sign-ins run in Chromium.
 
+##### One user per worker
+
+Clerk allows a machine about 5 sign-ins every 10 seconds, shared by every app and every checkout on it, so a suite that signs a new user in for each test fails on "Too Many Requests" once it runs on several workers: argon-watcher's 118 tests on 9 workers lost 58 that way. `testSignedInPerWorker(test, options)` signs in once per worker instead. It takes the app's `test` (from `@playwright/test`, or one made by `testWithOfflineAudio`) and returns it with one throwaway user per worker: made and signed in on `signInPath` (`/` unless told) when the worker's first test needs it, its sign-in kept in memory and given as `storageState` to every test the worker runs, and removed when the worker ends, or when its sign-in fails. Before each of those tests it runs `cleanAccount` with the user, the app's own step that puts that account back as a new one's in its database; `clerkUser` gives a test the user's `email` and `userId`. Every context gets Clerk's testing token, and the page the worker signs in on gets `offlineAudio`, though none of the project's other options.
+
+```ts
+// e2e/test.ts, which every spec imports `test` from
+import { test as base } from '@playwright/test';
+import { testSignedInPerWorker } from 'app-kit/authentication/clerk/playwright';
+import { db, profiles } from './test-database';
+import { eq } from 'drizzle-orm';
+
+export const test = testSignedInPerWorker(base, {
+  secretKey: process.env.CLERK_SECRET_KEY!,
+  domain: 'example.com',
+  prefix: 'errands',
+  // The account as a new person's: none of the shared user's rows survive the last test.
+  cleanAccount: async ({ userId }) => void (await db.delete(profiles).where(eq(profiles.clerkUserId, userId))),
+});
+export { expect } from '@playwright/test';
+```
+
+A test takes a user of its own when sharing would change what later tests see: one that signs out, since signing out ends the shared session for every later test in the worker; one about sign-in itself; and one that changes the user in Clerk (its name, email or password), which the app's clean step does not reach. It starts signed out and signs in as tests did before:
+
+```ts
+test.describe('signing out', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('goes back to the sign-in screen', async ({ page }) => {
+    const user = await throwawayUser({ secretKey, domain: 'example.com', prefix: 'errands' });
+    try {
+      await page.goto('/');
+      await signInWithTicket(page, await user.ticket());
+      // ...
+    } finally {
+      await user.remove();
+    }
+  });
+});
+```
+
+The empty `storageState` replaces the shared one, so such a test neither waits on the worker's sign-in nor runs the clean step, as long as it does not ask for `clerkUser`. A worker's first sign-in may wait while Clerk refuses the others starting with it; it waits up to `signInWaitMs`, two and a half minutes, on a time limit of its own. Playwright starts a new worker after a failed test, and that worker signs in again, so a run that fails often signs in about once per failure. A worker that runs longer than an hour can see its user removed by another checkout's `removeThrowawayUsers`, which takes users of the prefix past that age: a suite that long gives `olderThanMs` more time, or each run a prefix of its own.
+
+The kit's own test of it, `scripts/e2e-clerk.sh`, runs against the kit's development instance (`authentication/clerk/e2e`): five signed-in tests on one worker's user, a test that signs out with a user of its own, then one more on the shared user, which is still signed in; and the same five making a user each. A pass-through to Clerk's Backend API counts the users made, the tickets minted and the users removed, and the run fails unless the shared five made one of each, where the other five made five; each test prints the requests its pages sent to Clerk, 8 on the shared user against 23 on its own. The gates run it when a change touches `authentication/clerk/` or a Clerk package's version.
+
 ### Sound in browser tests
 
 A page's Web Audio in an app's browser tests plays on the browser's offline engine, so the tests never open the Mac's speakers. A gain of zero before the speakers is not enough: a running AudioContext opens the output device whatever it plays, in Chromium and in WebKit, and what reaches it is heard. Sending the test browsers to BlackHole, as a silent iPhone Simulator does, is no answer here, since macOS chooses one output device for the whole Mac and the person's own sound would go with it. An app makes its tests' `test` once, in one file its specs share, from `app-kit/web/playwright-offline-audio`:
@@ -1311,7 +1355,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Sign-in when hosted | `app-kit/authentication/server-sign-in` | `serverSignIn`: a server refuses to start hosted without its sign-in settings, and without any of them on the dev Mac runs open to this machine only. See below. |
 | Stand-in | `app-kit/authentication/stand-in` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
 | Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage`, `lockFor`, `serveNewerBuild`, `signInByCode` and `STAND_IN_CODE`, for an app's browser tests. See Browser tests above. |
-| Clerk development instance steps | `app-kit/authentication/clerk/playwright` | `throwawayUser`, `signInWithTicket`, `removeThrowawayUsers` and `withClerkBackoff`, for browser tests against a real development instance. See Browser tests above. |
+| Clerk development instance steps | `app-kit/authentication/clerk/playwright` | `testSignedInPerWorker`, `throwawayUser`, `signInWithTicket`, `removeThrowawayUsers` and `withClerkBackoff`, for browser tests against a real development instance. See Browser tests above. |
 | Clerk for server tests | `app-kit/authentication/clerk/testing` | `fakeClerkApi`, a stand-in for Clerk's Backend API under Clerk's own middleware. See Server tests above. |
 | Route check | `app-kit/authentication/agent-keys/testing` | `routesLetThrough`, which says which routes nobody or a key reaches otherwise than `requireCaller` would. See Server tests above. |
 | Shared test steps | `app-kit/web/playwright`, `app-kit/tauri/playwright` | Page loads, steady frames, a finger, no new windows, the largest Text Size and a fit check; the Tauri bridge faked for the kit's plugins and desktop sign-in. See Browser tests above. |
