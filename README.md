@@ -452,6 +452,19 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for an extension's unit tests, with the network refused unless the test answers it. See below. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
+| Layout check | `app-kit/extension/layout` | `layoutProblems(folder)` says what is wrong with where the extension's manifest sits, and is empty when it is at the root of its git checkout. See below. |
+
+An extension's `manifest.json` sits at the root of its repository, and its paths point into a folder for the code, so Chrome's Load unpacked takes the checkout itself, the main one, which follows main:
+
+```
+manifest.json          "service_worker": "extension/worker.js", pages and icons under extension/
+extension/worker.js
+extension/kit/         the kit's copied files
+extension/icons/
+src/host.ts            the native host, when there is one
+```
+
+Two things need it there. The owner is told to load the checkout and picks its top folder, so a manifest in a subfolder means picking the wrong folder. And the kit's self-reload reads the commit from `.git` under the extension's own root: loaded from a subfolder, it finds no `.git`, never sees a new commit, and every profile keeps the old code after a landing until someone reloads it by hand. An extension may keep its code at the root instead of in a folder; the manifest's place is what counts. `layoutProblems` holds it in the extension's own test, beside the kit copy's (below), `app-kit extension install-host` refuses a manifest anywhere else before it writes anything, and the harness takes the checkout's root as its `source`.
 
 An extension installs app-kit the same way an app does, then copies the files Chrome loads into a folder of its own and commits them, because an unpacked extension loads from its checkout and a landing updates a checkout with git alone:
 
@@ -460,13 +473,15 @@ bun add github:worktron/app-kit#v0.44.0
 bun run app-kit extension copy extension/kit
 ```
 
-`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. The files land directly in the folder given, the one the worker imports them from, with `look.css`, the plain look's stylesheet for the extension's pages; `copy` refuses, writing nothing, a folder that holds none of them while a folder below it holds copies, and a file of the same name that is not a copy. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy, and another checks that the worker's list for self-reload names every file it imports:
+`bun run` runs the installed command and never downloads one, as `bunx` would from npm when the kit is not installed. The files land directly in the folder given, the one the worker imports them from, with `look.css`, the plain look's stylesheet for the extension's pages; `copy` refuses, writing nothing, a folder that holds none of them while a folder below it holds copies, and a file of the same name that is not a copy. Each copy's first line names the kit version it came from. A test in the extension keeps the copy current, comparing the code below that line, so a release that changes no worker file asks for no new copy, another checks that the worker's list for self-reload names every file it imports, and a third that the manifest is at the checkout's root:
 
 ```ts
 import { unlistedImports, workerCopyDiffers } from 'app-kit/extension/copy'
+import { layoutProblems } from 'app-kit/extension/layout'
 import { LOADED_FILES } from '../extension/worker.js'
 test('the kit copy is current', () => expect(workerCopyDiffers('extension/kit')).toEqual([]))
 test('the worker lists every file it loads', () => expect(unlistedImports('.', LOADED_FILES)).toEqual([]))
+test('the manifest is at the root of the checkout', () => expect(layoutProblems('.')).toEqual([]))
 ```
 
 To upgrade, run the same `bun add` at the new tag, then the copy command again.
@@ -564,7 +579,7 @@ Tell Chrome about the host from the main checkout, never a worktree, which goes 
 bun run app-kit extension install-host com.example.tool src/host.ts . --description "Relays the tool's requests to the extension"
 ```
 
-It reads the extension's ID from the key in `./manifest.json`, writes a launcher at `~/Library/Application Support/com.example.tool/host` that runs `src/host.ts` with the absolute path of the Bun running the command (Chrome started from the Dock has launchd's short `PATH`), with the host's errors appended to `host-errors.log` beside it, and writes `com.example.tool.json` into Chrome's `NativeMessagingHosts` folder. It prints both, and the folder to pick in Load unpacked. It checks the name against Chrome's rule, the description, the host, the manifest's key and the checkout before it writes anything, and refuses a worktree unless `--from-worktree` says it is meant. Chrome starts the host in the launcher's folder, so Bun reads no `.env` from the checkout.
+It reads the extension's ID from the key in `./manifest.json`, writes a launcher at `~/Library/Application Support/com.example.tool/host` that runs `src/host.ts` with the absolute path of the Bun running the command (Chrome started from the Dock has launchd's short `PATH`), with the host's errors appended to `host-errors.log` beside it, and writes `com.example.tool.json` into Chrome's `NativeMessagingHosts` folder. It prints both, and the folder to pick in Load unpacked. It checks the name against Chrome's rule, the description, the host, the manifest's key, that the manifest is at the root of its checkout, and the checkout before it writes anything, and refuses a worktree unless `--from-worktree` says it is meant. Chrome starts the host in the launcher's folder, so Bun reads no `.env` from the checkout.
 
 When no host answers, `app-kit extension status <socket> com.example.tool .` says why, with the fix: Chrome has no registration for the host, or one it cannot read or would ignore; the launcher, its Bun or its script is gone, as when it pointed into a worktree since removed; it runs from a worktree; the registration allows another extension than the folder's; or, with all of that right, the extension is not running, with the newest lines of the host's error log. An app's own status command calls the same check, `diagnoseHost({ name, extensionFolder })` from `app-kit/extension/host`.
 

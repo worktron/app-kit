@@ -24,7 +24,8 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
                  look's rules for an extension's pages, copied beside the worker files with its variables written from
                  look/), host/ (the Mac side),
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
-                 copy.ts, and its own test/ and e2e/
+                 copy.ts, layout.ts (the check that an extension's manifest is at its checkout's root, which
+                 install-host makes too), and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
                  an app's shell builds, with desktop sign-in's shell half, the Mac menu bar (src/menu.rs) and updates from
                  the app's releases (src/updates.rs), and the page half (index.ts), with the update line (lines.tsx),

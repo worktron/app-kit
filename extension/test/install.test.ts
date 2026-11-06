@@ -167,6 +167,15 @@ describe('install-host', () => {
     expect(() => install(root, home, { extensionFolder: keyless })).toThrow('has no key')
     expect(existsSync(join(home, 'Library'))).toBe(false)
   })
+
+  test("refuses an extension whose manifest is not at its checkout's root, and writes nothing", () => {
+    const root = checkout()
+    const home = folder('home')
+    mkdirSync(join(root, 'extension'))
+    cpSync(join(FIXTURE, 'manifest.json'), join(root, 'extension', 'manifest.json'))
+    expect(() => install(root, home, { extensionFolder: join(root, 'extension') })).toThrow(`manifest.json is in extension/ of the checkout ${root}. Move it to the checkout's root`)
+    expect(existsSync(join(home, 'Library'))).toBe(false)
+  })
 })
 
 describe('why nothing is connected', () => {

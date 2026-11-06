@@ -7,6 +7,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync,
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { worktreeOf } from '../../command-line/index.ts'
+import { layoutProblems } from '../layout.ts'
 
 /**
  * The extension's ID, from the `key` in its manifest: the first 32 hex digits
@@ -175,6 +176,8 @@ export function installHost({ name, host, extensionFolder, description, fromWork
   if (!existsSync(manifestPath)) throw new Error(`There is no manifest.json in ${folder}`)
   const { key } = JSON.parse(readFileSync(manifestPath, 'utf8')) as { key?: string }
   if (!key) throw new Error(`The manifest in ${folder} has no key, so its ID changes from profile to profile`)
+  const [misplaced] = layoutProblems(folder)
+  if (misplaced) throw new Error(misplaced)
   const worktree = worktreeOf(dirname(program))
   if (worktree && !fromWorktree) {
     throw new Error(`${worktree.worktree} is a worktree, which goes away when its work lands, and Chrome would run its code until then. Install from the main checkout, ${worktree.main}, or pass --from-worktree to mean it.`)

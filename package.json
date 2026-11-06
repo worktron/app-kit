@@ -29,6 +29,7 @@
     "./extension/testing/chrome": "./extension/testing/chrome.ts",
     "./extension/testing/host": "./extension/testing/host.ts",
     "./extension/copy": "./extension/copy.ts",
+    "./extension/layout": "./extension/layout.ts",
     "./extension/worker/*": "./extension/worker/*",
     "./tauri/sign-in": "./tauri/sign-in/index.ts",
     "./tauri/sign-in/server": "./tauri/sign-in/server.ts",
