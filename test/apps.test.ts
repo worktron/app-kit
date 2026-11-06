@@ -2,9 +2,12 @@
 // of its tickets name the kit, read from what landed on its origin, never its working files. The checkout is a scratch
 // repository under node_modules/.cache, as test/land.test.ts makes them, with git reading no global settings.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { changesSince, compareVersions, kitTickets, readApp, tagsOnGitHub, UPDATE_TICKET } from '../scripts/apps.ts';
+import { changesSince, compareVersions, kitTickets, readApp, tagsOnGitHub } from '../scripts/apps.ts';
+
+/** A ticket an app's backlog holds that names the kit. */
+const UPDATE_TICKET = 'kit-update';
 import { CHANGES_HEADING } from '../scripts/land.ts';
 
 const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -15,7 +18,7 @@ const git = (cwd: string, ...args: string[]) => {
   if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr}`);
 };
 
-const CHANGES = `${CHANGES_HEADING}\n\n## v0.10.0\n\n- Ten\n\n## v0.9.1\n\n- Nine one\n- Second line\n\n## v0.9.0\n\n- Nine\n`;
+const CHANGES = `${CHANGES_HEADING}\n\n## v0.10.0\n\nUrgency: next round\n\n- Ten\n\n## v0.9.1\n\nUrgency: now\n\n- Nine one\n- Second line\n\n## v0.9.0\n\n- Nine\n`;
 
 beforeAll(() => {
   const cache = join(import.meta.dir, '../node_modules/.cache');
@@ -29,10 +32,11 @@ test('versions compare as numbers, so 0.10 comes after 0.9', () => {
   expect(['v0.10.0', 'v0.9.1', 'v0.9.0'].sort(compareVersions)).toEqual(['v0.9.0', 'v0.9.1', 'v0.10.0']);
 });
 
-test("CHANGES.md's entries after a tag, newest first, each with its lines", () => {
-  expect(changesSince(CHANGES, 'v0.9.0')).toEqual([
-    { version: 'v0.10.0', lines: ['Ten'] },
-    { version: 'v0.9.1', lines: ['Nine one', 'Second line'] },
+test("CHANGES.md's entries after a tag, newest first, each with its urgency and lines", () => {
+  expect(changesSince(CHANGES, 'v0.8.0')).toEqual([
+    { version: 'v0.10.0', urgency: 'next round', lines: ['Ten'] },
+    { version: 'v0.9.1', urgency: 'now', lines: ['Nine one', 'Second line'] },
+    { version: 'v0.9.0', urgency: null, lines: ['Nine'] },
   ]);
   expect(changesSince(CHANGES, 'v0.10.0')).toEqual([]);
 });
@@ -45,7 +49,7 @@ test('the backlog sections that name app-kit, by id and title', () => {
   ]);
 });
 
-test('an app is read as it landed on origin: the oldest tag it names, the lock checked against the tag, its kit tickets', () => {
+test('an app is read as it landed on origin: the oldest tag it names, the lock checked against the tag, its kit tickets, each field the round names', () => {
   const origin = join(root, 'origin.git');
   const seed = join(root, 'seed');
   const app = join(root, 'app');
@@ -84,13 +88,25 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     ],
     behind: 2,
     changes: [
-      { version: 'v0.10.0', lines: ['Ten'] },
-      { version: 'v0.9.1', lines: ['Nine one', 'Second line'] },
+      { version: 'v0.10.0', urgency: 'next round', lines: ['Ten'] },
+      { version: 'v0.9.1', urgency: 'now', lines: ['Nine one', 'Second line'] },
     ],
+    // The most urgent release it lacks, which puts it first in the round.
+    urgency: 'now',
     tickets: [{ id: UPDATE_TICKET, title: 'Bring it up to the newest app-kit' }],
-    updateTicketOpen: true,
     fetched: 'not fetched',
   });
+  // The round's instructions name the reader's fields, so each one they name is one the reader gives, and each one the
+  // reader gives is named.
+  const skill = readFileSync(join(import.meta.dir, '../.claude/skills/apps-round/SKILL.md'), 'utf8');
+  const described = skill.slice(skill.indexOf('`scripts/apps.ts` stops'), skill.indexOf('The checklist exits'));
+  const named = [...described.matchAll(/`([a-z][A-Za-z]*(?:\.[a-zA-Z]+)?)`/g)].map((match) => match[1]);
+  const read = readApp(app, tags, CHANGES, false)!;
+  const keys = new Set([...Object.keys(read), ...Object.keys(read.installs[0]), ...Object.keys(read.installs[0].locked!), ...Object.keys(read.changes[0])]);
+  for (const name of named) for (const part of name.split('.')) expect(keys).toContain(part);
+  for (const key of Object.keys(read).filter((key) => key !== 'project')) expect(named.map((name) => name.split('.')[0])).toContain(key);
+  expect(skill).toContain('bun scripts/apps.ts "$WORKSPACE"');
+  expect(skill).not.toMatch(/updateTicketOpen|app-kit-update/);
   // A lock that names another commit than the tag is flagged.
   expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
 });

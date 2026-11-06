@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
-import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, withChanges, type LandOptions } from '../scripts/land.ts';
+import { announceUrgent, appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, URGENT_EVENT, urgencyOf, withChanges, type LandOptions } from '../scripts/land.ts';
 
 // git found through PATH on a Mac is Apple's launcher, which looks up the developer tools on every call before it starts
 // the real git, about half again the time of each of the hundreds of git processes here; the folder `git --exec-path`
@@ -96,8 +96,12 @@ function refuse(origin: string, pattern: string) {
   chmodSync(hook, 0o755);
 }
 
-/** A commit message with its Release line, and for a minor change the Apps line it must carry. */
-const release = (subject: string, kind: string, apps = kind === 'minor' ? `Apps: ${subject}\n` : '') => `${subject}\n\nRelease: ${kind}\n${apps}${TRAILER}`;
+/**
+ * A commit message with its Release line, for a minor change the Apps line it must carry, and for a minor or patch
+ * change its Urgency line: next round when it says what apps do, else rides along.
+ */
+const release = (subject: string, kind: string, apps = kind === 'minor' ? `Apps: ${subject}\n` : '', urgency = kind === 'none' ? '' : `Urgency: ${apps ? 'next round' : 'rides along'}\n`) =>
+  `${subject}\n\nRelease: ${kind}\n${urgency}${apps}${TRAILER}`;
 function packageAt(version: string) {
   return `${JSON.stringify({ name: 'kit', version }, null, 2)}\n`;
 }
@@ -148,10 +152,39 @@ test('a minor change must carry an Apps line, a patch may, none keeps none, and 
   expect(appsOf([{ apps: ['do this and that'], message: `The change\n\nRelease: patch\nApps: do this\n  and that\n${TRAILER}\n` }], 'patch')).toEqual({ lines: ['do this and that'] });
 });
 
+test('a minor or patch change must say how soon apps take it, the most urgent wins, and one apps must take says what they do', () => {
+  const said = (urgencies: string[], message = '') => ({ urgencies, message });
+  expect(urgencyOf([said([])], 'patch', [])).toEqual({ refused: expect.stringContaining('a patch change must say how soon apps take it; add an Urgency: line') });
+  expect(urgencyOf([said([])], 'minor', ['x'])).toHaveProperty('refused');
+  expect(urgencyOf([said([])], 'none', [])).toEqual({ urgency: null });
+  expect(urgencyOf([said(['rides along'])], 'patch', [])).toEqual({ urgency: 'rides along' });
+  expect(urgencyOf([said([' Next  Round ']), said(['now']), said(['rides along'])], 'minor', ['x'])).toEqual({ urgency: 'now' });
+  expect(urgencyOf([said(['soon'])], 'patch', [])).toEqual({ refused: expect.stringContaining('Urgency: soon is not an urgency; write now, next round or rides along') });
+  expect(urgencyOf([said(['now'])], 'patch', [])).toEqual({ refused: expect.stringContaining('must say what an app does about it; add an Apps: line') });
+  expect(urgencyOf([said(['next round'])], 'patch', [])).toHaveProperty('refused');
+  expect(urgencyOf([said([], `The change\n\nUrgency: now\n\nRelease: patch\n${TRAILER}\n`)], 'patch', ['x'])).toEqual({ refused: expect.stringContaining('an Urgency: line is in a commit message but not in its last paragraph') });
+});
+
+test('a release apps take now asks metamax for the same-day round, and says to start it by hand when none started', async () => {
+  const asked: string[][] = [];
+  const answering = (ok: boolean, out: string) => async (args: string[]) => {
+    asked.push(args);
+    return { ok, out };
+  };
+  expect(await announceUrgent('0.6.1', ['sign in with Google again'], answering(true, `${URGENT_EVENT} in app-kit: a1b2: started\n`))).toBe(`the same-day apps round started: ${URGENT_EVENT} in app-kit: a1b2: started`);
+  expect(asked[0]).toEqual([URGENT_EVENT, 'app-kit', 'v0.6.1: sign in with Google again']);
+  // Metamax exits 0 on a skip and when no automation runs on the event; only a started run counts.
+  for (const out of [`${URGENT_EVENT} in app-kit: a1b2: skipped: its last thread (apps-round) is still open`, `${URGENT_EVENT} in app-kit: no automation in app-kit runs on ${URGENT_EVENT}`, '']) {
+    expect(await announceUrgent('0.6.1', ['x'], answering(true, out))).toStartWith('the same-day apps round did not start: ');
+  }
+  expect(await announceUrgent('0.6.1', ['x'], answering(false, 'not recorded: metamax is not answering on port 6201'))).toContain('did not start: not recorded: metamax is not answering on port 6201; hand v0.6.1 to the open apps round or start one');
+  expect(await announceUrgent('0.6.1', ['x'], null)).toContain('did not start: metamax is not here to tell');
+});
+
 test('CHANGES.md takes each version above the newest, under the heading Dependabot and Renovate read release notes by', () => {
-  const first = withChanges(null, '0.6.0', ['Move the manifest']);
-  expect(first).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\n- Move the manifest\n`);
-  expect(withChanges(first, '0.6.1', ['One', 'Two'])).toBe(`${CHANGES_HEADING}\n\n## v0.6.1\n\n- One\n- Two\n\n## v0.6.0\n\n- Move the manifest\n`);
+  const first = withChanges(null, '0.6.0', 'next round', ['Move the manifest']);
+  expect(first).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\nUrgency: next round\n\n- Move the manifest\n`);
+  expect(withChanges(first, '0.6.1', 'now', ['One', 'Two'])).toBe(`${CHANGES_HEADING}\n\n## v0.6.1\n\nUrgency: now\n\n- One\n- Two\n\n## v0.6.0\n\nUrgency: next round\n\n- Move the manifest\n`);
   // The file in the repository has the same heading, so the landing adds to it rather than starting another.
   expect(readFileSync(join(import.meta.dir, '../CHANGES.md'), 'utf8').startsWith(`${CHANGES_HEADING}\n\n## v`)).toBe(true);
 });
@@ -197,7 +230,7 @@ test.concurrent('two branches marked minor, the second landing while the first r
   expect(await git('show', `${main}:README.md`)).toBe('bun add github:worktron/app-kit#v0.7.0');
   expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['CHANGES.md', 'README.md', 'package.json']);
   // Each minor change's Apps line under its own version, the later one first.
-  expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\n- The slow change\n\n## v0.6.0\n\n- The fast change`);
+  expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\nUrgency: next round\n\n- The slow change\n\n## v0.6.0\n\nUrgency: next round\n\n- The fast change`);
 }, TWO_LANDINGS);
 
 test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands', async () => {
@@ -228,7 +261,22 @@ test.concurrent('a minor change with no Apps line is refused before anything mov
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   await commit(work, release('Say it', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'say.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.6.0' });
-  expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\n- move the manifest to the checkout root`);
+  expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\nUrgency: next round\n\n- move the manifest to the checkout root`);
+}, TWO_LANDINGS);
+
+test.concurrent('a patch that says nothing of urgency is refused before anything moves; marked now, it lands with its urgency in CHANGES.md', async () => {
+  const { work, git } = await scratch();
+  await branch(work, 'change', 'A fix\n\nRelease: patch\nApps: sign in with Google again\n');
+  const before = await git('rev-parse', 'HEAD');
+  const main = await mainOnGitHub(work);
+  expect((await landIn(work)).outcome).toEqual({ landed: false, reason: expect.stringContaining('a patch change must say how soon apps take it') });
+  expect(await git('rev-parse', 'HEAD')).toBe(before);
+  expect(await mainOnGitHub(work)).toBe(main);
+  await commit(work, release('Say how soon', 'patch', '', 'Urgency: now\n'), 'soon.txt');
+  const { outcome, lines } = await landIn(work);
+  expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now', apps: ['sign in with Google again'] });
+  expect(lines).toContain('change: apps take it now');
+  expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.5.1\n\nUrgency: now\n\n- sign in with Google again`);
 }, TWO_LANDINGS);
 
 test.concurrent('none lands and releases nothing', async () => {

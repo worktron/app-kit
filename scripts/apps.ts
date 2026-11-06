@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // The apps on the kit, for the apps round (.claude/skills/apps-round): each git checkout directly inside the folders
 // given whose landed package.json files install the kit from GitHub, with the tag it names, what its bun.lock installs,
-// how many releases it is behind, what CHANGES.md asks of it since its tag, and its open backlog tickets that name the
-// kit. It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and
+// how many releases it is behind, what CHANGES.md asks of it since its tag with each release's urgency, the most urgent
+// of those, and its open backlog tickets that name the kit. It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and
 // reads what landed there (origin/HEAD, else HEAD).
 //
 //   bun scripts/apps.ts <folder>... [--no-fetch]
@@ -12,8 +12,10 @@
 
 import { readdirSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { URGENCIES, type Urgency } from './land.ts'
 
 export type Ticket = { id: string; title: string }
+export type Change = { version: string; urgency: Urgency | null; lines: string[] }
 export type App = {
   project: string
   /**
@@ -24,17 +26,15 @@ export type App = {
   /** Releases since the oldest tag the app names, up to the newest. */
   behind: number
   /** CHANGES.md's entries newer than that tag, newest first. */
-  changes: { version: string; lines: string[] }[]
+  changes: Change[]
+  /** The most urgent of those entries' levels, or null when none is listed. */
+  urgency: Urgency | null
   /** Open sections of its backlog that name app-kit. */
   tickets: Ticket[]
-  /** Whether the standing update ticket, app-kit-update, is open. */
-  updateTicketOpen: boolean
   /** When its origin was last fetched, or why it could not be. */
   fetched: string
 }
 
-/** The standing ticket the round leaves in an app that has none. */
-export const UPDATE_TICKET = 'app-kit-update'
 const INSTALL = /github:worktron\/app-kit#(v\d+\.\d+\.\d+)/
 const LOCKED = /app-kit@github:worktron\/app-kit#([0-9a-f]{7,40})/
 
@@ -46,14 +46,15 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-/** CHANGES.md's entries for versions after `from`, newest first, as the file lists them. */
-export function changesSince(text: string, from: string): { version: string; lines: string[] }[] {
+/** CHANGES.md's entries for versions after `from`, newest first, as the file lists them, each with its Urgency line's level. */
+export function changesSince(text: string, from: string): Change[] {
   return text
     .split(/^## /m)
     .slice(1)
     .map((section) => {
       const [heading, ...body] = section.split('\n')
-      return { version: heading.trim(), lines: body.filter((line) => line.startsWith('- ')).map((line) => line.slice(2).trim()) }
+      const urgency = body.map((line) => line.match(/^Urgency: (.+)$/)?.[1].trim()).find((value) => URGENCIES.includes(value as Urgency)) as Urgency | undefined
+      return { version: heading.trim(), urgency: urgency ?? null, lines: body.filter((line) => line.startsWith('- ')).map((line) => line.slice(2).trim()) }
     })
     .filter((entry) => /^v\d+\.\d+\.\d+$/.test(entry.version) && compareVersions(entry.version, from) > 0)
 }
@@ -109,14 +110,15 @@ export function readApp(dir: string, kitTags: Map<string, string>, changes: stri
   if (!installs.length) return null
   const oldest = installs.map((install) => install.tag).sort(compareVersions)[0]
   const backlog = files.includes('.claude/plans/backlog.md') ? show('.claude/plans/backlog.md') : ''
-  const tickets = kitTickets(backlog)
+  const pending = changesSince(changes, oldest)
+  const levels = pending.flatMap((change) => (change.urgency ? [URGENCIES.indexOf(change.urgency)] : []))
   return {
     project: dir.split('/').pop() ?? dir,
     installs,
     behind: [...kitTags.keys()].filter((tag) => compareVersions(tag, oldest) > 0).length,
-    changes: changesSince(changes, oldest),
-    tickets,
-    updateTicketOpen: tickets.some((ticket) => ticket.id === UPDATE_TICKET),
+    changes: pending,
+    urgency: levels.length ? URGENCIES[Math.max(...levels)] : null,
+    tickets: kitTickets(backlog),
     fetched,
   }
 }
