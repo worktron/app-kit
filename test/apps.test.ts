@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { changesSince, compareVersions, kitTickets, readApp, UPDATE_TICKET } from '../scripts/apps.ts';
+import { changesSince, compareVersions, kitTickets, readApp, tagsOnGitHub, UPDATE_TICKET } from '../scripts/apps.ts';
 import { CHANGES_HEADING } from '../scripts/land.ts';
 
 const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -51,10 +51,12 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
   const app = join(root, 'app');
   git(root, 'init', '-q', '--bare', '-b', 'main', origin);
   mkdirSync(join(seed, 'client'), { recursive: true });
+  mkdirSync(join(seed, 'server'), { recursive: true });
   git(seed, 'init', '-q', '-b', 'main');
   writeFileSync(join(seed, 'package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.10.0' } }));
   writeFileSync(join(seed, 'client/package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.9.0' } }));
   writeFileSync(join(seed, 'client/bun.lock'), '"app-kit": ["app-kit@github:worktron/app-kit#aaaaaaa", {}],\n');
+  writeFileSync(join(seed, 'server/package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.10.0' } }));
   writeFileSync(join(seed, 'bun.lock'), '"app-kit": ["app-kit@github:worktron/app-kit#ccccccc", {}],\n');
   mkdirSync(join(seed, '.claude/plans'), { recursive: true });
   writeFileSync(join(seed, '.claude/plans/backlog.md'), `# Backlog\n\n## ${UPDATE_TICKET} · Bring it up to the newest app-kit\n\nGoal: x\n`);
@@ -77,6 +79,8 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     installs: [
       { file: 'client/package.json', tag: 'v0.9.0', locked: { commit: 'aaaaaaa', matchesTag: true } },
       { file: 'package.json', tag: 'v0.10.0', locked: { commit: 'ccccccc', matchesTag: true } },
+      // A folder with no lock of its own is served by the nearest one above.
+      { file: 'server/package.json', tag: 'v0.10.0', locked: { commit: 'ccccccc', matchesTag: true } },
     ],
     behind: 2,
     changes: [
@@ -88,7 +92,7 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     fetched: 'not fetched',
   });
   // A lock that names another commit than the tag is flagged.
-  expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false]);
+  expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
 });
 
 test('a checkout that installs no kit is not an app', () => {
@@ -99,4 +103,11 @@ test('a checkout that installs no kit is not an app', () => {
   git(plain, 'add', '-A');
   git(plain, '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'Plain');
   expect(readApp(plain, new Map(), CHANGES, false)).toBeNull();
+});
+
+test("the kit's tags unread from GitHub stop the round rather than read as none", () => {
+  const lone = join(root, 'lone');
+  mkdirSync(lone);
+  git(lone, 'init', '-q', '-b', 'main');
+  expect(() => tagsOnGitHub(lone)).toThrow("reading the kit's tags from GitHub");
 });
