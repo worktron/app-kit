@@ -43,7 +43,9 @@ beforeEach(() => {
   Object.defineProperty(window.location, 'href', {
     configurable: true,
     get: () => 'https://app.example.com/',
-    set: (to: string) => opened.push(to),
+    set: (to: string) => {
+      opened.push(to);
+    },
   });
 });
 
