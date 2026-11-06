@@ -2,6 +2,10 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Apps line. A version not listed asks nothing of an app.
 
+## v0.45.2
+
+- CHANGES.md says what each version asks of an app; read it from your tag forward when you move to a newer one.
+
 ## v0.45.1
 
 - An extension can hold its Chrome Web Store listing in store-listing.md and check it against its manifest with `app-kit extension listing`. Nothing changes for an extension that does not.
