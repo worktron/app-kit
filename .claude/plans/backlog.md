@@ -371,3 +371,9 @@ Goal: Apple's screenshot specifications page (developer.apple.com/help/app-store
 Shape: two more sizes in web/drive.ts's SIZES (a CSS viewport and scale whose product is each display's pixels exactly, drawn as the iPhone app like the other App Store sizes), confirmed against Apple's page and a Duo Simulator's screen size at the time it is built; Getter adds them to its `store:images`.
 
 Done when: a steps file with each Duo size writes an image of exactly that display's pixels with no alpha channel, held by web/e2e/drive.e2e.ts's store size test, and the README's size table lists both.
+
+## testflight-watch-slow-under-load · The TestFlight watcher's folder test runs past its time limit on a busy machine
+
+Goal: test/testflight-watch.test.ts "a folder that is missing, leaves the repository or holds pattern characters fails that app with a line naming it" takes about 0.5 s alone and in a full `bun test` at load 11 to 14 (976 pass, 63 s), but ran past the 15 s per-test limit inside scripts/gates.sh during the Messages Service landing on 2026-11-06, when the whole suite took 125 s, and stopped that landing (land-main: stopped: the gates failed). The time limit then cut it off with an unhandled error between tests: line 451 read `logLines().at(-1)` as undefined. The test makes real git repositories and clones through the watcher's passes, so something in that path is roughly 30 times slower under load; per the tests rule, the cause is to be found and fixed where it lives, never a longer limit or a rerun. Found by the apple-messages thread, 2026-11-06.
+
+Done when: the test's slow step is named with evidence (which git or process call takes the time under load), fixed in the watcher or the test's setup, and the test runs under 15 s in several parallel full-suite runs on a loaded machine, with a test or a timing assertion that would have caught it.
