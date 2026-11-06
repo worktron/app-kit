@@ -320,3 +320,11 @@ Goal: every app takes app-kit in as `github:worktron/app-kit#<tag>` (README, "Ta
 Done when: either a release is installable as `app-kit@<version>` from a registry with no token, the release step publishes it, the README's "Taking it in" says to install it that way, and one app (argon-watcher) builds on CI and on Railway from it; or the owner decides the README note is enough. Either way the README holds the CI cache lines.
 Do not touch: how apps upgrade beyond the one install line; the kit's code.
 Needs: the owner's choice between publishing to a registry and the README note alone.
+
+## gate-held-placeholder-over-app · The gate's held placeholder covers the app instead of pushing it down
+
+Goal: while `SignInGate` holds its placeholder under `waitForFirstDraw`, it draws the placeholder (`{holding && held[1]}`, web/sign-in/SignInGate.tsx:349 at v0.43.1) before the hidden app, which already lays out (`visibility: hidden`, `display: contents`). An app whose placeholder is a full page, as most are, pushes its hidden screen a screen down, so a scroll made during the hold (an app's own scroll keeper, a link to a row, a test that scrolls to a row) lands a screen off once the placeholder goes. argon-watcher hit it on 2026-11-06 moving onto the gate: its phone test "back by the Topics link also selects the row" failed 2 of 4 runs, and Argon fixed it on its own side by drawing its placeholder `position: fixed` over the page (src/App.tsx `Placeholder`, ticket sign-in-gate). The gate should do that for every app: draw what it holds over the app, so the hidden app lays out where it will draw.
+Done when: the kit's web fixture, given a full-height placeholder and `waitForFirstDraw`, scrolls to a row of its hidden screen during the hold and finds the row at the same page offset once the screen is drawn, held by a browser test; the README's "Sign-in gate" says the held placeholder covers the app; argon-watcher can drop its own `position: fixed` in a follow-up.
+Do not touch: what the gate shows when, and the `data-sign-in-gate` mark.
+Needs: nothing.
+Touches: web/sign-in/SignInGate.tsx, web/e2e, README "Sign-in gate".
