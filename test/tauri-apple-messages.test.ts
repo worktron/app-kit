@@ -24,9 +24,13 @@ import {
   type MacText,
   PLUGIN,
   catchUp,
+  connectLink,
   macMessages,
+  messagesService,
 } from '../tauri/apple-messages';
 import * as server from '../tauri/apple-messages/server';
+import { checkTexts, messagesServiceRoutes } from '../tauri/apple-messages/server';
+import { Webhook } from 'standardwebhooks';
 
 const plugin = join(import.meta.dir, '../tauri/apple-messages/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -56,7 +60,7 @@ describe('the names the page and the plugin share', () => {
     const commands = Object.values(COMMANDS);
     const built = read('build.rs').match(/COMMANDS: &\[&str\] = &\[([^\]]*)\]/)![1]!.match(/"[^"]*"/g)!.map((c) => c.slice(1, -1));
     expect(built).toEqual(commands);
-    const handled = lib.match(/generate_handler!\[([^\]]*)\]/)![1]!.split(',').map((c) => c.trim().replace(/^mac::/, ''));
+    const handled = lib.match(/generate_handler!\[([^\]]*)\]/)![1]!.split(',').map((c) => c.trim().replace(/^\w+::/, ''));
     expect(handled).toEqual(commands);
     const allowed = read('permissions/default.toml').match(/permissions = \[([^\]]*)\]/)![1]!.match(/"[^"]*"/g)!.map((c) => c.slice(1, -1));
     expect(allowed).toEqual(commands.map((c) => `allow-${c.replaceAll('_', '-')}`));
@@ -223,5 +227,130 @@ describe('catching up', () => {
       catchUp({ mark: { readMark: 0, readFrom: READ_FROM }, now: NOW, read: m.read, upload: async () => { throw new Error('offline'); } }),
     ).rejects.toThrow('offline');
     expect(m.asked).toHaveLength(1);
+  });
+});
+
+describe('Messages Service', () => {
+  const service = read('src/service.rs');
+
+  test('the service names the installer and the page share', async () => {
+    const names = await import('../tauri/apple-messages/names');
+    for (const name of ['SERVICE_APP_NAME', 'SERVICE_BUNDLE_ID', 'SERVICE_SCHEME', 'SERVICE_CONNECT_HOST', 'SERVICE_LATEST_JSON', 'SERVICE_PLATFORM'] as const) {
+      expect(stringConstant(service, name)).toBe(names[name]);
+    }
+  });
+
+  test('the connect link carries the address and the code, and the plugin opens only such a link', () => {
+    const link = connectLink({ address: 'https://app.example.com/api/messages-service', code: 'ab'.repeat(32) });
+    expect(link).toBe(`messages-service://connect?address=https%3A%2F%2Fapp.example.com%2Fapi%2Fmessages-service&code=${'ab'.repeat(32)}`);
+    expect(new URL(link).searchParams.get('address')).toBe('https://app.example.com/api/messages-service');
+    expect(service).toContain('fn is_connect_link');
+  });
+
+  test("the page's service commands call the plugin by its names", async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    const s = messagesService(async (command, args) => {
+      calls.push([command, args]);
+      return null;
+    });
+    await s.installService('ABCDE12345');
+    await s.openConnectLink('messages-service://connect?address=x&code=y');
+    expect(calls).toEqual([
+      ['plugin:apple-messages|install_service', { teamId: 'ABCDE12345' }],
+      ['plugin:apple-messages|open_connect_link', { link: 'messages-service://connect?address=x&code=y' }],
+    ]);
+    expect(lib).toContain('pub async fn install_service(team_id: String)');
+    expect(lib).toContain('pub async fn open_connect_link(link: String)');
+  });
+});
+
+describe("the app's routes for Messages Service", () => {
+  const SECRET = `whsec_${Buffer.from(new Uint8Array(32).fill(7)).toString('base64')}`;
+  const OTHER = `whsec_${Buffer.from(new Uint8Array(32).fill(9)).toString('base64')}`;
+  const sample: MacText = text(1);
+
+  function app(signedIn: string | null = 'person-1') {
+    const connections = new Map<string, { userId: string; secret: string }>();
+    const stored: Array<{ userId: string; guids: string[]; connection: string }> = [];
+    const routes = messagesServiceRoutes({
+      name: 'Example',
+      userId: () => signedIn,
+      connect: async (userId, secret) => {
+        const id = `c${connections.size + 1}`;
+        connections.set(id, { userId, secret });
+        return id;
+      },
+      connectionOf: async (id) => connections.get(id) ?? null,
+      store: async (userId, texts, connection) => void stored.push({ userId, guids: texts.map((t) => t.guid), connection }),
+    });
+    const ask = (path: string, init: RequestInit = {}) => routes.request(path, init);
+    const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+      ask(path, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers } });
+    return { connections, stored, ask, post };
+  }
+
+  async function connected(a: ReturnType<typeof app>) {
+    const { code } = (await (await a.post('/code', {}, { Authorization: 'Bearer session' })).json()) as { code: string };
+    const { connection } = (await (await a.post('/connect', { code, secret: SECRET })).json()) as { connection: string };
+    return connection;
+  }
+
+  const signed = (secret: string, body: unknown, id = 'msg_1', at = new Date()) => {
+    const payload = JSON.stringify(body);
+    return { body: payload, headers: { 'webhook-id': id, 'webhook-timestamp': String(Math.floor(at.getTime() / 1000)), 'webhook-signature': new Webhook(secret).sign(id, at, payload), 'Content-Type': 'application/json' } };
+  };
+
+  test("the service reads the app's name from the app's own address", async () => {
+    expect(await (await app().ask('/about')).json()).toEqual({ name: 'Example' });
+  });
+
+  test('a connect code is made only for a signed-in session with a bearer token, and works once', async () => {
+    expect((await app(null).post('/code', {}, { Authorization: 'Bearer session' })).status).toBe(401);
+    expect((await app().post('/code', {})).status).toBe(401);
+    const a = app();
+    const { code } = (await (await a.post('/code', {}, { Authorization: 'Bearer session' })).json()) as { code: string };
+    expect((await a.post('/connect', { code, secret: 'not-a-secret' })).status).toBe(400);
+    const first = await a.post('/connect', { code, secret: SECRET });
+    expect(await first.json()).toEqual({ connection: 'c1' });
+    expect(a.connections.get('c1')).toEqual({ userId: 'person-1', secret: SECRET });
+    expect((await a.post('/connect', { code, secret: OTHER })).status).toBe(400);
+    expect(a.connections.size).toBe(1);
+  });
+
+  test("a batch signed with the connection's secret is stored for its person", async () => {
+    const a = app();
+    const connection = await connected(a);
+    const res = await a.ask(`/texts/${connection}`, { method: 'POST', ...signed(SECRET, { texts: [sample] }) });
+    expect(res.status).toBe(200);
+    expect(a.stored).toEqual([{ userId: 'person-1', guids: ['g1'], connection: 'c1' }]);
+  });
+
+  test('a batch not signed by the connection, or signed long ago, is refused and stores nothing', async () => {
+    const a = app();
+    const connection = await connected(a);
+    expect((await a.ask(`/texts/${connection}`, { method: 'POST', ...signed(OTHER, { texts: [sample] }) })).status).toBe(401);
+    const old = signed(SECRET, { texts: [sample] }, 'msg_2', new Date(Date.now() - 10 * 60_000));
+    expect((await a.ask(`/texts/${connection}`, { method: 'POST', ...old })).status).toBe(401);
+    const tampered = signed(SECRET, { texts: [sample] });
+    expect((await a.ask(`/texts/${connection}`, { method: 'POST', headers: tampered.headers, body: JSON.stringify({ texts: [text(2)] }) })).status).toBe(401);
+    expect(a.stored).toEqual([]);
+  });
+
+  test('a push to a connection turned off is answered gone, so the service stops', async () => {
+    const a = app();
+    const connection = await connected(a);
+    a.connections.delete(connection);
+    expect((await a.ask(`/texts/${connection}`, { method: 'POST', ...signed(SECRET, { texts: [sample] }) })).status).toBe(410);
+  });
+
+  test('a batch past the limits the reader cuts to is refused', async () => {
+    const a = app();
+    const connection = await connected(a);
+    const long = { ...sample, text: 'x'.repeat(MAX_TEXT_UNITS + 1) };
+    expect((await a.ask(`/texts/${connection}`, { method: 'POST', ...signed(SECRET, { texts: [long] }) })).status).toBe(400);
+    expect(checkTexts({ texts: Array.from({ length: BATCH_SIZE + 1 }, (_, i) => text(i)) })).toEqual({ refused: `more than ${BATCH_SIZE} texts` });
+    expect(checkTexts({ texts: [{ ...sample, senderKind: 'someone' }] })).toEqual({ refused: 'text 0 is not a text within the limits' });
+    expect(checkTexts({ texts: [{ ...sample, text: 'x'.repeat(MAX_TEXT_UNITS) }] })).toEqual({ texts: [{ ...sample, text: 'x'.repeat(MAX_TEXT_UNITS) }] });
+    expect(a.stored).toEqual([]);
   });
 });

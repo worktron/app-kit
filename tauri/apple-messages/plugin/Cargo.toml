@@ -20,6 +20,8 @@ log = "0.4"
 # that also uses another SQLite crate matches this one's libsqlite3-sys (README.md says so).
 [target.'cfg(target_os = "macos")'.dependencies]
 rusqlite = { version = "0.41", features = ["bundled"] }
+# Messages Service's update manifest, read by the installer (src/service.rs).
+serde_json = "1"
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }

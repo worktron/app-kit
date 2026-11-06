@@ -6,11 +6,12 @@
  * stopped to the end, batch by batch, and hands each batch to the app's upload. Where texts go, which Mac reads them,
  * and how often a round runs are the app's.
  */
-import { COMMANDS, PLUGIN } from './names';
+import { COMMANDS, PLUGIN, SERVICE_CONNECT_HOST, SERVICE_SCHEME } from './names';
 
 export {
   BATCH_SIZE,
   COMMANDS,
+  CONNECT_CODE_MS,
   FULL_DISK_ACCESS_PANE,
   HOLD_READS,
   LOG_PREFIX,
@@ -19,7 +20,13 @@ export {
   MAX_PARTICIPANTS,
   MAX_SERVICE_UNITS,
   MAX_TEXT_UNITS,
+  MESSAGES_SERVICE_ROUTES,
   PLUGIN,
+  SERVICE_APP_NAME,
+  SERVICE_BUNDLE_ID,
+  SERVICE_LATEST_JSON,
+  SERVICE_OPEN_PATHS,
+  SERVICE_SCHEME,
 } from './names';
 
 /** A person in a chat: their phone number or email as Messages has it, and their name from Contacts if they are on a card. */
@@ -130,4 +137,35 @@ export async function catchUp(deps: {
     if (batch.scannedTo >= batch.maxRowid) return { uploaded, batches: batches + 1, toEnd: true };
   }
   return { uploaded, batches: MAX_BATCHES, toEnd: false };
+}
+
+/*
+ * Messages Service, the Mac app that holds the one Full Disk Access grant and pushes texts to the server of each app
+ * the person connects (server.ts says how). An app's page connects the person's texts to its server with a code from
+ * its server and the link below, which the service opens in its own window to ask the person; nothing flows until they
+ * say yes there. In a Tauri Mac app the plugin installs the service when it is missing and opens the link, since the
+ * window opens no other app's links; in a browser the page opens the link itself, and offers the download when no app
+ * answers it.
+ */
+
+/** The link that asks the service to connect: `address` is the app's routes, as `${origin}${MESSAGES_SERVICE_ROUTES}`. */
+export function connectLink({ address, code }: { address: string; code: string }): string {
+  const query = new URLSearchParams({ address, code });
+  return `${SERVICE_SCHEME}://${SERVICE_CONNECT_HOST}?${query}`;
+}
+
+/** What `installService` did: opened the copy already in Applications, or downloaded, checked and installed one. */
+export type ServiceInstall = { done: 'opened' | 'installed'; path: string };
+
+/**
+ * The plugin's service commands. `installService(teamId)` opens the installed service, or downloads its latest
+ * release, installs it only if it is signed by the team `teamId` (the 10 characters of the person's Apple Developer
+ * team) and notarized by Apple, and opens it; it rejects with its reason, and nothing is put in Applications.
+ * `openConnectLink(link)` hands a connectLink to the service.
+ */
+export function messagesService(invoke: Invoke = tauriInvoke) {
+  return {
+    installService: (teamId: string) => invoke(plugin(COMMANDS.installService), { teamId }) as Promise<ServiceInstall>,
+    openConnectLink: (link: string) => invoke(plugin(COMMANDS.openConnectLink), { link }) as Promise<void>,
+  };
 }

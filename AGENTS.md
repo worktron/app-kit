@@ -41,8 +41,9 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds;
                  apple-messages/, reading Apple Messages on the Mac: plugin/, the Tauri plugin's Rust that reads the Messages
                  and Contacts databases under Full Disk Access (its tests read made-up ones), the page half (index.ts) with
-                 the catch-up, the names and upload limits the plugin, the page and an app's server share (names.ts), and
-                 the server's entry with the limits alone (server.ts);
+                 the catch-up and Messages Service's connect link, the names and upload limits the plugin, the page, an
+                 app's server and Messages Service share (names.ts), the server's routes the service connects and pushes
+                 texts to (server.ts), and in the plugin the service's installer (src/service.rs);
                  iphone-sign-in/, Google sign-in in Apple's sign-in sheet: the page half (index.ts), the names it shares
                  with the plugin (names.ts), and plugin/;
                  iphone-run/, `app-kit iphone run sim|phone`, which builds an app and starts it on a Simulator or a paired iPhone, and points an agent at the README's section on tapping and looking at it;

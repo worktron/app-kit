@@ -4,7 +4,9 @@
 //! - `since`: up to 500 new texts after a row, or from the first sent since a day (reader.rs);
 //! - `open_full_disk_access`: System Settings at Privacy & Security, Full Disk Access, that address only;
 //! - `reopen`: quit and open the app again, for a Full Disk Access grant macOS applies only at launch, and only while
-//!   the app still cannot read Messages, so no page can restart the app at will.
+//!   the app still cannot read Messages, so no page can restart the app at will;
+//! - `install_service`: open Messages Service, or install it from its latest release when it is missing (service.rs);
+//! - `open_connect_link`: hand the service its connect link, the one link of another app's the window lets out.
 //!
 //! Each logs one `[apple-messages]` line with its result and reason. Only the Mac has Messages to read: on any other
 //! target the plugin registers and answers nothing, so a shell that builds it everywhere still builds.
@@ -14,6 +16,8 @@ use tauri::Runtime;
 
 #[cfg(target_os = "macos")]
 pub mod reader;
+#[cfg(target_os = "macos")]
+pub mod service;
 
 /// The plugin's name, as the page's commands and the permission (`apple-messages:default`) name it.
 pub const PLUGIN: &str = "apple-messages";
@@ -37,7 +41,14 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(mac::Held::default());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![mac::access, mac::since, mac::open_full_disk_access, mac::reopen]);
+        .invoke_handler(tauri::generate_handler![
+            mac::access,
+            mac::since,
+            mac::open_full_disk_access,
+            mac::reopen,
+            service_commands::install_service,
+            service_commands::open_connect_link
+        ]);
     builder.build()
 }
 
@@ -142,6 +153,22 @@ mod mac {
         // request_restart, not restart: the app's exit events run, so the window plugin saves where the window was.
         app.request_restart();
         Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod service_commands {
+    use crate::service::{self, Installed, Installer};
+
+    #[tauri::command]
+    pub async fn install_service(team_id: String) -> Result<Installed, String> {
+        log::info!("[apple-messages] asked to install or open Messages Service");
+        Installer::for_this_mac(&team_id)?.install()
+    }
+
+    #[tauri::command]
+    pub async fn open_connect_link(link: String) -> Result<(), String> {
+        service::open_connect_link(&link)
     }
 }
 

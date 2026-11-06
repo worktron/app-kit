@@ -3221,6 +3221,7 @@ dependencies = [
  "log",
  "rusqlite",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-plugin",
 ]

@@ -14,6 +14,8 @@ export const COMMANDS = {
   since: 'since',
   openFullDiskAccess: 'open_full_disk_access',
   reopen: 'reopen',
+  installService: 'install_service',
+  openConnectLink: 'open_connect_link',
 } as const;
 
 /** What every log line of the page half and the plugin starts with. */
@@ -39,3 +41,35 @@ export const BATCH_SIZE = 500;
 
 /** How many reads a row seen before its chat link is held back before it is skipped with a log line. */
 export const HOLD_READS = 20;
+
+/*
+ * Messages Service: the Mac app that holds the one Full Disk Access grant and pushes texts to the server of each app
+ * the person connects (its own repository, worktron/messages-service). These are the names it and the kit share; the
+ * service's own tests hold its copy to them.
+ */
+
+/** The service's name in Applications and on screen, as `<name>.app`. */
+export const SERVICE_APP_NAME = 'Messages Service';
+/** Its bundle identifier: the installer finds an installed copy by it. Development builds use another. */
+export const SERVICE_BUNDLE_ID = 'com.worktron.messages-service';
+/** Its link scheme: `messages-service://connect?address=<the app's routes>&code=<one-time code>`. */
+export const SERVICE_SCHEME = 'messages-service';
+export const SERVICE_CONNECT_HOST = 'connect';
+/** The service's releases' update manifest, which names the archive the installer and the updater both take. */
+export const SERVICE_LATEST_JSON = 'https://github.com/worktron/messages-service/releases/latest/download/latest.json';
+/** The release's platform key in that manifest. */
+export const SERVICE_PLATFORM = 'darwin-aarch64';
+
+/**
+ * Where an app mounts the routes the service talks to (server.ts messagesServiceRoutes), relative to its origin:
+ * - `GET  <routes>/about`: `{ name }`, the app's display name, which the service's window shows under the host;
+ * - `POST <routes>/code`: a one-time code for the signed-in person, made for the connect link (session only);
+ * - `POST <routes>/connect`: `{ code, secret }` from the service once the person says yes, answered `{ connection }`;
+ * - `POST <routes>/texts/<connection>`: a batch, `{ texts }`, signed the Standard Webhooks way with that connection's
+ *   secret; 200 stored, 401 a bad signature, 410 the connection is gone (the service stops pushing to it).
+ */
+export const MESSAGES_SERVICE_ROUTES = '/api/messages-service';
+/** The paths under MESSAGES_SERVICE_ROUTES the app's sign-in check lets through: the service has no session. */
+export const SERVICE_OPEN_PATHS = ['/about', '/connect', '/texts/'] as const;
+/** How long a connect code can be used, once. */
+export const CONNECT_CODE_MS = 10 * 60_000;
