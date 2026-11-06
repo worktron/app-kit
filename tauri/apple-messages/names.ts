@@ -62,7 +62,8 @@ export const SERVICE_PLATFORM = 'darwin-aarch64';
 
 /**
  * Where an app mounts the routes the service talks to (server.ts messagesServiceRoutes), relative to its origin:
- * - `GET  <routes>/about`: `{ name }`, the app's display name, which the service's window shows under the host;
+ * - `GET  <routes>/about?code=<code>`: `{ name, account }`, the app's display name and the account the code was made for,
+ *   which the service's window shows under the host (`{ name }` alone for a code that is unknown, used or expired);
  * - `POST <routes>/code`: a one-time code for the signed-in person, made for the connect link (session only);
  * - `POST <routes>/connect`: `{ code, secret }` from the service once the person says yes, answered `{ connection }`;
  * - `POST <routes>/texts/<connection>`: a batch, `{ texts }`, signed the Standard Webhooks way with that connection's

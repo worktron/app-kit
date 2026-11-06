@@ -1026,6 +1026,7 @@ import { MESSAGES_SERVICE_ROUTES, messagesServiceRoutes } from 'app-kit/tauri/ap
 app.route(MESSAGES_SERVICE_ROUTES, messagesServiceRoutes({
   name: 'Example', // shown in the service's window under the app's host
   userId: (c) => getAuth(c, { acceptsToken: 'session_token' })?.userId ?? null, // a session's person, never an agent's key
+  account: (userId) => people.email(userId), // shown in the service's window, so a link made for someone else's account is seen
   connect: (userId, secret) => connections.add(userId, secret), // answers the connection's id
   connectionOf: (id) => connections.get(id), // null once the person turned it off: the service's next push gets 410 and stops
   store: (userId, batch) => savedTexts.add(userId, batch),
@@ -1034,7 +1035,7 @@ app.route(MESSAGES_SERVICE_ROUTES, messagesServiceRoutes({
 
 A connection's pushes are signed the Standard Webhooks way (`webhook-id`, `webhook-timestamp` within five minutes, `webhook-signature`, with the `standardwebhooks` package) with the secret the service made for it; anything else is refused and logged with a line starting `[apple-messages]`, never with a text's words. A batch is at most `BATCH_SIZE` texts, each within the limits above (`checkTexts`). The service keeps its place in the person's texts and moves it only on a 2xx answer, so a server that was down gets the texts it missed.
 
-The page, signed in, asks its server for a code and opens the connect link; the service asks the person in its own window, naming the app's host and the name from `/about`, and nothing flows until they say yes there:
+The page, signed in, asks its server for a code and opens the connect link; the service asks the person in its own window, naming the app's host, the name from `/about` and the account the code was made for (`account`), so a link someone made for their own account and sent to another person shows that account, and nothing flows until they say yes there:
 
 ```ts
 import { MESSAGES_SERVICE_ROUTES, connectLink, messagesService } from 'app-kit/tauri/apple-messages';
@@ -1043,11 +1044,11 @@ const { code } = await request(`${MESSAGES_SERVICE_ROUTES}/code`, { method: 'POS
 const link = connectLink({ address: `${location.origin}${MESSAGES_SERVICE_ROUTES}`, code });
 // In the Mac app: open the service, installing it first when it is missing, then hand it the link.
 await messagesService().installService('ABCDE12345'); // the 10-character Apple Developer team that signs the service
-await messagesService().openConnectLink(link);
+await messagesService().openConnectLink('ABCDE12345', link);
 // In a browser: location.href = link, with a link to the service's download (SERVICE_LATEST_JSON's release) beside it.
 ```
 
-`installService` opens an installed copy and never replaces it: macOS refuses one app changing another's files unless the same team signs both, and the service updates itself. When it is missing, it downloads the latest release, the same archive the service's updater takes, unpacks it into a fresh folder beside Applications, and checks it there with codesign: Apple's chain, the given team, notarized by Apple, and the service's bundle identifier. Only a copy that passes is moved into `/Applications` (`~/Applications` when that is not writable) and opened; an interrupted or refused install leaves nothing behind. The check is the only one, since a file an app downloads itself carries no quarantine mark and macOS does not check it on opening. `openConnectLink` hands over the service's connect link and nothing else: the window opens no other app's links itself.
+`installService` opens an installed copy and never replaces it: macOS refuses one app changing another's files unless the same team signs both, and the service updates itself. When it is missing, it downloads the latest release, the same archive the service's updater takes, unpacks it into a fresh folder beside Applications, and checks it there with codesign: Apple's chain, the given team, notarized by Apple, and the service's bundle identifier. Only a copy that passes is moved into `/Applications` (`~/Applications` when that is not writable) and opened; an interrupted or refused install leaves nothing behind. The check is the only one, since a file an app downloads itself carries no quarantine mark and macOS does not check it on opening. An installed copy goes through the same codesign check before it is opened, and one that fails is refused rather than opened, so a bundle that only borrows the service's name and identifier never gets the person's Full Disk Access grant. `openConnectLink` hands the connect link, and nothing else, to that checked copy by its path, so another app that claims the `messages-service:` scheme never sees the code: the window opens no other app's links itself.
 
 An app moving onto the plugin from its own reader ships its Mac release first: the page comes from the server and the shell from the installed build, so a page that calls the plugin before that build is installed reads nothing.
 

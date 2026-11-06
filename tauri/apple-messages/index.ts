@@ -143,8 +143,8 @@ export async function catchUp(deps: {
  * Messages Service, the Mac app that holds the one Full Disk Access grant and pushes texts to the server of each app
  * the person connects (server.ts says how). An app's page connects the person's texts to its server with a code from
  * its server and the link below, which the service opens in its own window to ask the person; nothing flows until they
- * say yes there. In a Tauri Mac app the plugin installs the service when it is missing and opens the link, since the
- * window opens no other app's links; in a browser the page opens the link itself, and offers the download when no app
+ * say yes there, with the app's host and the account the code was made for in front of them. In a Tauri Mac app the
+ * plugin installs the service when it is missing and opens the link, since the window opens no other app's links; in a browser the page opens the link itself, and offers the download when no app
  * answers it.
  */
 
@@ -161,11 +161,13 @@ export type ServiceInstall = { done: 'opened' | 'installed'; path: string };
  * The plugin's service commands. `installService(teamId)` opens the installed service, or downloads its latest
  * release, installs it only if it is signed by the team `teamId` (the 10 characters of the person's Apple Developer
  * team) and notarized by Apple, and opens it; it rejects with its reason, and nothing is put in Applications.
- * `openConnectLink(link)` hands a connectLink to the service.
+ * `openConnectLink(teamId, link)` hands a connectLink to the installed copy, checked the same way, by its path, so no
+ * other app that claims the link's scheme gets the code.
  */
 export function messagesService(invoke: Invoke = tauriInvoke) {
   return {
     installService: (teamId: string) => invoke(plugin(COMMANDS.installService), { teamId }) as Promise<ServiceInstall>,
-    openConnectLink: (link: string) => invoke(plugin(COMMANDS.openConnectLink), { link }) as Promise<void>,
+    openConnectLink: (teamId: string, link: string) =>
+      invoke(plugin(COMMANDS.openConnectLink), { teamId, link }) as Promise<void>,
   };
 }

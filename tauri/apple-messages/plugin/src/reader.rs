@@ -449,10 +449,10 @@ pub fn read_since(
         if row.date < since_apple_ns {
             continue;
         }
-        if row.guid.encode_utf16().count() > MAX_GUID_UNITS {
-            // The server keys a text by it, so it cannot be cut; sent as
-            // is it would refuse the batch, and every later one.
-            log::warn!("[apple-messages] skipped row {}: its guid is longer than {MAX_GUID_UNITS}", row.rowid);
+        if row.guid.is_empty() || row.guid.encode_utf16().count() > MAX_GUID_UNITS {
+            // The server keys a text by it, so it cannot be cut or empty;
+            // sent as is it would refuse the batch, and every later one.
+            log::warn!("[apple-messages] skipped row {}: its guid is empty or longer than {MAX_GUID_UNITS}", row.rowid);
             continue;
         }
         let mut words = row.text.as_deref().map(readable).filter(|t| !t.is_empty()).unwrap_or_default();
@@ -888,6 +888,10 @@ mod tests {
         let next = read_since(&db, Err("none"), Some(batch.scanned_to), 0, 500, &mut HashMap::new()).unwrap();
         assert!(next.texts.is_empty());
         assert_eq!(next.scanned_to, odd);
+        let empty = add(&conn, "", Some("no guid"), None, 1, false, Some(1), 0, NOV_2_9AM_MS + 3);
+        let last = read_since(&db, Err("none"), Some(odd), 0, 500, &mut HashMap::new()).unwrap();
+        assert!(last.texts.is_empty(), "nor one with an empty guid");
+        assert_eq!(last.scanned_to, empty);
     }
 
     #[test]

@@ -1,8 +1,10 @@
 //! Installing Messages Service, the Mac app that holds the one Full Disk Access grant and pushes texts to the server of
 //! each app the person connects, and handing it a connect link (../../index.ts messagesService, ../../server.ts).
 //!
-//! An installed copy is opened, never replaced: macOS refuses one app changing another's files unless both are signed
-//! by the same team, and the service updates itself. A missing one is downloaded from its latest release (the archive
+//! An installed copy is checked and opened, never replaced: macOS refuses one app changing another's files unless both
+//! are signed by the same team, and the service updates itself. A copy that fails the check is refused, never opened,
+//! so a bundle that only borrows the service's name and identifier is not handed Full Disk Access or a connect link.
+//! A missing one is downloaded from its latest release (the archive
 //! its updater takes too), unpacked into a fresh folder beside Applications, and checked there: signed by the app's
 //! team, notarized by Apple, and the service's own bundle. Only a copy that passes is moved into Applications, so an
 //! interrupted or refused install leaves nothing behind. This check is the only one: a file an app downloads itself
@@ -32,6 +34,12 @@ pub struct Installed {
     pub path: String,
 }
 
+/// Opens the app, with a link for it when there is one.
+pub type Open = fn(&Path, Option<&str>) -> Result<(), String>;
+
+/// One install at a time in this app: a second click while the first downloads waits for it, then opens what it put in place.
+static INSTALLING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Where to look and what to take: the real ones in `Installer::for_this_mac`, folders of a test's own in tests.
 pub struct Installer {
     /// Where an installed copy may be, in order; a new one goes in the first that can be written to.
@@ -40,8 +48,8 @@ pub struct Installer {
     pub latest_json: String,
     /// What the copy must satisfy, in codesign's requirement language.
     pub requirement: String,
-    /// Opens the app; tests record it instead, so nothing opens on the screen.
-    pub open: fn(&Path) -> Result<(), String>,
+    /// Opens the app, or hands it a link; tests record it instead, so nothing opens on the screen.
+    pub open: Open,
 }
 
 /// The requirement a downloaded copy must meet: Apple's chain, the team's Developer ID, notarized, and the service's id.
@@ -70,15 +78,35 @@ impl Installer {
         self.folders.iter().map(|f| f.join(format!("{SERVICE_APP_NAME}.app"))).find(|app| bundle_id(app).as_deref() == Some(SERVICE_BUNDLE_ID))
     }
 
+    /// The installed copy, once codesign says it meets the requirement; an error when it is missing or does not.
+    pub fn checked(&self) -> Result<PathBuf, String> {
+        let app = self.installed().ok_or("Messages Service is not installed")?;
+        self.check(&app).map_err(|e| {
+            log::warn!("[apple-messages] refused the Messages Service at {}: {e}", app.display());
+            format!("the Messages Service at {} is not the team's notarized build ({e}); remove it and install again", app.display())
+        })?;
+        Ok(app)
+    }
+
+    fn check(&self, app: &Path) -> Result<(), String> {
+        run(
+            Command::new("/usr/bin/codesign").args(["--verify", "--strict", "--deep"]).arg(format!("-R={}", self.requirement)).arg(app),
+            "checking it is the service, signed by this team and notarized",
+        )
+    }
+
     /// Open the installed service, or install the latest release and open it.
     pub fn install(&self) -> Result<Installed, String> {
-        if let Some(app) = self.installed() {
+        let _one = INSTALLING.lock().unwrap_or_else(|e| e.into_inner());
+        if self.installed().is_some() {
+            let app = self.checked()?;
             log::info!("[apple-messages] Messages Service is installed at {}; opening it", app.display());
-            (self.open)(&app)?;
+            (self.open)(&app, None)?;
             return Ok(Installed { done: "opened", path: app.display().to_string() });
         }
         let folder = self.folders.iter().find(|f| writable(f)).ok_or("no Applications folder this app can write to")?;
-        // A folder of this install's own beside the destination, so the last step is a rename on one volume.
+        // A folder of this install's own beside the destination, so the last step is a rename on one volume. Only this
+        // app's installs use the name, one at a time, so what is there is an interrupted earlier one's.
         let staging = folder.join(format!(".{SERVICE_APP_NAME}.installing-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir(&staging).map_err(|e| format!("cannot make {}: {e}", staging.display()))?;
@@ -102,14 +130,23 @@ impl Installer {
         if !unpacked.is_dir() {
             return Err(format!("the release holds no {SERVICE_APP_NAME}.app"));
         }
-        run(
-            Command::new("/usr/bin/codesign").args(["--verify", "--strict", "--deep"]).arg(format!("-R={}", self.requirement)).arg(&unpacked),
-            "checking the release is the service, signed by this team and notarized",
-        )?;
+        self.check(&unpacked)?;
         let app = folder.join(format!("{SERVICE_APP_NAME}.app"));
         std::fs::rename(&unpacked, &app).map_err(|e| format!("moving it into {}: {e}", folder.display()))?;
-        (self.open)(&app)?;
+        (self.open)(&app, None)?;
         Ok(Installed { done: "installed", path: app.display().to_string() })
+    }
+
+    /// Hands a connect link to the installed, checked copy by its path, never to whichever app claims the link's scheme.
+    pub fn connect(&self, link: &str) -> Result<(), String> {
+        if !is_connect_link(link) {
+            log::warn!("[apple-messages] refused to open a link that is not Messages Service's connect link");
+            return Err("not a Messages Service connect link".into());
+        }
+        let app = self.checked()?;
+        (self.open)(&app, Some(link)).map_err(|e| format!("opening the connect link: {e}"))?;
+        log::info!("[apple-messages] handed a connect link to Messages Service at {}", app.display());
+        Ok(())
     }
 }
 
@@ -150,14 +187,25 @@ fn writable(folder: &Path) -> bool {
     if !folder.exists() && std::fs::create_dir_all(folder).is_err() {
         return false;
     }
+    // A file made new, so one already there is neither written over nor removed.
     let probe = folder.join(format!(".app-kit-write-check-{}", std::process::id()));
-    let ok = std::fs::write(&probe, b"").is_ok();
-    let _ = std::fs::remove_file(&probe);
-    ok
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
-fn open_app(app: &Path) -> Result<(), String> {
-    run(Command::new("/usr/bin/open").arg(app), "opening Messages Service")
+/// macOS's `open -a <app> [link]`: the app at that path, so a link reaches it and no other app that claims the scheme.
+fn open_app(app: &Path, link: Option<&str>) -> Result<(), String> {
+    let mut open = Command::new("/usr/bin/open");
+    open.arg("-a").arg(app);
+    if let Some(link) = link {
+        open.arg(link);
+    }
+    run(&mut open, "opening Messages Service")
 }
 
 /// Whether `link` is the service's connect link, the only link `open_connect_link` hands over.
@@ -165,30 +213,28 @@ pub fn is_connect_link(link: &str) -> bool {
     link.strip_prefix(&format!("{SERVICE_SCHEME}://{SERVICE_CONNECT_HOST}?")).is_some_and(|q| q.contains("address=") && q.contains("code="))
 }
 
-/// Hands a connect link to the service, which asks the person in its own window.
-pub fn open_connect_link(link: &str) -> Result<(), String> {
-    if !is_connect_link(link) {
-        log::warn!("[apple-messages] refused to open a link that is not Messages Service's connect link");
-        return Err("not a Messages Service connect link".into());
-    }
-    run(Command::new("/usr/bin/open").arg(link), "opening the connect link")?;
-    log::info!("[apple-messages] handed a connect link to Messages Service");
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    static OPENED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
-    fn record(app: &Path) -> Result<(), String> {
-        OPENED.lock().unwrap().push(app.to_path_buf());
+    static OPENED: Mutex<Vec<(PathBuf, Option<String>)>> = Mutex::new(Vec::new());
+    fn record(app: &Path, link: Option<&str>) -> Result<(), String> {
+        OPENED.lock().unwrap().push((app.to_path_buf(), link.map(String::from)));
         Ok(())
     }
     fn opened(under: &Path) -> Vec<PathBuf> {
-        OPENED.lock().unwrap().iter().filter(|p| p.starts_with(under)).cloned().collect()
+        OPENED.lock().unwrap().iter().filter(|(p, _)| p.starts_with(under)).map(|(p, _)| p.clone()).collect()
     }
+    fn links(under: &Path) -> Vec<String> {
+        OPENED.lock().unwrap().iter().filter(|(p, _)| p.starts_with(under)).filter_map(|(_, l)| l.clone()).collect()
+    }
+    /// What an ad hoc signature meets: a requirement on its identifier only, the made-up stand-in for the team's.
+    fn ad_hoc() -> String {
+        format!("identifier \"{SERVICE_BUNDLE_ID}\"")
+    }
+    const LINK: &str = "messages-service://connect?address=https%3A%2F%2Fapp.example.com%2Fapi%2Fmessages-service&code=ab";
 
     struct Dir(PathBuf);
     impl Drop for Dir {
@@ -240,10 +286,44 @@ mod tests {
         let apps = d.0.join("Applications");
         let app = fake_app(&apps, SERVICE_BUNDLE_ID);
         let before = std::fs::metadata(app.join("Contents/MacOS/service")).unwrap().modified().unwrap();
-        let done = installer(&apps, "file:///nowhere/latest.json".into(), requirement("ABCDE12345").unwrap()).install().unwrap();
+        let done = installer(&apps, "file:///nowhere/latest.json".into(), ad_hoc()).install().unwrap();
         assert_eq!(done, Installed { done: "opened", path: app.display().to_string() });
         assert_eq!(opened(&d.0), vec![app.clone()]);
         assert_eq!(std::fs::metadata(app.join("Contents/MacOS/service")).unwrap().modified().unwrap(), before);
+    }
+
+    #[test]
+    fn an_installed_copy_not_signed_by_the_team_and_notarized_is_never_opened_or_handed_a_link() {
+        let d = dir("installed-impostor");
+        let apps = d.0.join("Applications");
+        fake_app(&apps, SERVICE_BUNDLE_ID);
+        let i = installer(&apps, "file:///nowhere/latest.json".into(), requirement("ABCDE12345").unwrap());
+        let err = i.install().unwrap_err();
+        assert!(err.contains("is not the team's notarized build"), "{err}");
+        assert!(i.connect(LINK).unwrap_err().contains("is not the team's notarized build"));
+        assert!(opened(&d.0).is_empty());
+    }
+
+    #[test]
+    fn the_connect_link_goes_to_the_checked_installed_copy_and_no_other_link_does() {
+        let d = dir("connect");
+        let apps = d.0.join("Applications");
+        let i = installer(&apps, "file:///nowhere/latest.json".into(), ad_hoc());
+        assert_eq!(i.connect(LINK).unwrap_err(), "Messages Service is not installed");
+        let app = fake_app(&apps, SERVICE_BUNDLE_ID);
+        assert!(i.connect("file:///etc/passwd").is_err());
+        i.connect(LINK).unwrap();
+        assert_eq!(opened(&d.0), vec![app]);
+        assert_eq!(links(&d.0), vec![LINK.to_string()]);
+    }
+
+    #[test]
+    fn a_file_already_named_like_the_write_check_is_left_alone() {
+        let d = dir("probe");
+        let probe = d.0.join(format!(".app-kit-write-check-{}", std::process::id()));
+        std::fs::write(&probe, b"someone's").unwrap();
+        assert!(!writable(&d.0));
+        assert_eq!(std::fs::read(&probe).unwrap(), b"someone's");
     }
 
     #[test]
@@ -264,8 +344,7 @@ mod tests {
         let apps = d.0.join("Applications");
         std::fs::create_dir_all(&apps).unwrap();
         let latest = release(&d.0, SERVICE_BUNDLE_ID);
-        // An ad hoc signature meets only a requirement on its identifier: the made-up stand-in for the team's.
-        let done = installer(&apps, latest, format!("identifier \"{SERVICE_BUNDLE_ID}\"")).install().unwrap();
+        let done = installer(&apps, latest, ad_hoc()).install().unwrap();
         let app = apps.join(format!("{SERVICE_APP_NAME}.app"));
         assert_eq!(done, Installed { done: "installed", path: app.display().to_string() });
         assert_eq!(std::fs::read_dir(&apps).unwrap().map(|e| e.unwrap().file_name()).collect::<Vec<_>>(), vec![app.file_name().unwrap()]);
@@ -296,7 +375,6 @@ mod tests {
         assert!(is_connect_link("messages-service://connect?address=https%3A%2F%2Fapp.example.com%2Fapi%2Fmessages-service&code=ab"));
         assert!(!is_connect_link("messages-service://other?address=x&code=y"));
         assert!(!is_connect_link("https://example.com/?address=x&code=y"));
-        assert!(open_connect_link("file:///etc/passwd").is_err());
     }
 
     #[test]

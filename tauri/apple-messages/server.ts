@@ -4,8 +4,9 @@
  *
  * The service is a Mac app that holds the one Full Disk Access grant and pushes texts to the server of each app the
  * person connects. Connecting goes: the signed-in page asks for a one-time code (`POST /code`) and opens the service's
- * connect link with it (index.ts connectLink); the service fetches the app's name (`GET /about`) and asks the person in
- * its own window, naming this server's host; on their yes it posts the code and a secret it made (`POST /connect`),
+ * connect link with it (index.ts connectLink); the service fetches the app's name and the account the code was made
+ * for (`GET /about?code=`) and asks the person in its own window, naming this server's host and that account, so a
+ * link someone else made for their own account is seen for what it is; on their yes it posts the code and a secret it made (`POST /connect`),
  * which the app keeps for the person the code was made for. From then on the service pushes texts in batches to
  * `POST /texts/<connection>`, each signed with that secret the Standard Webhooks way (standardwebhooks.com: a
  * `webhook-id`, a `webhook-timestamp` within five minutes, and an HMAC `webhook-signature`), and moves its place in
@@ -51,6 +52,11 @@ export interface MessagesServiceRoutesOptions<E extends Env> {
   name: string;
   /** The id of the person signed in with a session, or null. Never a key for agents': a code connects that person's texts. */
   userId(c: Context<E>): string | null;
+  /**
+   * How the person knows their own account in the app, such as their email: the service's window names it, so a person
+   * opening a connect link someone else made sees their texts would go to that someone's account.
+   */
+  account(userId: string): Promise<string>;
   /** Keep a new connection for `userId` with the service's `secret`, and answer its id (a uuid will do). */
   connect(userId: string, secret: string): Promise<string>;
   /** The connection's person and secret, or null when it is unknown or was turned off. */
@@ -75,7 +81,8 @@ const SENDER_KINDS = new Set(['me', 'contact', 'short_code', 'unknown']);
 
 /**
  * The texts of a pushed batch, or why it is refused: at most BATCH_SIZE, each within the limits the reader cuts to, so
- * a batch the reader read is never refused.
+ * a batch the reader read is never refused. Only what the reader never sends empty must have a character: the guid,
+ * the sender, and each participant's handle; Messages' own chat id and service may be empty.
  */
 export function checkTexts(body: unknown): { texts: MacText[] } | { refused: string } {
   const texts = (body as { texts?: unknown } | null)?.texts;
@@ -87,7 +94,7 @@ export function checkTexts(body: unknown): { texts: MacText[] } | { refused: str
       typeof x === 'object' && x !== null &&
       text(x.guid, MAX_GUID_UNITS) &&
       Number.isSafeInteger(x.rowid) && (x.rowid as number) >= 0 &&
-      text(x.chatGuid, MAX_FIELD_UNITS) &&
+      text(x.chatGuid, MAX_FIELD_UNITS, 0) &&
       textOrNull(x.chatName, MAX_FIELD_UNITS) &&
       Array.isArray(x.participants) && x.participants.length <= MAX_PARTICIPANTS &&
       x.participants.every((p: { handle?: unknown; name?: unknown } | null) =>
@@ -95,7 +102,7 @@ export function checkTexts(body: unknown): { texts: MacText[] } | { refused: str
       text(x.senderHandle, MAX_FIELD_UNITS) &&
       textOrNull(x.senderName, MAX_FIELD_UNITS) &&
       SENDER_KINDS.has(x.senderKind as string) &&
-      text(x.service, MAX_SERVICE_UNITS) &&
+      text(x.service, MAX_SERVICE_UNITS, 0) &&
       Number.isSafeInteger(x.sentAtMs) && (x.sentAtMs as number) > 0 &&
       text(x.text, MAX_TEXT_UNITS, 0);
     if (!fine) return { refused: `text ${i} is not a text within the limits` };
@@ -117,7 +124,14 @@ export function messagesServiceRoutes<E extends Env = Env>(options: MessagesServ
   };
   const routes = new Hono<E>();
 
-  routes.get('/about', (c) => c.json({ name: options.name }));
+  routes.get('/about', async (c) => {
+    const code = c.req.query('code');
+    forgetOld();
+    const made = code && HEX_32.test(code) ? codes.get(code) : undefined;
+    if (!made) return c.json({ name: options.name });
+    c.header('Cache-Control', 'no-store');
+    return c.json({ name: options.name, account: await options.account(made.userId) });
+  });
 
   routes.post('/code', (c) => {
     // A browser sends a cookie with another site's request in some setups, never a bearer token, so a code is made

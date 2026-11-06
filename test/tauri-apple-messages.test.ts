@@ -254,13 +254,13 @@ describe('Messages Service', () => {
       return null;
     });
     await s.installService('ABCDE12345');
-    await s.openConnectLink('messages-service://connect?address=x&code=y');
+    await s.openConnectLink('ABCDE12345', 'messages-service://connect?address=x&code=y');
     expect(calls).toEqual([
       ['plugin:apple-messages|install_service', { teamId: 'ABCDE12345' }],
-      ['plugin:apple-messages|open_connect_link', { link: 'messages-service://connect?address=x&code=y' }],
+      ['plugin:apple-messages|open_connect_link', { teamId: 'ABCDE12345', link: 'messages-service://connect?address=x&code=y' }],
     ]);
     expect(lib).toContain('pub async fn install_service(team_id: String)');
-    expect(lib).toContain('pub async fn open_connect_link(link: String)');
+    expect(lib).toContain('pub async fn open_connect_link(team_id: String, link: String)');
   });
 });
 
@@ -275,6 +275,7 @@ describe("the app's routes for Messages Service", () => {
     const routes = messagesServiceRoutes({
       name: 'Example',
       userId: () => signedIn,
+      account: async (userId) => `${userId}@example.com`,
       connect: async (userId, secret) => {
         const id = `c${connections.size + 1}`;
         connections.set(id, { userId, secret });
@@ -300,8 +301,13 @@ describe("the app's routes for Messages Service", () => {
     return { body: payload, headers: { 'webhook-id': id, 'webhook-timestamp': String(Math.floor(at.getTime() / 1000)), 'webhook-signature': new Webhook(secret).sign(id, at, payload), 'Content-Type': 'application/json' } };
   };
 
-  test("the service reads the app's name from the app's own address", async () => {
-    expect(await (await app().ask('/about')).json()).toEqual({ name: 'Example' });
+  test("the service reads the app's name, and the account a live code was made for, from the app's own address", async () => {
+    const a = app();
+    expect(await (await a.ask('/about')).json()).toEqual({ name: 'Example' });
+    const { code } = (await (await a.post('/code', {}, { Authorization: 'Bearer session' })).json()) as { code: string };
+    expect(await (await a.ask(`/about?code=${code}`)).json()).toEqual({ name: 'Example', account: 'person-1@example.com' });
+    await a.post('/connect', { code, secret: SECRET });
+    expect(await (await a.ask(`/about?code=${code}`)).json()).toEqual({ name: 'Example' });
   });
 
   test('a connect code is made only for a signed-in session with a bearer token, and works once', async () => {
@@ -351,6 +357,10 @@ describe("the app's routes for Messages Service", () => {
     expect(checkTexts({ texts: Array.from({ length: BATCH_SIZE + 1 }, (_, i) => text(i)) })).toEqual({ refused: `more than ${BATCH_SIZE} texts` });
     expect(checkTexts({ texts: [{ ...sample, senderKind: 'someone' }] })).toEqual({ refused: 'text 0 is not a text within the limits' });
     expect(checkTexts({ texts: [{ ...sample, text: 'x'.repeat(MAX_TEXT_UNITS) }] })).toEqual({ texts: [{ ...sample, text: 'x'.repeat(MAX_TEXT_UNITS) }] });
+    // What the reader can send empty, Messages' own chat id and service, is never what refuses a batch.
+    const bare = { ...sample, chatGuid: '', service: '' };
+    expect(checkTexts({ texts: [bare] })).toEqual({ texts: [bare] });
+    expect(checkTexts({ texts: [{ ...sample, guid: '' }] })).toEqual({ refused: 'text 0 is not a text within the limits' });
     expect(a.stored).toEqual([]);
   });
 });

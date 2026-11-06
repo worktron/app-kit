@@ -6,7 +6,8 @@
 //! - `reopen`: quit and open the app again, for a Full Disk Access grant macOS applies only at launch, and only while
 //!   the app still cannot read Messages, so no page can restart the app at will;
 //! - `install_service`: open Messages Service, or install it from its latest release when it is missing (service.rs);
-//! - `open_connect_link`: hand the service its connect link, the one link of another app's the window lets out.
+//! - `open_connect_link`: hand the installed, checked service its connect link, the one link of another app's the window
+//!   lets out.
 //!
 //! Each logs one `[apple-messages]` line with its result and reason. Only the Mac has Messages to read: on any other
 //! target the plugin registers and answers nothing, so a shell that builds it everywhere still builds.
@@ -158,7 +159,7 @@ mod mac {
 
 #[cfg(target_os = "macos")]
 mod service_commands {
-    use crate::service::{self, Installed, Installer};
+    use crate::service::{Installed, Installer};
 
     #[tauri::command]
     pub async fn install_service(team_id: String) -> Result<Installed, String> {
@@ -167,8 +168,8 @@ mod service_commands {
     }
 
     #[tauri::command]
-    pub async fn open_connect_link(link: String) -> Result<(), String> {
-        service::open_connect_link(&link)
+    pub async fn open_connect_link(team_id: String, link: String) -> Result<(), String> {
+        Installer::for_this_mac(&team_id)?.connect(&link)
     }
 }
 
