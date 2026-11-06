@@ -260,7 +260,8 @@ export async function drive(options: { address: string; steps: StepsFile; out: s
       }
       window.fetch = Object.assign(counting, original)
     })
-    // After the kit's own, so the app's stand-in sees the page as the kit set it up, and before any of the page's.
+    // Before any of the page's scripts. Playwright leaves its order among the kit's own set-up (the fetch count, offline
+    // audio, the iPhone app's bridge) undefined, so the app's script must not rely on them.
     if (plan.initScript) await context.addInitScript({ path: plan.initScript })
     const page: Page = await context.newPage()
     if (SIZES[plan.size].iphoneApp) await fakeTauri(page)
