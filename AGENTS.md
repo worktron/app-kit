@@ -17,6 +17,8 @@ web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, 
                  playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens,
                  and Playwright's test with it on every context (app-kit/web/playwright-offline-audio);
                  playwright.js, the browser test steps every app shares (app-kit/web/playwright);
+                 drive.ts, `app-kit web drive`, the app driven headless from a steps file for persona walk-throughs
+                 and store screenshots, run against a page of its own by web/e2e/drive.e2e.ts;
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium; web/e2e/audio-output.swift, the
                  record of which processes have an output device open, for offline-audio.e2e.ts
 extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension, with

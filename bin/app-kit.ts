@@ -10,7 +10,7 @@
 // makes the key that signs it. The icons part draws every icon an app ships from
 // its drawings.
 
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
@@ -25,6 +25,7 @@ import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
 import { clock, MINUTES, MOST_MINUTES, setTime, watchSimulator } from '../tauri/iphone-simulator/lifetime.ts'
 import { stateFolder } from '../tauri/state.ts'
 import { upload } from '../tauri/testflight/upload.ts'
+import { drive, readSteps } from '../web/drive.ts'
 import { watch } from '../tauri/testflight/watch.ts'
 
 const USAGE = `app-kit <part> <command>
@@ -110,6 +111,16 @@ const USAGE = `app-kit <part> <command>
                               per decision in
                               ~/.local/state/app-kit/testflight/testflight.log;
                               exits 1 when a step failed for any app
+  web drive <address> <steps.json> <out folder>
+                              drive the app served at <address> in a fresh hidden
+                              Chromium from a steps file, for a persona walk-through or a
+                              store's screenshots: goto, click, fill, waitFor, signIn,
+                              clockAt, advance, read (the accessibility tree printed and a
+                              screenshot) and shot (an image at the steps file's size:
+                              phone, desktop, chrome-store, iphone-6.3, iphone-6.9,
+                              ipad-13); refuses every request not to <address>, and plays
+                              no sound; the README's "Driving the app headless" has the
+                              format; exits 1 when a step failed
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
@@ -290,6 +301,16 @@ async function iphoneSimulator([command, udid, ...extra]: string[]): Promise<boo
   return true
 }
 
+async function web([command, ...args]: string[]): Promise<boolean> {
+  if (command !== 'drive' || args.length !== 3 || args.some((arg) => arg.startsWith('-'))) return false
+  const [address, stepsFile, out] = args as [string, string, string]
+  if (!/^https?:\/\//.test(address)) return false
+  mkdirSync(out, { recursive: true })
+  const code = await drive({ address: address.replace(/\/$/, ''), steps: readSteps(readFileSync(stepsFile, 'utf8')), out })
+  // Exits here whatever the outcome: with the parent watch on, its read of the pipe would keep a finished run waiting.
+  process.exit(code)
+}
+
 async function main(args: string[]) {
   if (answerHelpOrVersion(args, { usage: USAGE, version: () => versionLine(packageJson, join(import.meta.dir, '..')) })) return
   const [part, ...rest] = args
@@ -299,6 +320,7 @@ async function main(args: string[]) {
   if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return
   if (part === 'mac' && (await mac(rest))) return
   if (part === 'testflight' && (await testflight(rest))) return
+  if (part === 'web' && (await web(rest))) return
   wrongUsage(USAGE)
 }
 

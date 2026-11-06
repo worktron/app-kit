@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium, the kit's
+# The gates a landing runs: typecheck, lint, the unit tests, the web fixture app in a hidden Chromium, `app-kit web
+# drive` against a page of its own test, the kit's
 # WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, and the Rust and Swift of the iPhone notifications
 # and iPhone sign-in plugins built for the iPhone simulator, the Apple Messages plugin's Rust tests, which read made-up
@@ -21,6 +22,7 @@ if [ -n "$(git diff --name-only "$base" HEAD -- authentication/clerk)" ] || git 
   bash scripts/e2e-clerk.sh
 fi
 bun test ./extension/e2e/harness.e2e.ts
+bun test ./web/e2e/drive.e2e.ts
 
 # The menu bar theme: built and tested as the Swift package an Xcode app adds (Swift 6), then the bare swiftc way, as its
 # own module beside an app with a Row of its own (Swift 5). Each checkout keeps its own .build.

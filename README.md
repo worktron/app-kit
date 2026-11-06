@@ -325,6 +325,49 @@ A context holds ten minutes of stereo sound, at 48,000 samples a second unless t
 
 `web/e2e/offline-audio.e2e.ts` holds it. A test made by `testWithOfflineAudio`, with no step of its own, plays a graph and opens no device, while a context it makes by hand opens one. While a page plays a graph through the step, in Chromium and in the kit's WebKit, it records macOS's audio service, which says of each process whether it has an output device open (Core Audio's list of processes, which needs no permission, read by `web/e2e/audio-output.swift`), and fails if the test's own browser opens one. The same page without the step must be seen opening one, played through a gain of zero so it is silent, so a record that hears nothing cannot pass. Other sessions playing sound at the same time are told apart by process: Chromium's audio process descends from the test's own process, and WebKit's GPU process, which macOS starts with no parent of the browser's, runs from the test's own copy of WebKit.
 
+### Driving the app headless
+
+`app-kit web drive <address> <steps.json> <out folder>` drives an app's seeded server in a fresh hidden Chromium from a steps file, for two jobs: a persona walk-through (practices' persona-walkthrough skill), where an agent reads each screen, and a store's screenshots, at each store's exact size. The browser ends with the run. Only `<address>` is reached: an image from anywhere else gets a stand-in (a grey square, or the steps file's `outsideImage`), and every other request is refused and printed, so a link to another site is reported, never followed. Every AudioContext runs on the browser's offline engine (`offlineAudio`, above), so nothing plays on the Mac's speakers. Nothing opens on the screen.
+
+```json
+{
+  "size": "iphone-6.9",
+  "settledWhenGone": "^Loading ",
+  "steps": [
+    { "clockAt": "2026-11-02T09:00:00-05:00" },
+    { "goto": "/sign-in" },
+    { "signIn": { "email": "ana@example.com" } },
+    { "waitFor": { "role": "heading", "name": "Your list" } },
+    { "click": { "role": "button", "name": "Add" } },
+    { "fill": { "role": "textbox", "name": "Something you need" }, "value": "Oat milk" },
+    { "advance": 3600000 },
+    { "read": "list" },
+    { "shot": "1-list" }
+  ]
+}
+```
+
+- `goto` a path on the address; `click`, `fill` (with `value`) and `waitFor` an element by `role` and `name`, or by `text`, the whole name unless `partial` is true.
+- `signIn` types the address and the kit's stand-in code into the sign-in screen shown, as `signInByCode` does, so it needs an app on the stand-in provider.
+- `clockAt` starts the page's clock at that date before the first `goto`, and it runs on from there; `advance` jumps it that many milliseconds, firing each timer that falls due once, as a phone does after its screen sleeps. A clock that stopped would stop the page's frames and timers too, and every step after it would wait for good.
+- `read` prints the screen's accessibility tree and saves `<label>-<size>.png`, the whole page, for the agent to look at.
+- `shot` saves `<name>.png`, the screen at the size, with animations stopped and the caret hidden, and fails its step when the image is not the size's exact pixels: a page with no `<meta name="viewport" content="width=device-width, initial-scale=1">` is laid out 980 wide on a phone and comes out a pixel or so off what a store takes.
+
+After each step the run waits until the page is settled: no request in flight, two frames drawn, still none in flight, and nothing on screen matching `settledWhenGone` when it is given. It exits 1 at the first step that fails, printing the page as it was.
+
+| `size` | Screen | Image |
+| --- | --- | --- |
+| `phone` (the default) | 390 by 844, touch | |
+| `desktop` | 1280 by 900 | |
+| `chrome-store` | 1280 by 800 | the Chrome Web Store's screenshot, 1280 by 800 |
+| `iphone-6.3` | 402 by 874 at 3x, touch | the App Store's iPhone with Dynamic Island, medium display, 1206 by 2622 |
+| `iphone-6.9` | 440 by 956 at 3x, touch | the App Store's 6.9-inch iPhone, 1320 by 2868 |
+| `ipad-13` | 1032 by 1376 at 2x, touch | the App Store's 13-inch iPad, 2064 by 2752 |
+
+At the three App Store sizes the page runs as the app's iPhone build, with `fakeTauri` and the iPhone user agent from `app-kit/tauri/playwright`, so an app that draws differently inside its iPhone app draws those screens. The images start at the app's content: a browser has no status bar and gives the page no safe-area insets. Apple's specifications page (read 2026-11-06) names the medium iPhone display as required and still takes the 6.9-inch, so an app may write both; a store's images are made again by the command in seconds, so an app keeps its steps files in git and its images in an ignored folder.
+
+A project offers persona walk-throughs with three things, named in a Personas section of its AGENTS.md: its persona files (`.claude/personas/*.md`), a command that serves the seeded app on a free port and prints `ready <address>` (Sightline's `scripts/persona-app.ts` is the example), and this command. A serve script that starts the run with a pipe, and should take the browser with it when it ends, sets `APP_KIT_DRIVE_STOP_WHEN_PARENT_ENDS=on`; it is off by default, since an agent's shell gives the run no input and watching would end it at once.
+
 ### Server tests
 
 Two pieces let an app's server tests under Bun ask its real routes as a real caller:
