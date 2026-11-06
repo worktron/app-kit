@@ -92,6 +92,8 @@ test('an add button or form that names another product, or carries no token, thr
   expect(thrown(otherButton, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button adds B0TEST0002, not B0TEST0001");
   const brokenButton = fixture('product-fresh.html').replace(/data-fresh-add-to-cart="[^"]*"/, 'data-fresh-add-to-cart="not data"');
   expect(thrown(brokenButton, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no asin, brandId, csrfToken, offerListingID, so its request is not one recorded");
+  const noData = fixture('product-fresh.html').replace(/data-fresh-add-to-cart="[^"]*"/, '');
+  expect(thrown(noData, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no asin, brandId, csrfToken, offerListingID, so its request is not one recorded");
   const noOffer = fixture('product-fresh.html').replace('&quot;offerListingID&quot;:&quot;OFFER-0001&quot;', '&quot;offerListingID&quot;:&quot;&quot;');
   expect(thrown(noOffer, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no offerListingID, so its request is not one recorded");
   const noToken = fixture('product-fresh.html').replace('&quot;csrfToken&quot;:&quot;TOKEN-PRODUCT&quot;,', '');

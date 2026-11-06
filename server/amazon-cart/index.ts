@@ -139,8 +139,10 @@ export class NotTheProduct extends Error {
 
 /** The grocery add button's request data, with the store and product it names, or null when the page has none. */
 function groceryButton(doc: DocumentFragment): { payload: string; data: Record<string, unknown> } | null {
-  const payload = doc.querySelector('[data-action="fresh-add-to-cart"]')?.getAttribute('data-fresh-add-to-cart');
-  if (!payload) return null;
+  const element = doc.querySelector('[data-action="fresh-add-to-cart"]');
+  if (!element) return null;
+  // A button with no request data reads as a button whose request lacks every field, which throws.
+  const payload = element.getAttribute('data-fresh-add-to-cart') ?? '';
   try {
     const data: unknown = JSON.parse(payload);
     return { payload, data: typeof data === 'object' && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {} };
