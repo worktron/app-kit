@@ -233,7 +233,7 @@ test.concurrent('two branches marked minor, the second landing while the first r
   expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\nUrgency: next round\n\n- The slow change\n\n## v0.6.0\n\nUrgency: next round\n\n- The fast change`);
 }, TWO_LANDINGS);
 
-test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands', async () => {
+test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands, and riding along it is not listed in CHANGES.md', async () => {
   const { work, git } = await scratch();
   await branch(work, 'change', release('A change', 'patch'));
   await moveMain(work, 'elsewhere.txt', "Another thread's file\n");
@@ -249,7 +249,9 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
   expect(await mainOnGitHub(work)).toBe(mainBefore);
 
   await commit(work, 'The fix', 'fix.txt');
-  expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1' });
+  expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'rides along' });
+  // A release that rides along with no Apps line asks nothing of an app, so CHANGES.md does not list it.
+  expect((await git('ls-tree', '--name-only', await mainOnGitHub(work))).split('\n')).not.toContain('CHANGES.md');
 }, TWO_LANDINGS);
 
 test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry', async () => {
