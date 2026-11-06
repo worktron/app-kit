@@ -310,7 +310,8 @@ if (import.meta.main) {
       const home = process.env.METAMAX_HOME
       const report: ReportEvent | null = home
         ? async (args) => {
-            const child = Bun.spawnSync(['bun', join(home, 'scripts/report-event.ts'), ...args], { stdout: 'pipe', stderr: 'pipe' })
+            // Main and the tag are already pushed, so a metamax that never answers must not hold the landing open.
+            const child = Bun.spawnSync(['bun', join(home, 'scripts/report-event.ts'), ...args], { stdout: 'pipe', stderr: 'pipe', timeout: 60_000 })
             return { ok: child.exitCode === 0, out: `${child.stdout.toString()}${child.stderr.toString()}` }
           }
         : null
