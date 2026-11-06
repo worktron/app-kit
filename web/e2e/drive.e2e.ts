@@ -82,11 +82,14 @@ const AUDIO = `<!doctype html><html><head><meta name="viewport" content="width=d
 </script></body></html>`
 
 const WHO = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
-<h1>Person: PERSON</h1><p id="zone"></p><p id="language"></p><p id="when"></p>
+<h1>Person: PERSON</h1><p id="zone"></p><p id="language"></p><p id="when"></p><p id="extension"></p>
 <script>
 document.getElementById('zone').textContent = 'Zone: ' + Intl.DateTimeFormat().resolvedOptions().timeZone
 document.getElementById('language').textContent = 'Language: ' + navigator.language
 document.getElementById('when').textContent = 'When: ' + new Date().toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+// As an app asks its browser extension, which the driver's Chromium has none of unless the steps file stands one in.
+const runtime = window.chrome && window.chrome.runtime
+document.getElementById('extension').textContent = 'Extension: ' + (runtime && runtime.sendMessage ? JSON.stringify(runtime.sendMessage('an-extension-id', { ask: 'status' })) : 'none')
 </script></body></html>`
 
 let server: ReturnType<typeof Bun.serve>
@@ -174,6 +177,15 @@ test('every step kind runs, with the page clock started at a past date and jumpe
   expect(stdout).not.toContain('images.example.com')
   expect(png(join(folder, 'start-phone.png')).width).toBe(390)
   expect(png(join(folder, 'signed-in.png'))).toEqual({ width: 390, height: 844, colorType: 2 })
+}, 30_000)
+
+test("the steps file's initScript, a path beside it, runs in the page before the page's own scripts", async () => {
+  writeFileSync(join(dir, 'extension-stand-in.js'), 'window.chrome = { runtime: { sendMessage: () => ({ connected: false }) } }\n')
+  const { stdout, code } = await run({ initScript: 'extension-stand-in.js', steps: [{ goto: '/who' }, { read: 'who' }] })
+  expect(code).toBe(0)
+  expect(stdout).toContain('Extension: {\\"connected\\":false}')
+  const plain = await run({ steps: [{ goto: '/who' }, { read: 'who' }] })
+  expect(plain.stdout).toContain('Extension: none')
 }, 30_000)
 
 test("the steps file's cookies reach the server, and its time zone and locale set how the page draws the time", async () => {

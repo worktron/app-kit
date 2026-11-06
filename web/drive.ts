@@ -6,7 +6,9 @@
 // with the kit's stand-in for the Tauri bridge, so it draws the screens the app draws. Generalized from Sightline's
 // scripts/persona-look.ts.
 //
-// The steps file is JSON: { "size"?, "outsideImage"?, "settledWhenGone"?, "cookies"?, "timeZone"?, "locale"?, "steps": [ ... ] }.
+// The steps file is JSON: { "size"?, "outsideImage"?, "settledWhenGone"?, "cookies"?, "timeZone"?, "locale"?, "initScript"?,
+// "steps": [ ... ] }. Paths in it are relative to the steps file. "initScript" is a script of the app's own, run in every
+// page before the page's scripts, for a stand-in the page needs, such as the app's browser extension answering it.
 // "cookies" ([{ "name", "value" }]) are set on the address before the first step, so a seeded server can tell which
 // made-up person a run is. "timeZone" (such as "America/New_York") and "locale" (such as "en-US") fix how the page draws
 // dates and times; without them the page takes the Mac's, so a store image made on another Mac could differ. Each step one of
@@ -21,8 +23,8 @@
 //   { "read": "label" }                                   prints the accessibility tree, saves <label>-<size>.png
 //   { "shot": "name" }                                    saves <name>.png, the screen at the size, for a store
 
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { BrowserContextOptions, Locator, Page } from '@playwright/test'
 
 /** The screen each size draws at. The store sizes give each store's pixels exactly: CSS size times scale. */
@@ -63,6 +65,7 @@ export type StepsFile = {
   cookies?: Cookie[]
   timeZone?: string
   locale?: string
+  initScript?: string
   steps: Step[]
 }
 
@@ -95,8 +98,8 @@ function knownLocale(locale: string) {
   }
 }
 
-/** The steps file read and checked, or an error naming the first thing wrong with it. */
-export function readSteps(text: string): StepsFile {
+/** The steps file read and checked, or an error naming the first thing wrong with it. Its paths are read from `folder`, the steps file's own. */
+export function readSteps(text: string, folder = process.cwd()): StepsFile {
   let file: {
     size?: unknown
     outsideImage?: unknown
@@ -104,6 +107,7 @@ export function readSteps(text: string): StepsFile {
     cookies?: unknown
     timeZone?: unknown
     locale?: unknown
+    initScript?: unknown
     steps?: unknown
   }
   try {
@@ -114,6 +118,12 @@ export function readSteps(text: string): StepsFile {
   const size = file.size ?? 'phone'
   if (typeof size !== 'string' || !(size in SIZES)) throw new Error(`The size "${String(size)}" is none of ${Object.keys(SIZES).join(', ')}`)
   if (file.outsideImage !== undefined && typeof file.outsideImage !== 'string') throw new Error('outsideImage is the path of an image file')
+  if (file.initScript !== undefined && typeof file.initScript !== 'string') throw new Error('initScript is the path of a script')
+  const outsideImage = file.outsideImage === undefined ? undefined : resolve(folder, file.outsideImage)
+  const initScript = file.initScript === undefined ? undefined : resolve(folder, file.initScript)
+  for (const [name, path] of [['outsideImage', outsideImage], ['initScript', initScript]] as const) {
+    if (path && !existsSync(path)) throw new Error(`${name}: there is no file at ${path}`)
+  }
   if (file.settledWhenGone !== undefined && typeof file.settledWhenGone !== 'string') throw new Error('settledWhenGone is a regular expression, as text')
   if (
     file.cookies !== undefined &&
@@ -160,11 +170,12 @@ export function readSteps(text: string): StepsFile {
   })
   return {
     size: size as Size,
-    outsideImage: file.outsideImage as string | undefined,
+    outsideImage,
     settledWhenGone: file.settledWhenGone as string | undefined,
     cookies: file.cookies as Cookie[] | undefined,
     timeZone: file.timeZone as string | undefined,
     locale: file.locale as string | undefined,
+    initScript,
     steps: file.steps as Step[],
   }
 }
@@ -249,6 +260,8 @@ export async function drive(options: { address: string; steps: StepsFile; out: s
       }
       window.fetch = Object.assign(counting, original)
     })
+    // After the kit's own, so the app's stand-in sees the page as the kit set it up, and before any of the page's.
+    if (plan.initScript) await context.addInitScript({ path: plan.initScript })
     const page: Page = await context.newPage()
     if (SIZES[plan.size].iphoneApp) await fakeTauri(page)
     // Any tab after this one was opened by a link; its address is in the refused line above.

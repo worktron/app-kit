@@ -11,7 +11,7 @@
 // its drawings.
 
 import { mkdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } from '../extension/listing.ts'
@@ -306,7 +306,7 @@ async function web([command, ...args]: string[]): Promise<boolean> {
   const [address, stepsFile, out] = args as [string, string, string]
   if (!/^https?:\/\//.test(address)) return false
   mkdirSync(out, { recursive: true })
-  const code = await drive({ address: address.replace(/\/$/, ''), steps: readSteps(readFileSync(stepsFile, 'utf8')), out })
+  const code = await drive({ address: address.replace(/\/$/, ''), steps: readSteps(readFileSync(stepsFile, 'utf8'), dirname(resolve(stepsFile))), out })
   // Exits here whatever the outcome: with the parent watch on, its read of the pipe would keep a finished run waiting.
   process.exit(code)
 }

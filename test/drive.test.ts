@@ -31,6 +31,12 @@ test('cookies, a time zone and a locale are read, and a clockAt with an offset g
   expect([file.timeZone, file.locale]).toEqual(['America/New_York', 'en-US'])
 })
 
+test("a steps file's paths are read from the steps file's own folder", () => {
+  const file = readSteps(JSON.stringify({ initScript: 'drive.test.ts', outsideImage: 'drive.test.ts', steps: [{ goto: '/' }] }), import.meta.dir)
+  expect(file.initScript).toBe(join(import.meta.dir, 'drive.test.ts'))
+  expect(file.outsideImage).toBe(join(import.meta.dir, 'drive.test.ts'))
+})
+
 test('each wrong steps file is refused with what is wrong', () => {
   expect(refusal({ steps: [] })).toBe('The steps file has no steps')
   expect(refusal({ size: 'iphone', steps: [{ goto: '/' }] })).toContain('The size "iphone" is none of phone, desktop, chrome-store')
@@ -48,6 +54,7 @@ test('each wrong steps file is refused with what is wrong', () => {
   expect(refusal({ cookies: { person: 'new' }, steps: [{ goto: '/' }] })).toBe('cookies is a list of { "name", "value" }, both text')
   expect(refusal({ timeZone: 'Mars/Olympus', steps: [{ goto: '/' }] })).toContain('The time zone "Mars/Olympus" is not one the browser knows')
   expect(refusal({ locale: 'not a language', steps: [{ goto: '/' }] })).toContain('The locale "not a language" is not a language tag')
+  expect(refusal({ initScript: 'no-such-stand-in.js', steps: [{ goto: '/' }] })).toContain('initScript: there is no file at ')
   expect(refusal({ timeZone: 'UTC', steps: [{ clockAt: '2026-11-02T09:00:00' }, { goto: '/' }] })).toContain('Step 1: with a timeZone set, clockAt names its offset')
 })
 
