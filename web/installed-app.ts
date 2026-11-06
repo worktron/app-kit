@@ -23,3 +23,12 @@ export function isInstalledApp(): boolean {
   if ((navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
   return typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches;
 }
+
+/**
+ * Whether this page runs as an app rather than in a browser tab: the Mac or iPhone app, or a web app opened from the
+ * home screen. People there do not think of it as a page, so the update line speaks of an update, not a reload. Kept
+ * to the kit: apps ask `isInstalledApp` or `isTauriApp`.
+ */
+export function isAppWindow(): boolean {
+  return isTauriApp() || isInstalledApp();
+}

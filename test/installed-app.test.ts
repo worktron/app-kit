@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { isInstalledApp, isIphoneApp, isTauriApp } from '../web/installed-app';
+import { isAppWindow, isInstalledApp, isIphoneApp, isTauriApp } from '../web/installed-app';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)';
@@ -22,7 +22,7 @@ afterEach(() => {
 
 test('a browser tab is no installed app', () => {
   place({});
-  expect([isTauriApp(), isIphoneApp(), isInstalledApp()]).toEqual([false, false, false]);
+  expect([isTauriApp(), isIphoneApp(), isInstalledApp(), isAppWindow()]).toEqual([false, false, false, false]);
 });
 
 test("a web app opened from the home screen is one, by Safari's flag or the standalone display mode", () => {
@@ -37,4 +37,16 @@ test("the Tauri iPhone app is one, and a Tauri app's Mac window is not, though i
   expect([isTauriApp(), isIphoneApp(), isInstalledApp()]).toEqual([true, true, true]);
   place({ tauri: true, agent: MAC, displayMode: true });
   expect([isTauriApp(), isIphoneApp(), isInstalledApp()]).toEqual([true, false, false]);
+});
+
+test("every app is an app window, the Mac window included, and only a browser tab is not", () => {
+  place({ tauri: true, agent: MAC });
+  expect(isAppWindow()).toBe(true);
+  place({ tauri: true, agent: IPHONE });
+  expect(isAppWindow()).toBe(true);
+  delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  place({ displayMode: true });
+  expect(isAppWindow()).toBe(true);
+  place({});
+  expect(isAppWindow()).toBe(false);
 });

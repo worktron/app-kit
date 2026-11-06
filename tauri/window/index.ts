@@ -18,7 +18,7 @@ import {
  * The page half of the window onto the hosted site (plugin/, the Rust an app's shell builds). The Mac window tells the
  * page three things by a flag it sets and a window event it dispatches, and again as each page loads, so a page that
  * loads or listens late still knows: whether the window is in full screen, where its close, minimize and zoom buttons
- * hide; whether a newer build of the app is installed, for the page to offer Restart; and where an update from the
+ * hide; whether a newer build of the app is installed, for the page to offer a restart into it; and where an update from the
  * app's releases stands, for the page to offer Update. Outside the Mac window none is ever set. It also hands the page
  * the menu items that are the page's, Settings… and Sign Out.
  */
@@ -77,15 +77,16 @@ export function useWindowFullScreen(): boolean {
   return useWindowValue(windowFullScreen, FULL_SCREEN_EVENT);
 }
 
-/** Whether a newer build of the app is installed, for the page to offer Restart, a link to `restartLink(scheme)`. */
+/** Whether a newer build of the app is installed, for the page to offer a restart into it, a link to `restartLink(scheme)`. */
 export function useNewerBuildInstalled(): boolean {
   return useWindowValue(newerBuildInstalled, NEWER_BUILD_EVENT);
 }
 
 /**
- * Where an update from the app's releases stands, for the page to offer Update, a link to `updateLink(scheme)`, while
- * it is "available" or "failed", and to say it is installing while it is "installing". Null outside the Mac window, and
- * until the window has found an update. The app's menu offers the same, so updating never waits on the page.
+ * Where an update from the app's releases stands: "available" or "failed", when the page may offer Update, a link to
+ * `updateLink(scheme)`, or "installing". Null outside the Mac window, and until the window has found an update. The
+ * app's menu offers the same, so updating never waits on the page. `useUpdate` puts it together with a newer build
+ * installed and a newer deploy, for the one update line.
  */
 export function useAppUpdate(): AppUpdate | null {
   return useWindowValue(appUpdate, UPDATE_EVENT);
@@ -108,7 +109,7 @@ export function updateLink(scheme: string): string {
   return `${scheme}://${UPDATE_HOST}`;
 }
 
-export { AppUpdateLine, appUpdateMessage } from './lines';
+export { UpdateLine, useUpdate, updateMessage, takeUpdate, type Update } from './lines';
 
 /** A menu item the page carries out: Settings… or Sign Out. */
 export type WindowMenuItem = typeof MENU_SETTINGS | typeof MENU_SIGN_OUT;

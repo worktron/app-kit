@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hidePage, serveNewerBuild, showPage, signInByCode } from '../../authentication/stand-in/playwright';
 import { countLoads } from '../playwright';
+import { fakeTauri } from '../../tauri/playwright';
+import { UPDATE_EVENT, UPDATE_FLAG } from '../../tauri/window/names';
 
 // The fixture app (e2e/fixture) built on the kit with the stand-in sign-in, served built, in Chromium. The app's server
 // is played by page.route, so each test says what the server answers.
@@ -314,6 +316,42 @@ test('an open page finds a newer deploy when it comes back in front, and Reload 
   await newer.stop();
   const count = countLoads(page);
   await line.getByRole('button', { name: 'Reload' }).click();
+  await expect.poll(() => count.loads).toBe(1);
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  await expect(line).toHaveCount(0);
+});
+
+test('in the Mac app a newer deploy and a release found are one line, "has an update." with Update', async ({ page }, testInfo) => {
+  await fakeTauri(page, { macApp: true });
+  await page.clock.install();
+  await serve(page);
+  await page.goto('/');
+  await signInByCode(page, 'ana@example.com');
+  await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
+  const newer = await serveNewerBuild(page);
+  await page.clock.fastForward('01:01');
+  await hidePage(page);
+  await showPage(page);
+  const line = page.getByRole('status').filter({ hasText: 'the fixture has an update.' });
+  await expect(line).toBeVisible();
+
+  // The window finds a release too, as the Mac window tells the page: still one line, with one Update.
+  const release = (state: string | null) =>
+    page.evaluate(([flag, event, to]) => {
+      (window as unknown as Record<string, unknown>)[flag as string] = to ?? undefined;
+      window.dispatchEvent(new Event(event as string));
+    }, [UPDATE_FLAG, UPDATE_EVENT, state]);
+  await release('available');
+  await expect(page.getByRole('status')).toHaveCount(1);
+  await expect(line.getByRole('button')).toHaveText(['Update']);
+  await expect(page.getByText('changed since this page loaded')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('update-line-mac.png'), animations: 'disabled' });
+
+  // With the release gone, the deploy alone is the update, and Update reloads into it.
+  await release(null);
+  await newer.stop();
+  const count = countLoads(page);
+  await line.getByRole('button', { name: 'Update' }).click();
   await expect.poll(() => count.loads).toBe(1);
   await expect(page.getByRole('link', { name: 'Dentist on Tuesday' })).toBeVisible();
   await expect(line).toHaveCount(0);

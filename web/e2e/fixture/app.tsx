@@ -5,7 +5,6 @@ import {
   ConnectionLine,
   ErrorBoundary,
   NavigateProvider,
-  NewBuildLine,
   NotFound,
   RowLink,
   SignInGate,
@@ -22,6 +21,7 @@ import {
   useTitle,
 } from '../..';
 import { STAND_IN_CODE, standInSignIn } from '../../../authentication/stand-in';
+import { UpdateLine } from '../../../tauri/window';
 
 // Opened with ?sign-up, only ana@example.com has an account and the gate makes one for any other address.
 const signUp = new URLSearchParams(window.location.search).has('sign-up');
@@ -176,7 +176,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   return (
     <NavigateProvider navigate={navigate}>
       <header>
-        <NewBuildLine appName="the fixture" />
+        <UpdateLine appName="the fixture" scheme="com.example.fixture" />
         <ConnectionLine />
         <AccountMenu items={[{ label: 'Shelf', href: '/shelf' }]} />
       </header>
