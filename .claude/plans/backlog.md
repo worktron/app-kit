@@ -336,3 +336,8 @@ Done when: a unit test of `startGoogle` with a stand-in Clerk that answers `too_
 Do not touch: the emailed code's words.
 Needs: nothing.
 Touches: authentication/clerk/google.ts, authentication/clerk/email-code.ts, test/clerk.test.ts.
+
+## signed-out-home-slot · The sign-in gate draws an app's signed-out home page at its front address
+
+Goal: apps on the kit now give signed-out visitors a home page at their front address and keep the plain sign-in card everywhere else. Each one does it with its own few lines over SignInGate's `signedOut`: lifeform's client/src/features/auth/SignedOutHome.tsx (`SignedOut` checks `useLocation().pathname === '/'`, landed 2026-11-06), and the home-page threads for getter, timescale and argon are writing the same check. With a `signedOutHome` prop or similar, the gate would decide the address itself, and every app would get the same tested rule: the home page at `/`, the card elsewhere, and the wordmark alone while the provider loads. Each app's page and words stay its own. Left by lifeform's home-page thread, 2026-11-06.
+Done when: an app passes its home page to the gate and drops its own address check; the web fixture's browser test holds that a signed-out visitor at `/` sees the home page, at an inner address sees the sign-in screen, and that a signed-in reload of `/` never shows the home page.
