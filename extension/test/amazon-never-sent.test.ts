@@ -48,6 +48,18 @@ describe('refusal', () => {
     expect(refusal(method, path)).toBe(NEVER_SENT)
   })
 
+  test.each([
+    ['POST', '/check%6fut/entry/cart'],
+    ['POST', '/%63heckout/p/pl%61ce-order'],
+    ['GET', '/%61p/signin'],
+    ['GET', '/%2561p/signin'],
+    ['GET', '/dp/%2e%2e/ap/signin'],
+    ['GET', '/dp/%2E%2E/%2E%2E/cpe/yourpayments/wallet'],
+    ['GET', '/s?ref=pro%2563eedToRetailCheckout'],
+  ])('an encoded path or query is read as Amazon reads it: refuses %s %s', (method, path) => {
+    expect(refusal(method, path)).toBe(NEVER_SENT)
+  })
+
   test('only GET and POST are sent, only to paths on www.amazon.com, and a GET carries no body', () => {
     expect(refusal('DELETE', '/gp/cart/view.html')).toBe('DELETE is never sent')
     expect(refusal('GET', 'https://evil.example/s')).toBe('Only paths on www.amazon.com are sent')
@@ -83,6 +95,7 @@ describe('refusal', () => {
 describe('landedOutside', () => {
   test('an answer that ended at checkout or another site is not handed back; one that ended at sign-in is', () => {
     expect(landedOutside('https://www.amazon.com/checkout/entry/cart')).toBe(true)
+    expect(landedOutside('https://www.amazon.com/check%6fut/entry/cart')).toBe(true)
     expect(landedOutside('https://evil.example/')).toBe(true)
     expect(landedOutside('not an address')).toBe(true)
     expect(landedOutside('https://www.amazon.com/gp/buyagain')).toBe(false)

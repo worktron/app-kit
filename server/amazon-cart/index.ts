@@ -138,17 +138,19 @@ export class NotTheProduct extends Error {
 }
 
 /** The grocery add button's request data, with the store and product it names, or null when the page has none. */
-function groceryButton(doc: DocumentFragment): { payload: string; brandId: unknown; asin: unknown } | null {
+function groceryButton(doc: DocumentFragment): { payload: string; data: Record<string, unknown> } | null {
   const payload = doc.querySelector('[data-action="fresh-add-to-cart"]')?.getAttribute('data-fresh-add-to-cart');
   if (!payload) return null;
   try {
     const data: unknown = JSON.parse(payload);
-    if (typeof data !== 'object' || data === null) return { payload, brandId: undefined, asin: undefined };
-    return { payload, brandId: 'brandId' in data ? data.brandId : undefined, asin: 'asin' in data ? data.asin : undefined };
+    return { payload, data: typeof data === 'object' && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {} };
   } catch {
-    return { payload, brandId: undefined, asin: undefined };
+    return { payload, data: {} };
   }
 }
+
+/** The fields every recorded grocery add button carries, each a word: without one the request is not one recorded. */
+const GROCERY_FIELDS = ['asin', 'brandId', 'csrfToken', 'offerListingID'] as const;
 
 /**
  * The request that puts one of a product in one store's cart, read from that product's page at `productPath(asin,
@@ -173,10 +175,12 @@ export function addRequest(html: string, asin: string, store: Store): AddRequest
   const { brandId, grocery } = STORES[store];
   if (grocery) {
     if (!button) return { notForSale: `${store} does not sell it right now` };
-    if (typeof button.brandId !== 'string' || button.asin !== asin)
-      throw new NotTheProduct(asin, store, 'not-this-product', `The page's add button does not name ${asin} and a store, so its request is not one recorded`);
-    if (button.brandId !== brandId) {
-      const other = storeOfBrand(button.brandId);
+    const missing = GROCERY_FIELDS.filter((name) => typeof button.data[name] !== 'string' || !button.data[name]);
+    if (missing.length)
+      throw new NotTheProduct(asin, store, 'not-this-product', `The page's add button has no ${missing.join(', ')}, so its request is not one recorded`);
+    if (button.data.asin !== asin) throw new NotTheProduct(asin, store, 'not-this-product', `The page's add button adds ${String(button.data.asin)}, not ${asin}`);
+    if (button.data.brandId !== brandId) {
+      const other = storeOfBrand(String(button.data.brandId));
       return { notForSale: other ? `${store} does not sell it right now; ${other} does` : `${store} does not sell it right now` };
     }
     return { path: '/alm/addtofreshcart', body: button.payload, headers: { 'Content-Type': 'application/json', Accept: 'application/json' } };
@@ -188,7 +192,7 @@ export function addRequest(html: string, asin: string, store: Store): AddRequest
   // cart (recorded as LOCAL_MARKET), and for pickup with a grocery store's button: neither adds to the regular cart.
   if (field('cartType')) return { notForSale: 'Amazon sells it only through Amazon Fresh or Whole Foods Market' };
   if (!offer) {
-    const other = button && typeof button.brandId === 'string' ? storeOfBrand(button.brandId) : null;
+    const other = button && typeof button.data.brandId === 'string' ? storeOfBrand(button.data.brandId) : null;
     return { notForSale: other ? `Amazon sells it only through ${other}` : 'Amazon does not sell it right now' };
   }
   const token = field('anti-csrftoken-a2z');

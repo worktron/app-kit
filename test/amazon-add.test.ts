@@ -89,13 +89,17 @@ test('a signed-out page throws as signed out, though it has the whole add form',
 
 test('an add button or form that names another product, or carries no token, throws rather than adding', () => {
   const otherButton = fixture('product-fresh.html').replace('&quot;asin&quot;:&quot;B0TEST0001', '&quot;asin&quot;:&quot;B0TEST0002');
-  expect(thrown(otherButton, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button does not name B0TEST0001 and a store, so its request is not one recorded");
+  expect(thrown(otherButton, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button adds B0TEST0002, not B0TEST0001");
   const brokenButton = fixture('product-fresh.html').replace(/data-fresh-add-to-cart="[^"]*"/, 'data-fresh-add-to-cart="not data"');
-  expect(thrown(brokenButton, 'B0TEST0001', 'Amazon Fresh').kind).toBe('not-this-product');
+  expect(thrown(brokenButton, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no asin, brandId, csrfToken, offerListingID, so its request is not one recorded");
+  const noOffer = fixture('product-fresh.html').replace('&quot;offerListingID&quot;:&quot;OFFER-0001&quot;', '&quot;offerListingID&quot;:&quot;&quot;');
+  expect(thrown(noOffer, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no offerListingID, so its request is not one recorded");
+  const noToken = fixture('product-fresh.html').replace('&quot;csrfToken&quot;:&quot;TOKEN-PRODUCT&quot;,', '');
+  expect(thrown(noToken, 'B0TEST0001', 'Amazon Fresh').message).toBe("The page's add button has no csrfToken, so its request is not one recorded");
   const otherForm = fixture('product-regular.html').replace('name="items[0.base][asin]" value="B0TEST0003"', 'name="items[0.base][asin]" value="B0TEST0004"');
   expect(thrown(otherForm, 'B0TEST0003', 'Amazon').message).toBe("The page's add form adds B0TEST0004, not B0TEST0003");
-  const noToken = fixture('product-regular.html').replace('name="anti-csrftoken-a2z" value="TOKEN-PRODUCT"', 'name="anti-csrftoken-a2z" value=""');
-  expect(thrown(noToken, 'B0TEST0003', 'Amazon').message).toBe("The page's add form carries no token to add with");
+  const noFormToken = fixture('product-regular.html').replace('name="anti-csrftoken-a2z" value="TOKEN-PRODUCT"', 'name="anti-csrftoken-a2z" value=""');
+  expect(thrown(noFormToken, 'B0TEST0003', 'Amazon').message).toBe("The page's add form carries no token to add with");
 });
 
 test("each store's product page has its own address", () => {

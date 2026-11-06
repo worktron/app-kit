@@ -60,14 +60,33 @@ export function refusal(method, path, body) {
     return "Only paths on www.amazon.com are sent";
   }
   if (url.origin !== AMAZON_ORIGIN) return "Only paths on www.amazon.com are sent";
-  const query = [...url.searchParams].filter(([name]) => name !== "k").map(([name, value]) => `${name}=${value}`).join("&");
-  if (NEVER.some((rule) => rule.test(url.pathname) || rule.test(query))) return NEVER_SENT;
+  const query = plainText([...url.searchParams].filter(([name]) => name !== "k").map(([name, value]) => `${name}=${value}`).join("&"));
+  if (onTheList(url.pathname) || NEVER.some((rule) => rule.test(query))) return NEVER_SENT;
   if (body !== undefined && body !== null) {
     if (typeof body !== "string") return "A body is text";
     if (method === "GET" && body) return "A GET carries no body";
     if (NEVER_IN_BODY.some((rule) => rule.test(plainText(body)))) return NEVER_SENT;
   }
   return null;
+}
+
+/**
+ * Whether a path is on the list as Amazon would read it: as written, decoded as
+ * plainText decodes a body (so /check%6fut is /checkout), and decoded with its
+ * dot segments resolved (so /dp/%2e%2e/ap/signin is /ap/signin).
+ * @param {string} pathname
+ * @returns {boolean}
+ */
+function onTheList(pathname) {
+  const decoded = plainText(pathname);
+  /** @type {string[]} */
+  const forms = [pathname, decoded];
+  try {
+    forms.push(new URL(decoded.replace(/^\/+/, "/"), AMAZON_ORIGIN).pathname);
+  } catch {
+    // A decoded path the URL parser refuses is checked as written and decoded.
+  }
+  return forms.some((form) => NEVER.some((rule) => rule.test(form)));
 }
 
 /**
@@ -103,7 +122,7 @@ export function landedOutside(url) {
   try {
     const { origin, pathname } = new URL(url);
     if (origin !== AMAZON_ORIGIN) return true;
-    return NEVER.some((rule) => rule.test(pathname)) && !pathname.startsWith("/ap/");
+    return onTheList(pathname) && !pathname.startsWith("/ap/");
   } catch {
     return true;
   }
