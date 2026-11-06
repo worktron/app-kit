@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, SIGN_UP_UNFINISHED, type EmailCodeSignIn, type EmailCodeSignUp } from '../authentication/clerk/email-code';
+import { clerkMove, startGoogle, whileGoogleReturns, type GoogleStartSignIn } from '../authentication/clerk/google';
 import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
 import { TICKET_FAILED } from '../web/sign-in/provider';
 import recorded from './fixtures/clerk-sign-up.json';
@@ -81,6 +82,75 @@ test('a right code makes the session active, a wrong one leaves it alone', async
 test('Google is told the account to sign in as, or asked for its list', () => {
   expect(googleAccountParams('ana@example.com')).toEqual({ oidcLoginHint: 'ana@example.com' });
   expect(googleAccountParams(null)).toEqual({ oidcPrompt: 'select_account' });
+});
+
+describe('the trip to Google', () => {
+  const BACK = `${window.location.origin}/sso-callback`;
+  const GOOGLE = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=example';
+
+  /** Clerk's classic sign-in as Google's start uses it: records what it is handed, and answers with `google`. */
+  function fakeStart(google: string | null = GOOGLE, fails?: unknown) {
+    const asked: unknown[] = [];
+    const signIn: GoogleStartSignIn = {
+      async create(params) {
+        asked.push(params);
+        if (fails) throw fails;
+        return { status: 'needs_first_factor', firstFactorVerification: { externalVerificationRedirectURL: google ? new URL(google) : null } };
+      },
+    };
+    return { signIn, asked };
+  }
+
+  test('Continue as hands Clerk the account, and the page goes to the Google address Clerk answers', async () => {
+    const { signIn, asked } = fakeStart();
+    const went: string[] = [];
+    expect(await startGoogle(signIn, { back: BACK, account: 'ana@example.com', go: (address) => went.push(address) })).toEqual({ ok: true });
+    expect(asked).toEqual([{ strategy: 'oauth_google', redirectUrl: BACK, actionCompleteRedirectUrl: BACK, oidcLoginHint: 'ana@example.com' }]);
+    expect(went).toEqual([GOOGLE]);
+  });
+
+  test('Use a different account asks Clerk for Google’s list, with no account', async () => {
+    const { signIn, asked } = fakeStart();
+    await startGoogle(signIn, { back: BACK, account: null, go: () => {} });
+    expect(asked).toEqual([{ strategy: 'oauth_google', redirectUrl: BACK, actionCompleteRedirectUrl: BACK, oidcPrompt: 'select_account' }]);
+  });
+
+  test('a sign-in Clerk answers with no Google address, or refuses, goes nowhere and says to try again', async () => {
+    const went: string[] = [];
+    const go = (address: string) => went.push(address);
+    expect(await startGoogle(fakeStart(null).signIn, { back: BACK, account: 'ana@example.com', go })).toEqual({ ok: false, message: messageFor(undefined, 'ana@example.com') });
+    const refused = apiError('form_identifier_not_found');
+    expect(await startGoogle(fakeStart(GOOGLE, refused).signIn, { back: BACK, account: 'ana@example.com', go })).toEqual({ ok: false, message: messageFor(refused, 'ana@example.com') });
+    expect(went).toEqual([]);
+  });
+
+  test('back from Google, Clerk’s move to the return page stays in the page, and any other move loads', async () => {
+    const loads: string[] = [];
+    const windowNavigate = (to: URL | string) => void loads.push(new URL(to).pathname);
+    // Clerk's handling of the return, as clerk-js 6.42.3 finishes a sign-in it had to make an account for: the session
+    // made, it moves to the after-sign-in address through its router with the path alone (`navigate`, `stripOrigin`).
+    const finish = async (after: string) => {
+      await Promise.resolve();
+      clerkMove(after, { windowNavigate });
+      return 'finished';
+    };
+    expect(await whileGoogleReturns('/sso-callback', () => finish('/sso-callback'))).toBe('finished');
+    expect(loads).toEqual([]);
+
+    await whileGoogleReturns('/sso-callback', () => finish('/sign-in'));
+    expect(loads).toEqual(['/sign-in']);
+
+    // Outside a return, every move Clerk makes loads, as it does with no router given.
+    clerkMove('/sso-callback', { windowNavigate });
+    expect(loads).toEqual(['/sign-in', '/sso-callback']);
+  });
+
+  test('a return Clerk fails still lets later moves load', async () => {
+    const loads: string[] = [];
+    await expect(whileGoogleReturns('/sso-callback', () => Promise.reject(new Error('from Clerk')))).rejects.toThrow('from Clerk');
+    clerkMove('/sso-callback', { windowNavigate: (to) => void loads.push(new URL(to).pathname) });
+    expect(loads).toEqual(['/sso-callback']);
+  });
 });
 
 describe('a one-time ticket from the browser', () => {

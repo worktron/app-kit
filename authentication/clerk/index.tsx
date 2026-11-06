@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { ClerkProvider, useAuth, useClerk, useSignIn, useSignUp, useUser } from '@clerk/react';
 import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../../web/sign-in/provider';
 import { standInSignIn } from '../stand-in';
-import { checkEmailCode, googleAccountParams, messageFor, sendEmailCode } from './email-code';
+import { checkEmailCode, messageFor, sendEmailCode } from './email-code';
+import { clerkMove, startGoogle, whileGoogleReturns } from './google';
 import { signInWithTicket } from './ticket';
 import { tokenStillGood } from './token-now';
 
@@ -28,7 +29,7 @@ export { signInWithTicket, type TicketSignIn } from './ticket';
 export function clerkSignIn({ publishableKey }: { publishableKey: string }): SignInProvider {
   function Root({ children }: { children: ReactNode }) {
     return (
-      <ClerkProvider publishableKey={publishableKey}>
+      <ClerkProvider publishableKey={publishableKey} routerPush={clerkMove} routerReplace={clerkMove}>
         {children}
         <CaptchaPlace />
       </ClerkProvider>
@@ -86,22 +87,9 @@ export function useClerkSession(): ProviderSession {
     token: (options) => getToken(options?.fresh ? { skipCache: true } : undefined),
     tokenNow: () => tokenStillGood(clerk.session?.lastActiveToken),
     google: async ({ callbackPath, account }): Promise<Outcome> => {
-      const back = `${window.location.origin}${callbackPath}`;
-      // Clerk's newer sign-in object takes no account for Google to sign in as, so this trip goes through its classic
-      // sign-in resource, which takes both the account and the ask for Google's list.
       const classic = clerk.client?.signIn;
       if (!classic) return { ok: false, message: messageFor(undefined, '') };
-      try {
-        await classic.authenticateWithRedirect({
-          strategy: 'oauth_google',
-          redirectUrl: back,
-          redirectUrlComplete: back,
-          ...googleAccountParams(account),
-        });
-        return { ok: true };
-      } catch (error) {
-        return { ok: false, message: messageFor(error, account ?? '') };
-      }
+      return startGoogle(classic, { back: `${window.location.origin}${callbackPath}`, account });
     },
     sendEmailCode: (address, options) => sendEmailCode(signIn, address, options),
     checkEmailCode: (code, address) => checkEmailCode(signIn, code, address, signUp),
@@ -112,9 +100,9 @@ export function useClerkSession(): ProviderSession {
 }
 
 /**
- * Finishes the sign-in Google has sent back with Clerk's own redirect handling. Clerk then navigates through the
- * function given here rather than the browser: with a session made, the gate moves on to the asked address; without
- * one, the sign-in did not finish.
+ * Finishes the sign-in Google has sent back with Clerk's own redirect handling. With a session made, the gate moves on
+ * to the asked address: Clerk's own move back to this page, which it makes when it had to make or link an account on
+ * the way, stays in the page (`whileGoogleReturns`). Without one, the sign-in did not finish.
  */
 function GoogleReturn({ onUnfinished }: GoogleReturnProps) {
   const clerk = useClerk();
@@ -123,11 +111,11 @@ function GoogleReturn({ onUnfinished }: GoogleReturnProps) {
     if (!clerk.loaded || ran.current) return;
     ran.current = true;
     const here = window.location.pathname;
-    clerk
-      .handleRedirectCallback({ signInFallbackRedirectUrl: here, signUpFallbackRedirectUrl: here }, async () => {
+    whileGoogleReturns(here, () =>
+      clerk.handleRedirectCallback({ signInFallbackRedirectUrl: here, signUpFallbackRedirectUrl: here }, async () => {
         if (!clerk.session) onUnfinished();
-      })
-      .catch(onUnfinished);
+      }),
+    ).catch(onUnfinished);
   }, [clerk, clerk.loaded, onUnfinished]);
   return null;
 }
