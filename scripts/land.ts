@@ -73,7 +73,8 @@ export function kindOf(commits: { releases: string[]; message: string }[], chang
  * trailer is refused rather than dropped.
  */
 export function appsOf(commits: { apps: string[]; message: string }[], kind: Kind): { lines: string[] } | { refused: string } {
-  if (commits.some((commit) => !commit.apps.length && /^apps:/im.test(commit.message))) {
+  // Each line git read as a trailer starts its own line in the message, so any more lines starting Apps: sit elsewhere.
+  if (commits.some((commit) => (commit.message.match(/^apps:/gim)?.length ?? 0) > commit.apps.length)) {
     return { refused: 'an Apps: line is in a commit message but not in its last paragraph, where git reads it; put it beside Release and Co-Authored-By' }
   }
   const lines = commits.flatMap((commit) => commit.apps.map((value) => value.trim()).filter(Boolean))

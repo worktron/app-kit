@@ -55,6 +55,7 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
   writeFileSync(join(seed, 'package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.10.0' } }));
   writeFileSync(join(seed, 'client/package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.9.0' } }));
   writeFileSync(join(seed, 'client/bun.lock'), '"app-kit": ["app-kit@github:worktron/app-kit#aaaaaaa", {}],\n');
+  writeFileSync(join(seed, 'bun.lock'), '"app-kit": ["app-kit@github:worktron/app-kit#ccccccc", {}],\n');
   mkdirSync(join(seed, '.claude/plans'), { recursive: true });
   writeFileSync(join(seed, '.claude/plans/backlog.md'), `# Backlog\n\n## ${UPDATE_TICKET} · Bring it up to the newest app-kit\n\nGoal: x\n`);
   git(seed, 'add', '-A');
@@ -72,11 +73,11 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
   ]);
   expect(readApp(app, tags, CHANGES, false)).toEqual({
     project: 'app',
+    // Each install is judged by the lock in its own folder, the root's newer lock not mistaken for the client's.
     installs: [
-      { file: 'client/package.json', tag: 'v0.9.0' },
-      { file: 'package.json', tag: 'v0.10.0' },
+      { file: 'client/package.json', tag: 'v0.9.0', locked: { commit: 'aaaaaaa', matchesTag: true } },
+      { file: 'package.json', tag: 'v0.10.0', locked: { commit: 'ccccccc', matchesTag: true } },
     ],
-    locked: { commit: 'aaaaaaa', matchesTag: true },
     behind: 2,
     changes: [
       { version: 'v0.10.0', lines: ['Ten'] },
@@ -87,7 +88,7 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     fetched: 'not fetched',
   });
   // A lock that names another commit than the tag is flagged.
-  expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.locked).toEqual({ commit: 'aaaaaaa', matchesTag: false });
+  expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false]);
 });
 
 test('a checkout that installs no kit is not an app', () => {

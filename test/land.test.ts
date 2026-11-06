@@ -142,6 +142,10 @@ test('a minor change must carry an Apps line, a patch may, none keeps none, and 
   expect(appsOf([{ apps: ['Read the new line'], message: '' }], 'patch')).toEqual({ lines: ['Read the new line'] });
   expect(appsOf([{ apps: ['Ignored'], message: '' }], 'none')).toEqual({ lines: [] });
   expect(appsOf([{ apps: [], message: `The change\n\nApps: do this\n\nRelease: patch\n${TRAILER}\n` }, { apps: ['Other'], message: '' }], 'patch')).toEqual({ refused: expect.stringContaining('an Apps: line is in a commit message but not in its last paragraph') });
+  // One in the trailers does not cover another left in the body.
+  expect(appsOf([{ apps: ['do that'], message: `The change\n\nApps: do this\n\nRelease: patch\nApps: do that\n${TRAILER}\n` }], 'patch')).toEqual({ refused: expect.stringContaining('not in its last paragraph') });
+  // A wrapped trailer's second line does not count as another.
+  expect(appsOf([{ apps: ['do this and that'], message: `The change\n\nRelease: patch\nApps: do this\n  and that\n${TRAILER}\n` }], 'patch')).toEqual({ lines: ['do this and that'] });
 });
 
 test('CHANGES.md takes each version above the newest, under the heading Dependabot and Renovate read release notes by', () => {

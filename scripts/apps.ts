@@ -16,10 +16,11 @@ import { join, resolve } from 'node:path'
 export type Ticket = { id: string; title: string }
 export type App = {
   project: string
-  /** Each landed package.json that installs the kit, with the tag it names. */
-  installs: { file: string; tag: string }[]
-  /** The commit bun.lock installs, when it names one, and whether it is the commit of the tag package.json names. */
-  locked: { commit: string; matchesTag: boolean } | null
+  /**
+   * Each landed package.json that installs the kit, with the tag it names, and the commit the bun.lock that serves it
+   * (in its folder, else the nearest folder above) installs, with whether that is the tag's commit.
+   */
+  installs: { file: string; tag: string; locked: { commit: string; matchesTag: boolean } | null }[]
   /** Releases since the oldest tag the app names, up to the newest. */
   behind: number
   /** CHANGES.md's entries newer than that tag, newest first. */
@@ -87,22 +88,31 @@ export function readApp(dir: string, kitTags: Map<string, string>, changes: stri
     const done = git(dir, ['show', `${ref}:${file}`])
     return done.ok ? done.out : ''
   }
+  const tracked = new Set(files)
+  /** The commit app-kit is locked to for a package.json: its folder's bun.lock, else the nearest one above. */
+  const lockFor = (file: string, tag: string) => {
+    const folders = file.split('/').slice(0, -1)
+    for (let depth = folders.length; depth >= 0; depth--) {
+      const lockFile = [...folders.slice(0, depth), 'bun.lock'].join('/')
+      if (!tracked.has(lockFile)) continue
+      const commit = show(lockFile).match(LOCKED)?.[1]
+      return commit ? { commit, matchesTag: !!kitTags.get(tag)?.startsWith(commit) } : null
+    }
+    return null
+  }
   const installs = files
     .filter((file) => (file === 'package.json' || file.endsWith('/package.json')) && !file.includes('node_modules/'))
     .flatMap((file) => {
       const tag = show(file).match(INSTALL)?.[1]
-      return tag ? [{ file, tag }] : []
+      return tag ? [{ file, tag, locked: lockFor(file, tag) }] : []
     })
   if (!installs.length) return null
   const oldest = installs.map((install) => install.tag).sort(compareVersions)[0]
-  const lock = files.filter((file) => (file === 'bun.lock' || file.endsWith('/bun.lock')) && !file.includes('node_modules/')).map((file) => show(file).match(LOCKED)?.[1]).find(Boolean)
-  const tagCommit = kitTags.get(oldest)
   const backlog = files.includes('.claude/plans/backlog.md') ? show('.claude/plans/backlog.md') : ''
   const tickets = kitTickets(backlog)
   return {
     project: dir.split('/').pop() ?? dir,
     installs,
-    locked: lock ? { commit: lock, matchesTag: !!tagCommit && tagCommit.startsWith(lock) } : null,
     behind: [...kitTags.keys()].filter((tag) => compareVersions(tag, oldest) > 0).length,
     changes: changesSince(changes, oldest),
     tickets,
@@ -114,7 +124,9 @@ export function readApp(dir: string, kitTags: Map<string, string>, changes: stri
 /** The kit's tags on GitHub, each to its commit (a tag's own object peeled to the commit it names). */
 export function tagsOnGitHub(kit: string): Map<string, string> {
   const tags = new Map<string, string>()
-  for (const line of git(kit, ['ls-remote', '--tags', 'origin']).out.split('\n')) {
+  const listed = git(kit, ['ls-remote', '--tags', 'origin'])
+  if (!listed.ok) throw new Error(`reading the kit's tags from GitHub: ${listed.out}`)
+  for (const line of listed.out.split('\n')) {
     const [sha, ref] = line.split(/\s+/)
     const tag = ref?.replace('refs/tags/', '').replace('^{}', '')
     if (tag && /^v\d+\.\d+\.\d+$/.test(tag) && (ref.endsWith('^{}') || !tags.has(tag))) tags.set(tag, sha)
@@ -131,10 +143,14 @@ if (import.meta.main) {
     process.exit(2)
   }
   const kit = resolve(import.meta.dir, '..')
+  // A round must never read missing data as an app being up to date, so the kit's tags and CHANGES.md are required.
   const kitTags = tagsOnGitHub(kit)
-  git(kit, ['fetch', '-q', '--no-tags', 'origin', 'main'])
+  if (!kitTags.size) throw new Error('GitHub lists no version tags for the kit')
+  const fetched = git(kit, ['fetch', '-q', '--no-tags', 'origin', 'main'])
+  if (!fetched.ok) throw new Error(`fetching the kit's main: ${fetched.out}`)
   const shown = git(kit, ['show', 'origin/main:CHANGES.md'])
-  const changes = shown.ok ? shown.out : ''
+  if (!shown.ok) throw new Error(`reading CHANGES.md on the kit's main: ${shown.out}`)
+  const changes = shown.out
   const newest = [...kitTags.keys()].sort(compareVersions).pop() ?? null
   const apps = folders
     .flatMap((folder) => readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(folder, entry.name)))

@@ -20,7 +20,7 @@ bun scripts/apps.ts "$WORKSPACE" > "$TMPDIR/apps.json"
 bun "$WORKSPACE/practices/scripts/app-checklist.ts" "$WORKSPACE" > "$TMPDIR/checklist.txt"
 ```
 
-`scripts/apps.ts` prints the newest version and, per app, the tags its package.json files name, whether bun.lock installs that tag's commit, releases behind, CHANGES.md's entries since its tag, its open backlog tickets naming app-kit, and whether `app-kit-update` is open. The checklist exits 1 when it lists any gap; that is its normal answer. Keep the checklist lines whose project is an app in apps.json.
+`scripts/apps.ts` stops with an error when it cannot read the kit's tags or CHANGES.md from GitHub; fix that before going on, since a round on missing data reports apps as up to date. It prints the newest version and, per app, the tags its package.json files name, whether the bun.lock serving each installs that tag's commit, releases behind, CHANGES.md's entries since its tag, its open backlog tickets naming app-kit, and whether `app-kit-update` is open. The checklist exits 1 when it lists any gap; that is its normal answer. Keep the checklist lines whose project is an app in apps.json.
 
 `$MAIN/.apps-round/last.json` is the last round's apps.json, when there was one. Done when both files are read and each app's checklist lines are matched to it.
 
