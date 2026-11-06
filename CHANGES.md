@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.45.4
+
+Urgency: rides along
+
+- CHANGES.md gives each version's urgency (now, next round or rides along); app-kit's apps round now starts each app's upgrade thread itself, so an app's own threads need do nothing
+
 ## v0.45.3
 
 Urgency: next round
