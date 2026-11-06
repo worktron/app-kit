@@ -2,6 +2,10 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Apps line. A version not listed asks nothing of an app.
 
+## v0.45.3
+
+- an app that reads Apple Messages on the Mac can take app-kit/tauri/apple-messages (README "Reading Apple Messages"); nothing changes for one that does not
+
 ## v0.45.2
 
 - CHANGES.md says what each version asks of an app; read it from your tag forward when you move to a newer one.
