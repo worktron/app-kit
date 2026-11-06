@@ -7,9 +7,9 @@
 import { appendFileSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createServer, type Socket } from 'node:net'
 import { dirname } from 'node:path'
-import { frame, Unframer } from './native.ts'
-import type { CallerLine } from './protocol.ts'
-import { Relay, type RelayOptions } from './relay.ts'
+import { frame, Unframer } from './native'
+import type { CallerLine } from './protocol'
+import { Relay, type RelayOptions } from './relay'
 
 const MAX_LINE = 64 * 1024
 

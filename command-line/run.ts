@@ -52,7 +52,7 @@ export function stopRunning(signal: NodeJS.Signals): void {
   }
 }
 
-export const runCommand: Run = ([program, ...args], options = {}) =>
+export const runCommand: Run = ([program = '', ...args], options = {}) =>
   new Promise((resolve) => {
     const kept = { out: '', stdout: '', stderr: '' };
     let timedOut = false;

@@ -11,7 +11,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, type BrowserContext, type Worker } from 'playwright'
-import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install.ts'
+import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install'
 
 export type HarnessOptions = {
   /** The folder whose tracked and untracked-but-not-ignored files become the checkout's root, where manifest.json is. */

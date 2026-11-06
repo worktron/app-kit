@@ -1,5 +1,5 @@
 import { connect } from 'node:net'
-import { STATUS_TIMEOUT_MS, type HostStatus } from './protocol.ts'
+import { STATUS_TIMEOUT_MS, type HostStatus } from './protocol'
 
 /** No host is listening on the socket: Chrome is not open with the extension, or never started its host. */
 export class NotConnected extends Error {

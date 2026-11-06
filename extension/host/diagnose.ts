@@ -6,8 +6,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
-import { worktreeOf } from '../../command-line/index.ts'
-import { chromeHostsDir, extensionId, HOST_NAME, isExecutable, readHostLauncher } from './install.ts'
+import { worktreeOf } from '../../command-line/index'
+import { chromeHostsDir, extensionId, HOST_NAME, isExecutable, readHostLauncher } from './install'
 
 /** Why nothing is connected, the fix, and the newest lines the host wrote to its error log, when it keeps one. */
 export type Diagnosis = { reason: string; fix: string; hostErrors?: { at: string; lines: string[] } }

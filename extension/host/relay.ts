@@ -1,4 +1,4 @@
-import { ANSWER_TIMEOUT_MS, STATUS_TIMEOUT_MS, type HostStatus, type WorkerState } from './protocol.ts'
+import { ANSWER_TIMEOUT_MS, STATUS_TIMEOUT_MS, type HostStatus, type WorkerState } from './protocol'
 
 type Pending = { resolve: (reply: Record<string, unknown>) => void; timer: ReturnType<typeof setTimeout> }
 

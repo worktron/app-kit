@@ -9,7 +9,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 
-export { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunOptions, type RunResult } from './run.ts';
+export { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunOptions, type RunResult } from './run';
 
 /** Where a command's answers go: the process's own unless a test stands in for them. */
 export type CommandOutput = {

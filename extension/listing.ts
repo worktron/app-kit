@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { layoutProblems } from './layout.ts'
+import { layoutProblems } from './layout'
 
 /** The listing file's name, beside manifest.json. */
 export const LISTING = 'store-listing.md'

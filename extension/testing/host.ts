@@ -7,7 +7,7 @@
 // which it does only once its socket is listening.
 
 import { existsSync, readFileSync } from 'node:fs'
-import { frame, Unframer } from '../host/native.ts'
+import { frame, Unframer } from '../host/native'
 import { noAnswer } from '../worker/port.js'
 
 export type HostAsChromeOptions = {

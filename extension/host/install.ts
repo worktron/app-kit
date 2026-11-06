@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto'
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { worktreeOf } from '../../command-line/index.ts'
-import { layoutProblems } from '../layout.ts'
+import { worktreeOf } from '../../command-line/index'
+import { layoutProblems } from '../layout'
 
 /**
  * The extension's ID, from the `key` in its manifest: the first 32 hex digits
@@ -109,7 +109,7 @@ function shellWords(line: string): string[] | null {
     }
     let word = ''
     while (at < line.length && line[at] !== ' ') {
-      const c = line[at]
+      const c = line.charAt(at)
       if (c === "'") {
         const end = line.indexOf("'", at + 1)
         if (end < 0) return null

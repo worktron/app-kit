@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, normalize, relative } from 'node:path'
 import packageJson from '../package.json'
-import { FONTS, PLAIN_SIZES, plainColors, type Colors } from '../look/index.ts'
+import { FONTS, PLAIN_SIZES, plainColors, type Colors } from '../look/index'
 
 /** The kit's worker files, as shipped. */
 export const WORKER_DIR = join(import.meta.dir, 'worker')

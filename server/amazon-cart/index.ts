@@ -11,7 +11,7 @@
 // - regular Amazon's cart page has its active cart, #sc-active-cart. A signed-out page has one too, empty, so a page
 //   whose header says "Hello, sign in" throws first.
 // A cart whose count Amazon gives as more than none, with no line the reader knows, throws too: its lines changed shape.
-import { dollars, parse, STORES, storeOfBrand, textOf, type Store } from '../amazon-orders/index.ts';
+import { dollars, parse, STORES, storeOfBrand, textOf, type Store } from '../amazon-orders/index';
 
 export type CartLine = { asin: string; name: string; price: number | null; quantity: number; lineId: string };
 
