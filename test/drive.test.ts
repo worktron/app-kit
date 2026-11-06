@@ -18,6 +18,19 @@ test('a good steps file is read with the phone size by default', () => {
   expect(readSteps(JSON.stringify({ steps: [{ clockAt: '2026-11-02T09:00:00Z' }, { goto: '/' }, { advance: 1000 }, { read: 'home' }] })).size).toBe('phone')
 })
 
+test('cookies, a time zone and a locale are read, and a clockAt with an offset goes with a time zone', () => {
+  const file = readSteps(
+    JSON.stringify({
+      cookies: [{ name: 'person', value: 'new-person' }],
+      timeZone: 'America/New_York',
+      locale: 'en-US',
+      steps: [{ clockAt: '2026-11-02T09:00:00-05:00' }, { goto: '/' }],
+    }),
+  )
+  expect(file.cookies).toEqual([{ name: 'person', value: 'new-person' }])
+  expect([file.timeZone, file.locale]).toEqual(['America/New_York', 'en-US'])
+})
+
 test('each wrong steps file is refused with what is wrong', () => {
   expect(refusal({ steps: [] })).toBe('The steps file has no steps')
   expect(refusal({ size: 'iphone', steps: [{ goto: '/' }] })).toContain('The size "iphone" is none of phone, desktop, chrome-store')
@@ -31,6 +44,11 @@ test('each wrong steps file is refused with what is wrong', () => {
   expect(refusal({ steps: [{ goto: '/' }, { fill: { role: 'textbox', name: 'Email' } }] })).toBe('Step 2: fill takes the text to type as "value"')
   expect(refusal({ steps: [{ goto: '/' }, { shot: '../home' }] })).toContain('Step 2: shot takes a name of letters')
   expect(refusal({ steps: [{ goto: '/' }, { click: { role: 'button' } }] })).toBe('Step 2: click takes { role, name } or { text }')
+  expect(refusal({ cookies: [{ name: 'person' }], steps: [{ goto: '/' }] })).toBe('cookies is a list of { "name", "value" }, both text')
+  expect(refusal({ cookies: { person: 'new' }, steps: [{ goto: '/' }] })).toBe('cookies is a list of { "name", "value" }, both text')
+  expect(refusal({ timeZone: 'Mars/Olympus', steps: [{ goto: '/' }] })).toContain('The time zone "Mars/Olympus" is not one the browser knows')
+  expect(refusal({ locale: 'not a language', steps: [{ goto: '/' }] })).toContain('The locale "not a language" is not a language tag')
+  expect(refusal({ timeZone: 'UTC', steps: [{ clockAt: '2026-11-02T09:00:00' }, { goto: '/' }] })).toContain('Step 1: with a timeZone set, clockAt names its offset')
 })
 
 test("each store size's screen gives that store's pixels, and the App Store's run as the iPhone app", () => {

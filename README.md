@@ -333,6 +333,9 @@ A context holds ten minutes of stereo sound, at 48,000 samples a second unless t
 {
   "size": "iphone-6.9",
   "settledWhenGone": "^Loading ",
+  "cookies": [{ "name": "test-person", "value": "new-person" }],
+  "timeZone": "America/New_York",
+  "locale": "en-US",
   "steps": [
     { "clockAt": "2026-11-02T09:00:00-05:00" },
     { "goto": "/sign-in" },
@@ -352,6 +355,8 @@ A context holds ten minutes of stereo sound, at 48,000 samples a second unless t
 - `clockAt` starts the page's clock at that date before the first `goto`, and it runs on from there; `advance` jumps it that many milliseconds, firing each timer that falls due once, as a phone does after its screen sleeps. A clock that stopped would stop the page's frames and timers too, and every step after it would wait for good.
 - `read` prints the screen's accessibility tree and saves `<label>-<size>.png`, the whole page, for the agent to look at.
 - `shot` saves `<name>.png`, the screen at the size, with animations stopped and the caret hidden, and fails its step when the image is not the size's exact pixels: a page with no `<meta name="viewport" content="width=device-width, initial-scale=1">` is laid out 980 wide on a phone and comes out a pixel or so off what a store takes.
+
+`cookies` are set on the address before the first step, so a seeded server can tell which made-up person a run is: one with orders, one just signed up. `timeZone` and `locale` fix how the page draws dates and times; without them it takes the Mac's, so a store image made on another Mac, or the same image made again after a trip, could differ. With a `timeZone` set, `clockAt` names its offset (`-05:00`, or `Z`), since a date with none would be read in the zone of the Mac running the drive.
 
 After each step the run waits until the page is settled: no request in flight, two frames drawn, still none in flight, and nothing on screen matching `settledWhenGone` when it is given. It exits 1 at the first step that fails, printing the page as it was.
 

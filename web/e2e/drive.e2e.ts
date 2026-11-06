@@ -81,6 +81,14 @@ const AUDIO = `<!doctype html><html><head><meta name="viewport" content="width=d
   };
 </script></body></html>`
 
+const WHO = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
+<h1>Person: PERSON</h1><p id="zone"></p><p id="language"></p><p id="when"></p>
+<script>
+document.getElementById('zone').textContent = 'Zone: ' + Intl.DateTimeFormat().resolvedOptions().timeZone
+document.getElementById('language').textContent = 'Language: ' + navigator.language
+document.getElementById('when').textContent = 'When: ' + new Date().toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+</script></body></html>`
+
 let server: ReturnType<typeof Bun.serve>
 let address = ''
 /** Each page asked for, so a test knows the browser is up. */
@@ -102,6 +110,11 @@ beforeAll(async () => {
         return Response.json(['Rice', 'Oat milk'])
       }
       if (path === '/audio') return new Response(AUDIO, { headers: { 'content-type': 'text/html' } })
+      if (path === '/who') {
+        // The person comes from the cookie, as an app's seeded server picks its made-up person; the time from the page.
+        const person = request.headers.get('cookie')?.match(/(?:^|; )person=([^;]*)/)?.[1] ?? 'none'
+        return new Response(WHO.replace('PERSON', person), { headers: { 'content-type': 'text/html' } })
+      }
       if (path === '/bare') return new Response('<!doctype html><h1>No viewport tag</h1>', { headers: { 'content-type': 'text/html' } })
       const html = path === '/sign-in' ? SIGN_IN : HOME
       return new Response(html, { headers: { 'content-type': 'text/html' } })
@@ -161,6 +174,23 @@ test('every step kind runs, with the page clock started at a past date and jumpe
   expect(stdout).not.toContain('images.example.com')
   expect(png(join(folder, 'start-phone.png')).width).toBe(390)
   expect(png(join(folder, 'signed-in.png'))).toEqual({ width: 390, height: 844, colorType: 2 })
+}, 30_000)
+
+test("the steps file's cookies reach the server, and its time zone and locale set how the page draws the time", async () => {
+  const { stdout, code } = await run({
+    cookies: [{ name: 'person', value: 'new-person' }],
+    timeZone: 'Asia/Tokyo',
+    locale: 'de-DE',
+    steps: [{ clockAt: '2026-11-02T09:00:00Z' }, { goto: '/who' }, { read: 'who' }],
+  })
+  expect(code).toBe(0)
+  expect(stdout).toContain('heading "Person: new-person"')
+  expect(stdout).toContain('Zone: Asia/Tokyo')
+  expect(stdout).toContain('Language: de-DE')
+  // 09:00 in UTC is 18:00 in Tokyo, written the German way.
+  expect(stdout).toContain('When: 02.11.26, 18:00')
+  const plain = await run({ steps: [{ goto: '/who' }, { read: 'who' }] })
+  expect(plain.stdout).toContain('heading "Person: none"')
 }, 30_000)
 
 test("each store size writes an image of that store's exact pixels, with no alpha channel, and the App Store's draw as the iPhone app", async () => {

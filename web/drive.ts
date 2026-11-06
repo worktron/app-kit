@@ -6,7 +6,10 @@
 // with the kit's stand-in for the Tauri bridge, so it draws the screens the app draws. Generalized from Sightline's
 // scripts/persona-look.ts.
 //
-// The steps file is JSON: { "size"?, "outsideImage"?, "settledWhenGone"?, "steps": [ ... ] }, each step one of
+// The steps file is JSON: { "size"?, "outsideImage"?, "settledWhenGone"?, "cookies"?, "timeZone"?, "locale"?, "steps": [ ... ] }.
+// "cookies" ([{ "name", "value" }]) are set on the address before the first step, so a seeded server can tell which
+// made-up person a run is. "timeZone" (such as "America/New_York") and "locale" (such as "en-US") fix how the page draws
+// dates and times; without them the page takes the Mac's, so a store image made on another Mac could differ. Each step one of
 //   { "goto": "/path" }                                   relative to the address
 //   { "click": { "role": "button", "name": "Save" } }     the whole name; "partial": true for part of it
 //   { "click": { "text": "some visible text" } }          the first element showing that text
@@ -51,7 +54,17 @@ export type Step =
   | { read: string }
   | { shot: string }
 
-export type StepsFile = { size: Size; outsideImage?: string; settledWhenGone?: string; steps: Step[] }
+export type Cookie = { name: string; value: string }
+
+export type StepsFile = {
+  size: Size
+  outsideImage?: string
+  settledWhenGone?: string
+  cookies?: Cookie[]
+  timeZone?: string
+  locale?: string
+  steps: Step[]
+}
 
 const KINDS = ['goto', 'click', 'fill', 'waitFor', 'signIn', 'clockAt', 'advance', 'read', 'shot'] as const
 
@@ -65,9 +78,34 @@ function isTarget(value: unknown): value is Target {
   return typeof target.text === 'string' || (typeof target.role === 'string' && typeof target.name === 'string')
 }
 
+function knownTimeZone(zone: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function knownLocale(locale: string) {
+  try {
+    return Intl.getCanonicalLocales(locale).length === 1
+  } catch {
+    return false
+  }
+}
+
 /** The steps file read and checked, or an error naming the first thing wrong with it. */
 export function readSteps(text: string): StepsFile {
-  let file: { size?: unknown; outsideImage?: unknown; settledWhenGone?: unknown; steps?: unknown }
+  let file: {
+    size?: unknown
+    outsideImage?: unknown
+    settledWhenGone?: unknown
+    cookies?: unknown
+    timeZone?: unknown
+    locale?: unknown
+    steps?: unknown
+  }
   try {
     file = JSON.parse(text)
   } catch (error) {
@@ -77,6 +115,15 @@ export function readSteps(text: string): StepsFile {
   if (typeof size !== 'string' || !(size in SIZES)) throw new Error(`The size "${String(size)}" is none of ${Object.keys(SIZES).join(', ')}`)
   if (file.outsideImage !== undefined && typeof file.outsideImage !== 'string') throw new Error('outsideImage is the path of an image file')
   if (file.settledWhenGone !== undefined && typeof file.settledWhenGone !== 'string') throw new Error('settledWhenGone is a regular expression, as text')
+  if (
+    file.cookies !== undefined &&
+    !(Array.isArray(file.cookies) && file.cookies.every((cookie) => typeof cookie?.name === 'string' && cookie.name && typeof cookie.value === 'string'))
+  )
+    throw new Error('cookies is a list of { "name", "value" }, both text')
+  if (file.timeZone !== undefined && !(typeof file.timeZone === 'string' && knownTimeZone(file.timeZone)))
+    throw new Error(`The time zone "${String(file.timeZone)}" is not one the browser knows, such as America/New_York or UTC`)
+  if (file.locale !== undefined && !(typeof file.locale === 'string' && knownLocale(file.locale)))
+    throw new Error(`The locale "${String(file.locale)}" is not a language tag, such as en-US`)
   if (!Array.isArray(file.steps) || !file.steps.length) throw new Error('The steps file has no steps')
   let navigated = false
   let clock = false
@@ -100,6 +147,9 @@ export function readSteps(text: string): StepsFile {
       if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) throw new Error(`${where}: clockAt takes a date, such as 2026-11-02T09:00:00`)
       if (navigated) throw new Error(`${where}: clockAt comes before the first goto, since the page's clock is set as it loads`)
       if (clock) throw new Error(`${where}: the clock is already set`)
+      // The date is read on the Mac running the drive, so with no offset it would mean the Mac's own zone.
+      if (file.timeZone !== undefined && !/(Z|[+-]\d\d:?\d\d)$/.test(value))
+        throw new Error(`${where}: with a timeZone set, clockAt names its offset (2026-11-02T09:00:00-05:00, or Z for UTC), or another Mac reads it in its own zone`)
       clock = true
     } else if (kind === 'advance') {
       if (typeof value !== 'number' || !(value > 0)) throw new Error(`${where}: advance takes milliseconds, more than 0`)
@@ -112,6 +162,9 @@ export function readSteps(text: string): StepsFile {
     size: size as Size,
     outsideImage: file.outsideImage as string | undefined,
     settledWhenGone: file.settledWhenGone as string | undefined,
+    cookies: file.cookies as Cookie[] | undefined,
+    timeZone: file.timeZone as string | undefined,
+    locale: file.locale as string | undefined,
     steps: file.steps as Step[],
   }
 }
@@ -164,7 +217,12 @@ export async function drive(options: { address: string; steps: StepsFile; out: s
   }
 
   try {
-    const context = await browser.newContext(contextOptions(plan.size, IPHONE_USER_AGENT))
+    const context = await browser.newContext({
+      ...contextOptions(plan.size, IPHONE_USER_AGENT),
+      ...(plan.timeZone ? { timezoneId: plan.timeZone } : {}),
+      ...(plan.locale ? { locale: plan.locale } : {}),
+    })
+    if (plan.cookies?.length) await context.addCookies(plan.cookies.map((cookie) => ({ ...cookie, url: own })))
     await offlineAudio(context)
     await context.route(
       (url) => url.origin !== own,
