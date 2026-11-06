@@ -328,3 +328,11 @@ Done when: the kit's web fixture, given a full-height placeholder and `waitForFi
 Do not touch: what the gate shows when, and the `data-sign-in-gate` mark.
 Needs: nothing.
 Touches: web/sign-in/SignInGate.tsx, web/e2e, README "Sign-in gate".
+
+## google-refusal-wording · A refused Google sign-in says to try Google again, not to send a new code
+
+Goal: the Clerk adapter's `startGoogle` (authentication/clerk/google.ts:34 and :39 at v0.43.1) words a refusal with `messageFor` from email-code.ts, the emailed code's words. When Clerk refuses the start of a Google sign-in for too many requests, the person who tapped Continue with Google reads "Too many tries. Wait a minute, then send a new code." (seen in argon-watcher's browser tests on 2026-11-06, under the development instance's rate limit). Every other refusal there reads "Signing in did not work. Try again." with no word of Google. Google's start gets words of its own, such as "Too many tries. Wait a minute, then continue with Google again.", and the emailed code keeps its own.
+Done when: a unit test of `startGoogle` with a stand-in Clerk that answers `too_many_requests` gets the Google wording, and one that answers an emailed-code refusal through `sendEmailCode` still gets "send a new code"; no message reached from Google's start names a code.
+Do not touch: the emailed code's words.
+Needs: nothing.
+Touches: authentication/clerk/google.ts, authentication/clerk/email-code.ts, test/clerk.test.ts.
