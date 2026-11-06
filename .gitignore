@@ -3,3 +3,4 @@ test-results
 playwright-report
 web/e2e/fixture/dist
 authentication/clerk/e2e/page/dist
+.apps-round

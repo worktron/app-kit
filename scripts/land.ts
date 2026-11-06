@@ -8,9 +8,11 @@
 //   2. main's version untagged on GitHub (a release landed by hand, or a push whose answer was lost): tag main's commit
 //   3. a branch already in main: stop there
 //   4. refuse a hand edit to the version, and a missing or unknown Release line; a branch touching only
-//      .claude/plans is none and skips the gates, so ticket landings keep working
+//      .claude/plans is none and skips the gates, so ticket landings keep working. A minor change must also say what
+//      an app does about it, in an `Apps:` line beside the Release line; a patch may
 //   5. rebase on the pinned commit, then, on a detached head so a stopped run never leaves it on the branch, commit
-//      the new version and the README's install lines
+//      the new version, the README's install lines and the Apps lines under the version in CHANGES.md, which apps'
+//      threads read from their own tag forward
 //   6. the gates, then one push of main and the tag, never forced, so it only moves main forward and adds no commit:
 //      every commit keeps Worktron as author and committer. Refused because another landing moved main: start again,
 //      up to three tries
@@ -64,6 +66,35 @@ export function kindOf(commits: { releases: string[]; message: string }[], chang
   if (plansOnly) return { kind: 'none', plansOnly, why: 'only plan files change, so the change is none' }
   return { refused: 'no commit on <branch> says what kind of change it is; add Release: minor, Release: patch or Release: none beside Co-Authored-By' }
 }
+
+/**
+ * What an app must do about the change, from each commit's Apps trailer, read unfolded so a wrapped line stays one.
+ * A minor change, the kind apps may have to change for, must say; a patch may. An Apps line git did not read as a
+ * trailer is refused rather than dropped.
+ */
+export function appsOf(commits: { apps: string[]; message: string }[], kind: Kind): { lines: string[] } | { refused: string } {
+  if (commits.some((commit) => !commit.apps.length && /^apps:/im.test(commit.message))) {
+    return { refused: 'an Apps: line is in a commit message but not in its last paragraph, where git reads it; put it beside Release and Co-Authored-By' }
+  }
+  const lines = commits.flatMap((commit) => commit.apps.map((value) => value.trim()).filter(Boolean))
+  if (kind === 'minor' && !lines.length) {
+    return { refused: `a minor change must say what an app does about it; add an Apps: line beside the Release line, such as "Apps: an extension's manifest moves to its checkout's root", or mark the change patch if apps need do nothing` }
+  }
+  return { lines: kind === 'none' ? [] : lines }
+}
+
+/** CHANGES.md with a version's Apps lines added above the newest version's, the file made with its heading when new. */
+export function withChanges(text: string | null, version: string, lines: string[]): string {
+  const entry = `## v${version}\n\n${lines.map((line) => `- ${line}`).join('\n')}\n`
+  const current = text ?? `${CHANGES_HEADING}\n`
+  const at = current.search(/^## /m)
+  return at === -1 ? `${current.replace(/\s*$/, '')}\n\n${entry}` : `${current.slice(0, at)}${entry}\n${current.slice(at)}`
+}
+
+/** The start of CHANGES.md, when a landing makes it. */
+export const CHANGES_HEADING = `# Changes
+
+What an app does when it moves to each version, newest first, written by the landing from each change's Apps line. A version not listed asks nothing of an app.`
 
 /** The version after a change of this kind; while the version is 0.x, minor raises the middle number. */
 export function nextVersion(version: string, kind: Exclude<Kind, 'none'>): string {
@@ -127,17 +158,20 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
       return stop(`${branch} changes package.json's version from ${baseVersion} to ${branchVersion}; drop that edit, since the landing sets the version, and say the kind of change with a Release: line`)
     }
     const changed = (await must('diff', '--name-only', base, 'HEAD')).split('\n').filter(Boolean)
-    const commits = (await must('log', `${base}..HEAD`, '--format=%(trailers:key=Release,valueonly)%x00%B%x01'))
+    const commits = (await must('log', `${base}..HEAD`, '--format=%(trailers:key=Release,valueonly)%x00%(trailers:key=Apps,valueonly,unfold)%x00%B%x01'))
       .split('\x01')
       .filter((commit) => commit.trim())
       .map((commit) => {
-        const [releases, message] = commit.split('\x00')
-        return { releases: releases.split('\n').filter((value) => value.trim()), message }
+        const [releases, apps, message] = commit.split('\x00')
+        const values = (text: string) => text.split('\n').filter((value) => value.trim())
+        return { releases: values(releases), apps: values(apps), message }
       })
     const decided = kindOf(commits, changed)
     if ('refused' in decided) return stop(decided.refused.replace('<branch>', branch))
     const { kind, plansOnly } = decided
     log(`${branch}: ${decided.why}`)
+    const forApps = appsOf(commits, kind)
+    if ('refused' in forApps) return stop(forApps.refused)
 
     if (!(await git('rebase', '-q', pin)).ok) {
       const conflicts = (await git('diff', '--name-only', '--diff-filter=U')).out.split('\n').filter(Boolean)
@@ -157,8 +191,13 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
         if ((JSON.parse(readFileSync(packageFile, 'utf8')) as { version: string }).version !== version) throw new Error(`package.json has no "version": "${mainVersion}" line to change`)
         const readme = join(cwd, 'README.md')
         if (existsSync(readme)) writeFileSync(readme, readFileSync(readme, 'utf8').replaceAll(/app-kit#v\d+\.\d+\.\d+/g, `app-kit#v${version}`))
+        if (forApps.lines.length) {
+          const changes = join(cwd, 'CHANGES.md')
+          writeFileSync(changes, withChanges(existsSync(changes) ? readFileSync(changes, 'utf8') : null, version, forApps.lines))
+          await must('add', 'CHANGES.md')
+        }
         await must('commit', '-q', '-a', '-m', `Version ${version}\n\n${TRAILER}`)
-        log(`version ${mainVersion} becomes ${version}, with the README's install lines`)
+        log(`version ${mainVersion} becomes ${version}, with the README's install lines${forApps.lines.length ? ` and ${forApps.lines.length} Apps line${forApps.lines.length === 1 ? '' : 's'} in CHANGES.md` : ''}`)
       }
 
       if (plansOnly) {

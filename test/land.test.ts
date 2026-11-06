@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
-import { kindOf, land, nextVersion, TRAILER, type LandOptions } from '../scripts/land.ts';
+import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, withChanges, type LandOptions } from '../scripts/land.ts';
 
 // git found through PATH on a Mac is Apple's launcher, which looks up the developer tools on every call before it starts
 // the real git, about half again the time of each of the hundreds of git processes here; the folder `git --exec-path`
@@ -96,7 +96,8 @@ function refuse(origin: string, pattern: string) {
   chmodSync(hook, 0o755);
 }
 
-const release = (subject: string, kind: string) => `${subject}\n\nRelease: ${kind}\n${TRAILER}`;
+/** A commit message with its Release line, and for a minor change the Apps line it must carry. */
+const release = (subject: string, kind: string, apps = kind === 'minor' ? `Apps: ${subject}\n` : '') => `${subject}\n\nRelease: ${kind}\n${apps}${TRAILER}`;
 function packageAt(version: string) {
   return `${JSON.stringify({ name: 'kit', version }, null, 2)}\n`;
 }
@@ -132,6 +133,23 @@ test('no Release line, one outside the last paragraph, and an unknown kind are r
 test('a branch changing only plan files is none without a line, and any other file needs one', () => {
   expect(kindOf([{ releases: [], message: 'ticket-1: ticket\n' }], ['.claude/plans/backlog.md'])).toMatchObject({ kind: 'none', plansOnly: true });
   expect(kindOf([{ releases: [], message: 'x\n' }], ['.claude/plans/backlog.md', 'README.md'])).toHaveProperty('refused');
+});
+
+test('a minor change must carry an Apps line, a patch may, none keeps none, and a misplaced one is refused', () => {
+  expect(appsOf([{ apps: [], message: 'x' }], 'minor')).toEqual({ refused: expect.stringContaining('a minor change must say what an app does about it; add an Apps: line') });
+  expect(appsOf([{ apps: [], message: 'x' }, { apps: [' Move the manifest '], message: '' }], 'minor')).toEqual({ lines: ['Move the manifest'] });
+  expect(appsOf([{ apps: [], message: 'x' }], 'patch')).toEqual({ lines: [] });
+  expect(appsOf([{ apps: ['Read the new line'], message: '' }], 'patch')).toEqual({ lines: ['Read the new line'] });
+  expect(appsOf([{ apps: ['Ignored'], message: '' }], 'none')).toEqual({ lines: [] });
+  expect(appsOf([{ apps: [], message: `The change\n\nApps: do this\n\nRelease: patch\n${TRAILER}\n` }, { apps: ['Other'], message: '' }], 'patch')).toEqual({ refused: expect.stringContaining('an Apps: line is in a commit message but not in its last paragraph') });
+});
+
+test('CHANGES.md takes each version above the newest, under the heading Dependabot and Renovate read release notes by', () => {
+  const first = withChanges(null, '0.6.0', ['Move the manifest']);
+  expect(first).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\n- Move the manifest\n`);
+  expect(withChanges(first, '0.6.1', ['One', 'Two'])).toBe(`${CHANGES_HEADING}\n\n## v0.6.1\n\n- One\n- Two\n\n## v0.6.0\n\n- Move the manifest\n`);
+  // The file in the repository has the same heading, so the landing adds to it rather than starting another.
+  expect(readFileSync(join(import.meta.dir, '../CHANGES.md'), 'utf8').startsWith(`${CHANGES_HEADING}\n\n## v`)).toBe(true);
 });
 
 test('while the version is 0.x, minor raises the middle number and patch the last', () => {
@@ -173,7 +191,9 @@ test.concurrent('two branches marked minor, the second landing while the first r
   expect(await git('log', '-1', '--format=%an %cn', main)).toBe('Worktron Worktron');
   expect(`${await git('show', `${main}:package.json`)}\n`).toBe(packageAt('0.7.0'));
   expect(await git('show', `${main}:README.md`)).toBe('bun add github:worktron/app-kit#v0.7.0');
-  expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['README.md', 'package.json']);
+  expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['CHANGES.md', 'README.md', 'package.json']);
+  // Each minor change's Apps line under its own version, the later one first.
+  expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\n- The slow change\n\n## v0.6.0\n\n- The fast change`);
 }, TWO_LANDINGS);
 
 test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands', async () => {
@@ -193,6 +213,18 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
 
   await commit(work, 'The fix', 'fix.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1' });
+}, TWO_LANDINGS);
+
+test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry', async () => {
+  const { work, git } = await scratch();
+  await branch(work, 'change', release('A change', 'minor', ''));
+  const before = await git('rev-parse', 'HEAD');
+  const refused = (await landIn(work)).outcome;
+  expect(refused).toEqual({ landed: false, reason: expect.stringContaining('a minor change must say what an app does about it') });
+  expect(await git('rev-parse', 'HEAD')).toBe(before);
+  await commit(work, release('Say it', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'say.txt');
+  expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.6.0' });
+  expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\n- move the manifest to the checkout root`);
 }, TWO_LANDINGS);
 
 test.concurrent('none lands and releases nothing', async () => {
