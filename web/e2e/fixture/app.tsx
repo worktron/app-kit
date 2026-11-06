@@ -181,7 +181,6 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   const [address, navigate] = useAddress();
   const item = /^\/items\/(\w+)/.exec(address)?.[1];
   const path = address.split('?')[0];
-  if (path === DESKTOP_SIGN_IN_PATH) return <HandOver />;
   const known = Boolean(item) || ['/', '/later', '/shelf'].includes(path);
   // A screen with no data to wait for is drawn at once; the list, the shelf and the not-found page each say so themselves.
   const appDrawn = useAppDrawn();
@@ -189,6 +188,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   useLayoutEffect(() => {
     if (drawnAtOnce) appDrawn();
   }, [drawnAtOnce, appDrawn]);
+  if (path === DESKTOP_SIGN_IN_PATH) return <HandOver />;
   if (!known) {
     return (
       <NavigateProvider navigate={navigate}>

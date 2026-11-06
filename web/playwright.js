@@ -202,9 +202,14 @@ export async function expectQuietSignIn(page, start, { timeout = 10_000 } = {}) 
     const report = /** @type {(seen: unknown) => void} */ (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))[binding]);
     let on = armed;
     let last = '';
+    // A page loads before its gate draws, which is its first frame in its own colors; a gate gone after it was up is a
+    // blank screen.
+    let gateWasUp = false;
     const look = () => {
       if (!on) return;
-      const shows = document.documentElement.getAttribute(attribute);
+      const mark = document.documentElement.getAttribute(attribute);
+      gateWasUp ||= mark !== null;
+      const shows = mark ?? (gateWasUp ? 'gone' : null);
       const disabled =
         shows === 'app'
           ? []
@@ -236,9 +241,9 @@ export async function expectQuietSignIn(page, start, { timeout = 10_000 } = {}) 
   const reached = await Promise.race([app.then(() => true), new Promise((resolve) => (timer = setTimeout(() => resolve(false), timeout)))]);
   clearTimeout(timer);
   done = true;
-  const steps = seen.map((step) => `${step.address}: ${step.shows ?? 'nothing from the gate'}${step.disabled.length ? `, with disabled ${step.disabled.join(', ')}` : ''}`);
+  const steps = seen.map((step) => `${step.address}: ${step.shows ?? 'the page loading'}${step.disabled.length ? `, with disabled ${step.disabled.join(', ')}` : ''}`);
   if (!reached) throw new Error(`expectQuietSignIn: the app's screen was not drawn within ${timeout}ms. The gate showed:\n${steps.join('\n')}`);
-  const loud = seen.filter((step) => step.shows === 'sign-in' || step.disabled.length > 0);
+  const loud = seen.filter((step) => step.shows === 'sign-in' || step.shows === 'gone' || step.disabled.length > 0);
   if (loud.length) {
     throw new Error(
       `expectQuietSignIn: between the start and the app's screen, every screen should be the wordmark with at most one line, but the gate showed:\n${steps.join('\n')}`,

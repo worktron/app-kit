@@ -121,6 +121,11 @@ test.describe('the quiet sign-in step', () => {
     await expect(expectQuietSignIn(page, tap(page))).rejects.toThrow('/tap: sign-in');
   });
 
+  test('fails a gate gone from the page between the line and the app, a blank screen', async ({ page }) => {
+    await standIn(page, `mark('placeholder-with-line'); await later(() => document.documentElement.removeAttribute('data-sign-in-gate')); await later(() => mark('app'));`);
+    await expect(expectQuietSignIn(page, tap(page))).rejects.toThrow('/tap: gone');
+  });
+
   test('fails when the app’s screen never comes, saying what the gate showed', async ({ page }) => {
     await standIn(page, `mark('placeholder-with-line');`);
     await expect(expectQuietSignIn(page, tap(page), { timeout: 500 })).rejects.toThrow("the app's screen was not drawn within 500ms");

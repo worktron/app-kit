@@ -217,9 +217,12 @@ function Gate({
       if (wasSignedOut.current) signedInAt.current = Date.now();
       if (email) rememberAccount(email);
       setReturningFromGoogle(false);
-      // The line stays through the hold only for this sign-in: a later Sign out shows the sign-in screen.
-      setSignedInWithGoogle(withGoogleNow.current);
-      setWithGoogle(false);
+      // On the sign-in itself, not when the provider fills in the email after: the line stays through the hold only for
+      // this sign-in, so a later Sign out shows the sign-in screen.
+      if (wasSignedOut.current !== false) {
+        setSignedInWithGoogle(withGoogleNow.current);
+        setWithGoogle(false);
+      }
     } else {
       // Signed out here, in another tab or by the session ending: the sign-in screen is next, and a later sign-in
       // holds the placeholder up again until the app has drawn. What the page kept for the person goes.

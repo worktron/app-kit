@@ -225,6 +225,19 @@ test('in the iPhone app, the tap opens the sheet and shows the wordmark and its 
   expect(shows()).toBe('app');
 });
 
+test('in the iPhone app, the line stays while the app loads when the provider knows the person a moment before their email', async () => {
+  const p = provider();
+  const fake = fakeIphone({ inApp: true });
+  draw(p, fake.iphone, { drawn: false });
+  await tap();
+  fake.setWindow({ state: 'signing-in' });
+  await act(async () => fake.sheets[0]!.close(true));
+  act(() => p.signInAs({ id: 'p1', email: null }));
+  act(() => p.signInAs({ id: 'p1', email: 'ana@example.com' }));
+  fake.setWindow({ state: 'signed-in' });
+  expect(line()).toBe(SIGNING_IN_WITH_GOOGLE);
+});
+
 test('in the iPhone app, a sheet closed without signing in brings the sign-in screen back ready, with nothing to say', async () => {
   const fake = fakeIphone({ inApp: true });
   draw(provider(), fake.iphone);
