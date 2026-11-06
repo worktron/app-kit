@@ -116,3 +116,10 @@ test('the add is part of the cart import name', async () => {
   expect(byName.productPath).toBe(productPath);
   expect(byName.NotTheProduct).toBe(NotTheProduct);
 });
+
+test('the README says what the add request and the never-sent list each do', () => {
+  const readme = readFileSync(join(import.meta.dir, '..', 'README.md'), 'utf8');
+  for (const row of ['| `productPath(asin, store)` |', '| `addRequest(html, asin, store)` |', '| `NotTheProduct` |', '| `refusal(method, path, body)` |', '| `landedOutside(url)` |'])
+    expect(readme).toContain(row);
+  expect(readme).toContain('`extension/worker/amazon-never-sent.js`');
+});

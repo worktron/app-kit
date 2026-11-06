@@ -48,16 +48,18 @@ describe('refusal', () => {
     expect(refusal(method, path)).toBe(NEVER_SENT)
   })
 
-  test.each([
-    ['POST', '/check%6fut/entry/cart'],
-    ['POST', '/%63heckout/p/pl%61ce-order'],
-    ['GET', '/%61p/signin'],
-    ['GET', '/%2561p/signin'],
-    ['GET', '/dp/%2e%2e/ap/signin'],
-    ['GET', '/dp/%2E%2E/%2E%2E/cpe/yourpayments/wallet'],
-    ['GET', '/s?ref=pro%2563eedToRetailCheckout'],
-  ])('an encoded path or query is read as Amazon reads it: refuses %s %s', (method, path) => {
-    expect(refusal(method, path)).toBe(NEVER_SENT)
+  test('an encoded path or query is read as Amazon reads it', () => {
+    for (const [method, path] of [
+      ['POST', '/check%6fut/entry/cart'],
+      ['POST', '/%63heckout/p/pl%61ce-order'],
+      ['GET', '/%61p/signin'],
+      ['GET', '/%2561p/signin'],
+      ['GET', '/dp/%2e%2e/ap/signin'],
+      ['GET', '/dp/%2E%2E/%2E%2E/cpe/yourpayments/wallet'],
+      ['GET', '/s?ref=pro%2563eedToRetailCheckout'],
+    ] as const) {
+      expect([method, path, refusal(method, path)]).toEqual([method, path, NEVER_SENT])
+    }
   })
 
   test('only GET and POST are sent, only to paths on www.amazon.com, and a GET carries no body', () => {
