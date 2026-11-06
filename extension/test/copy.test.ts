@@ -15,7 +15,7 @@ const cli = (...args: string[]) => Bun.spawnSync([process.execPath, join(import.
 test('copy writes every worker file and the stylesheet, each naming the kit version it came from', () => {
   const folder = join(dir, 'kit')
   expect(copyWorker(folder)).toEqual([...workerFiles(), 'look.css'])
-  expect(workerFiles()).toEqual(['account.js', 'alarms.js', 'build.js', 'errors.js', 'port.js', 'self-reload.js', 'show.js'])
+  expect(workerFiles()).toEqual(['account.js', 'alarms.js', 'amazon-never-sent.js', 'build.js', 'errors.js', 'port.js', 'self-reload.js', 'show.js'])
   expect(readFileSync(join(folder, 'port.js'), 'utf8').split('\n')[0]).toBe(`// Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.`)
   expect(workerCopyDiffers(folder)).toEqual([])
 })

@@ -115,10 +115,10 @@ test('the part has its own import name', async () => {
 
 test('every fixture holds only made-up product numbers, line ids, names and places', () => {
   const pages = readdirSync(FIXTURES).filter((name) => name.endsWith('.html'));
-  expect(pages).toHaveLength(6);
+  expect(pages).toHaveLength(11);
   for (const name of pages) {
     const text = fixture(name);
-    for (const [, product] of text.matchAll(/(?:data-asin="|amzn1\.asin\.|\/dp\/)([A-Z0-9]{10})\b/g)) expect(product).toStartWith('B0TEST');
+    for (const [, product] of text.matchAll(/(?:data-asin="|amzn1\.asin\.|\/dp\/|\/clp\/|&quot;asin&quot;:&quot;|"ASIN" value="|\[asin\]" value=")([A-Z0-9]{10})\b/g)) expect(product).toStartWith('B0TEST');
     for (const [id] of text.matchAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g)) expect(id).toStartWith('00000000-0000-4000-8000-');
     for (const [, title] of text.matchAll(/data-producttitle="([^"]+)"/g)) expect(title!.trim()).toStartWith('Example ');
     for (const [, hello] of text.matchAll(/>Hello, ([^<]+)</g)) expect(['Example', 'sign in']).toContain(hello!);

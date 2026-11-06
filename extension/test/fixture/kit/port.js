@@ -1,4 +1,4 @@
-// Copied from app-kit 0.32.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.41.0 by `app-kit extension copy`. Change it in the kit.
 // The worker's native messaging port to a host on this Mac.
 //
 // Chrome starts the host named in the port when the worker connects, and stops

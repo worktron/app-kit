@@ -1,4 +1,4 @@
-// Copied from app-kit 0.32.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.41.0 by `app-kit extension copy`. Change it in the kit.
 // Showing a link: a tab already showing its address comes forward, with its
 // window raised (and brought back when minimized), before a new tab opens.
 // Otherwise it opens in a new tab of the profile's last focused window, or in

@@ -5,12 +5,12 @@ The baseline every app of ours ships with, written once instead of copied from t
 | Folder | Import names | What it holds |
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
-| `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the plain look's stylesheet for their pages, the native host, the test harness. |
+| `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the Amazon requests never sent among them, the plain look's stylesheet for their pages, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders`, `app-kit/amazon-cart` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order and cart pages. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders`, `app-kit/amazon-cart` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order, cart and product pages, the last into the request that adds to a cart. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -399,6 +399,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
 | Showing a link | `extension/worker/show.js` | `showLink(url)` brings forward a tab already showing the address, raising its window, before it opens a new tab, as the extensions rule asks. Needs the `tabs` permission or access to the sites it shows. See below. |
 | Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, answers the host's status question with its build, commit and errors, and answers every other request: with the extension's reply, a refusal when it has none, or the error it threw, so no caller waits out the host's timeout. |
+| Never-sent Amazon requests | `extension/worker/amazon-never-sent.js` | `refusal(method, path, body)` gives the reason a request to www.amazon.com is never sent, or null: checkout, placing an order, payment, addresses, sign-in and changes to subscriptions, in the path, the query or the body, however the body is encoded. See below. |
 | Native host | `app-kit/extension/host` | The host Chrome starts: it serves a unix socket for callers on the Mac (a command line, an MCP server, a server) and relays their requests to the extension. Also the client callers use, the status they read, the extension's ID from its key, and the manifest that tells Chrome about the host. |
 | Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
 | Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
@@ -530,6 +531,28 @@ const host = await startHostAsChrome({ command: [process.execPath, 'src/host.ts'
 // ... ask(socketPath, ...) ...
 await host.stop()
 ```
+
+### Amazon requests never sent
+
+An extension that reaches Amazon in the person's own signed-in browser keeps its own short list of the paths it asks for, and checks every request against `extension/worker/amazon-never-sent.js` besides, so neither a mistake in its own list nor a request its server hands it whole ever starts a purchase:
+
+```js
+import { landedOutside, refusal } from "./kit/amazon-never-sent.js";
+
+const reason = refusal(method, path, body) ?? ownListRefusal(method, path);
+if (reason) return { ok: false, reason };
+const answer = await fetch(`https://www.amazon.com${path}`, { method, body, credentials: "include" });
+if (landedOutside(answer.url)) return { ok: false, reason: "The answer came from a page that is never read" };
+```
+
+| Export | What it does |
+| --- | --- |
+| `refusal(method, path, body)` | Null when nothing in the request is on the list, else the reason. Only GET and POST are sent, only to a path on www.amazon.com, and a GET carries no body. The path and the query are checked against the list (checkout, placing an order, Buy Now, payment and the wallet, addresses, sign-in, account settings, devices, and every subscription page but the list of them), leaving out the search words, so a search for "address book" is a search. The body is checked for the phrases that start a purchase after decoding it as Amazon would, each `%XX` and JSON `\uXXXX` escape on its own and again until nothing changes. |
+| `landedOutside(url)` | Whether an answer that ended at `url`, after its redirects, left www.amazon.com or ended on a page from the list, so its text is not handed back. A redirect to sign-in is not counted: it is how Amazon answers someone signed out. |
+| `plainText(body)` | A body decoded as `refusal` reads it. |
+| `NEVER_SENT`, `AMAZON_ORIGIN` | The reason `refusal` gives for a request on the list, and `https://www.amazon.com`. |
+
+The list is amazon-connector's, where it was worked out against Amazon's real pages; `app-kit/amazon-cart`'s `addRequest` gives requests that pass it.
 
 ### The Chrome stand-in
 
@@ -1627,6 +1650,36 @@ try {
 - **How a page is known as the store's cart.** A grocery cart page (Amazon Fresh, Whole Foods Market) has one expanded grocery cart whose checkout box names the store's brand id; regular Amazon's has its active cart; and a header reading "Hello, sign in" is a signed-out page, whatever else it holds. These marks are read from real pages, recorded on 2026-10-22 and 2026-11-05.
 - **An empty grocery cart has never been recorded.** Whether its page keeps the checkout box naming the store is unknown. If it does, it reads as a cart with no lines; if not, `readCart` throws `NotTheCart` with the reason "The page's grocery cart has no checkout box naming its store", rather than guessing that the cart is empty. A signed-in empty regular cart has not been recorded either: signed out, its active cart is there, empty, so it is expected to read as a cart with no lines. `test/fixtures/amazon-cart/README.md` keeps what is known and how to record the rest.
 - **What never comes out.** A cart page's header holds the person's name and delivery town; the reader reads the cart's lines and counts only. A server keeps what is read and discards the page.
+
+### Adding to an Amazon cart
+
+`app-kit/amazon-cart` also reads a product's page into the one request Amazon's own add button makes for one of it, for the person's own browser to send with its cookies. Nothing here sends it: a server reads the page the browser fetched, and hands the request back to the browser, which checks it against the never-sent list (`extension/worker/amazon-never-sent.js`) and posts it as given.
+
+```ts
+import { addRequest, NotTheProduct, productPath } from 'app-kit/amazon-cart';
+
+const page = await pageFromTheBrowser(productPath(asin, 'Whole Foods Market'));
+try {
+  const request = addRequest(page, asin, 'Whole Foods Market');
+  if ('notForSale' in request) return { added: false, reason: request.notForSale };
+  await postFromTheBrowser(request.path, request.body, request.headers);
+  // Read the cart after (cartPath, readCart) to say how many are in it.
+} catch (error) {
+  if (!(error instanceof NotTheProduct)) throw error;
+  // Not the product's page: send nothing, and log error.kind and error.message.
+}
+```
+
+| Export | What it gives |
+| --- | --- |
+| `productPath(asin, store)` | The address on amazon.com of the product's page as the store sells it: each grocery store's has its brand id, regular Amazon's is the bare product page. |
+| `addRequest(html, asin, store)` | `{ path, body, headers }`, the POST that adds one, or `{ notForSale }` with the reason in plain words ("Whole Foods Market does not sell it right now", "Amazon sells it only through Amazon Fresh or Whole Foods Market"). A grocery store's add is its button's own data, posted as JSON to `/alm/addtofreshcart`. Regular Amazon's is the add form's token, client name, product and offer with a quantity of one, posted form-encoded to `/cart/add-to-cart?ref=dp_start-bbf_1_glance`, never to the form's own address, which also takes Buy Now. |
+| `NotTheProduct` | What `addRequest` throws for a page that is not the product's page, so nothing is sent from it: `kind` is `signed-out` when Amazon showed the page to someone not signed in, and `not-this-product` for anything else (another product's page, a page refusing the request, an add button or form naming another product, a form with no token), with `asin`, `store` and a message giving the reason. |
+| `AddRequest`, `NotTheProductKind` | The types. |
+
+- **How a page is known as the product's page.** Its canonical link ends in the product number, on every product page recorded on 2026-10-22 and 2026-11-05, a store's page of a product it does not sell included, which has neither add button nor form. A signed-out product page has the whole add form, so a header reading "Hello, sign in" is checked first.
+- **Another store's offer is never posted for the store asked.** Recorded on 2026-11-05: an Amazon Fresh product's page on regular Amazon offers it for delivery with a form that fills a grocery cart (its `cartType` is `LOCAL_MARKET`) and for pickup with Whole Foods Market's button. So regular Amazon's add refuses a form with a cart type, and a grocery add refuses a button naming another store, saying which store sells it.
+- **One at a time.** The grocery button adds one per press, so a quantity is that many posts of the same request, stopping at the first that fails; reading the cart before and after says how many went in.
 
 ## look/: the two looks
 

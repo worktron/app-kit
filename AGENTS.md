@@ -18,7 +18,8 @@ web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, 
                  playwright.js, the browser test steps every app shares (app-kit/web/playwright);
                  web/e2e/fixture, a small app built on the kit, run built in a hidden Chromium; web/e2e/audio-output.swift, the
                  record of which processes have an output device open, for offline-audio.e2e.ts
-extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension), look.css (the plain
+extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension, with
+                 amazon-never-sent.js, the Amazon requests no extension sends), look.css (the plain
                  look's rules for an extension's pages, copied beside the worker files with its variables written from
                  look/), host/ (the Mac side),
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
@@ -81,8 +82,9 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  amazon-orders/ (reading Amazon's order pages from their HTML, on happy-dom, the only file that imports it,
                  app-kit/amazon-orders; test/fixtures/amazon-orders holds the tests' made-up pages),
                  amazon-cart/ (reading one store's Amazon cart page, which throws on a page that is not that store's cart,
-                 through amazon-orders' parse, app-kit/amazon-cart; test/fixtures/amazon-cart holds the tests' made-up
-                 pages, and its README what marks each store's cart and what is not yet known)
+                 and a product's page into the request that adds one to a cart, which throws on a page that is not that
+                 product's, through amazon-orders' parse, app-kit/amazon-cart; test/fixtures/amazon-cart holds the tests'
+                 made-up pages, and its README what marks each store's cart and a product's page, and what is not yet known)
 look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
                  and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
                  test/look-swift.test.ts
