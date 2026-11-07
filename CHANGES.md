@@ -2,6 +2,13 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.46.1
+
+Urgency: rides along
+
+- a steps file's outsideImage path is read from the steps file's folder, no longer the folder the command ran in
+- a steps file for store images sets timeZone and locale, and names clockAt's offset
+
 ## v0.46.0
 
 Urgency: rides along
