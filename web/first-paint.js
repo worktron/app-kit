@@ -68,16 +68,102 @@ export function firstPaintScript(options) {
     .join('\n');
 }
 
+const FAMILY = /^[A-Za-z0-9 _-]+$/;
+
+/** @param {import('./first-paint').FirstPaintFont} font */
+function settledFont(font) {
+  if (!FAMILY.test(font.family)) throw new Error(`app-kit first paint: ${JSON.stringify(font.family)} is not a font family name of letters, digits, spaces and dashes.`);
+  if (!/^[^/\\]+\.woff2$/.test(font.file)) throw new Error(`app-kit first paint: ${JSON.stringify(font.file)} is not a woff2 file's name, as 'figtree-latin-wght-normal.woff2'.`);
+  return font;
+}
+
+/**
+ * The last part of a path.
+ * @param {string} path
+ */
+const baseName = (path) => path.split(/[\\/]/).pop() ?? path;
+
+/**
+ * The declarations of a CSS block, in order, as [name, value]. A face's values hold no semicolons: its url is the
+ * built file's, never a data URL.
+ * @param {string} body
+ */
+function declarations(body) {
+  return body
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const colon = part.indexOf(':');
+      return /** @type {[string, string]} */ ([part.slice(0, colon).trim().toLowerCase(), part.slice(colon + 1).trim()]);
+    });
+}
+
+/** @type {typeof import('./first-paint').firstFrameFont} */
+export function firstFrameFont(font, bundle, base) {
+  const { family, file } = settledFont(font);
+  const assets = Object.values(bundle).filter((output) => output.type === 'asset');
+  const built = assets.find((asset) => [...(asset.originalFileNames ?? []), ...(asset.names ?? [])].some((name) => baseName(name) === file));
+  if (!built) throw new Error(`app-kit first paint: the build has no font file ${file}. Name a woff2 the app's stylesheet uses, as its package names it.`);
+  const builtName = baseName(built.fileName);
+  /** @type {[string, string][] | undefined} */
+  let face;
+  for (const sheet of assets.filter((asset) => asset.fileName.endsWith('.css'))) {
+    const source = typeof sheet.source === 'string' ? sheet.source : new TextDecoder().decode(sheet.source);
+    for (const [, body] of source.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
+      if (body.includes(builtName)) face = declarations(body);
+      if (face) break;
+    }
+    if (face) break;
+  }
+  if (!face) throw new Error(`app-kit first paint: no @font-face in the built stylesheets uses ${file}, so there are no descriptors to copy.`);
+  const theirs = face.find(([name]) => name === 'font-family')?.[1].replace(/^['"]|['"]$/g, '');
+  if (theirs === family) {
+    throw new Error(`app-kit first paint: the first frame's family must not be the stylesheet's own, ${family}: the stylesheet's later face, drawn with swap, would win.`);
+  }
+  const href = `${base === '' || base.startsWith('.') ? './' : base}${built.fileName}`;
+  const src = face.find(([name]) => name === 'src')?.[1] ?? '';
+  const format = src.match(/format\([^)]*\)/)?.[0] ?? "format('woff2')";
+  const kept = face.filter(([name]) => !['font-family', 'font-display', 'src'].includes(name));
+  const rules = [
+    `font-family: '${family}'`,
+    // Nothing until the file is in, for up to about three seconds, rather than the fallback and a swap.
+    'font-display: block',
+    `src: url(${JSON.stringify(href)}) ${format}`,
+    ...kept.map(([name, value]) => `${name}: ${value}`),
+  ];
+  return [
+    // At the start of the head, so the file is asked for before anything else, with the bare crossorigin a font's own
+    // fetch uses, or the browser fetches it twice.
+    { tag: 'link', attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href, crossorigin: true }, injectTo: 'head-prepend' },
+    { tag: 'style', children: `@font-face { ${rules.join('; ')}; }`, injectTo: 'head' },
+  ];
+}
+
 /** @type {typeof import('./first-paint').firstPaint} */
 export function firstPaint(options) {
   const style = firstPaintStyle(options);
   const script = firstPaintScript(options);
+  const font = options.font && settledFont(options.font);
+  let base = '/';
   return {
     name: 'app-kit-first-paint',
-    // At the end of the head, after the page's own theme-color tag, which a script at its start could not yet find.
-    transformIndexHtml: () => [
-      { tag: 'style', children: style, injectTo: 'head' },
-      { tag: 'script', children: script, injectTo: 'head' },
-    ],
+    configResolved(config) {
+      base = config.base;
+    },
+    transformIndexHtml: {
+      // At the end of the head, after the page's own theme-color tag, which a script at its start could not yet find.
+      // The font's tags only in a build, where the bundle names the built file, and only on a page that names the
+      // first frame's family.
+      handler(html, context) {
+        /** @type {import('./first-paint').HtmlTag[]} */
+        const tags = [
+          { tag: 'style', children: style, injectTo: 'head' },
+          { tag: 'script', children: script, injectTo: 'head' },
+        ];
+        if (font && context?.bundle && html.includes(font.family)) tags.push(...firstFrameFont(font, context.bundle, base));
+        return tags;
+      },
+    },
   };
 }

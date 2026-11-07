@@ -73,14 +73,14 @@ swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift
 command-line/    command-line tools (app-kit/command-line): the version line, help and wrong usage, color, opening the
                  browser, the worktree warning and the 1Password read (index.ts), and run.ts, the runner every outside
                  program goes through, which the TestFlight part, `iphone run` and `icons render` use
-authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts;
-                 the steps for browser tests against a development instance, playwright.js, with one user signed in per worker,
+authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts,
+                 a user's verified addresses and the allowlist among them; the steps for browser tests against a development instance, playwright.js, with one user signed in per worker,
                  and their test against the kit's own instance, e2e/, run by scripts/e2e-clerk.sh; a stand-in for Clerk's Backend API
                  for server tests, testing.ts),
                  stand-in/ (the stand-in sign-in provider, the code it takes, code.js, and the Playwright steps for apps' browser tests, playwright.js),
                  agent-keys/ (the server check that lets a person's key read the GET routes an app lists, its API reference, openapi.ts,
                  and the check of every route for server tests, testing.ts),
-                 owner/ (the server check that lets in only the one person an app serves),
+                 owner/ (the server checks that let in only the one person an app serves, or only the people on an invited list),
                  server-sign-in/ (whether a server requires sign-in, from its environment: refused hosted without it, open on this machine only)
 server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the

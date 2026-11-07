@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wordmark</title>
+    <link rel="icon" href="data:," />
+    <!-- The page's own wordmark until the app draws, as an app's index.html has it, in the first frame's face. -->
+    <style>
+      #root:empty::before {
+        content: 'Wordmark';
+        display: block;
+        padding: 40px;
+        font: 600 48px 'Figtree First Frame', 'Figtree Variable', 'Helvetica Neue', Helvetica, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/wordmark.ts"></script>
+  </body>
+</html>

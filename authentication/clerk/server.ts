@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { createClerkClient } from '@clerk/backend';
 import { clerkMiddleware, getAuth } from '@clerk/hono';
 import type { Caller } from '../agent-keys';
+import { holdAnswers, INVITED_HOLD_MS } from '../owner';
 import { serverSignIn, type EVERY_INTERFACE, type THIS_MACHINE } from '../server-sign-in';
 
 export type ClerkServerSignIn =
@@ -46,6 +47,49 @@ export function clerkVerifiedEmails(options: { secretKey: string | undefined }):
     const user = await clerk.users.getUser(userId);
     return user.emailAddresses.filter((e) => e.verification?.status === 'verified').map((e) => e.emailAddress);
   };
+}
+
+/** The most Clerk's Backend API gives in one page of a list. */
+const PAGE = 500;
+
+export interface ClerkAllowlistOptions {
+  secretKey: string | undefined;
+  /** How long an answer is held, `INVITED_HOLD_MS` from `app-kit/authentication/owner`, two minutes, by default. */
+  holdMs?: number;
+  /** The time, for tests. */
+  now?: () => number;
+  log?: (line: string) => void;
+}
+
+/**
+ * The email entries of the instance's allowlist (Clerk's Restrictions, Allowlist), for `invitedCheckByEmail` from
+ * `app-kit/authentication/owner`: addresses, and domains written `*@example.com`. Phone numbers and wallets are left
+ * out. The answer is held for `holdMs`, so a change in Clerk takes effect within two minutes without a redeploy, and
+ * checks that arrive together share one read. When Clerk cannot be reached and a list was read before, that list is
+ * used, with a log line, and Clerk is asked again 15 seconds later; with no list yet, the read fails.
+ */
+export function clerkAllowlist(options: ClerkAllowlistOptions): () => Promise<string[]> {
+  const clerk = createClerkClient({ secretKey: options.secretKey });
+  const log = options.log ?? console.log;
+
+  const readAll = async () => {
+    const seen = new Map<string, { identifier: string; identifierType: string }>();
+    for (;;) {
+      const { data, totalCount } = await clerk.allowlistIdentifiers.getAllowlistIdentifierList({ limit: PAGE, offset: seen.size });
+      const before = seen.size;
+      for (const entry of data) seen.set(entry.id, entry);
+      // Clerk answers this list whole, whatever the page asked for; a page with nothing new is the end either way.
+      if (seen.size === before || seen.size >= totalCount) break;
+    }
+    return [...seen.values()].filter((entry) => entry.identifierType === 'email_address').map((entry) => entry.identifier);
+  };
+
+  const held = holdAnswers(readAll, {
+    holdMs: options.holdMs ?? INVITED_HOLD_MS,
+    now: options.now,
+    onStale: (_, error) => log(`[auth] could not read Clerk's allowlist, so the one read before is used for now: ${String(error)}`),
+  });
+  return () => held('allowlist');
 }
 
 /**

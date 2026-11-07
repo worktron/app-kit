@@ -1,0 +1,25 @@
+{
+  "_recorded": "GET /v1/allowlist_identifiers?paginated=true&limit=1&offset=1 on the kit's development instance, 2026-11-07, with two entries added for it and then removed; ids replaced. Clerk answered the whole list whatever the limit and offset asked for.",
+  "status": 200,
+  "body": {
+    "data": [
+      {
+        "object": "allowlist_identifier",
+        "id": "alid_app_kit_domain",
+        "identifier": "*@example.org",
+        "identifier_type": "email_address",
+        "created_at": 1794074139191,
+        "updated_at": 1794074139191
+      },
+      {
+        "object": "allowlist_identifier",
+        "id": "alid_app_kit_address",
+        "identifier": "invited@example.com",
+        "identifier_type": "email_address",
+        "created_at": 1794074139043,
+        "updated_at": 1794074139043
+      }
+    ],
+    "total_count": 2
+  }
+}

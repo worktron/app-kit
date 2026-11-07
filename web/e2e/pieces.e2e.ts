@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test, type Page } from '@playwright/test';
+import sharp from 'sharp';
 import { FONT_WAIT_MS } from '../fonts';
 import { finger } from './finger';
 
-// The pieces an installed app adds (fixture/pieces.html), the font wait (fixture/fonts.html) and the first frame every
-// fixture page paints, in Chromium with touch.
+// The pieces an installed app adds (fixture/pieces.html), the font wait (fixture/fonts.html), the first frame every
+// fixture page paints, and the wordmark drawn in the first frame's face (fixture/wordmark.html), in Chromium with touch.
 
 test.use({ hasTouch: true });
 
@@ -146,6 +147,59 @@ test('a face that never arrives holds the first draw only until the font wait gi
   await expect(page.locator('#root')).toBeEmpty();
   await page.clock.fastForward(1);
   await expect(page.getByText('Drawn in the fixture face')).toBeVisible();
+});
+
+/** Holds every request matching `pattern` until the test lets them go, counting them, and says when the first came. */
+async function hold(page: Page, pattern: string) {
+  let release: () => void = () => undefined;
+  let asked: () => void = () => undefined;
+  const letGo = new Promise<void>((resolve) => (release = resolve));
+  const wasAsked = new Promise<void>((resolve) => (asked = resolve));
+  const held = { count: 0, wasAsked, release: () => release() };
+  await page.route(pattern, async (route) => {
+    held.count++;
+    asked();
+    await letGo;
+    await route.continue();
+  });
+  return held;
+}
+
+/**
+ * Whether the page's wordmark shows any mark: false while every pixel of it is one color. Taken through Chromium's own
+ * screenshot, since Playwright's waits for every font to load.
+ */
+async function wordmarkShows(page: Page): Promise<boolean> {
+  const box = await page.locator('#root').boundingBox();
+  if (!box) throw new Error('The wordmark page has no #root to look at.');
+  const chromium = await page.context().newCDPSession(page);
+  const { data: png } = await chromium.send('Page.captureScreenshot', { format: 'png', clip: { ...box, scale: 1 } });
+  await chromium.detach();
+  const { data, info } = await sharp(Buffer.from(png, 'base64')).raw().toBuffer({ resolveWithObject: true });
+  for (let i = info.channels; i < data.length; i += info.channels) {
+    for (let c = 0; c < info.channels; c++) if (data[i + c] !== data[c]) return true;
+  }
+  return false;
+}
+
+test("the page's own wordmark is never drawn in a fallback: its font file is asked for before the stylesheet, and once", async ({ page }) => {
+  const font = await hold(page, '**/assets/figtree-latin-wght-normal-*.woff2');
+  const sheet = await hold(page, '**/assets/wordmark-*.css');
+  await page.goto('/wordmark.html', { waitUntil: 'commit' });
+  // The preload asks for the file while the stylesheet that names it has not arrived.
+  await font.wasAsked;
+  await sheet.wasAsked;
+  sheet.release();
+  await page.waitForFunction(() => [...document.fonts].some((f) => f.family.replace(/["']/g, '') === 'Figtree Variable'));
+  // The stylesheet's own face, drawn with swap, is in, and the first frame's face still has no file: nothing shows,
+  // where the stylesheet's face alone would draw the wordmark in Helvetica. The browser shows nothing for about three
+  // seconds; this looks well inside them.
+  expect(await page.evaluate(() => [...document.fonts].find((f) => f.family.replace(/["']/g, '') === 'Figtree First Frame')?.status)).toBe('loading');
+  expect(await wordmarkShows(page)).toBe(false);
+  font.release();
+  await page.waitForFunction(() => [...document.fonts].find((f) => f.family.replace(/["']/g, '') === 'Figtree First Frame')?.status === 'loaded');
+  expect(await wordmarkShows(page)).toBe(true);
+  expect(font.count).toBe(1);
 });
 
 test("a request sent as the page closes goes out at once, with the provider's held token, while a fresh one is still being asked for", async ({ page, request }) => {

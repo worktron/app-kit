@@ -372,7 +372,7 @@ A project offers persona walk-throughs with three things, named in a Personas se
 
 Two pieces let an app's server tests under Bun ask its real routes as a real caller:
 
-- `fakeClerkApi()` from `app-kit/authentication/clerk/testing` answers Clerk's Backend API for Clerk's own middleware, so the middleware and `clerkCaller` run as they do in production. It sets `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` for the middleware, and gives `signedIn(personId, { authorizedParty })`, headers with a session token signed by a key it serves as Clerk's, `withKey('valid' | 'notFound')`, headers with a key for agents answered from Clerk's recorded answers, `key`, the person, id and name of the valid one, and `restore()`, called after each test, which puts back the fetch and the environment. Nothing is put in place of a module: Bun keeps a module replaced with `mock.module` replaced for every test file after it in the same run, which would hand the stand-in to files testing the real thing.
+- `fakeClerkApi()` from `app-kit/authentication/clerk/testing` answers Clerk's Backend API for Clerk's own middleware, so the middleware and `clerkCaller` run as they do in production. It sets `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY` for the middleware, and gives `signedIn(personId, { authorizedParty })`, headers with a session token signed by a key it serves as Clerk's, `withKey('valid' | 'notFound')`, headers with a key for agents answered from Clerk's recorded answers, `key`, the person, id and name of the valid one, `setAllowlist(identifiers)`, the instance's allowlist that `clerkAllowlist` reads, empty until set, and `restore()`, called after each test, which puts back the fetch and the environment. Nothing is put in place of a module: Bun keeps a module replaced with `mock.module` replaced for every test file after it in the same run, which would hand the stand-in to files testing the real thing.
 - `routesLetThrough({ app, prefix, openPaths, readableByKey, as })` from `app-kit/authentication/agent-keys/testing` walks every route the app registered under `prefix` and returns a line for each that answered otherwise than `requireCaller` would: nobody gets 401 everywhere but the open paths, and a key gets past the check only on the routes listed for it, GET or ALL, and 403 on everything else. `as('nobody' | 'key')` gives each request's headers. No route under the prefix is a line too.
 
 ```ts
@@ -476,6 +476,22 @@ void waitForFonts(['500 1em "Cormorant Variable"', '400 1em "DM Sans Variable"']
 ```
 
 Each face's `@font-face` must already be in a stylesheet the page has, or there is nothing to wait for; the console says so. It asks with `document.fonts.load`, since WebKit's `document.fonts.check()` answers true for a face not yet loaded.
+
+The wordmark itself needs its font before the app's stylesheet arrives, since the browser asks for a font file only when a stylesheet names it, and fontsource's faces use `font-display: swap`, so the wordmark first draws in Helvetica and changes a moment later. `firstPaint`'s `font` gives the wordmark a face of its own that is never drawn in a fallback:
+
+```ts
+firstPaint({ schemes, font: { family: 'Figtree First Frame', file: 'figtree-latin-wght-normal.woff2' } }),
+```
+
+```css
+#root:empty::before { content: 'Finances'; font: 600 2rem 'Figtree First Frame', 'Figtree Variable', 'Helvetica Neue', Helvetica, sans-serif; }
+```
+
+- `file` is the woff2 by the name it has before the build, as the app's stylesheet package names it: for `@fontsource-variable/figtree`, `figtree-latin-wght-normal.woff2` covers Latin letters. Vite builds it as `assets/figtree-latin-wght-normal-<hash>.woff2`.
+- In a build, each page whose HTML names `family` gets, at the start of its head, `<link rel="preload" as="font" type="font/woff2" crossorigin>` for the built file, so the file is asked for before the stylesheet, and once: the bare `crossorigin` is what a font's own fetch uses, and without it the browser fetches it twice. Beside the first frame's style it gets an `@font-face` named `family` on that same file, with every descriptor of the stylesheet's own face for it (the weight range, `unicode-range`, the `woff2-variations` format) and `font-display: block`.
+- `family` is a name of its own, never the stylesheet's: a face sharing the stylesheet's family loses to the stylesheet's later face, drawn with `swap` (the browser checks faces newest first). The build fails when the file is not in it, when no built stylesheet's face uses it, or when `family` is the stylesheet's own.
+- On a slow network the wordmark shows nothing for up to about three seconds, the browser's block period, rather than Helvetica; after that it draws in the next family named. A page served by Vite's dev server gets neither tag, since there is no build to name the file, so there the wordmark draws as before.
+- `web/e2e/pieces.e2e.ts` holds it in a hidden Chromium against the fixture's `wordmark.html`: the file is asked for while the stylesheet is held, the wordmark shows no mark while the stylesheet's own face is in and the file is held, it draws once the file arrives, and the file is fetched once.
 
 ### A request sent as the page is left
 
@@ -1581,7 +1597,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Piece | Import | What it does |
 | --- | --- | --- |
 | Clerk | `app-kit/authentication/clerk` | `clerkSignIn({ publishableKey })`, the first adapter for the web kit's sign-in gate; `signInFromEnvironment(import.meta.env)`, which picks Clerk, the stand-in or nobody from the page's build settings; and `useClerkSession`, the adapter's session inside an app's own ClerkProvider. |
-| Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`; `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail`; and `clerkServerSignIn`, the server check below with Clerk's keys. |
+| Clerk for the server | `app-kit/authentication/clerk/server` | `clerkCaller`, which reads a request's caller from Clerk for `requireCaller`; `clerkVerifiedEmails`, which reads a user's verified addresses from Clerk for `ownerCheckByEmail` and `invitedCheckByEmail`; `clerkAllowlist`, which reads the email entries of Clerk's allowlist for `invitedCheckByEmail`; and `clerkServerSignIn`, the server check below with Clerk's keys. |
 | Sign-in when hosted | `app-kit/authentication/server-sign-in` | `serverSignIn`: a server refuses to start hosted without its sign-in settings, and without any of them on the dev Mac runs open to this machine only. See below. |
 | Stand-in | `app-kit/authentication/stand-in` | `standInSignIn()`, a provider with no network for tests of the kit and of apps built on it. |
 | Playwright steps | `app-kit/authentication/stand-in/playwright` | `showPage`, `hidePage`, `lockFor`, `serveNewerBuild`, `signInByCode` and `STAND_IN_CODE`, for an app's browser tests. See Browser tests above. |
@@ -1594,6 +1610,7 @@ A person signed in through a sign-in provider, or an agent with a person's key. 
 | Keys for agents | `app-kit/authentication/agent-keys` | `requireCaller` and `callerOf`: a person's key reads the GET routes the app lists. |
 | API reference | `app-kit/authentication/agent-keys/openapi` | The OpenAPI descriptions and reference page that show a key those routes. |
 | Owner only | `app-kit/authentication/owner` | `requireOwner` and `ownerCheckByEmail`: a server that serves one person lets only them in. |
+| Invited only | `app-kit/authentication/owner` | `requireInvited`, `invitedCheckByEmail`, `isInvited` and `holdAnswers`: a server that serves the people on a list lets only them in. |
 
 ### The adapter
 
@@ -1658,6 +1675,30 @@ app.get('/api/items', (c) => listItems(c.get('userId')));
 - **Another provider** passes its own `identify` and its own reader of a user's verified addresses; nothing in `app-kit/authentication/owner` imports Clerk.
 
 Needs `hono` 4.12 or later; with Clerk, `@clerk/hono` 0.1.93 or later and `@clerk/backend` 3 or later.
+
+### Invited only
+
+`app-kit/authentication/owner` also lets in a list of people: whoever signed in with an invited address, verified. The list is given as it is, or as a function that reads it; with Clerk, `clerkAllowlist` reads the instance's own allowlist (Restrictions, Allowlist, in Clerk's dashboard), so one list both stops strangers making an account and, read by the server, ends access for someone taken off it.
+
+```ts
+import { getAuth } from '@clerk/hono';
+import { clerkAllowlist, clerkServerSignIn, clerkVerifiedEmails } from 'app-kit/authentication/clerk/server';
+import { invitedCheckByEmail, requireInvited, type InvitedEnv } from 'app-kit/authentication/owner';
+
+const signIn = clerkServerSignIn({ env: process.env, port });
+app.use('/api/*', signIn.middleware);
+if (signIn.required) {
+  const secretKey = signIn.values.CLERK_SECRET_KEY;
+  const isInvited = invitedCheckByEmail(clerkAllowlist({ secretKey }), clerkVerifiedEmails({ secretKey }));
+  app.use('/api/*', requireInvited({ identify: (c) => getAuth(c).userId ?? null, isInvited, appName: 'Finances' }));
+}
+```
+
+- **The answers** are the owner check's: 401 `{"error":"Sign in first"}` for nobody, 403 `{"error":"This account is not allowed to use <appName>"}` for someone not invited, with a log line ending `not on the invited list`, and the person's id as `userId` for someone invited.
+- **What an entry invites.** An address invites that address, in any case. `*@example.com` invites every address at example.com, as Clerk's allowlist does for sign-up, and no other domain, its subdomains included: an address Clerk let in by a broader reading would be refused by the server, never the other way round. Anything else, such as a phone number, invites nobody; `clerkAllowlist` leaves phone numbers and wallets out.
+- **When a change takes effect.** Each user's verified addresses are held for two minutes (`holdMs`, `INVITED_HOLD_MS`), so an invited address taken off an account stops counting within them, and requests that arrive together share one lookup. The list is read on every check: a list given as it is changes with a restart, and `clerkAllowlist` holds Clerk's answer for two minutes too, so someone taken off the allowlist is refused within two minutes, with no redeploy. Checks that arrive together share one read.
+- **When Clerk cannot be reached**, `clerkAllowlist` keeps using the list it read before, logs `[auth] could not read Clerk's allowlist`, and asks again 15 seconds later, and the invited check does the same with a user's addresses; before any answer has been read, the request fails with Clerk's error. A list function of the app's own that throws fails the request. `holdAnswers` is that holding, for an app's own reader.
+- **In server tests**, `fakeClerkApi().setAllowlist(['ana@example.com', '*@example.org'])` sets what `clerkAllowlist` reads. Clerk's own answer to the list was recorded against the kit's development instance (`test/fixtures/clerk-allowlist.json`): a domain is an `email_address` entry written `*@example.org`, and Clerk answers the whole list whatever page was asked for.
 
 ### Keys for agents
 

@@ -2,7 +2,7 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { firstPaint, firstPaintScript, firstPaintStyle, type FirstPaintOptions } from '../web/first-paint';
+import { firstFrameFont, firstPaint, firstPaintScript, firstPaintStyle, type BuiltFiles, type FirstPaintOptions } from '../web/first-paint';
 
 const SCHEMES = {
   light: { background: '#fff8f0', color: '#2c2420' },
@@ -74,7 +74,7 @@ test("the style paints html and body in the variables, with the first scheme's c
 });
 
 test('the plugin puts the style and the script at the end of the head, after the page\'s own theme-color tag', () => {
-  const tags = firstPaint({ schemes: SCHEMES }).transformIndexHtml();
+  const tags = firstPaint({ schemes: SCHEMES }).transformIndexHtml.handler('<html></html>');
   expect(tags.map((t) => [t.tag, t.injectTo])).toEqual([
     ['style', 'head'],
     ['script', 'head'],
@@ -84,6 +84,72 @@ test('the plugin puts the style and the script at the end of the head, after the
 test('schemes not named light and dark need a chooser, and a variable name must be one', () => {
   expect(() => firstPaint({ schemes: { day: SCHEMES.light } })).toThrow('name them light and dark');
   expect(() => firstPaint({ schemes: SCHEMES, variables: { color: 'red; }' } })).toThrow('not a CSS variable name');
+});
+
+const FONT = { family: 'Figtree First Frame', file: 'figtree-latin-wght-normal.woff2' };
+
+/**
+ * What Vite 8 built for a page importing @fontsource-variable/figtree, as the fixture's build gives it: the Latin file,
+ * its name before the build, and the minified stylesheet with both of fontsource's faces.
+ */
+function built(): BuiltFiles {
+  const face = (subset: string, hash: string, range: string) =>
+    `@font-face{font-family:Figtree Variable;font-style:normal;font-display:swap;font-weight:300 900;src:url(/assets/figtree-${subset}-wght-normal-${hash}.woff2)format("woff2-variations");unicode-range:${range}}`;
+  return {
+    'assets/figtree-latin-wght-normal-D_ZTVpCC.woff2': {
+      type: 'asset',
+      fileName: 'assets/figtree-latin-wght-normal-D_ZTVpCC.woff2',
+      names: ['figtree-latin-wght-normal.woff2'],
+      originalFileNames: ['node_modules/@fontsource-variable/figtree/files/figtree-latin-wght-normal.woff2'],
+      source: new Uint8Array(),
+    },
+    'assets/wordmark-DTn5z1Vq.css': {
+      type: 'asset',
+      fileName: 'assets/wordmark-DTn5z1Vq.css',
+      source: face('latin-ext', 'DCwSJGxG', 'U+100-2BA') + face('latin', 'D_ZTVpCC', 'U+??,U+131,U+FEFF,U+FFFD'),
+    },
+    'assets/wordmark-B9.js': { type: 'chunk', fileName: 'assets/wordmark-B9.js' },
+  };
+}
+
+test("the first frame's face is its own family on the stylesheet's built file, with block, and the file preloaded", () => {
+  expect(firstFrameFont(FONT, built(), '/')).toEqual([
+    {
+      tag: 'link',
+      attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href: '/assets/figtree-latin-wght-normal-D_ZTVpCC.woff2', crossorigin: true },
+      injectTo: 'head-prepend',
+    },
+    {
+      tag: 'style',
+      children:
+        "@font-face { font-family: 'Figtree First Frame'; font-display: block; src: url(\"/assets/figtree-latin-wght-normal-D_ZTVpCC.woff2\") format(\"woff2-variations\"); font-style: normal; font-weight: 300 900; unicode-range: U+??,U+131,U+FEFF,U+FFFD; }",
+      injectTo: 'head',
+    },
+  ]);
+});
+
+test("the file's address follows the app's base, and a relative base is relative to the page", () => {
+  expect(firstFrameFont(FONT, built(), '/app/')[0]?.attrs?.href).toBe('/app/assets/figtree-latin-wght-normal-D_ZTVpCC.woff2');
+  expect(firstFrameFont(FONT, built(), './')[0]?.attrs?.href).toBe('./assets/figtree-latin-wght-normal-D_ZTVpCC.woff2');
+});
+
+test('a font file the build does not have, one no face uses, or the stylesheet\'s own family name, fails the build', () => {
+  expect(() => firstFrameFont({ ...FONT, file: 'figtree-cyrillic-wght-normal.woff2' }, built(), '/')).toThrow('the build has no font file');
+  const noFace = built();
+  delete noFace['assets/wordmark-DTn5z1Vq.css'];
+  expect(() => firstFrameFont(FONT, noFace, '/')).toThrow('no @font-face in the built stylesheets');
+  expect(() => firstFrameFont({ ...FONT, family: 'Figtree Variable' }, built(), '/')).toThrow("must not be the stylesheet's own");
+  expect(() => firstPaint({ schemes: SCHEMES, font: { ...FONT, family: "x'; } body {" } })).toThrow('not a font family name');
+  expect(() => firstPaint({ schemes: SCHEMES, font: { ...FONT, file: 'figtree.woff' } })).toThrow("not a woff2 file's name");
+});
+
+test("the font's tags go only into a built page that names the family, and none into a page served in development", () => {
+  const plugin = firstPaint({ schemes: SCHEMES, font: FONT });
+  plugin.configResolved({ base: '/' });
+  const named = "<style>#root:empty::before { font-family: 'Figtree First Frame' }</style>";
+  expect(plugin.transformIndexHtml.handler(named, { bundle: built() }).map((t) => t.tag)).toEqual(['style', 'script', 'link', 'style']);
+  expect(plugin.transformIndexHtml.handler('<p>no wordmark</p>', { bundle: built() }).map((t) => t.tag)).toEqual(['style', 'script']);
+  expect(plugin.transformIndexHtml.handler(named, {}).map((t) => t.tag)).toEqual(['style', 'script']);
 });
 
 const app = mkdtempSync(join(tmpdir(), 'app-kit-first-paint-'));

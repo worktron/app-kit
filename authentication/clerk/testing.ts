@@ -2,10 +2,12 @@
  * A stand-in for Clerk's Backend API, for an app's server tests under Bun: Clerk's own middleware runs as it does in
  * production, and only its calls to api.clerk.com are answered here. A session is a token signed with a key the stand-in
  * serves as Clerk's key set; a key for agents is answered with Clerk's recorded answers
- * (test/fixtures/clerk-api-key-verify.json). Nothing is put in place of a module, so nothing reaches another test file:
- * Bun keeps a module replaced with `mock.module` replaced for every file after it in the same run.
+ * (test/fixtures/clerk-api-key-verify.json), and the allowlist in the shape of its recorded answer
+ * (test/fixtures/clerk-allowlist.json). Nothing is put in place of a module, so nothing reaches another test file: Bun
+ * keeps a module replaced with `mock.module` replaced for every file after it in the same run.
  */
 import recorded from '../../test/fixtures/clerk-api-key-verify.json';
+import allowlisted from '../../test/fixtures/clerk-allowlist.json';
 
 const CLERK_API = 'https://api.clerk.com';
 /** The instance the tokens say they come from, which the publishable key names. */
@@ -30,6 +32,12 @@ export interface FakeClerkApi {
   signedIn(personId: string, options?: { authorizedParty?: string }): Promise<Record<string, string>>;
   /** Headers for a request with a key for agents: one Clerk accepts (`valid`, by default), or one it does not know. */
   withKey(which?: keyof typeof KEY_SECRETS): Record<string, string>;
+  /**
+   * Sets the instance's allowlist, which `clerkAllowlist` reads, answered in the shape of Clerk's recorded answer
+   * (test/fixtures/clerk-allowlist.json): addresses and `*@example.com` domains, and phone numbers starting with `+`.
+   * Empty until set.
+   */
+  setAllowlist(identifiers: string[]): void;
   /** Puts back the fetch and the environment it found. Call it after each test. */
   restore(): void;
 }
@@ -79,6 +87,8 @@ export function fakeClerkApi(): FakeClerkApi {
   process.env.CLERK_SECRET_KEY = SECRET_KEY;
   process.env.CLERK_PUBLISHABLE_KEY = PUBLISHABLE_KEY;
 
+  let allowlist: string[] = [];
+
   const answer = async (request: Request): Promise<Response> => {
     const { pathname } = new URL(request.url);
     if (request.headers.get('authorization') !== `Bearer ${SECRET_KEY}`) return Response.json({ errors: [{ code: 'authentication_invalid' }] }, { status: 401 });
@@ -90,6 +100,16 @@ export function fakeClerkApi(): FakeClerkApi {
       const { secret } = (await request.json()) as { secret?: string };
       const sample = secret === KEY_SECRETS.valid ? recorded.valid : recorded.notFound;
       return Response.json(sample.body, { status: sample.status });
+    }
+    if (pathname === '/v1/allowlist_identifiers' && request.method === 'GET') {
+      const [sample] = allowlisted.body.data;
+      const data = allowlist.map((identifier, i) => ({
+        ...sample,
+        id: `alid_app_kit_${i}`,
+        identifier,
+        identifier_type: identifier.startsWith('+') ? 'phone_number' : 'email_address',
+      }));
+      return Response.json({ data, total_count: data.length });
     }
     throw new Error(`fakeClerkApi: no stand-in answer for ${request.method} ${pathname}`);
   };
@@ -110,6 +130,9 @@ export function fakeClerkApi(): FakeClerkApi {
     key: { personId: recorded.valid.body.subject, keyId: recorded.valid.body.id, keyName: recorded.valid.body.name },
     signedIn: async (personId, options = {}) => ({ Authorization: `Bearer ${await sessionToken(personId, options.authorizedParty)}` }),
     withKey: (which = 'valid') => ({ Authorization: `Bearer ${KEY_SECRETS[which]}` }),
+    setAllowlist: (identifiers) => {
+      allowlist = [...identifiers];
+    },
     restore: () => {
       if (globalThis.fetch === fake) globalThis.fetch = realFetch;
       for (const [name, value] of [
