@@ -80,21 +80,25 @@ test('WebKit started through the kit never shows in the Dock', async () => {
   test.skip(process.platform !== 'darwin', 'only macOS has a Dock');
   // Resolved, since macOS names a process's executable by its real path, under /private.
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-dock-')));
-  const options = webkitWithoutDockIcon(join(scratch, 'webkit'));
-  expect(options.executablePath, "Playwright's WebKit is installed: bunx playwright install webkit").toBeTruthy();
-  const watch = await watchApplications(dirname(options.executablePath!));
+  let apps: Seen[];
   try {
-    const browser = await webkit.launch(options);
-    const page = await browser.newPage();
-    // Safari's engine, not Chromium's.
-    expect(await page.evaluate(() => navigator.userAgent)).toMatch(/AppleWebKit\/.*Safari\/(?!.*Chrome)/);
-    await browser.close();
-    await watch.allEnded();
+    const options = webkitWithoutDockIcon(join(scratch, 'webkit'));
+    expect(options.executablePath, "Playwright's WebKit is installed: bunx playwright install webkit").toBeTruthy();
+    const watch = await watchApplications(dirname(options.executablePath!));
+    try {
+      const browser = await webkit.launch(options);
+      const page = await browser.newPage();
+      // Safari's engine, not Chromium's.
+      expect(await page.evaluate(() => navigator.userAgent)).toMatch(/AppleWebKit\/.*Safari\/(?!.*Chrome)/);
+      await browser.close();
+      await watch.allEnded();
+    } finally {
+      watch.stop();
+    }
+    apps = [...watch.seen.values()];
   } finally {
-    watch.stop();
     rmSync(scratch, { recursive: true, force: true });
   }
-  const apps = [...watch.seen.values()];
   // The copy was seen at all, so a watch that hears nothing cannot pass.
   expect(apps.length).toBeGreaterThan(0);
   expect(apps.flatMap((app) => app.types)).toContain('UIElement');
