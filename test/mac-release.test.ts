@@ -346,20 +346,24 @@ test('the key’s file is removed when the release is stopped by a signal during
   expect(existsSync(folder)).toBe(false);
 });
 
-test('a key folder left by a release that is no longer running is removed, and a running release’s is left', async () => {
+test('a key folder left by a release that is no longer running is removed, and a running release’s, or one holding anything else, is left', async () => {
   const ended = Bun.spawnSync(['true']).pid;
   const left = join(tmpdir(), `${NOTARY_KEY_FOLDER}${ended}-left`);
   const live = join(tmpdir(), `${NOTARY_KEY_FOLDER}${process.pid}-live`);
-  mkdirSync(left, { recursive: true });
-  mkdirSync(live, { recursive: true });
+  const other = join(tmpdir(), `${NOTARY_KEY_FOLDER}${ended}-other`);
+  for (const folder of [left, live, other]) {
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'key.p8'), 'a key');
+  }
+  writeFileSync(join(other, 'notes.txt'), 'not a release’s');
   try {
     const { app } = developerIdApp('app');
     expect((await runRelease(app, DEVELOPER_ID)).code).toBe(0);
     expect(existsSync(left)).toBe(false);
     expect(existsSync(live)).toBe(true);
+    expect(existsSync(join(other, 'notes.txt'))).toBe(true);
   } finally {
-    rmSync(left, { recursive: true, force: true });
-    rmSync(live, { recursive: true, force: true });
+    for (const folder of [left, live, other]) rmSync(folder, { recursive: true, force: true });
   }
 });
 

@@ -96,11 +96,25 @@ function running(pid: number): boolean {
   }
 }
 
-/** Removes the key folders of releases no longer running, which a hard kill or a crash left. */
+/** The key's file in its folder, the only thing a release puts there. */
+const KEY_FILE = 'key.p8';
+
+/**
+ * Removes the key folders of releases no longer running, which a hard kill or a crash left: only a folder named for a
+ * release's pid that holds nothing but the key's file, the shape a release makes, so nothing another program made goes.
+ */
 export function removeLeftKeyFolders(folder = tmpdir()): void {
   for (const name of readdirSync(folder)) {
     const pid = new RegExp(`^${NOTARY_KEY_FOLDER}(\\d+)-`).exec(name)?.[1];
-    if (pid && !running(Number(pid))) rmSync(join(folder, name), { recursive: true, force: true });
+    if (!pid || running(Number(pid))) continue;
+    const left = join(folder, name);
+    let held: string[];
+    try {
+      held = readdirSync(left);
+    } catch {
+      continue;
+    }
+    if (held.every((file) => file === KEY_FILE)) rmSync(left, { recursive: true, force: true });
   }
 }
 
@@ -250,7 +264,7 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   if (notary) {
     removeLeftKeyFolders();
     keyFolder = madeFolder(`${NOTARY_KEY_FOLDER}${process.pid}-`);
-    const keyPath = join(keyFolder, 'key.p8');
+    const keyPath = join(keyFolder, KEY_FILE);
     writeFileSync(keyPath, `${notary.privateKey}\n`, { mode: 0o600 });
     // Added after buildEnv took every APPLE_API_* out, and on this one call alone.
     Object.assign(buildEnvironment, { APPLE_API_KEY: notary.keyId, APPLE_API_ISSUER: notary.issuerId, APPLE_API_KEY_PATH: keyPath });
