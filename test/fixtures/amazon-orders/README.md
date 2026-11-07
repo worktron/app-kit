@@ -1,3 +1,5 @@
 # Amazon order pages
 
 Each page keeps the structure of an order page recorded from a real account on 2026-10-22 and 2026-11-01 (the elements, ids and data attributes the readers use), with made-up products, prices, order numbers, product numbers, names, addresses and card digits in place of the real ones. The repository is public, so `test/amazon-orders.test.ts` holds that every number and product here is a stand-in.
+
+The Whole Foods delivery, the in-store receipt and the order list's "Delivered" cards follow pages recorded on 2026-11-07. Four things no recorded page from the kit's account has shown are written from what other projects recorded: "Delivered Friday, January 3 at 8:04 PM", "Delivered Dec 9, 2023" and "Delivered today" on order cards, and the out-of-stock rows in `order-details-out-of-stock.html`, which follow how lineitem, an MIT-licensed open-source reader of Amazon orders, recorded a Whole Foods page: the line keeps its count and full price, and a status box says "Out of stock (N)", with the credit beside it, or in an older recording in a bare span. The page says so in a comment of its own.

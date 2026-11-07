@@ -2050,19 +2050,20 @@ An app with tests also installs `@electric-sql/pglite-prepopulatedfs`, PGlite's 
 `app-kit/amazon-orders`, kept in `server/amazon-orders/`, for a server or a tool that holds Amazon's order pages: the page's HTML goes in and orders come out, read the same way everywhere, so a change at Amazon is fixed once. It fetches nothing: Amazon has no API and only the person's own browser can get these pages, so `ordersPath` and `orderDetailsPath` say what to ask Amazon for, and whoever asks hands the answer over as text.
 
 ```ts
-import { orderDetailsPath, ordersPath, readOrderDetails, readOrders } from 'app-kit/amazon-orders';
+import { orderDetailsPath, ordersPath, readOrderPage, readOrders } from 'app-kit/amazon-orders';
 
 const page = await pageFromTheBrowser(ordersPath('months-3', 0));
 for (const order of readOrders(page)) {
-  // A big order's card names a few products and counts the rest. Its details page may name them all, or read as none.
-  const more = order.moreItems ? readOrderDetails(await pageFromTheBrowser(orderDetailsPath(order.orderNumber))) : [];
+  // A card names a few products. A grocery order's own page has every line, with its count, weight, price and what it replaced.
+  const { orderedOn, lines } = readOrderPage(await pageFromTheBrowser(orderDetailsPath(order.orderNumber)));
 }
 ```
 
 | Export | What it gives |
 | --- | --- |
-| `readOrders(html)` | One page of order history as `Order[]`: `orderNumber`, `placed` (an ISO date or null), `total` (dollars or null), `status` (Amazon's own line, such as "Delivered October 18", "Arriving tomorrow", "Cancelled" or "Refunded", or null), `items` and `moreItems`, the products the card counted and did not name. A page with no order cards, such as a sign-in page, reads as none. |
-| `readOrderDetails(html)` | The products on one order's details page as `OrderItem[]`: `asin`, `name` and `store`. It reads the item rows of a Fresh or Whole Foods delivery and the lines of an in-store receipt that have a product link. A regular order's page reads as none, and so does loose produce on a receipt. |
+| `readOrders(html)` | One page of order history as `Order[]`: `orderNumber`, `placed` (Amazon's "Order placed" as an ISO date, or null, which for an evening order can be the next day), `inStore` (bought in a Whole Foods Market store), `deliveredOn` (the day the card says it was delivered, as an ISO date, when it names exactly one: with no year, the order's, or the next when the month is earlier; null for "today" and "yesterday", whose day depends on a time zone, and for a regular order shipped in parts on several days), `total` (dollars or null), `status` (Amazon's own line, such as "Delivered October 18", "Arriving tomorrow", "Cancelled" or "Refunded", or null), `items` and `moreItems`, the products the card counted and did not name. A page with no order cards, such as a sign-in page, reads as none. |
+| `readOrderPage(html)` | One order's own page as `OrderPage`: `orderedOn`, the day it was made ("Ordered September 10, 2026") or bought ("Purchased on Wednesday, February 18, 2026"), or null; `inStore`, true for an in-store receipt; and `lines`, each an `OrderLine`: `asin` (null for a receipt line with no product link, such as loose produce), `name`, `store`, `count` (what came), `weight` (as printed, such as "0.50 lb", when the line is priced by weight, else null), `priceCents` (the line's own total, after promotions and less any out-of-stock credit) and `replaces` (the product it was delivered in place of). A line out of stock in full is kept at count 0 and price 0, so a reader that saved it from the order list knows it never came; one partly filled has the count that came. A regular order's page reads as no lines. |
+| `readOrderDetails(html)` | The products on one order's page that came and have a product number, as `OrderItem[]`: `asin`, `name` and `store`, each once: `readOrderPage`'s lines without their counts and prices. |
 | `ordersPath(period, page)`, `orderDetailsPath(orderNumber)` | The address on amazon.com of each page. The history is asked for in the clear, through the page's own fallback for when its decryption library is missing. An in-store order's card links to another address; Amazon answers this one by sending it to the receipt. |
 | `PERIODS` | The periods the history filters by: `last30`, `months-3`, then this year and the twelve before it, worked out when the module loads. |
 | `parse`, `textOf`, `dollars`, `isoDate` | What the readers read a page with, for another reader of Amazon's pages: a page to search with `querySelector` and `querySelectorAll`, with its scripts and styles dropped, an element's text with its whitespace collapsed, "$5.97" as a number, "Oct 17, 2026" as "2026-10-17". |
