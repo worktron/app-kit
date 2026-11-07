@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.47.0
+
+Urgency: rides along
+
+- a menu bar app in the plain look can draw its panel in sections with PanelSectionLabel, ProblemRow, CompactRow and CompactList, and Footer(lineAbove:), as the README's menu bar theme section shows; on upgrade every plain app's selected fill is darker and its ok and warn words a shade darker in light, a Swift window's section labels are secondary gray, and a plain panel's header title is 15 points, with nothing to change
+
 ## v0.46.1
 
 Urgency: rides along
