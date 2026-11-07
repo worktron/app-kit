@@ -576,8 +576,12 @@ fn attachment_kind(conn: &Connection, rowid: i64) -> rusqlite::Result<Option<&'s
 mod tests {
     use super::*;
 
+    // The folder is read when the test runs, from what cargo test sets, never from env!(), which bakes in the checkout
+    // the binary was built in: the gates share one build folder across worktrees, so a binary built in a worktree
+    // since closed read fixtures from a folder that was gone (2026-11-07).
     fn fixture(name: &str) -> Vec<u8> {
-        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/attributed-body").join(format!("{name}.bin")))
+        let plugin = std::env::var_os("CARGO_MANIFEST_DIR").expect("run by cargo test, which sets CARGO_MANIFEST_DIR");
+        std::fs::read(Path::new(&plugin).join("tests/fixtures/attributed-body").join(format!("{name}.bin")))
             .expect("fixture made by make-attributed-body.swift")
     }
 
