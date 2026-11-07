@@ -33,4 +33,5 @@ test("every exported file compiles under an app's stricter settings: no .ts endi
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
-});
+  // One tsc over every export and the React, MUI and Clerk types they reach: about a second alone, longer on a busy machine.
+}, 15_000);
