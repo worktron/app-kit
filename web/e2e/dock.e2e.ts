@@ -1,6 +1,8 @@
 import { expect, test, webkit } from '@playwright/test';
 import { spawn, spawnSync } from 'node:child_process';
-import { dirname } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 
 // Playwright's WebKit started through the kit, watched in macOS's application list, where a Dock app is "Foreground"
@@ -71,9 +73,14 @@ async function watchApplications(folder: string) {
   };
 }
 
+// The test's own copy of WebKit, so only the WebKit it starts is watched: the copy every checkout on the Mac shares is
+// started by other threads' tests too, and one that started while this test watched held it open past its time limit
+// (2026-11-07). It is made inside the test, since Playwright also loads this file in a process that runs no hooks.
 test('WebKit started through the kit never shows in the Dock', async () => {
   test.skip(process.platform !== 'darwin', 'only macOS has a Dock');
-  const options = webkitWithoutDockIcon();
+  // Resolved, since macOS names a process's executable by its real path, under /private.
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-dock-')));
+  const options = webkitWithoutDockIcon(join(scratch, 'webkit'));
   expect(options.executablePath, "Playwright's WebKit is installed: bunx playwright install webkit").toBeTruthy();
   const watch = await watchApplications(dirname(options.executablePath!));
   try {
@@ -85,6 +92,7 @@ test('WebKit started through the kit never shows in the Dock', async () => {
     await watch.allEnded();
   } finally {
     watch.stop();
+    rmSync(scratch, { recursive: true, force: true });
   }
   const apps = [...watch.seen.values()];
   // The copy was seen at all, so a watch that hears nothing cannot pass.
