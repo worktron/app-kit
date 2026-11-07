@@ -2,6 +2,13 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.47.2
+
+Urgency: rides along
+
+- Messages Service moves to this tag for its first release; an app signed with a Developer ID certificate now notarizes on release and may name the certificate by its fingerprint.
+- Messages Service moves to this tag for its first release; an app signed with a Developer ID certificate now notarizes on release and may name the certificate by its fingerprint.
+
 ## v0.47.1
 
 Urgency: next round
