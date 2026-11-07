@@ -153,8 +153,14 @@ export function every(name, minutes, run, { limitMs = RUN_LIMIT_MS, quietWaitMs 
   // alarm is gone.
   chrome.runtime.onStartup.addListener(() => {});
 
-  /** @param {JobRecord} record */
-  const write = (record) => chrome.storage.local.set({ [key]: record });
+  /**
+   * Writes the record; a write storage refuses is logged, never thrown, since the run itself went as it went.
+   * @param {JobRecord} record
+   */
+  const write = (record) =>
+    chrome.storage.local.set({ [key]: record }).catch((/** @type {unknown} */ refused) => {
+      log("job record not written", { job: name, outcome: record.outcome, error: messageOf(refused) });
+    });
 
   // The record as this worker found it, with a run cut short marked so; every run waits for it, so the check and the
   // first run never both write the record.
@@ -198,6 +204,11 @@ export function every(name, minutes, run, { limitMs = RUN_LIMIT_MS, quietWaitMs 
       }
       const expected = minutes === 1 ? "every 1 minute" : `every ${minutes} minutes`;
       log("job quiet", fields);
+      // Kept once for each silence: a page that wakes a worker whose alarm never comes keeps no new error each time.
+      const quietKey = `${key}:quiet`;
+      const { [quietKey]: kept } = /** @type {Record<string, string | undefined>} */ (await chrome.storage.local.get(quietKey));
+      if (kept === record.started) return;
+      await chrome.storage.local.set({ [quietKey]: record.started });
       await keepError(new Error(`${name} last ran ${howLong(since)} ago, ${expected} expected`), "quiet job");
     })
     .catch(() => {});
@@ -231,7 +242,7 @@ export function every(name, minutes, run, { limitMs = RUN_LIMIT_MS, quietWaitMs 
     const started = new Date().toISOString();
     /** @type {JobRecord} */
     const record = { minutes, limitMs, started, ended: null, outcome: "running", error: null, lastOk: before?.lastOk ?? null };
-    await write(record).catch(() => {});
+    await write(record);
     log("job started", { job: name, from });
 
     const controller = new AbortController();
@@ -263,9 +274,14 @@ export function every(name, minutes, run, { limitMs = RUN_LIMIT_MS, quietWaitMs 
       clearInterval(keepAlive);
       clearTimeout(limit);
     }
+    // A run that heard its signal and returned did not finish its work.
+    if (outcome === "ok" && controller.signal.aborted) {
+      outcome = "aborted";
+      error = messageOf(controller.signal.reason);
+    }
     const ended = new Date();
     if (over) outcome = "over limit";
-    await write({ ...record, ended: ended.toISOString(), outcome, error, lastOk: outcome === "ok" ? started : record.lastOk }).catch(() => {});
+    await write({ ...record, ended: ended.toISOString(), outcome, error, lastOk: outcome === "ok" ? started : record.lastOk });
     log("job ended", { job: name, outcome, ...(error ? { error } : {}) });
     // A job that keeps failing for the same reason is kept once, so it never pushes every other error out.
     if (error && before?.error !== error) await keepError(new Error(`${name} failed: ${error}`), "job");

@@ -133,6 +133,26 @@ describe('limits', () => {
     expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/unread', method: 'GET', signal: true }])
   })
 
+  test('a run that hears its signal and returns is recorded as aborted, not as a success', async () => {
+    every('read', 1, (signal) => new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve())), { limitMs: 20 })
+    await fireAlarm('read')
+    expect(await getJobRecord('read')).toMatchObject({ outcome: 'aborted', error: 'TimeoutError: read reached its 20 milliseconds limit', lastOk: null })
+  })
+
+  test('a record storage refuses to write is logged, and the run still answers', async () => {
+    const set = chrome.storage.local.set
+    chrome.storage.local.set = async () => {
+      throw new Error('QUOTA_BYTES quota exceeded')
+    }
+    try {
+      const runNow = every('read', 1, () => {})
+      expect(await runNow()).toEqual({ ran: true, outcome: 'ok' })
+    } finally {
+      chrome.storage.local.set = set
+    }
+    expect(logged('job record not written').map((fields) => fields.outcome)).toEqual(['running', 'ok'])
+  })
+
   test('a run that ignores its signal keeps the lock, and is logged and kept as over its limit', async () => {
     const { held, run } = heldRun()
     const runNow = every('read', 1, run, { limitMs: 20 })
@@ -204,6 +224,18 @@ describe('at every worker start', () => {
     await until(async () => (await getWorkerErrors()).length > 0)
     expect(await getWorkerErrors()).toMatchObject([{ kind: 'quiet job', message: 'read last ran 3 hours ago, every 1 minute expected' }])
     expect(logged('job quiet')).toMatchObject([{ job: 'read', gap: '3 hours' }])
+  })
+
+  test('a quiet job is kept once for each silence, however often something wakes the worker', async () => {
+    seed('read', { started: new Date(Date.now() - 3 * HOUR).toISOString(), outcome: 'ok' })
+    every('read', 1, () => {}, { quietWaitMs: 5 })
+    await until(() => logged('job quiet').length === 1)
+    await until(async () => (await getWorkerErrors()).length > 0)
+    // The next worker start, with the job still silent.
+    every('read', 1, () => {}, { quietWaitMs: 5 })
+    await until(() => logged('job quiet').length === 2)
+    await until(async () => shim.local[`${jobKey('read')}:quiet`] !== undefined)
+    expect((await getWorkerErrors()).map((error) => error.kind)).toEqual(['quiet job'])
   })
 
   test('an alarm that arrives on time does not clear a quiet job', async () => {
