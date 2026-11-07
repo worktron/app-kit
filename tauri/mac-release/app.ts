@@ -21,7 +21,7 @@ export const CONFIG = 'src-tauri/tauri.conf.json';
 export type AppConfig = {
   productName: string;
   version: string;
-  /** bundle.macOS.signingIdentity, the code signing identity every build is signed with. */
+  /** bundle.macOS.signingIdentity, the code signing identity every build is signed with: its name, or its certificate's SHA-1 fingerprint. */
   identity: string;
   pubkey: string;
   /** plugins.updater.endpoints[0], where the installed app asks for the newest release. */

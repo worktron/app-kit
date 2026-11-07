@@ -56,7 +56,7 @@ export const SERVICE_BUNDLE_ID = 'com.worktron.messages-service';
 export const SERVICE_SCHEME = 'messages-service';
 export const SERVICE_CONNECT_HOST = 'connect';
 /** The service's releases' update manifest, which names the archive the installer and the updater both take. */
-export const SERVICE_LATEST_JSON = 'https://github.com/worktron/messages-service/releases/latest/download/latest.json';
+export const SERVICE_LATEST_JSON = 'https://github.com/worktron/messages-service-releases/releases/latest/download/latest.json';
 /** The release's platform key in that manifest. */
 export const SERVICE_PLATFORM = 'darwin-aarch64';
 

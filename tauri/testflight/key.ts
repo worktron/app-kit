@@ -4,6 +4,8 @@
  * gives once), and the team's distribution certificate, the item "TestFlight distribution certificate" with the fields
  * "certificate" (the .p12 file, base64) and "password" (the .p12's password).
  *
+ * The Mac release reads the same App Store Connect key to notarize a Developer ID build (mac-release/release.ts).
+ *
  * A background job cannot answer 1Password's Touch ID prompt, so it reads the item through a 1Password service account
  * that may read only that vault. The service account's token is kept in the Mac's login keychain, under the service
  * name "app-kit testflight", and is handed only to the `op` call, never to the build's programs. A run by hand on a Mac

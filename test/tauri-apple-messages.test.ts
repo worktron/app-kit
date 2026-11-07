@@ -240,6 +240,11 @@ describe('Messages Service', () => {
     }
   });
 
+  test("the service's releases are read from its public releases repository, not its private code repository", async () => {
+    const names = await import('../tauri/apple-messages/names');
+    expect(names.SERVICE_LATEST_JSON).toBe('https://github.com/worktron/messages-service-releases/releases/latest/download/latest.json');
+  });
+
   test('the connect link carries the address and the code, and the plugin opens only such a link', () => {
     const link = connectLink({ address: 'https://app.example.com/api/messages-service', code: 'ab'.repeat(32) });
     expect(link).toBe(`messages-service://connect?address=https%3A%2F%2Fapp.example.com%2Fapi%2Fmessages-service&code=${'ab'.repeat(32)}`);

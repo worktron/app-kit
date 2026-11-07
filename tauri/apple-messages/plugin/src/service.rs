@@ -21,7 +21,7 @@ pub const SERVICE_BUNDLE_ID: &str = "com.worktron.messages-service";
 pub const SERVICE_SCHEME: &str = "messages-service";
 pub const SERVICE_CONNECT_HOST: &str = "connect";
 /// Its releases' update manifest, which names the archive.
-pub const SERVICE_LATEST_JSON: &str = "https://github.com/worktron/messages-service/releases/latest/download/latest.json";
+pub const SERVICE_LATEST_JSON: &str = "https://github.com/worktron/messages-service-releases/releases/latest/download/latest.json";
 /// The release's platform key in that manifest.
 pub const SERVICE_PLATFORM: &str = "darwin-aarch64";
 

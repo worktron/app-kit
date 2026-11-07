@@ -1,9 +1,11 @@
 // What the Mac release tests share: a Tauri app's checkout cloned from an origin of its own over file://, and a runner
-// that runs git for real and answers for gh, op, security, codesign, bun install and Tauri's build, recording what
-// each was given. gh's answers are recorded from the real gh (2026-11-05): a repository with no releases, and one gh
-// cannot see, both answer "release not found" and exit 1.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+// that runs git and tar for real and answers for gh, op, security, codesign, bun install, Tauri's build, stapler and
+// Gatekeeper, recording what each was given. gh's answers are recorded from the real gh (2026-11-05): a repository with
+// no releases, and one gh cannot see, both answer "release not found" and exit 1. stapler's and spctl's are the real
+// ones' shapes on macOS 27 (2026-11-07), spctl's on standard error as it writes them.
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { commit, exit, git, ok, repository, standInRunner } from './testflight-stand-in.ts';
 import type { RunOptions, RunResult } from '../command-line/run.ts';
 
@@ -12,6 +14,30 @@ export const PUBLIC_KEY = Buffer.from('untrusted comment: minisign public key: 0
 export const PRIVATE_KEY = 'stand-in-private-key-never-printed';
 export const REPOSITORY = 'example/example-releases';
 export const ENDPOINT = `https://github.com/${REPOSITORY}/releases/latest/download/latest.json`;
+
+/** A Developer ID certificate's name, with a made-up person in it, as the real one holds the owner's. */
+export const DEVELOPER_ID_NAME = 'Developer ID Application: Example Person (TEAM000001)';
+/** The leaf certificate codesign extracts from a build signed by it, and its SHA-1 fingerprint, the config's identity. */
+export const CERTIFICATE = 'stand-in Developer ID leaf certificate';
+export const FINGERPRINT = createHash('sha1').update(CERTIFICATE).digest('hex').toUpperCase();
+/** The App Store Connect key's private half, which only the build's key file may hold. */
+export const NOTARY_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nstand-in-notary-key-never-printed\n-----END PRIVATE KEY-----';
+
+/** security's listing with the Developer ID identity, which is valid, so it is listed in both sections. */
+export const DEVELOPER_ID_IDENTITIES = `Policy: Code Signing\n  Matching identities\n  1) 7F371F1546B11B1963F1A13A6D44D48C2BD96273 "${IDENTITY}" (CSSMERR_TP_NOT_TRUSTED)\n  2) ${FINGERPRINT} "${DEVELOPER_ID_NAME}"\n     2 identities found\n\n  Valid identities only\n  1) ${FINGERPRINT} "${DEVELOPER_ID_NAME}"\n     1 valid identities found\n`;
+
+/** 1Password's answer for the TestFlight vault's App Store Connect key. */
+export function notaryItemJson(): string {
+  return JSON.stringify({
+    title: 'App Store Connect API',
+    vault: { name: 'TestFlight' },
+    fields: [
+      { label: 'key id', value: 'KEY0000001' },
+      { label: 'issuer id', value: '00000000-0000-0000-0000-000000000001' },
+      { label: 'private key', value: NOTARY_PRIVATE_KEY },
+    ],
+  });
+}
 
 /** tauri.conf.json as an app on the kit writes it, with `change` applied. */
 export function tauriConfig(change: (config: Record<string, any>) => void = () => {}): string {
@@ -72,6 +98,16 @@ export type MacWorld = {
   signedVersion?: string | null;
   /** The identity codesign reports. */
   signedBy?: string;
+  /** The leaf certificate codesign extracts, CERTIFICATE by default. */
+  certificate?: string;
+  /** 1Password's answer for the App Store Connect key. */
+  notaryItem?: RunResult;
+  /** Whether stapler finds a ticket on the app in the archive; true by default. */
+  stapled?: boolean;
+  /** spctl's answer for the app in the archive: notarized by default. */
+  gatekeeper?: RunResult;
+  /** Answers for Tauri's build in place of the stand-in's own. */
+  build?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
   buildFails?: boolean;
   /** Runs during the build, as another thread would change the checkout. */
   duringBuild?: () => void;
@@ -83,6 +119,8 @@ export const releaseNotFound = exit(1, 'release not found\n');
 /** The runner for one release of the app in `app`, and what it was asked. */
 export function macRunner(app: string, world: MacWorld = {}) {
   const published: { command: string[]; files: Record<string, string> }[] = [];
+  /** The App Store Connect key's file as the build found it, when it was given one. */
+  const keyAtBuild: { path: string; text: string; mode: number; folderMode: number }[] = [];
   const stand = standInRunner(async (command, options) => {
     const [program, ...args] = command;
     const words = args.join(' ');
@@ -105,24 +143,51 @@ export function macRunner(app: string, world: MacWorld = {}) {
       published.push({ command, files });
       return world.publish ? world.publish(command, options) : ok('https://github.com/example/example-releases/releases/tag/v0\n');
     }
+    // The TestFlight vault's token, which this Mac's keychain does not hold, so op is asked as the person.
+    if (program === '/usr/bin/security') return exit(44, 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.\n');
+    if (program === 'op' && words.startsWith('item get App Store Connect API')) return world.notaryItem ?? ok(notaryItemJson());
     if (program === 'op' && words.startsWith('item get')) return world.item ?? ok(keyItemJson());
     if (program === 'bun' && words === 'install --frozen-lockfile') return ok();
     if (program === 'bunx' && args[0] === 'tauri' && args[1] === 'build') {
+      const keyPath = options.env?.APPLE_API_KEY_PATH;
+      if (keyPath) {
+        keyAtBuild.push({ path: keyPath, text: readFileSync(keyPath, 'utf8'), mode: statSync(keyPath).mode & 0o777, folderMode: statSync(dirname(keyPath)).mode & 0o777 });
+      }
+      if (world.build) return world.build(command, options);
       if (world.buildFails) return exit(1, 'error: could not compile `example`\n');
       world.duringBuild?.();
       const version = (JSON.parse(args[args.indexOf('--config') + 1]!) as { version: string }).version;
       const bundle = join(app, 'src-tauri/target/release/bundle/macos');
-      mkdirSync(join(bundle, 'Example App.app'), { recursive: true });
-      writeFileSync(join(bundle, 'Example App.app.tar.gz'), 'the archive');
+      mkdirSync(join(bundle, 'Example App.app/Contents'), { recursive: true });
+      writeFileSync(join(bundle, 'Example App.app/Contents/Info.plist'), '<plist/>');
+      if (keyPath) {
+        // A notarized build's archive is a real one, which the release unpacks to check the app in it.
+        const tar = Bun.spawnSync(['tar', '-czf', join(bundle, 'Example App.app.tar.gz'), '-C', bundle, 'Example App.app']);
+        if (tar.exitCode !== 0) throw new Error(`tar: ${tar.stderr.toString()}`);
+      } else {
+        writeFileSync(join(bundle, 'Example App.app.tar.gz'), 'the archive');
+      }
       writeFileSync(join(bundle, 'Example App.app.tar.gz.sig'), signatureFile(world.signedVersion === undefined ? version : world.signedVersion));
       return ok('Finished 1 updater bundle\n');
+    }
+    if (program === 'codesign' && args[1]?.startsWith('--extract-certificates=')) {
+      writeFileSync(`${args[1].slice('--extract-certificates='.length)}0`, world.certificate ?? CERTIFICATE);
+      return ok();
+    }
+    if (program === 'xcrun' && args[0] === 'stapler' && args[1] === 'validate') {
+      const path = args[2]!;
+      if (world.stapled === false) return exit(65, `Processing: ${path}\n${path} does not have a ticket stapled to it.\n`);
+      return ok(`Processing: ${path}\nThe validate action worked!\n`);
+    }
+    if (program === 'spctl') {
+      return world.gatekeeper ?? exit(0, `${args.at(-1)}: accepted\nsource=Notarized Developer ID\norigin=${DEVELOPER_ID_NAME}\n`);
     }
     if (program === 'codesign') {
       return exit(0, `Executable=${app}/Example App.app/Contents/MacOS/example\nAuthority=${world.signedBy ?? IDENTITY}\nTeamIdentifier=not set\n`);
     }
     return undefined;
-  }, ['git']);
-  return { ...stand, published };
+  }, ['git', 'tar']);
+  return { ...stand, published, keyAtBuild };
 }
 
 /** Commits a change to the app on origin's main, as a landing elsewhere would. */

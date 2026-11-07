@@ -1,13 +1,19 @@
 // `app-kit mac release`: only landed code, the signing identity, the releases repository, the numbering, the key from
-// 1Password reaching only the build, the update's signature, and what is published, against stand-ins for every
-// program but git (test/mac-release-stand-in.ts), in a real checkout of an origin reached over file://.
+// 1Password reaching only the build, the update's signature, what is published, and a Developer ID build's notarizing,
+// against stand-ins for every program but git and tar (test/mac-release-stand-in.ts), in a real checkout of an origin
+// reached over file://.
 import { afterEach, beforeEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assetName, nextVersion, releasesRepository, signedVersion } from '../tauri/mac-release/app.ts';
-import { release, type ReleaseOptions } from '../tauri/mac-release/release.ts';
+import { identityName, NOTARY_KEY_FOLDER, release, type ReleaseOptions } from '../tauri/mac-release/release.ts';
 import {
+  DEVELOPER_ID_IDENTITIES,
+  DEVELOPER_ID_NAME,
+  FINGERPRINT,
   IDENTITY,
+  NOTARY_PRIVATE_KEY,
   keyItemJson,
   landElsewhere,
   macApp,
@@ -263,4 +269,135 @@ test('a release stopped by a signal while publishing removes the folder its file
   child.kill('SIGTERM');
   expect(await child.exited).toBe(1);
   expect(existsSync(folder)).toBe(false);
+});
+
+/** An app signed by the Developer ID certificate, named in its config by its fingerprint, in `case`. */
+function developerIdApp(name: string, fingerprint = FINGERPRINT) {
+  return macApp(join(place.folder, name), { config: tauriConfig((config) => (config.bundle.macOS.signingIdentity = fingerprint)) });
+}
+const DEVELOPER_ID: MacWorld = { identities: DEVELOPER_ID_IDENTITIES };
+
+test('a Developer ID app is built with the App Store Connect key in its build alone, from a private file removed afterwards', async () => {
+  const { app } = developerIdApp('app');
+  const result = await runRelease(app, DEVELOPER_ID);
+  expect(result.failed).toEqual([]);
+  expect(result.code).toBe(0);
+
+  const read = result.named('op').find((call) => call.command.includes('App Store Connect API'));
+  expect(read!.command).toEqual(['op', 'item', 'get', 'App Store Connect API', '--vault', 'TestFlight', '--format', 'json']);
+  const [build] = result.named('tauri build');
+  expect(build!.options.env?.APPLE_API_KEY).toBe('KEY0000001');
+  expect(build!.options.env?.APPLE_API_ISSUER).toBe('00000000-0000-0000-0000-000000000001');
+  const keyPath = build!.options.env?.APPLE_API_KEY_PATH;
+  expect(keyPath).toStartWith(join(tmpdir(), `${NOTARY_KEY_FOLDER}${process.pid}-`));
+  expect(result.keyAtBuild).toEqual([{ path: keyPath!, text: `${NOTARY_PRIVATE_KEY}\n`, mode: 0o600, folderMode: 0o700 }]);
+  expect(existsSync(keyPath!)).toBe(false);
+  for (const call of result.calls.filter((call) => call !== build)) {
+    expect(call.command.join(' ')).not.toContain(NOTARY_PRIVATE_KEY);
+    expect(Object.keys(call.options.env ?? {}).filter((name) => name.startsWith('APPLE_API_'))).toEqual([]);
+  }
+
+  // The checks run on the archive that goes up, unpacked beside it.
+  const [{ command }] = result.published as [(typeof result.published)[number]];
+  const folder = command[command.length - 1]!.split('/').slice(0, -1).join('/');
+  const inside = join(folder, 'unpacked', 'Example App.app');
+  expect(result.named('stapler validate')[0]!.command).toEqual(['xcrun', 'stapler', 'validate', inside]);
+  expect(result.named('spctl')[0]!.command).toEqual(['spctl', '-a', '-t', 'exec', '-vv', inside]);
+  // The certificate's name, which holds a person's, is never printed.
+  for (const line of [...result.printed, ...result.failed]) expect(line).not.toContain('Example Person');
+});
+
+test('a Developer ID archive whose app is not stapled, or that Gatekeeper does not call notarized, is not published', async () => {
+  const { app } = developerIdApp('app');
+  // Tauri ignores a failed staple and only warns when it was given no key, so only these checks stop such a build.
+  const unstapled = await runRelease(app, { ...DEVELOPER_ID, stapled: false });
+  expect(unstapled.code).toBe(1);
+  expect(unstapled.failed[0]).toStartWith('the app in the update archive has no notarization ticket stapled to it');
+  expect(unstapled.published).toEqual([]);
+
+  const unsigned = await runRelease(app, { ...DEVELOPER_ID, gatekeeper: exit(3, 'Example App.app: rejected\nsource=Unnotarized Developer ID\n') });
+  expect(unsigned.failed[0]).toBe('Gatekeeper does not call the app in the update archive notarized: source=Unnotarized Developer ID');
+  expect(unsigned.published).toEqual([]);
+});
+
+test('the key’s file is removed when the build fails', async () => {
+  const { app } = developerIdApp('app');
+  const result = await runRelease(app, { ...DEVELOPER_ID, buildFails: true });
+  expect(result.code).toBe(1);
+  expect(result.keyAtBuild).toHaveLength(1);
+  expect(existsSync(result.keyAtBuild[0]!.path)).toBe(false);
+});
+
+test('the key’s file is removed when the release is stopped by a signal during the build', async () => {
+  const { app } = developerIdApp('app');
+  const child = Bun.spawn(['bun', join(import.meta.dir, 'mac-release-child.ts'), app, 'notarize'], { stdout: 'pipe', stderr: 'pipe' });
+  const reader = child.stdout.getReader();
+  let said = '';
+  while (!said.includes('\n')) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    said += new TextDecoder().decode(value);
+  }
+  const folder = said.trim();
+  expect(folder).toContain(NOTARY_KEY_FOLDER);
+  expect(existsSync(join(folder, 'key.p8'))).toBe(true);
+  child.kill('SIGINT');
+  expect(await child.exited).toBe(1);
+  expect(existsSync(folder)).toBe(false);
+});
+
+test('a key folder left by a release that is no longer running is removed, and a running release’s is left', async () => {
+  const ended = Bun.spawnSync(['true']).pid;
+  const left = join(tmpdir(), `${NOTARY_KEY_FOLDER}${ended}-left`);
+  const live = join(tmpdir(), `${NOTARY_KEY_FOLDER}${process.pid}-live`);
+  mkdirSync(left, { recursive: true });
+  mkdirSync(live, { recursive: true });
+  try {
+    const { app } = developerIdApp('app');
+    expect((await runRelease(app, DEVELOPER_ID)).code).toBe(0);
+    expect(existsSync(left)).toBe(false);
+    expect(existsSync(live)).toBe(true);
+  } finally {
+    rmSync(left, { recursive: true, force: true });
+    rmSync(live, { recursive: true, force: true });
+  }
+});
+
+test('a fingerprint identity is found once though listed twice, in either case, refused when not in the keychain, and its build must be signed by that certificate', async () => {
+  expect(identityName(DEVELOPER_ID_IDENTITIES, FINGERPRINT)).toBe(DEVELOPER_ID_NAME);
+  expect(identityName(DEVELOPER_ID_IDENTITIES, FINGERPRINT.toLowerCase())).toBe(DEVELOPER_ID_NAME);
+  expect(identityName(DEVELOPER_ID_IDENTITIES, IDENTITY)).toBe(IDENTITY);
+  expect(identityName(DEVELOPER_ID_IDENTITIES, '0'.repeat(40))).toBeNull();
+
+  const lower = developerIdApp('lower', FINGERPRINT.toLowerCase());
+  expect((await runRelease(lower.app, DEVELOPER_ID)).code).toBe(0);
+
+  const { app } = developerIdApp('app');
+  const missing = await runRelease(app);
+  expect(missing.failed[0]).toStartWith(`this Mac's keychain has no code signing identity "${FINGERPRINT}"`);
+
+  const other = await runRelease(app, { ...DEVELOPER_ID, certificate: 'another certificate' });
+  expect(other.failed[0]).toStartWith(`${join(app, 'src-tauri/target/release/bundle/macos/Example App.app')} is not signed by the certificate ${FINGERPRINT}: its signer's is `);
+  expect(other.published).toEqual([]);
+});
+
+test('Apple sign-in and certificate settings in the shell never reach the build', async () => {
+  const { app } = macApp(place.folder);
+  const shell = { APPLE_ID: 'someone@example.com', APPLE_PASSWORD: 'p', APPLE_TEAM_ID: 'TEAM000001', APPLE_CERTIFICATE: 'c', APPLE_CERTIFICATE_PASSWORD: 'p', APPLE_API_KEY: 'k' };
+  const result = await runRelease(app, {}, { env: { PATH: '/usr/bin:/bin', HOME: place.folder, ...shell } });
+  expect(result.code).toBe(0);
+  const env = result.named('tauri build')[0]!.options.env ?? {};
+  for (const name of Object.keys(shell)) expect(env[name]).toBeUndefined();
+});
+
+test('a self-signed app reads no App Store Connect key and runs no notarization check', async () => {
+  const { app } = macApp(place.folder);
+  const result = await runRelease(app);
+  expect(result.code).toBe(0);
+  expect(result.named('op').filter((call) => call.command.includes('App Store Connect API'))).toEqual([]);
+  expect(result.named('op')).toHaveLength(1);
+  expect(result.named('stapler')).toEqual([]);
+  expect(result.named('spctl')).toEqual([]);
+  expect(result.named('tar')).toEqual([]);
+  expect(result.keyAtBuild).toEqual([]);
 });
