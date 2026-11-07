@@ -6,6 +6,7 @@ import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
+import { readyMadeEmptyDatabase } from './ready-made';
 
 /** An app's Drizzle schema, every table it exports, as `import * as schema from './schema'` gives it. */
 export type Schema = Record<string, unknown>;
@@ -20,7 +21,8 @@ export type Db<TSchema extends Schema> = PgDatabase<PgQueryResultHKT, TSchema> &
 
 /**
  * Opens the database and brings its schema up to date. A postgres:// URL is a Postgres server, as on Railway.
- * Anything else is an embedded Postgres (PGlite): a folder on disk for local use, or `:memory:`. It logs which one it
+ * Anything else is an embedded Postgres (PGlite): a folder on disk for local use, or `:memory:`, which starts from
+ * PGlite's ready-made empty database when it is installed at PGlite's version, as test databases do. It logs which one it
  * opened, since a server on Railway whose URL went missing would otherwise run on a folder its next deploy throws away.
  */
 export async function openDb<TSchema extends Schema>(
@@ -37,7 +39,7 @@ export async function openDb<TSchema extends Schema>(
     console.log(`database: opened Postgres at ${host}${pathname}, migrated`);
     return db;
   }
-  const client = location === ':memory:' ? new PGlite() : new PGlite(location);
+  const client = location === ':memory:' ? new PGlite({ loadDataDir: await readyMadeFiles() }) : new PGlite(location);
   const db = Object.assign(drizzlePglite(client, { schema }), { close: () => client.close() });
   await migrateOrClose(db, () => migratePglite(db, { migrationsFolder }));
   console.log(`database: opened PGlite ${location === ':memory:' ? 'in memory' : `in ${resolve(location)}`}, migrated`);
@@ -55,9 +57,25 @@ async function migrateOrClose(db: { close: () => Promise<void> }, migrate: () =>
 }
 
 /**
- * The files of an empty database, made once per test process. PGlite starts from files in about a tenth of the time
- * it takes to make a new database, so each migrations folder's template starts from these.
+ * PGlite's ready-made empty database, read once per process, which an in-memory database and the tests' templates start
+ * from in about a fifth of the processor time of making one. Without it, or at another version than PGlite's, they make
+ * one as before, and one line says why and what to install, since a busy machine stretches making one past a test's
+ * time limit.
  */
+let readyMade: Promise<Blob | undefined> | undefined;
+
+function readyMadeFiles() {
+  readyMade ??= readyMadeEmptyDatabase()
+    .catch((error: unknown) => ({ reason: `making an empty database, since the ready-made one failed: ${error}` }))
+    .then((found) => {
+      if ('files' in found) return found.files;
+      console.log(`PGlite: ${found.reason}`);
+      return undefined;
+    });
+  return readyMade;
+}
+
+/** The files of an empty database, once per test process, which each migrations folder's template starts from. */
 let empty: Promise<File | Blob> | undefined;
 /** The files of one database migrated once per test process, for each migrations folder. */
 const migrated = new Map<string, Promise<File | Blob>>();
@@ -65,7 +83,7 @@ const testDbs = new Set<PGlite>();
 
 function emptyFiles() {
   if (!empty) {
-    empty = dumpAndClose(new PGlite(), async () => {});
+    empty = readyMadeFiles().then((files) => files ?? dumpAndClose(new PGlite(), async () => {}));
     empty.catch(() => (empty = undefined));
   }
   return empty;

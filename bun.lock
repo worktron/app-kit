@@ -13,7 +13,8 @@
         "@clerk/hono": "^0.1.93",
         "@clerk/react": "^6.17.4",
         "@clerk/testing": "^2.2.51",
-        "@electric-sql/pglite": "^0.5.8",
+        "@electric-sql/pglite": "0.5.11",
+        "@electric-sql/pglite-prepopulatedfs": "0.5.11",
         "@electric-sql/pglite-socket": "^0.2.14",
         "@emotion/react": "^11.14.0",
         "@emotion/styled": "^11.14.0",
@@ -50,6 +51,7 @@
         "@clerk/react": "^6.17.4",
         "@clerk/testing": "^2.2.51",
         "@electric-sql/pglite": "^0.5.0",
+        "@electric-sql/pglite-prepopulatedfs": "^0.5.0",
         "@mui/material": "^9.0.0",
         "@playwright/test": "^1.60.0",
         "@tauri-apps/api": "^2.0.0",
@@ -69,6 +71,7 @@
         "@clerk/react",
         "@clerk/testing",
         "@electric-sql/pglite",
+        "@electric-sql/pglite-prepopulatedfs",
         "@mui/material",
         "@playwright/test",
         "@tauri-apps/api",
@@ -134,6 +137,8 @@
     "@electric-sql/pglite-pgtap": ["@electric-sql/pglite-pgtap@0.0.12", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.11" } }, "sha512-qp8jE4sx+fNoCkcyd/cL8od+Nir4hFVphSh4/vH7P3cFCH6/sayWjQas9OyzPL0JHe7XQRFquyOvgwtUzbJgXQ=="],
 
     "@electric-sql/pglite-pgvector": ["@electric-sql/pglite-pgvector@0.0.12", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.11" } }, "sha512-n3TJqjWI9FXwFrGhuTVMghef8SL3E6nb4lxZnxYFW3UTg/7/hMUWfz7v2y0+idWzEsQ/raRpMNCsw9zvSdC/SA=="],
+
+    "@electric-sql/pglite-prepopulatedfs": ["@electric-sql/pglite-prepopulatedfs@0.5.11", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.11" } }, "sha512-2I59JiyNmtgl579/VC2evj74nMzSN8jxvc/00iEj3jySBHpu94st4UsSNe04tDCR12/ig3So6HjXN11XvK+ZMg=="],
 
     "@electric-sql/pglite-socket": ["@electric-sql/pglite-socket@0.2.14", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.11", "@electric-sql/pglite-age": "0.0.12", "@electric-sql/pglite-pg_hashids": "0.0.12", "@electric-sql/pglite-pg_ivm": "0.0.12", "@electric-sql/pglite-pg_textsearch": "0.0.13", "@electric-sql/pglite-pg_uuidv7": "0.0.12", "@electric-sql/pglite-pgtap": "0.0.12", "@electric-sql/pglite-pgvector": "0.0.12" }, "bin": { "pglite-server": "dist/scripts/server.js" } }, "sha512-n7JO9FzxQHdF5oBKzovf/LuRUrEUpOgGP/tmfxmOB5lqWPySTKkCb6FBkzj7kztWGJu9eB0FoilqxvOJ+9+0fQ=="],
 

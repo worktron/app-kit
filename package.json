@@ -73,6 +73,7 @@
     "@tauri-apps/api": "^2.0.0",
     "drizzle-orm": "^0.45.0",
     "@electric-sql/pglite": "^0.5.0",
+    "@electric-sql/pglite-prepopulatedfs": "^0.5.0",
     "postgres": "^3.4.0",
     "@clerk/testing": "^2.2.51",
     "sharp": "^0.35.0",
@@ -118,6 +119,9 @@
     "@electric-sql/pglite": {
       "optional": true
     },
+    "@electric-sql/pglite-prepopulatedfs": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },
@@ -136,7 +140,8 @@
     "@clerk/hono": "^0.1.93",
     "@clerk/react": "^6.17.4",
     "@clerk/testing": "^2.2.51",
-    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite": "0.5.11",
+    "@electric-sql/pglite-prepopulatedfs": "0.5.11",
     "@electric-sql/pglite-socket": "^0.2.14",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
