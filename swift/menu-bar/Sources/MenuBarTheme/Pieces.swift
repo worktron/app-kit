@@ -72,7 +72,7 @@ public struct Header: View {
         let line = Lined(height: Metrics.header, content: HStack(spacing: 10) {
             if back != nil { Text("‹").console(Metrics.body, tone: .secondary) }
             // On one line, cut in the middle so a path keeps its start and its end, and the first to give way.
-            Text(title).console(Metrics.body, weight: .bold).lineLimit(1).truncationMode(.middle)
+            Text(title).console(titleSize, weight: .bold).lineLimit(1).truncationMode(.middle)
             if let status { Text(status.attributed).console(Metrics.body).lineLimit(1).layoutPriority(1) }
             Spacer(minLength: 0)
             Text(note).console(Metrics.note, tone: .muted).lineLimit(1).layoutPriority(2)
@@ -85,6 +85,12 @@ public struct Header: View {
         } else {
             line
         }
+    }
+
+    /// The title's size: a popup's title in the plain look, the body's in the console look.
+    var titleSize: CGFloat {
+        if case .console = Look.app { return Metrics.body }
+        return PlainMetrics.titlePopup
     }
 }
 
@@ -333,14 +339,17 @@ public struct FooterItem {
     }
 }
 
-/// The panel's last line: its actions on the left and the last ones (Quit) on the right.
+/// The panel's last line: its actions on the left and the last ones (Quit) on the right. With `lineAbove`, it draws the
+/// 1 point border along its top, inside its height, for when what is above it has no line of its own, as compact rows.
 public struct Footer: View {
     let leading: [FooterItem]
     let trailing: [FooterItem]
+    let lineAbove: Bool
 
-    public init(_ leading: [FooterItem], trailing: [FooterItem] = []) {
+    public init(_ leading: [FooterItem], trailing: [FooterItem] = [], lineAbove: Bool = false) {
         self.leading = leading
         self.trailing = trailing
+        self.lineAbove = lineAbove
     }
 
     public var body: some View {
@@ -351,6 +360,7 @@ public struct Footer: View {
         }
         .padding(.horizontal, Metrics.inset)
         .frame(height: Metrics.footer)
+        .overlay(alignment: .top) { if lineAbove { Palette.border.color.frame(height: Metrics.line) } }
         .preference(key: Shortcuts.self, value: (leading + trailing).compactMap { item in
             item.key.map { Shortcut(key: Character($0.lowercased()), action: item.action) }
         })

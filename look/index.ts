@@ -71,7 +71,8 @@ export const CONSOLE: { light: Colors; dark: Colors } = {
 /**
  * The plain look's colors with `accent` as info: Beeline's paper and graphites, with no boxes, so bg and surface are the
  * same paper. Every tone but muted reads at least 4.5 to 1 on the paper and on a selected line, in light and in dark,
- * for which ok in light is a shade darker than the Studies page's #2e7d4f.
+ * for which ok and warn in light are a shade darker than the Studies page's #2e7d4f and #9a5b00. The selected line is the
+ * Beeline Menu Studies page's darker fill, #dfddd6 and #36383c, since #ecebe6 measured 1.09 to 1 on the paper.
  */
 export function plainColors(accent: Accent = DEFAULT_ACCENT): { light: Colors; dark: Colors } {
   return {
@@ -79,8 +80,8 @@ export function plainColors(accent: Accent = DEFAULT_ACCENT): { light: Colors; d
       text: '#2a2c30',
       secondary: '#5c5f65',
       muted: '#8e9197',
-      ok: '#2a774b',
-      warn: '#9a5b00',
+      ok: '#276d45',
+      warn: '#8d5300',
       error: '#b3261e',
       info: accent.light,
       bg: '#f6f5f2',
@@ -88,7 +89,7 @@ export function plainColors(accent: Accent = DEFAULT_ACCENT): { light: Colors; d
       surfaceHi: '#efeee9',
       border: '#e2e0da',
       borderHi: '#d3d1ca',
-      hover: '#ecebe6',
+      hover: '#dfddd6',
     },
     dark: {
       text: '#e6e4df',
@@ -103,7 +104,7 @@ export function plainColors(accent: Accent = DEFAULT_ACCENT): { light: Colors; d
       surfaceHi: '#242628',
       border: '#323438',
       borderHi: '#3c3e42',
-      hover: '#2a2c2f',
+      hover: '#36383c',
     },
   };
 }
@@ -131,7 +132,7 @@ export const PLAIN_SIZES = {
   body: 13,
   /** A row's detail, a status word, a foot note and the build line. */
   small: 12,
-  /** A section's label, in muted. */
+  /** A section's label: in secondary in the menu bar theme's panel and windows, in muted on the web and in an extension. */
   label: 12,
   labelWeight: 600,
   /** Weight of a row's name and an action word. */
@@ -147,6 +148,9 @@ export const PLAIN_SIZES = {
   rowPopup: 44,
   rowWindow: 48,
   rowPadding: 10,
+  /** A compact row in a menu bar panel: 30 high with no hairline, its selected fill 6 in from the panel's sides. */
+  rowCompact: 30,
+  fillInset: 6,
   /** The hairline between rows. */
   line: 1,
   /** A text field's corners and its padding inside. */

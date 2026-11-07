@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 // The pieces of a Mac window in the plain look, from the Plain Look Studies page's option C: a page on the paper with
-// no boxes or cards, sections under a muted label, rows between hairlines, status in colored words, actions as words in
-// the accent, removal in the error color, and the build in a line at the foot. They read the app's look (`Look.app`)
-// for their colors, as the panel's pieces do, and PlainMetrics for their sizes.
+// no boxes or cards, sections under a label in secondary, rows between hairlines, status in colored words, actions as
+// words in the accent, removal in the error color, and the build in a line at the foot. They read the app's look
+// (`Look.app`) for their colors, as the panel's pieces do, and PlainMetrics for their sizes.
 
 extension View {
     /// Text at a plain window's line height, 1.4 times its size.
@@ -48,7 +48,7 @@ public struct PageTitle: View {
     }
 }
 
-/// A section's label in muted, 24 points below what is above it and 8 above what it labels. The page's first one,
+/// A section's label in secondary, 24 points below what is above it and 8 above what it labels. The page's first one,
 /// `first`, sits 4 points from the top.
 public struct SectionLabel: View {
     let text: String
@@ -60,7 +60,7 @@ public struct SectionLabel: View {
     }
 
     public var body: some View {
-        Text(text).plain(PlainMetrics.label, weight: PlainMetrics.labelWeight, tone: .muted)
+        LabelText(text: text, lineHeight: PlainMetrics.lineHeight)
             .padding(.top, first ? 4 : PlainMetrics.sectionGap)
             .padding(.bottom, PlainMetrics.labelGap)
     }

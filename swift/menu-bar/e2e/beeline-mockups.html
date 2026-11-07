@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  The Beeline Menu Studies page's options D (the list) and E (a link's side page), chosen 2026-11-07, in the plain look's
+  light colors: the page's own panel rules and markup, copied as they are, so e2e/compare-mockups.ts can hold the menu bar
+  theme's beeline-d and beeline-e samples to them.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+.panel{--p-text:#2a2c30;--p-secondary:#5c5f65;--p-muted:#8e9197;--p-error:#b3261e;--p-info:#2f5fa7;--p-bg:#f6f5f2;--p-border:#e2e0da;--p-border-hi:#d3d1ca;--p-hover:#ecebe6;}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#ffffff;display:flex;flex-direction:column;gap:20px;align-items:flex-start;}
+.panel{width:480px;flex:none;background:var(--p-bg);color:var(--p-text);border:1px solid var(--p-border-hi);border-radius:8px;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;font-size:13px;line-height:1.4;}
+.panel .err{color:var(--p-error);}
+.p-hdr{height:40px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--p-border);}
+.p-hdr b{font-weight:700;}.p-hdr .note{margin-left:auto;font-size:11px;color:var(--p-muted);}
+.p-row{height:44px;display:flex;align-items:baseline;gap:12px;padding:13px 20px 0;border-bottom:1px solid var(--p-border);}
+.p-row .t,.p-crow .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tr{font-size:12px;color:var(--p-secondary);white-space:nowrap;}
+.tm{font-size:12px;color:var(--p-secondary);width:62px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.chev{color:var(--p-muted);font-size:13px;width:6px;}
+.sel{background:var(--p-hover);}
+.tr.col{width:56px;}
+.panel{--p-hover:#dfddd6;}.panel.dark{--p-hover:#36383c;}
+.sel .chev{color:var(--p-text);}
+.p-sub{font-size:12px;color:var(--p-secondary);padding:8px 20px 10px;border-bottom:1px solid var(--p-border);}
+.p-sub.first{padding-top:12px;}
+.p-ftr{height:36px;display:flex;align-items:center;gap:20px;padding:0 20px;font-size:12px;color:var(--p-secondary);border-top:1px solid var(--p-border);}
+.p-ftr i{font-style:normal;color:var(--p-muted);margin-left:4px;}.p-ftr .sp{flex:1;}
+.lined .p-row:last-child{border-bottom:0;}
+/* New pieces the options need: a panel section label, a two-line problem row, a compact row. */
+.p-label{font-size:12px;font-weight:600;color:var(--p-secondary);padding:24px 20px 8px;}
+.p-label.first{padding-top:14px;}
+.p-prob{display:flex;flex-direction:column;gap:2px;padding:2px 20px 4px;}
+.p-prob .pl{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+.act.strong{font-size:13px;font-weight:600;}
+.p-prob .pd{font-size:12px;color:var(--p-secondary);}
+.p-hdr.big b{font-size:15px;}
+.act{color:var(--p-info);font-size:12px;white-space:nowrap;}
+.p-crow .t.act{font-size:13px;}
+.acts{display:flex;gap:14px;}
+.tr.ok{color:#2a774b;}
+.p-row.grp{height:36px;}.p-row.last{border-bottom:0;}
+.lined + .p-ftr{border-top:1px solid var(--p-border);}
+.list{padding-bottom:4px;}
+/* Space, not hairlines, between sections in B, C, D. */
+.p-crow{height:30px;display:flex;align-items:baseline;gap:12px;margin:0 6px;padding:6px 14px 0;border-radius:3px;}
+.cnt{font-size:12px;color:var(--p-muted);margin-left:8px;}
+.list.end{border-top:1px solid var(--p-border);padding:4px 0 10px;margin-top:8px;}
+.p-why{font-size:12px;color:var(--p-secondary);padding:12px 20px 8px;}
+.p-why .addr{display:block;color:var(--p-muted);margin-top:4px;}
+.p-empty{font-size:12px;color:var(--p-secondary);padding:2px 20px 14px;}
+</style>
+</head>
+<body>
+<div class="panel" data-screen="beeline-d"><div class="p-hdr big"><b>Beeline</b></div><div class="p-label first">Needs you</div><div class="p-prob"><div class="pl"><span class="err">Profile 6 is open without Beeline</span><span class="act strong">Set it up…</span></div><span class="pd">Links there are unknown to Beeline.</span></div><div class="p-label">Opened recently</div><div class="list"><div class="p-crow"><span class="t">share.example.com/k3Ra9vTq2LmXw8Hd<span class="cnt">×2</span></span><span class="tm">1:32 PM</span><span class="tr col">Work</span><span class="chev">›</span></div><div class="p-crow"><span class="t">budget.example.com</span><span class="tm">1:11 PM</span><span class="tr col">Personal</span><span class="chev">›</span></div><div class="p-crow"><span class="t">share.example.com/p7Qm2ZxL4FisZwQf</span><span class="tm">12:58 PM</span><span class="tr col">Work</span><span class="chev">›</span></div><div class="p-crow"><span class="t">share.example.com/d6Tn4Wc1YpQuMRa9</span><span class="tm">12:22 PM</span><span class="tr col">Work</span><span class="chev">›</span></div><div class="p-crow"><span class="t">github.com/acme/web-app/pull/104</span><span class="tm">11:47 AM</span><span class="tr col">Personal</span><span class="chev">›</span></div><div class="p-crow"><span class="t">github.com/acme/web-app/pull/122</span><span class="tm">11:30 AM</span><span class="tr col">Personal</span><span class="chev">›</span></div><div class="p-crow"><span class="t">github.com/acme/team-notes/pull/28</span><span class="tm">10:05 AM</span><span class="tr col">Personal</span><span class="chev">›</span></div></div><div class="p-ftr"><span>Settings… <i>⌘,</i></span><span>About</span><span class="sp"></span><span>Quit <i>⌘Q</i></span></div></div>
+<div class="panel side" data-screen="beeline-e"><div class="p-why">Opened in Work at 1:32 PM. You set share.example.com to always open there.<span class="addr">https://share.example.com/k3Ra9vTq2LmXw8Hd</span></div><div class="list"><div class="p-crow"><span class="t act">Copy the whole link</span></div></div><div class="p-label">Open once in</div><div class="list"><div class="p-crow"><span class="t">Personal</span></div></div><div class="p-label">Always open this page in</div><div class="list"><div class="p-crow"><span class="t">Work</span></div><div class="p-crow"><span class="t">Personal</span></div></div><div class="p-label">Always open share.example.com in</div><div class="list"><div class="p-crow"><span class="t">Work</span><span class="tr">In effect</span></div><div class="p-crow"><span class="t">Personal</span></div></div><div class="list end"><div class="p-crow"><span class="t act">Change it in Settings…</span></div></div></div>
+</body>
+</html>

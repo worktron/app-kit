@@ -1,11 +1,11 @@
-/* Copied from app-kit 0.41.0 by `app-kit extension copy`. Change it in the kit. */
+/* Copied from app-kit 0.46.0 by `app-kit extension copy`. Change it in the kit. */
 :root {
   color-scheme: light dark;
   --text: #2a2c30;
   --secondary: #5c5f65;
   --muted: #8e9197;
-  --ok: #2a774b;
-  --warn: #9a5b00;
+  --ok: #276d45;
+  --warn: #8d5300;
   --error: #b3261e;
   --info: var(--accent-light, #2f5fa7);
   --bg: #f6f5f2;
@@ -13,7 +13,7 @@
   --surface-hi: #efeee9;
   --border: #e2e0da;
   --border-hi: #d3d1ca;
-  --hover: #ecebe6;
+  --hover: #dfddd6;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
   --font-code: ui-monospace, "SF Mono", Menlo, monospace;
   --title-window: 17px;
@@ -31,6 +31,8 @@
   --row-popup: 44px;
   --row-window: 48px;
   --row-padding: 10px;
+  --row-compact: 30px;
+  --fill-inset: 6px;
   --line: 1px;
   --field-corner: 4px;
   --field-padding-vertical: 6px;
@@ -53,7 +55,7 @@
     --surface-hi: #242628;
     --border: #323438;
     --border-hi: #3c3e42;
-    --hover: #2a2c2f;
+    --hover: #36383c;
   }
 }
 

@@ -198,9 +198,9 @@ struct Shortcuts: PreferenceKey {
 }
 
 /// A line that acts on a click on its whole background, is one the arrow keys stop on, and paints as hovered when selected:
-/// `rest` is its fill otherwise, and `outset` the room its fill takes around it, with `corner` its rounding. Its content
-/// reads whether it is selected from `lineSelected`, so a mark on it can brighten. With `opensSide`, a click opens its row's
-/// side page instead of acting.
+/// `rest` is its fill otherwise, `outset` the room its fill takes around it and `fillInset` the room it leaves at its sides,
+/// with `corner` its rounding. Its content reads whether it is selected from `lineSelected`, so a mark on it can brighten.
+/// With `opensSide`, a click opens its row's side page instead of acting.
 struct Selectable: ViewModifier {
     let id: AnyHashable
     let action: () -> Void
@@ -208,6 +208,8 @@ struct Selectable: ViewModifier {
     var rest: Color = .clear
     var corner: CGFloat = 0
     var outset = EdgeInsets()
+    /// How far in from each side its fill sits, while the click still takes its whole width, as a Mac menu's selection.
+    var fillInset: CGFloat = 0
     @Environment(PanelState.self) private var state: PanelState?
 
     func body(content: Content) -> some View {
@@ -216,7 +218,7 @@ struct Selectable: ViewModifier {
         content
             .environment(\.lineSelected, selected)
             .padding(outset)
-            .background(RoundedRectangle(cornerRadius: corner).fill(selected ? Palette.hover.color : rest))
+            .background(RoundedRectangle(cornerRadius: corner).fill(selected ? Palette.hover.color : rest).padding(.horizontal, fillInset))
             .contentShape(Rectangle())
             .onTapGesture { state?.clicked(id, opensSide: opensSide, action: action) }
             .onHover { inside in

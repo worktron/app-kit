@@ -1,0 +1,163 @@
+import AppKit
+import SwiftUI
+
+// The pieces that give a panel sections, from the Beeline Menu Studies page's options D (the list) and E (a row's side
+// page): a section's label, a problem with its fix on one row, and compact rows with no hairline between them, so space
+// rather than lines sets one section apart from the next. Their text is drawn at the look's line height, to the page's.
+
+/// A section's label in secondary, 12 at semibold, the one text a window's `SectionLabel` and a panel's draw. Secondary
+/// rather than muted, since muted measures 2.9 to 1 on the plain paper.
+struct LabelText: View {
+    let text: String
+    let lineHeight: CGFloat
+
+    var body: some View {
+        Text(text).console(PlainMetrics.label, weight: PlainMetrics.labelWeight, tone: .secondary, lineHeight: lineHeight)
+    }
+}
+
+/// A section's label in a panel: 24 points below what is above it and 8 above what it labels, at the panel's sides. The
+/// panel's `first`, under the header, sits 14 below it. The arrow keys pass over it, since it does nothing.
+public struct PanelSectionLabel: View {
+    let text: String
+    let first: Bool
+
+    public init(_ text: String, first: Bool = false) {
+        self.text = text
+        self.first = first
+    }
+
+    public var body: some View {
+        LabelText(text: text, lineHeight: Look.app.lineHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Metrics.inset)
+            .padding(.top, first ? 14 : PlainMetrics.sectionGap)
+            .padding(.bottom, PlainMetrics.labelGap)
+    }
+}
+
+/// A problem as one row, which one click on any of it acts on: its title in a tone, red unless asked, with the fix on the
+/// right of the title's line in the accent at semibold ("Set it up…"), and what it means under it in secondary.
+public struct ProblemRow: View {
+    let title: String
+    let tone: Tone
+    let detail: String
+    let fix: String
+    let id: AnyHashable
+    let action: () -> Void
+
+    public init(_ title: String, tone: Tone = .error, detail: String, fix: String, id: AnyHashable? = nil, action: @escaping () -> Void) {
+        self.title = title
+        self.tone = tone
+        self.detail = detail
+        self.fix = fix
+        self.id = id ?? AnyHashable(["problem", title])
+        self.action = action
+    }
+
+    public var body: some View {
+        let lineHeight = Look.app.lineHeight
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(title).console(Metrics.body, tone: tone, lineHeight: lineHeight)
+                    .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                Text(fix).console(Metrics.body, weight: PlainMetrics.strongWeight, tone: .info, lineHeight: lineHeight).lineLimit(1).fixedSize()
+            }
+            Text(detail).console(Metrics.small, tone: .secondary, lineHeight: lineHeight).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Metrics.inset)
+        .padding(.top, 2)
+        .padding(.bottom, 4)
+        .modifier(Selectable(id: id, action: action, corner: Metrics.cornerInside, fillInset: PlainMetrics.fillInset))
+    }
+}
+
+/// A 30 point row with no line below it, as a Mac menu's recent items: its words cut short with an ellipsis and a `count`
+/// after them in muted ("×2"), then a `time` in a column of its own, right-aligned, and a `trailing` word in secondary,
+/// in a column of its own when there is a time so the rows line up (a link's profile), and as wide as it is otherwise
+/// ("In effect"). The mark on the right says a click opens something; `opens` false leaves it off a row whose click acts in
+/// place. Selected, its fill sits 6 points in from the panel's sides with 3 point corners. Given a `page`, the row opens it
+/// beside the list, as `Row`'s does.
+public struct CompactRow: View {
+    let text: Words
+    let count: String
+    let time: String
+    let trailing: String
+    let opens: Bool
+    let id: AnyHashable
+    let action: () -> Void
+    var page: (@MainActor () -> AnyView)?
+
+    public init(_ text: Words, count: String = "", time: String = "", trailing: String = "", opens: Bool = true, id: AnyHashable,
+                action: @escaping () -> Void) {
+        self.text = text
+        self.count = count
+        self.time = time
+        self.trailing = trailing
+        self.opens = opens
+        self.id = id
+        self.action = action
+    }
+
+    /// The row whose `page` opens beside the list.
+    @MainActor public init<Page: View>(_ text: Words, count: String = "", time: String = "", trailing: String = "", id: AnyHashable,
+                                       @ViewBuilder page: @escaping @MainActor () -> Page) {
+        self.init(text, count: count, time: time, trailing: trailing, id: id) {}
+        self.page = { AnyView(page()) }
+    }
+
+    public var body: some View {
+        line
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: SidePages.self, value: page.map { [SidePage(id: id, content: $0(), row: geometry.frame(in: .global))] } ?? [])
+            })
+            .modifier(Selectable(id: id, action: action, opensSide: page != nil, corner: Metrics.cornerInside, fillInset: PlainMetrics.fillInset))
+    }
+
+    private var line: some View {
+        let lineHeight = Look.app.lineHeight
+        return HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(text.attributed).console(Metrics.body, lineHeight: lineHeight).lineLimit(1).truncationMode(.tail)
+                if !count.isEmpty { Text(count).console(Metrics.small, tone: .muted, lineHeight: lineHeight).lineLimit(1).fixedSize() }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !time.isEmpty {
+                Text(time).console(Metrics.small, tone: .secondary, lineHeight: lineHeight).monospacedDigit().lineLimit(1)
+                    .frame(width: Metrics.timeColumn, alignment: .trailing)
+            }
+            if !trailing.isEmpty {
+                let word = Text(trailing).console(Metrics.small, tone: .secondary, lineHeight: lineHeight).lineLimit(1).truncationMode(.tail)
+                if time.isEmpty {
+                    word.fixedSize()
+                } else {
+                    word.frame(width: Metrics.trailingColumn, alignment: .leading)
+                }
+            }
+            if opens { Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).frame(width: 6) }
+        }
+        .padding(.horizontal, Metrics.inset)
+        .frame(height: PlainMetrics.rowCompact)
+    }
+}
+
+/// Compact rows as one list, with 4 points below the last. A `closing` list, a page's last actions, sits under a line
+/// across the panel, 8 below what is above it and 4 above its rows, with 10 below them.
+public struct CompactList<Rows: View>: View {
+    let closing: Bool
+    let rows: Rows
+
+    public init(closing: Bool = false, @ViewBuilder rows: () -> Rows) {
+        self.closing = closing
+        self.rows = rows()
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            if closing { Palette.border.color.frame(height: Metrics.line).padding(.top, 8).padding(.bottom, 4) }
+            rows
+        }
+        .padding(.bottom, closing ? 10 : 4)
+    }
+}

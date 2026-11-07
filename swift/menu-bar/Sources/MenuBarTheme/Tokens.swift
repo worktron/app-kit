@@ -45,22 +45,23 @@ public enum Palette: UInt32, CaseIterable, Sendable {
 
     /// The plain look, from the Plain Look Studies page's option C: Beeline's paper and graphites, with no boxes, so the
     /// header and a code box sit on the panel's own paper. Info is the app's accent. Every tone but muted reads at least
-    /// 4.5 to 1 on the panel and on a selected line, in light and in dark, for which ok in light is a shade darker than
-    /// the page's #2e7d4f, which read 4.2 on a selected line.
+    /// 4.5 to 1 on the panel and on a selected line, in light and in dark, for which ok and warn in light are a shade darker
+    /// than the page's #2e7d4f and #9a5b00, which read 4.0 on the selected line. That line is the Beeline Menu Studies
+    /// page's darker fill, since #ecebe6 measured 1.09 to 1 on the paper.
     public func plain(accent: Accent) -> (light: UInt32, dark: UInt32) {
         switch self {
         case .text: (0x2a2c30, 0xe6e4df)
         case .secondary: (0x5c5f65, 0xa3a6ab)
         case .muted: (0x8e9197, 0x74777d)
-        case .ok: (0x2a774b, 0x7cc49a)
-        case .warn: (0x9a5b00, 0xe0b46a)
+        case .ok: (0x276d45, 0x7cc49a)
+        case .warn: (0x8d5300, 0xe0b46a)
         case .error: (0xb3261e, 0xf2a39c)
         case .info: (accent.light, accent.dark)
         case .bg, .surface: (0xf6f5f2, 0x1d1e20)
         case .surfaceHi: (0xefeee9, 0x242628)
         case .border: (0xe2e0da, 0x323438)
         case .borderHi: (0xd3d1ca, 0x3c3e42)
-        case .hover: (0xecebe6, 0x2a2c2f)
+        case .hover: (0xdfddd6, 0x36383c)
         }
     }
 
@@ -103,6 +104,10 @@ public enum Metrics {
     public static var itemInset: CGFloat { inset + 14 }
     /// The width of a row's name column.
     public static let nameColumn: CGFloat = 92
+    /// A compact row's time column, right-aligned, and its trailing column when it has a time, from the Beeline Menu Studies
+    /// page's D: a link's time and the profile it opened in.
+    public static let timeColumn: CGFloat = 62
+    public static let trailingColumn: CGFloat = 56
     public static let cornerInside: CGFloat = 3
     public static let cornerPanel: CGFloat = 8
     public static let line: CGFloat = 1
@@ -140,7 +145,7 @@ public enum PlainMetrics {
     public static let body: CGFloat = 13
     /// A row's detail, a status word, a foot note and the build line.
     public static let small: CGFloat = 12
-    /// A section's label, in muted.
+    /// A section's label: in secondary in the panel and a window, in muted on the web and in an extension.
     public static let label: CGFloat = 12
     public static let labelWeight: NSFont.Weight = .semibold
     /// Weight of a row's name, when it is a thing's name, and of a page's main action.
@@ -156,6 +161,9 @@ public enum PlainMetrics {
     public static let rowPopup: CGFloat = 44
     public static let rowWindow: CGFloat = 48
     public static let rowPadding: CGFloat = 10
+    /// A compact row in a menu bar panel: 30 high with no hairline, its selected fill 6 in from the panel's sides.
+    public static let rowCompact: CGFloat = 30
+    public static let fillInset: CGFloat = 6
     /// The hairline between rows.
     public static let line: CGFloat = 1
     /// A text field's corners and its padding inside.

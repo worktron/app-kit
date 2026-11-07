@@ -13,8 +13,9 @@ struct Sample {
     var copied: String?
     /// The row whose side page is drawn beside the panel.
     var sidePage: AnyHashable?
-    /// Whether e2e/mockups.html draws it, so the comparison holds it to the mockup.
-    var mockup = true
+    /// The look its mockup draws it in, so the comparison holds it to that mockup: console for e2e/mockups.html, the Fleet
+    /// Menu Studies page's, and plain for e2e/beeline-mockups.html, the Beeline Menu Studies page's; nil for none.
+    var mockup: Look? = .console
     /// A window's page rather than a panel, drawn by windowSnapshot.
     var window = false
     let content: () -> AnyView
@@ -76,7 +77,7 @@ let samples: [Sample] = [
         machines(Header("fleet", status: Words("couldn't read status", .warn), note: "as of 12m ago"))
     },
     // A list of links with one link's choices open beside it, as a menu's submenu.
-    Sample(name: "side", width: 480, selected: ["once", "home"], sidePage: "docs", mockup: false) {
+    Sample(name: "side", width: 480, selected: ["once", "home"], sidePage: "docs", mockup: nil) {
         AnyView(VStack(spacing: 0) {
             Header("links", note: "links it opened")
             Row(Words("github.com/example/widgets/pull/12"), trailing: "work@example.com", id: "pull", page: { linkPage("you opened it in work") })
@@ -86,13 +87,75 @@ let samples: [Sample] = [
             footer
         })
     },
+    // The Beeline Menu Studies page's D, its list in sections, and E, a link's side page, in the plain look, with the page's
+    // text; e2e/beeline-mockups.html draws them with the page's own markup.
+    Sample(name: "beeline-d", width: 480, mockup: .plain()) { beelineList() },
+    Sample(name: "beeline-e", width: 480, mockup: .plain()) { beelinePage() },
+    Sample(name: "beeline-d-selected", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
+           mockup: nil) { beelineList() },
 ]
+
+@MainActor
+private func beelineList() -> AnyView {
+    let links: [(path: String, count: String, time: String, profile: String)] = [
+        ("share.example.com/k3Ra9vTq2LmXw8Hd", "×2", "1:32 PM", "Work"),
+        ("budget.example.com", "", "1:11 PM", "Personal"),
+        ("share.example.com/p7Qm2ZxL4FisZwQf", "", "12:58 PM", "Work"),
+        ("share.example.com/d6Tn4Wc1YpQuMRa9", "", "12:22 PM", "Work"),
+        ("github.com/acme/web-app/pull/104", "", "11:47 AM", "Personal"),
+        ("github.com/acme/web-app/pull/122", "", "11:30 AM", "Personal"),
+        ("github.com/acme/team-notes/pull/28", "", "10:05 AM", "Personal"),
+    ]
+    return AnyView(VStack(spacing: 0) {
+        Header("Beeline")
+        PanelSectionLabel("Needs you", first: true)
+        ProblemRow("Profile 6 is open without Beeline", detail: "Links there are unknown to Beeline.", fix: "Set it up…") {}
+        PanelSectionLabel("Opened recently")
+        CompactList {
+            ForEach(links, id: \.path) { link in
+                CompactRow(Words(link.path), count: link.count, time: link.time, trailing: link.profile,
+                           id: ["link", String(link.path.split(separator: "/").last ?? "")], page: { beelinePage() })
+            }
+        }
+        Footer([FooterItem("Settings…", key: ",") {}, FooterItem("About") {}], trailing: [FooterItem("Quit", key: "q") {}], lineAbove: true)
+    })
+}
+
+/// E: why the link opened where it did and its address as one block of text, then the moves under section labels, with
+/// only the setting that exists saying "In effect".
+@MainActor
+private func beelinePage() -> AnyView {
+    AnyView(VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Opened in Work at 1:32 PM. You set share.example.com to always open there.")
+                .console(Metrics.small, tone: .secondary, lineHeight: Look.app.lineHeight)
+            Text(verbatim: "https://share.example.com/k3Ra9vTq2LmXw8Hd").console(Metrics.small, tone: .muted, lineHeight: Look.app.lineHeight)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, Metrics.inset).padding(.top, 12).padding(.bottom, 8)
+        CompactList { CompactRow(Words("Copy the whole link", .info), opens: false, id: "copy") {} }
+        PanelSectionLabel("Open once in")
+        CompactList { CompactRow("Personal", opens: false, id: ["once", "Personal"]) {} }
+        PanelSectionLabel("Always open this page in")
+        CompactList {
+            CompactRow("Work", opens: false, id: ["page", "Work"]) {}
+            CompactRow("Personal", opens: false, id: ["page", "Personal"]) {}
+        }
+        PanelSectionLabel("Always open share.example.com in")
+        CompactList {
+            CompactRow("Work", trailing: "In effect", opens: false, id: ["site", "Work"]) {}
+            CompactRow("Personal", opens: false, id: ["site", "Personal"]) {}
+        }
+        CompactList(closing: true) { CompactRow(Words("Change it in Settings…", .info), opens: false, id: "settings") {} }
+    })
+}
 
 /// A window's pages, from the Plain Look Studies page's option C: Beeline's setup window and two Settings tabs, with
 /// the people and their addresses replaced by stand-ins.
 @MainActor
 let windowSamples: [Sample] = [
-    Sample(name: "window-setup", width: 460, mockup: false, window: true) {
+    Sample(name: "window-setup", width: 460, mockup: nil, window: true) {
         AnyView(WindowPage {
             PageTitle("Set up Beeline", subtitle: "Open each link in the right Chrome profile")
             SectionLabel("Profiles")
@@ -105,7 +168,7 @@ let windowSamples: [Sample] = [
             ActionBar { StatusWord("2 profiles set up", .secondary) } trailing: { ActionWord("Done", main: true) {} }
         })
     },
-    Sample(name: "window-profiles", width: 460, mockup: false, window: true) {
+    Sample(name: "window-profiles", width: 460, mockup: nil, window: true) {
         AnyView(WindowPage {
             SectionLabel("Default profile", first: true)
             Lines {
@@ -123,7 +186,7 @@ let windowSamples: [Sample] = [
             ActionBar { EmptyView() } trailing: { ActionWord("Add Beeline to another profile", main: true) {} }
         })
     },
-    Sample(name: "window-general", width: 460, mockup: false, window: true) {
+    Sample(name: "window-general", width: 460, mockup: nil, window: true) {
         AnyView(WindowPage {
             SectionLabel("Starting", first: true)
             Lines {

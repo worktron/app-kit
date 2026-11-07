@@ -6,10 +6,11 @@ import MenuBarTheme
 //                                                          draws each sample screen, the panel's and then a window's,
 //                                                          to <folder>/<screen>.png, in the dark appearance and the
 //                                                          plain look unless asked otherwise
-// menu-bar-snapshots compare <mockups> <theme> <out>       checks each screen against the mockup's render and its
-//                                                          rectangles (<mockups>/<screen>.png and .json), and writes the
-//                                                          two side by side to <out>/<screen>.png; the mockups are the
-//                                                          console look's, so <theme> is a console render
+// menu-bar-snapshots compare <mockups> <theme> <out> [console|plain]
+//                                                          checks each screen whose mockup is in that look, console unless
+//                                                          asked, against the mockup's render and its rectangles
+//                                                          (<mockups>/<screen>.png and .json), and writes the two side by
+//                                                          side to <out>/<screen>.png; <theme> is a render in that look
 // Exit codes: 0 all drawn or all within the limits; 1 a screen failed, with why; 2 wrong usage.
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
@@ -38,11 +39,15 @@ MainActor.assumeIsolated {
                 print("drew \(sample.name)")
             }
         } catch { fail("\(error)") }
-    case ("compare", 4):
-        Look.app = .console
-        let paths = arguments.dropFirst().map { URL(fileURLWithPath: $0) }
+    case ("compare", 4...5):
+        let looks = ["plain": Look.plain(), "console": .console]
+        guard let look = looks[arguments.count == 5 ? arguments[4] : "console"] else {
+            fail("compare takes plain or console, not \(arguments[4])", code: 2)
+        }
+        Look.app = look
+        let paths = arguments.dropFirst().prefix(3).map { URL(fileURLWithPath: $0) }
         var failed = false
-        for sample in samples where sample.mockup {
+        for sample in samples where sample.mockup == look {
             do {
                 let problems = try compare(screen: sample.name, mockups: paths[0], theme: paths[1], out: paths[2])
                 if problems.isEmpty { print("\(sample.name): within the limits") }
@@ -52,6 +57,6 @@ MainActor.assumeIsolated {
         }
         if failed { exit(1) }
     default:
-        fail("usage: menu-bar-snapshots render <folder> [dark|light] [plain|console] | compare <mockups> <theme> <out>", code: 2)
+        fail("usage: menu-bar-snapshots render <folder> [dark|light] [plain|console] | compare <mockups> <theme> <out> [console|plain]", code: 2)
     }
 }

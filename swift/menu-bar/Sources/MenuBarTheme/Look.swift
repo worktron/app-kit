@@ -21,6 +21,15 @@ public enum Look: Sendable, Equatable {
         case .plain: 20
         }
     }
+
+    /// How far apart a piece's lines of text are, as a multiple of their size: the plain look's 1.4, the console look's 1.5,
+    /// for the pieces drawn to a mockup's text rather than to a fixed height.
+    public var lineHeight: CGFloat {
+        switch self {
+        case .console: Metrics.lineHeight
+        case .plain: PlainMetrics.lineHeight
+        }
+    }
 }
 
 /// The app's one color in the plain look, as sRGB, in light and in dark: actions such as "copy", and the info tone.
