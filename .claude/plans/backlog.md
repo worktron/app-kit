@@ -355,12 +355,6 @@ Shape: two more sizes in web/drive.ts's SIZES (a CSS viewport and scale whose pr
 
 Done when: a steps file with each Duo size writes an image of exactly that display's pixels with no alpha channel, held by web/e2e/drive.e2e.ts's store size test, and the README's size table lists both.
 
-## testflight-watch-slow-under-load · The TestFlight watcher's folder test runs past its time limit on a busy machine
-
-Goal: test/testflight-watch.test.ts "a folder that is missing, leaves the repository or holds pattern characters fails that app with a line naming it" takes about 0.5 s alone and in a full `bun test` at load 11 to 14 (976 pass, 63 s), but ran past the 15 s per-test limit inside scripts/gates.sh during the Messages Service landing on 2026-11-06, when the whole suite took 125 s, and stopped that landing (land-main: stopped: the gates failed). The time limit then cut it off with an unhandled error between tests: line 451 read `logLines().at(-1)` as undefined. The test makes real git repositories and clones through the watcher's passes, so something in that path is roughly 30 times slower under load; per the tests rule, the cause is to be found and fixed where it lives, never a longer limit or a rerun. Found by the apple-messages thread, 2026-11-06.
-
-Done when: the test's slow step is named with evidence (which git or process call takes the time under load), fixed in the watcher or the test's setup, and the test runs under 15 s in several parallel full-suite runs on a loaded machine, with a test or a timing assertion that would have caught it.
-
 ## text-size-row-arrow · the Text size menu's arrow never covers its value at large sizes
 
 Goal: in `TextSizeSetting` (web/TextSizeSetting.tsx, v0.45.4), at 200% chosen on a 375-pixel phone the menu's arrow is drawn over the value, so it reads "200%" with the arrow across its last character. The arrow and the select's right padding are sized in pixels while the value grows with the root size (seen in assay's browser test screenshot of its Settings page at 200%, assay e2e/text-size.e2e.ts). Size the arrow's room with the text, or move the arrow clear of the value.
@@ -383,12 +377,6 @@ Done when: a kit test step, given an app's publishable key and the Google permis
 Goal: since v0.47.0 a plain section label draws in secondary gray in the menu bar theme's panel and windows (swift/menu-bar's LabelText), because muted (#8e9197) measures 2.9 to 1 on the plain paper #f6f5f2, under 4.5 to 1. The web theme's label (web/theme.ts, the overline variant, `text-disabled`, which is muted) and the extension stylesheet's `.label` (extension/look.css, `color: var(--muted)`) still draw it in muted, so the plain look's one label is two colors and fails contrast on the web and in an extension. Move both to secondary, make PLAIN_SIZES' label comment in look/index.ts and the Swift copy say secondary everywhere, and rewrite README's "The plain look's pieces in MUI" line, which says muted. Left out of the menu-sections work (v0.47.0) by the owner's choice, 2026-11-07, as beyond that brief.
 
 Done when: a plain web page's section label and an extension page's `.label` draw in the plain secondary color in light and dark, a test holds each (test/theme.test.ts for the overline, a look.css test for `.label`), the extension fixture's copy matches (`bun bin/app-kit.ts extension copy extension/test/fixture/kit`), and the README says secondary.
-
-## testflight-watch-slow · The TestFlight watcher's tests pass on a busy Mac
-
-Goal: test/testflight-watch.test.ts runs past its tests' 15-second limits when the machine's load is around 20, and stops landings that touch nothing in it. On 2026-11-07, at load 15 to 30, the whole file on main failed 1 of 31 in 69 seconds, and on a branch that does not touch it 6 of 31 in 301 seconds, then 3 of 31 in 117 seconds, a different set each run ("a compile failure is held until main moves", "a Tauri project in a subfolder is installed, judged and uploaded from its folder, keeping its Rust build" and others). One of those tests passes alone in under a second, on main and on the branch. The tests use their own state folder (XDG_STATE_HOME under their own folder), so no lock is shared; each makes real git repositories and commits through git child processes, and a test that timed out leaves work running that fails the next test with "git rev-list --count <sha>: bad object" (an unhandled error between tests). Find where each test's time goes under load, then cut the child processes it does not check there (practices' rules/tests.md: a test runs through a subprocess only what it checks there), and stop a timed-out test's leftover work from reaching the next test. Found by the app-clients thread, whose landing it stopped, 2026-11-07.
-
-Done when: the whole file passes five runs in a row while the machine's load is above 20, every test in it under 15 seconds, with no unhandled error between tests, and the slowest test's time is written in the landing.
 
 ## persona-timeline · `app-kit web drive` waits with no taps and writes a timeline, and Sightline drives with it
 

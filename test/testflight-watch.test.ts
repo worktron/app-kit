@@ -2,13 +2,13 @@
 // an unmoved main from reading the key; failures held or tried again; the lock, the time limits, and the log's exact
 // lines; an app whose Tauri project is in a subfolder; and a fresh build before the newest expires. Real git repositories over file://, a stand-in App Store Connect, and stand-ins for bun install, the keychain,
 // 1Password and the app's own upload.
-import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { runCommand, type RunOptions, type RunResult } from '../command-line/run.ts';
+import { runCommand, type Run, type RunOptions, type RunResult } from '../command-line/run.ts';
 import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, watch, type Limits } from '../tauri/testflight/watch.ts';
 import { lock } from '../tauri/state.ts';
-import { appStoreConnect, commit, emptyCommits, exit, git, ITEM_JSON, ok, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
+import { appStoreConnect, commit, emptyCommits, exit, git, GIT_IDENTITY_ENV, ITEM_JSON, ok, pathWithGitItself, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
 setDefaultTimeout(15_000);
@@ -35,9 +35,32 @@ const PAST_THE_BREAK = {
   'bun.lock': '{}\n',
 };
 
+// The starting repository is made once and copied into each test's folder, so its git processes run once per file.
+let seed: ReturnType<typeof scratch>;
+let seedOrigin: string;
+/** Its one commit, the same in every copy: build 1. */
+let firstCommit: string;
+beforeAll(() => {
+  seed = scratch('testflight-watch-seed-');
+  seedOrigin = repository(join(seed.folder, 'urge-surfer'), PAST_THE_BREAK);
+  firstCommit = git(seedOrigin, 'rev-parse', 'HEAD');
+});
+afterAll(() => seed.done());
+
+/**
+ * Which test is running. Bun starts the next test while one it cut off at its time limit is still running, and that
+ * test's code would resume inside the next one; a pass that settles after its test ended never returns to it (`ours`).
+ */
+let testNumber = 0;
+/** Told each folder a leftover pass removed, once it has stopped; the test of that stop listens here. */
+let leftoverStopped: (folder: string) => void;
+
 beforeEach(async () => {
+  testNumber++;
+  leftoverStopped = () => {};
   place = scratch('testflight-watch-');
-  origin = repository(join(place.folder, 'urge-surfer'), PAST_THE_BREAK);
+  origin = join(place.folder, 'urge-surfer');
+  cpSync(seedOrigin, origin, { recursive: true });
   state = join(place.folder, 'state');
   asc = await appStoreConnect({ bundleId: 'app.pastthebreak' });
   clock = START;
@@ -51,7 +74,13 @@ afterEach(async () => {
   place.done();
 });
 
-const countOf = (commitSha: string) => Number(git(origin, 'rev-list', '--count', commitSha));
+// A commit's count never changes, so git is asked once per commit.
+const counts = new Map<string, number>();
+const countOf = (commitSha: string) => {
+  if (commitSha === firstCommit) return 1;
+  if (!counts.has(commitSha)) counts.set(commitSha, Number(git(origin, 'rev-list', '--count', commitSha)));
+  return counts.get(commitSha)!;
+};
 const shortOf = (commitSha: string) => commitSha.slice(0, 7);
 const head = () => git(origin, 'rev-parse', 'HEAD');
 /** App Store Connect holds the build of each commit. */
@@ -59,7 +88,9 @@ const uploaded = (...commits: string[]) => {
   for (const c of commits) asc.builds.push({ number: String(countOf(c)), states: ['VALID'] });
 };
 
+/** The stand-ins, answering with the settings the test holds when the runner is made, so a pass keeps its test's own. */
 function runner() {
+  const { kitHasUpload, token, uploadAnswer } = settings();
   return standInRunner((command, options) => {
     const line = command.join(' ');
     if (line === 'bun install --frozen-lockfile') {
@@ -76,16 +107,39 @@ function runner() {
   });
 }
 
+const settings = () => ({ kitHasUpload, token, uploadAnswer });
+
+/**
+ * The environment the watcher runs with: a home folder of the test's own, with git itself first on the path and an
+ * identity for git to write refs as (testflight-stand-in.ts says why each).
+ */
+const watcherEnv = () => ({ PATH: pathWithGitItself(process.env.PATH), HOME: place.folder, XDG_STATE_HOME: state, OP_SERVICE_ACCOUNT_TOKEN: 'from-the-shell', ...GIT_IDENTITY_ENV });
+
+/**
+ * What `work` gives, unless its test has ended by the time it settles: then it removes that test's folder again (the
+ * leftover may have written there after the test's own clean-up), tells `leftoverStopped`, and never settles, so none of
+ * the ended test's code runs inside the next one.
+ */
+async function ours<T>(work: Promise<T>): Promise<T> {
+  const mine = testNumber;
+  const own = place;
+  const settled = await work.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  if (mine !== testNumber) {
+    own.done();
+    leftoverStopped(own.folder);
+    return new Promise<never>(() => {});
+  }
+  if ('error' in settled) throw settled.error;
+  return settled.value;
+}
+
 let failures = 0;
 async function pass(stand = runner(), limits: Partial<Limits> = {}, urls = [`file://${origin}`]) {
-  failures = await watch({
-    urls,
-    run: stand.run,
-    env: { PATH: process.env.PATH, HOME: place.folder, XDG_STATE_HOME: state, OP_SERVICE_ACCOUNT_TOKEN: 'from-the-shell' },
-    now: () => clock,
-    appStoreConnect: asc.options,
-    limits,
-  });
+  const time = clock;
+  failures = await ours(watch({ urls, run: stand.run, env: watcherEnv(), now: () => time, appStoreConnect: asc.options, limits }));
   return stand;
 }
 
@@ -98,7 +152,7 @@ const record = () => JSON.parse(readFileSync(join(folder(), 'urge-surfer/record.
 const at = (ms: number) => `${new Date(ms).toISOString()} urge-surfer:`;
 
 test('a landing that changes the app is built and uploaded, with exact log lines and the build named by its count', async () => {
-  const first = head();
+  const first = firstCommit;
   uploaded(first);
   const change = commit(origin, { 'src/app.ts': 'export const coast = true;\n' });
   const stand = await pass();
@@ -118,7 +172,7 @@ test('a landing that changes the app is built and uploaded, with exact log lines
 });
 
 test('a landing that changes only documentation, plans and tests uploads nothing', async () => {
-  const first = head();
+  const first = firstCommit;
   uploaded(first);
   commit(origin, { 'README.md': '# Past the Break, now\n', '.claude/plans/x.md': 'plan\n', 'src/app.test.ts': 'test\n', 'e2e/flow.ts': 'flow\n' });
   const stand = await pass();
@@ -129,7 +183,7 @@ test('a landing that changes only documentation, plans and tests uploads nothing
 });
 
 test('two landings between passes are judged together', async () => {
-  const first = head();
+  const first = firstCommit;
   uploaded(first);
   commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
   const docs = commit(origin, { 'README.md': 'docs\n' });
@@ -138,7 +192,7 @@ test('two landings between passes are judged together', async () => {
 });
 
 test('an app change whose upload failed, followed by a documentation-only landing, still uploads', async () => {
-  const first = head();
+  const first = firstCommit;
   uploaded(first);
   const change = commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
   uploadAnswer = () => exit(1, '[testflight] altool did not upload build 2: ERROR: network\n');
@@ -157,16 +211,16 @@ test('an app change whose upload failed, followed by a documentation-only landin
 });
 
 test('main whose head App Store Connect already holds, uploaded by hand, is not built again', async () => {
-  commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
-  uploaded(head());
+  const change = commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
+  uploaded(change);
   const stand = await pass();
-  expect(logLines()).toEqual([`${at(START)} skipped: build ${countOf(head())} (${shortOf(head())}) is already in App Store Connect`]);
+  expect(logLines()).toEqual([`${at(START)} skipped: build ${countOf(change)} (${shortOf(change)}) is already in App Store Connect`]);
   expect(stand.named('testflight upload')).toEqual([]);
 });
 
 test('no build in App Store Connect yet uploads main', async () => {
   await pass();
-  expect(logLines()[0]).toBe(`${at(START)} uploading build 1 (${shortOf(head())}): App Store Connect has no build yet`);
+  expect(logLines()[0]).toBe(`${at(START)} uploading build 1 (${shortOf(firstCommit)}): App Store Connect has no build yet`);
 });
 
 test("a newest build whose number names no commit on main's first-parent line uploads main, saying why", async () => {
@@ -204,7 +258,7 @@ test('build numbers are compared as numbers across 99 and 100, never by the serv
 });
 
 test('a compile failure is held until main moves', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   const broken = commit(origin, { 'src/app.ts': 'export const = ;\n' });
   uploadAnswer = () => exit(3, "[testflight] build 2 (abc1234) did not compile: error: could not compile `past-the-break`\n");
   await pass();
@@ -222,7 +276,7 @@ test('a compile failure is held until main moves', async () => {
 });
 
 test('any other failure is tried again after an hour, and not before', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   const change = commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
   uploadAnswer = () => exit(1, '[testflight] the build of 2 (abc1234) failed: error: No signing certificate\n');
   await pass();
@@ -248,7 +302,7 @@ test('without the token in the keychain it waits, reads no key, and checks again
   clock += 61 * MINUTE;
   token = true;
   await pass();
-  expect(logLines().at(-1)).toBe(`${at(clock)} uploaded build 1 (${shortOf(head())}), processed`);
+  expect(logLines().at(-1)).toBe(`${at(clock)} uploaded build 1 (${shortOf(firstCommit)}), processed`);
 });
 
 test("main pinning an app-kit without the upload waits, reading no token or key, until main moves", async () => {
@@ -263,7 +317,7 @@ test("main pinning an app-kit without the upload waits, reading no token or key,
 });
 
 test('the same head twice reads no key and writes no line', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   await pass();
   expect(logLines()).toHaveLength(1);
   clock += 5 * MINUTE;
@@ -294,7 +348,7 @@ test('a lock left by a killed pass is taken over; a live one makes the pass do n
 });
 
 test('a step that never exits is stopped at its time limit with everything it started, and tried again after an hour', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   const change = commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
   const marker = join(place.folder, 'still-running');
   // The upload's build hangs; the process it started would touch the marker if it outlived the limit.
@@ -320,9 +374,11 @@ test('a step that never exits is stopped at its time limit with everything it st
 
 test('stopped itself, as launchd stops its job, the watcher stops the upload it started and leaves no lock', async () => {
   const marker = join(place.folder, 'hanging-upload');
-  const stopped = await runCommand(['bun', join(import.meta.dir, 'testflight-watch-child.ts'), origin, state, marker], {
-    output: (chunk) => (chunk.includes(`hanging ${marker}`) ? 0 : undefined),
-  });
+  const stopped = await ours(
+    runCommand(['bun', join(import.meta.dir, 'testflight-watch-child.ts'), origin, state, marker], {
+      output: (chunk) => (chunk.includes(`hanging ${marker}`) ? 0 : undefined),
+    }),
+  );
   expect(stopped).toMatchObject({ timedOut: true });
   // The upload was in a process group of its own, out of reach of the signal to the watcher's group.
   expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
@@ -330,7 +386,7 @@ test('stopped itself, as launchd stops its job, the watcher stops the upload it 
 });
 
 test('a dirtied build checkout is put back to main\'s commit, keeping installed packages and the Rust build', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   await pass();
   const checkout = join(folder(), 'urge-surfer/checkout');
   writeFileSync(join(checkout, 'src/app.ts'), 'changed by hand\n');
@@ -362,7 +418,7 @@ test("the ten newest builds' logs are kept, each with its try before", async () 
 });
 
 test('a failing fetch writes one line when it starts and one when it works again', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   await pass();
   const moved = `${origin}-moved`;
   Bun.spawnSync(['mv', origin, moved]);
@@ -378,7 +434,7 @@ test('a failing fetch writes one line when it starts and one when it works again
 });
 
 test('a pass gives how many apps had a step fail, so the command exits 1; skips and waiting are not failures', async () => {
-  uploaded(head());
+  uploaded(firstCommit);
   await pass();
   expect(failures).toBe(0);
   commit(origin, { 'src/app.ts': 'export const a = 1;\n' });
@@ -448,12 +504,12 @@ test('a folder that is missing, leaves the repository or holds pattern character
   expect(failures).toBe(1);
 
   const stand = await pass(runner(), {}, [`file://${origin}#mobile`]);
-  expect(logLines().at(-1)).toBe(`${at(START)} held: build 1 (${shortOf(head())}) has no folder mobile; held until main moves`);
+  expect(logLines().at(-1)).toBe(`${at(START)} held: build 1 (${shortOf(firstCommit)}) has no folder mobile; held until main moves`);
   expect(stand.named('bun install')).toEqual([]);
 });
 
 test('a newest build in its last 15 days goes up again once main has moved past it, with no app file changed', async () => {
-  const first = head();
+  const first = firstCommit;
   asc.builds.push({ number: String(countOf(first)), states: ['VALID'], expires: new Date(START + 14 * DAY).toISOString() });
   const docs = commit(origin, { 'README.md': 'docs\n' });
   await pass();
@@ -471,10 +527,10 @@ test('a newest build in its last 15 days goes up again once main has moved past 
 });
 
 test("a newest build in its last 15 days that is main's head uploads nothing and says the next landing will", async () => {
-  asc.builds.push({ number: String(countOf(head())), states: ['VALID'], expires: new Date(START + 10 * DAY).toISOString() });
+  asc.builds.push({ number: String(countOf(firstCommit)), states: ['VALID'], expires: new Date(START + 10 * DAY).toISOString() });
   const stand = await pass();
   expect(logLines()).toEqual([
-    `${at(START)} skipped: build ${countOf(head())} (${shortOf(head())}) is already in App Store Connect; it expires on ${dayOf(START + 10 * DAY)}, and the next landing uploads a fresh one`,
+    `${at(START)} skipped: build ${countOf(firstCommit)} (${shortOf(firstCommit)}) is already in App Store Connect; it expires on ${dayOf(START + 10 * DAY)}, and the next landing uploads a fresh one`,
   ]);
   expect(stand.named('testflight upload')).toEqual([]);
   // It is said once, not every pass.
@@ -484,7 +540,7 @@ test("a newest build in its last 15 days that is main's head uploads nothing and
 });
 
 test('an unmoved main is judged again once when the newest build reaches its last 15 days, and a record from before this change once', async () => {
-  const first = head();
+  const first = firstCommit;
   const expires = START + 90 * DAY;
   asc.builds.push({ number: String(countOf(first)), states: ['VALID'], expires: new Date(expires).toISOString() });
   const docs = commit(origin, { 'README.md': 'docs\n' });
@@ -509,6 +565,56 @@ test('an unmoved main is judged again once when the newest build reaches its las
   await pass();
   expect(logLines().at(-1)).toBe(`${at(clock)} skipped: build ${countOf(docs)} (${shortOf(docs)}) is already in App Store Connect`);
   expect(record().expiryCheckAt).toBe(new Date(clock - 5 * MINUTE + 75 * DAY).toISOString());
+});
+
+test("the watcher's git in these tests has an identity, so writing a ref never looks up the machine's name", () => {
+  // Outside any repository, so only the environment can give one; without it git makes one up from the network name.
+  const ident = Bun.spawnSync(['git', 'var', 'GIT_COMMITTER_IDENT'], { cwd: '/', env: watcherEnv(), stdout: 'pipe', stderr: 'pipe' });
+  expect(ident.stdout.toString()).toStartWith('app <app@example.com> ');
+});
+
+test("the watcher's tests run git itself, not Xcode's /usr/bin/git, which starts xcodebuild for each new home folder", () => {
+  const found = Bun.which('git', { PATH: watcherEnv().PATH });
+  expect(found).toBeTruthy();
+  const xcode = process.platform === 'darwin' && Bun.spawnSync(['xcode-select', '-p'], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
+  if (xcode) expect(found).not.toBe('/usr/bin/git');
+});
+
+test("a pass that ends after its test ended never returns to it and reads none of the next test's settings", async () => {
+  // As Bun does with a test it cut off at its time limit: the next test starts while this one's pass is still running.
+  const own = place.folder;
+  let ownUpload = false;
+  let nextUpload = false;
+  uploadAnswer = () => ((ownUpload = true), ok('[testflight] done\n'));
+  const stand = runner();
+  let reached!: () => void;
+  const installing = new Promise<void>((resolve) => (reached = resolve));
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const run: Run = async (command, options) => {
+    if (command.join(' ') === 'bun install --frozen-lockfile') {
+      reached();
+      await held;
+    }
+    return stand.run(command, options);
+  };
+  let continued = false;
+  void pass({ ...stand, run }).then(() => (continued = true));
+  await installing;
+
+  testNumber++;
+  uploadAnswer = () => ((nextUpload = true), ok('[testflight] done\n'));
+  token = false;
+  const stopped = new Promise<string>((resolve) => (leftoverStopped = resolve));
+  release();
+  // The stop is the leftover's last act, once its pass has settled; a continuation of the pass would run in the
+  // microtasks that follow, all of which run before the next turn of the event loop.
+  expect(await stopped).toBe(own);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(continued).toBe(false);
+  expect(ownUpload).toBe(true);
+  expect(nextUpload).toBe(false);
+  expect(existsSync(own)).toBe(false);
 });
 
 describe('what counts as the iPhone app', () => {

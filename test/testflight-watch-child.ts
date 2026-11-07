@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCommand } from '../command-line/run.ts';
 import { watch } from '../tauri/testflight/watch.ts';
-import { appStoreConnect, ITEM_JSON, ok, standInRunner, TOKEN } from './testflight-stand-in.ts';
+import { appStoreConnect, GIT_IDENTITY_ENV, ITEM_JSON, ok, pathWithGitItself, standInRunner, TOKEN } from './testflight-stand-in.ts';
 
 const [origin, state, marker] = process.argv.slice(2);
 const asc = await appStoreConnect({ bundleId: 'app.pastthebreak' });
@@ -30,4 +30,4 @@ const stand = standInRunner((command, options) => {
   }
   return undefined;
 });
-await watch({ urls: [`file://${origin}`], run: stand.run, env: { PATH: process.env.PATH, HOME: state, XDG_STATE_HOME: state }, appStoreConnect: asc.options });
+await watch({ urls: [`file://${origin}`], run: stand.run, env: { PATH: pathWithGitItself(process.env.PATH), HOME: state, XDG_STATE_HOME: state, ...GIT_IDENTITY_ENV }, appStoreConnect: asc.options });

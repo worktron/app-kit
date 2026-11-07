@@ -4,7 +4,7 @@
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TestFlightKey } from '../tauri/testflight/app-store-connect.ts';
 import { runCommand, type Run, type RunOptions, type RunResult } from '../command-line/run.ts';
@@ -206,6 +206,34 @@ export function scratch(prefix: string) {
 }
 
 const GIT_IDENTITY = ['-c', 'user.name=app', '-c', 'user.email=app@example.com', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main'];
+
+/**
+ * The identity a program under test commits and writes refs as. Given an empty home folder with none, git makes one up
+ * from the machine's network name, and that lookup through mDNS waited out 5 seconds on a busy Mac on every clone,
+ * checkout and fetch (a stack sample of each sat in getaddrinfo below files_log_ref_write).
+ */
+export const GIT_IDENTITY_ENV = { GIT_AUTHOR_NAME: 'app', GIT_AUTHOR_EMAIL: 'app@example.com', GIT_COMMITTER_NAME: 'app', GIT_COMMITTER_EMAIL: 'app@example.com' };
+
+/**
+ * `path` with git itself first, found as Homebrew finds it (Xcode's developer folder, then its usr/bin/git), so a
+ * program under test never runs Xcode's /usr/bin/git. That shim writes an entry in Xcode's cache for each new home
+ * folder, after its license check, and concurrent calls overwrite each other's entries, so a test with a home folder of
+ * its own started xcodebuild. Off macOS, or with no developer folder, `path` as it is.
+ */
+export function pathWithGitItself(path = process.env.PATH ?? ''): string {
+  return gitItselfFolder() ? `${gitItselfFolder()}:${path}` : path;
+}
+
+let gitItself: string | null | undefined;
+function gitItselfFolder(): string | null {
+  if (gitItself !== undefined) return gitItself;
+  gitItself = null;
+  if (process.platform !== 'darwin') return gitItself;
+  const found = Bun.spawnSync(['xcode-select', '-p'], { stdout: 'pipe', stderr: 'ignore' });
+  const folder = join(found.stdout.toString().trim(), 'usr/bin');
+  if (found.exitCode === 0 && existsSync(join(folder, 'git'))) gitItself = folder;
+  return gitItself;
+}
 
 /** Runs git in `cwd` and gives its output, throwing on failure. */
 export function git(cwd: string, ...args: string[]): string {
