@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.46.0
+
+Urgency: rides along
+
+- an app that lets in a list of people can use requireInvited with invitedCheckByEmail and clerkAllowlist, and an app whose index.html draws a wordmark before its code loads can pass firstPaint a font, as the README says
+
 ## v0.45.6
 
 Urgency: next round
