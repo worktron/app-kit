@@ -6,7 +6,19 @@ beforeEach(() => reset())
 describe('the network', () => {
   test('a request past the extension is refused as when offline, and recorded', async () => {
     await expect(fetch('https://api.example.com/items', { method: 'POST' })).rejects.toThrow('Failed to fetch')
-    expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/items', method: 'POST' }])
+    expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/items', method: 'POST', signal: false }])
+  })
+
+  test('records whether each request carried a signal, and gives up an answer still on its way when it fires', async () => {
+    answerNetwork(() => new Promise<Response>(() => {}))
+    const controller = new AbortController()
+    const asked = fetch('https://api.example.com/slow', { signal: controller.signal })
+    controller.abort(new DOMException('stopped by the test', 'AbortError'))
+    await expect(asked).rejects.toThrow('stopped by the test')
+    answerNetwork(() => new Response('here'))
+    expect(await (await fetch('https://api.example.com/fast', { signal: new AbortController().signal })).text()).toBe('here')
+    await expect(fetch('https://api.example.com/late', { signal: AbortSignal.abort() })).rejects.toThrow()
+    expect(shim.networkRequests.map(({ url, signal }) => [new URL(url).pathname, signal])).toEqual([['/slow', true], ['/fast', true], ['/late', true]])
   })
 
   test('a test that answers the network gets each request, and a data address never leaves the process', async () => {
@@ -21,6 +33,25 @@ describe('the network', () => {
     expect(await (await fetch(chrome.runtime.getURL('build.json'))).text()).toBe('{"commit":"abc"}')
     await expect(fetch(chrome.runtime.getURL('missing.js'))).rejects.toThrow('Failed to fetch')
     expect(shim.networkRequests).toEqual([])
+  })
+})
+
+describe('Web Locks', () => {
+  test('one holder at a time, and with ifAvailable null at once while the lock is held or already asked for', async () => {
+    const order: string[] = []
+    let release = () => {}
+    const first = navigator.locks.request('job', async () => {
+      order.push('first')
+      await new Promise<void>((resolve) => (release = resolve))
+    })
+    // Asked in the same moment as the first, before it holds the lock.
+    const skipped = navigator.locks.request('job', { ifAvailable: true }, async (lock) => order.push(lock ? 'second held' : 'second skipped'))
+    const queued = navigator.locks.request('job', async () => order.push('third'))
+    await skipped
+    release()
+    await Promise.all([first, queued])
+    await navigator.locks.request('job', { ifAvailable: true }, async (lock) => order.push(lock ? 'free again' : 'still held'))
+    expect(order).toEqual(['first', 'second skipped', 'third', 'free again'])
   })
 })
 

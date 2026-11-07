@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
 import { DEFAULT_ACCENT, plainColors } from '../../look/index.ts'
+import { withoutPage } from '../../test/dom.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
 // In the test process's own folder (app-kit/testing/start-up), whose path stays short: a socket path a Node or Python
@@ -23,10 +24,28 @@ const hostDir = realpathSync(mkdtempSync(join(tmpdir(), 'ek-')))
 const socket = join(hostDir, 'host.sock')
 let ext: LoadedExtension
 let pagesAtStart = 0
+// The fixture's request job asks this server: /hang never answers, /ok does, to the extension's origin.
+let server: ReturnType<typeof Bun.serve>
+let pageBack = () => {}
+const address = (path: string) => `http://127.0.0.1:${server.port}${path}`
+
+type JobRecord = { started: string; ended: string | null; outcome: string; error: string | null }
+/** The job's run record as the worker keeps it, or null. */
+const record = (name: string) =>
+  ext.worker
+    .evaluate(async (key) => ((await (globalThis as any).chrome.storage.local.get(key))[key] ?? null) as JobRecord | null, `job:${name}`)
+    .catch(() => null)
 
 const status = () => hostStatus(socket).catch(() => null as HostStatus | null)
 
 beforeAll(async () => {
+  // The server answers with Bun's own Response, not the unit tests' simulated page's.
+  pageBack = await withoutPage()
+  server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (request) => (new URL(request.url).pathname === '/hang' ? new Promise<Response>(() => {}) : new Response('ok', { headers: { 'access-control-allow-origin': '*' } })),
+  })
   ext = await launchExtension({
     source: FIXTURE,
     nativeHost: {
@@ -39,6 +58,8 @@ beforeAll(async () => {
 }, 90_000)
 
 afterAll(async () => {
+  server?.stop(true)
+  pageBack()
   await ext?.close()
   rmSync(hostDir, { recursive: true, force: true })
 })
@@ -76,6 +97,46 @@ test('a new commit in the checkout reloads the worker and restarts the host on i
   const after = await until(status, (s) => s?.extension?.commit === second)
   expect(after?.extension).toMatchObject({ version: `0.1.0-second (${second.slice(0, 7)})`, commit: second })
   expect(readFileSync(join(hostDir, 'host.log'), 'utf8').match(/host started/g)?.length).toBeGreaterThanOrEqual(2)
+}, 60_000)
+
+test('the job on a clock runs on the reloaded worker, and its record moves', async () => {
+  const before = await until(() => record('check'), (found) => found !== null)
+  await ext.fireAlarm('check')
+  const after = await until(() => record('check'), (found) => found !== null && found.started > before!.started && found.outcome === 'ok')
+  expect(after).toMatchObject({ outcome: 'ok', error: null })
+}, 60_000)
+
+test('a request that never answers ends at its limit, is kept as an error, and the next run goes ahead', async () => {
+  expect(await ask(socket, { type: 'request-address', url: address('/hang'), ms: 2000 })).toEqual({ kept: true })
+  await ext.fireAlarm('request')
+  const hung = await until(() => record('request'), (found) => found?.outcome === 'failed')
+  expect(hung).toMatchObject({ outcome: 'failed', error: expect.stringContaining('TimeoutError') })
+  const kept = await until(status, (s) => (s?.extension?.errors ?? []).some((error) => error.kind === 'job'))
+  expect(kept?.extension?.errors).toContainEqual(expect.objectContaining({ kind: 'job', message: expect.stringContaining('request failed: TimeoutError') }))
+
+  expect(await ask(socket, { type: 'request-address', url: address('/ok') })).toEqual({ kept: true })
+  await ext.fireAlarm('request')
+  const answered = await until(() => record('request'), (found) => found?.outcome === 'ok')
+  expect(answered).toMatchObject({ outcome: 'ok', error: null })
+}, 60_000)
+
+test('a worker stopped in the middle of a run leaves it cut short, and the next run takes the lock', async () => {
+  const lines: string[] = []
+  ext.worker.on('console', (message) => lines.push(message.text()))
+  expect(await ask(socket, { type: 'request-address', url: address('/hang'), ms: 25_000 })).toEqual({ kept: true })
+  const last = (await record('request'))!
+  await ext.fireAlarm('request')
+  const running = await until(() => record('request'), (found) => found !== null && found.started > last.started && found.outcome === 'running')
+  expect(running?.outcome).toBe('running')
+
+  await ext.stopWorker()
+  // Set once the stop is reported, so it can only reach the next worker, which setting it starts.
+  await ext.fireAlarm('request')
+  const next = await until(() => record('request'), (found) => found !== null && found.started > running!.started, 30_000)
+  expect(next?.outcome).toBe('running')
+  await until(() => lines, (seen) => seen.some((line) => line.startsWith('job cut short')))
+  expect(lines.some((line) => line.startsWith('job cut short'))).toBe(true)
+  expect(await ask(socket, { type: 'request-address', url: address('/ok') })).toEqual({ kept: true })
 }, 60_000)
 
 /** A CSS color as #rrggbb. */

@@ -39,8 +39,13 @@ export type LoadedExtension = {
   git: (...args: string[]) => string
   /** Commits every change in the checkout, and returns the new commit. */
   commit: (message: string) => string
-  /** Brings the worker's named alarm forward to half a second from now, keeping its period. */
-  fireAlarm: (name: string) => Promise<void>
+  /** Brings the worker's named alarm forward to `inMs` from now (half a second unless given), keeping its period. */
+  fireAlarm: (name: string, inMs?: number) => Promise<void>
+  /**
+   * Stops the extension's service worker as Chrome does when it is idle, through the DevTools protocol, and resolves
+   * once Chrome reports it stopped. Chrome starts it again for its next event, such as an alarm set before the stop.
+   */
+  stopWorker: () => Promise<void>
   /** Resolves once Chrome has started a new worker, which it then holds in `worker`. Call it before whatever reloads the worker, and await it after. */
   nextWorker: (timeoutMs?: number) => Promise<Worker>
   /** The tabs open now, not counting the ones the harness opened and closed. */
@@ -121,12 +126,48 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
       git('commit', '--quiet', '-m', message)
       return git('rev-parse', 'HEAD')
     },
-    async fireAlarm(name) {
-      await worker.evaluate(async (alarm) => {
-        const chrome = (globalThis as any).chrome
-        const existing = await chrome.alarms.get(alarm)
-        await chrome.alarms.create(alarm, { when: Date.now() + 500, periodInMinutes: existing?.periodInMinutes })
-      }, name)
+    async fireAlarm(name, inMs = 500) {
+      await worker.evaluate(
+        async ({ alarm, inMs }) => {
+          const chrome = (globalThis as any).chrome
+          const existing = await chrome.alarms.get(alarm)
+          await chrome.alarms.create(alarm, { when: Date.now() + inMs, periodInMinutes: existing?.periodInMinutes })
+        },
+        { alarm: name, inMs },
+      )
+    },
+    async stopWorker() {
+      const page = await context.newPage()
+      try {
+        const session = await context.newCDPSession(page)
+        type Version = { versionId: string; scriptURL: string; runningStatus: string }
+        const versions = new Map<string, Version>()
+        let changed = () => {}
+        session.on('ServiceWorker.workerVersionUpdated', ({ versions: updated }: { versions: Version[] }) => {
+          for (const version of updated) versions.set(version.versionId, version)
+          changed()
+        })
+        const waitFor = (found: () => Version | undefined) =>
+          new Promise<Version>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`Chrome never reported the extension's worker as wanted; it reported ${JSON.stringify([...versions.values()])}`)), 15_000)
+            const check = () => {
+              const version = found()
+              if (!version) return
+              clearTimeout(timer)
+              resolve(version)
+            }
+            changed = check
+            check()
+          })
+        const ours = (status: string) => () => [...versions.values()].find((version) => version.scriptURL.startsWith(`chrome-extension://${id}/`) && version.runningStatus === status)
+        await session.send('ServiceWorker.enable')
+        const running = await waitFor(ours('running'))
+        await session.send('ServiceWorker.stopWorker', { versionId: running.versionId })
+        await waitFor(() => (versions.get(running.versionId)?.runningStatus === 'stopped' ? versions.get(running.versionId) : undefined))
+        await session.detach()
+      } finally {
+        await page.close()
+      }
     },
     async nextWorker(timeoutMs = 30_000) {
       worker = await context.waitForEvent('serviceworker', { timeout: timeoutMs })

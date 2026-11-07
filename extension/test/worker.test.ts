@@ -85,8 +85,8 @@ describe('alarms', () => {
     await Bun.sleep(0)
     const created = shim.alarms.get('check')
     expect(created).toMatchObject({ name: 'check', periodInMinutes: 1 })
-    fireAlarm('check')
-    fireAlarm('check')
+    await fireAlarm('check')
+    await fireAlarm('check')
     expect(runs).toBe(2)
   })
 

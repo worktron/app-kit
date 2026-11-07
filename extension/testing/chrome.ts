@@ -82,14 +82,19 @@ export const shim = {
   origins: new Set<string>(),
   tabs: new Map<number, Tab>(),
   windows: new Map<number, ChromeWindow>(),
-  /** Every request the worker sent past its own files, answered or not. */
-  networkRequests: [] as { url: string; method: string }[],
+  /**
+   * Every request the worker sent past its own files, answered or not, with whether it carried a signal in fetch's
+   * options, which an extension's test holds for every request so none can hang a run.
+   */
+  networkRequests: [] as { url: string; method: string; signal: boolean }[],
   /** The test's answer to the network, or null: the network is refused. */
   network: null as ((request: Request) => Response | Promise<Response>) | null,
   /** Every message the worker sent its native host with sendNativeMessage. */
   nativeMessages: [] as { host: string; message: unknown }[],
   /** The native host's answer to sendNativeMessage, or null: no host is registered. */
   nativeHost: null as ((host: string, message: unknown) => unknown) | null,
+  /** How often the worker called runtime.getPlatformInfo, which a job's run calls to keep the worker alive. */
+  platformInfoCalls: 0,
   /** Every port the worker opened to a native host, newest last. */
   ports: [] as Port[],
   /** Every message the worker sent its own pages with runtime.sendMessage. */
@@ -119,18 +124,29 @@ export function reset(files: Files = {}, manifest: Record<string, unknown> = { .
   shim.network = null
   shim.nativeMessages = []
   shim.nativeHost = null
+  shim.platformInfoCalls = 0
   shim.ports = []
   shim.sentMessages = []
   // A kit worker adds its listeners when it starts, which a test does, so each test starts with none; an extension's own
   // events (made with ChromeEvent) are cleared too.
   for (const event of ChromeEvent.all) event.listeners.clear()
   locks.clear()
+  taken.clear()
 }
 
 /** Delivers the named alarm to every listener, as Chrome does when it comes due. */
 export function fireAlarm(name: string) {
   const alarm = shim.alarms.get(name)
   if (!alarm) throw new Error(`No alarm named ${name}`)
+  return chrome.alarms.onAlarm.emit(alarm)
+}
+
+/**
+ * Delivers an alarm as Chrome hands it over, whether or not the worker has made it yet, as when the alarm that started
+ * the worker arrives before the worker's start-up has read anything. A missed alarm, as after the Mac slept, carries the
+ * due time it was set for, hours ago.
+ */
+export function deliverAlarm(alarm: { name: string; periodInMinutes?: number; scheduledTime: number }) {
   return chrome.alarms.onAlarm.emit(alarm)
 }
 
@@ -414,6 +430,10 @@ const chrome = {
       shim.reloads++
     },
     lastError: undefined as { message: string } | undefined,
+    async getPlatformInfo() {
+      shim.platformInfoCalls++
+      return { os: 'mac', arch: 'arm64', nacl_arch: 'arm' }
+    },
     onInstalled: new ChromeEvent(),
     onStartup: new ChromeEvent(),
     onMessage: new ChromeEvent<(message: any, sender: any, sendResponse: (answer: unknown) => void) => unknown>(),
@@ -612,18 +632,42 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   // A data: or blob: address never leaves the process.
   if (/^(data|blob):/i.test(url)) return realFetch(input, init)
   const request = new Request(input, init)
-  shim.networkRequests.push({ url: request.url, method: request.method })
+  const signal = init?.signal ?? null
+  shim.networkRequests.push({ url: request.url, method: request.method, signal: signal !== null })
   if (!shim.network) throw new TypeError('Failed to fetch')
-  return shim.network(request)
+  if (!signal) return shim.network(request)
+  // As a browser's fetch does, an answer still on its way when the signal fires is given up with the signal's reason.
+  signal.throwIfAborted()
+  const answer = shim.network
+  return new Promise<Response>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    Promise.resolve(answer(request)).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
 }) as typeof fetch
 
-// Web Locks: one queue per name, as Chrome runs them.
+// Web Locks: one queue per name, as Chrome runs them, and with ifAvailable the callback given null at once while
+// the lock is held or asked for, as Chrome does.
+type LockRun = (lock: { name: string; mode: string } | null) => unknown
 const locks = new Map<string, Promise<unknown>>()
+/** How many requests hold or wait for each lock, counted when asked, so two asked in one moment never both get it. */
+const taken = new Map<string, number>()
 Object.defineProperty(globalThis.navigator, 'locks', {
   configurable: true,
   value: {
-    request(name: string, run: () => Promise<unknown>) {
-      const next = (locks.get(name) ?? Promise.resolve()).then(run, run)
+    request(name: string, options: { ifAvailable?: boolean } | LockRun, callback?: LockRun) {
+      const run = (typeof options === 'function' ? options : callback) as LockRun
+      const ifAvailable = typeof options === 'object' && options.ifAvailable === true
+      if (ifAvailable && (taken.get(name) ?? 0) > 0) return Promise.resolve().then(() => run(null))
+      taken.set(name, (taken.get(name) ?? 0) + 1)
+      const holding = async () => {
+        try {
+          return await run({ name, mode: 'exclusive' })
+        } finally {
+          taken.set(name, (taken.get(name) ?? 1) - 1)
+        }
+      }
+      const next = (locks.get(name) ?? Promise.resolve()).then(holding, holding)
       locks.set(name, next.catch(() => {}))
       return next
     },

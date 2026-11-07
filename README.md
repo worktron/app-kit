@@ -523,7 +523,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Self-reload | `extension/worker/self-reload.js` | An extension loaded unpacked from its checkout reloads itself when the checkout's commit changes, when a file it loads is deleted, or, for a built folder, when the build on disk changes. A Web Store install never does. |
 | Build identity | `extension/worker/build.js` | The version and the commit the worker loaded from, as `0.1.0-src (abc1234)`, and a record in `storage.local` of when this profile first ran that build. |
 | Account identity | `extension/worker/account.js` | The profile's signed-in account from `chrome.identity.getProfileUserInfo`, with `identity.email` an optional permission asked for when a feature needs it. |
-| Timers | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`. |
+| Jobs on a clock | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`, one run at a time, with a record of each run in `storage.local`, a time limit on the run and on each request, and an error kept when the job has gone quiet. See below. |
 | Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
 | Showing a link | `extension/worker/show.js` | `showLink(url)` brings forward a tab already showing the address, raising its window, before it opens a new tab, as the extensions rule asks. Needs the `tabs` permission or access to the sites it shows. See below. |
 | Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, answers the host's status question with its build, commit and errors, and answers every other request: with the extension's reply, a refusal when it has none, or the error it threw, so no caller waits out the host's timeout. |
@@ -532,7 +532,7 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 | Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
 | Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
 | Plain look | `extension/look.css`, copied as `look.css` | The plain look for a popup or an options page, plain CSS with no build step: the look's colors as CSS variables, light and dark by the system's setting, written from the tokens file as it is copied, and the kit's rules for its pieces and controls. |
-| Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, count tabs. |
+| Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, commit, wait for the reload, stop the worker as Chrome does when it is idle, count tabs. |
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for an extension's unit tests, with the network refused unless the test answers it. See below. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
 | Layout check | `app-kit/extension/layout` | `layoutProblems(folder)` says what is wrong with where the extension's manifest sits, and is empty when it is at the root of its git checkout. See below. |
@@ -676,6 +676,34 @@ const host = await startHostAsChrome({ command: [process.execPath, 'src/host.ts'
 await host.stop()
 ```
 
+### Jobs on a clock
+
+`every(name, minutes, run)` is the one owner of a job's runs. Call it at the worker's top level, so its listener is in place when Chrome starts the worker to deliver the alarm:
+
+```js
+import { every, within } from "./kit/alarms.js";
+
+const readNow = every("read", 1, async (signal) => {
+  const answer = await fetch("https://api.example.com/work", { signal: within(signal) });
+  if (!answer.ok) throw new Error(`the server said ${answer.status}`);
+});
+
+// A page's or the host's ask for a run outside the clock takes the same lock:
+// { ran: true, outcome: "ok" }, or { ran: false, running: true, since } while another run goes on.
+const answer = await readNow();
+```
+
+- **The record.** Each run's start, end, outcome and error are kept in `storage.local` under `job:<name>` (`jobKey(name)`, read with `getJobRecord(name)`): `{ minutes, limitMs, started, ended, outcome, error, lastOk }`, times as ISO strings, the error at most 200 characters, `lastOk` when the job last succeeded. The outcome is `running`, `ok`, `failed` (the run threw), `aborted` (it threw after its signal fired), `over limit` or `cut short`. A reader outside the worker, such as a status command, works out from `started` and `minutes` whether the job is overdue at the moment it reads, worker or no worker.
+- **One run at a time.** A run holds a Web Lock named `job:<name>` until it settles. A run that starts while another holds it is skipped and logged, never queued. Chrome frees the lock when the worker stops, so a stopped worker never leaves one behind.
+- **Limits.** `run` gets an `AbortSignal` that fires at the run's limit, four minutes unless `{ limitMs }` sets one, under the five minutes Chrome lets one event or call run. `within(signal, ms)` gives each request its own limit, 25 seconds unless given, under the 30 seconds after which Chrome stops a worker waiting on a `fetch`, so a request that hangs ends in an error the record keeps. A run still going a second after its limit is logged and kept as an error, and holds the lock until it ends or Chrome stops the worker.
+- **Kept alive.** Chrome stops a worker 30 seconds after the last event or extension API call, whatever the run is awaiting, so a run inside its limit calls `chrome.runtime.getPlatformInfo` every 20 seconds, as Chrome's own guide does, and stops at the limit.
+- **Errors.** A failed run is kept in the worker's errors (`errors.js`, kind `job`) when the job starts failing or its error changes, not on every run, so a job that fails each minute never pushes out every other error.
+- **At every worker start.** The alarm is made when Chrome no longer holds it, and logged. A run with a start and no end was cut short by the worker stopping: it is marked so and logged. A last run more than two periods ago is a quiet job, kept as an error ("read last ran 23 hours ago, every 1 minute expected", kind `quiet job`), unless Chrome's own alarm shows Chrome was not running the clock: it arrives within ten seconds of Chrome's answer about it (`{ quietWaitMs }`) carrying a due time more than a period old, as Chrome hands over an alarm missed while the Mac slept or Chrome was closed, which it fires as soon as either comes back. An alarm on time, or none, keeps the error. Then the gap is a log line. `every` also listens for the profile's start, so Chrome starts the worker then even when the alarm is gone.
+
+What it cannot see: a worker whose alarms reach nothing does not run until something else starts it, a page's message or the browser's start, so the quiet-job error is written only then. The timely word comes from outside the worker, from a reader of the record or from the extension's own server, which knows when it last heard from it.
+
+Its decisions (started, ended, skipped, cut short, over its limit, quiet, resumed after a gap, the alarm made again) go to the worker's console for now; the worker's log will keep them in storage.
+
 ### Amazon requests never sent
 
 An extension that reaches Amazon in the person's own signed-in browser keeps its own short list of the paths it asks for, and checks every request against `extension/worker/amazon-never-sent.js` besides, so neither a mistake in its own list nor a request its server hands it whole ever starts a purchase:
@@ -712,20 +740,20 @@ test('the popup asks which tabs show the inbox', async () => {
   answerNetwork((request) => Response.json({ unread: 3 }))
   start()
   expect(await sendToWorker({ type: 'inbox-tabs' })).toEqual({ tabs: [tab.id], unread: 3 })
-  expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/unread', method: 'GET' }])
+  expect(shim.networkRequests).toEqual([{ url: 'https://api.example.com/unread', method: 'GET', signal: true }])
 })
 ```
 
 What it fakes, each behaving as Chrome does where a test could tell:
 
-- **The network.** A request to anything but the extension's own files (`shim.files`, by path) and `data:` or `blob:` addresses is recorded in `shim.networkRequests` and refused with Chrome's offline error, `TypeError: Failed to fetch`, unless the test answers it with `answerNetwork(request => Response)`. A test cannot reach the internet without saying so.
+- **The network.** A request to anything but the extension's own files (`shim.files`, by path) and `data:` or `blob:` addresses is recorded in `shim.networkRequests` and refused with Chrome's offline error, `TypeError: Failed to fetch`, unless the test answers it with `answerNetwork(request => Response)`. A test cannot reach the internet without saying so. Each record says whether the request carried a signal in fetch's options, and an answer still on its way when that signal fires is given up with the signal's reason, as a browser's fetch does. An extension's own test holds that every request carried one, so no request can hang a job: `expect(shim.networkRequests.every((request) => request.signal)).toBe(true)`.
 - **Storage.** `storage.local` and `storage.session`: `get` by one key, several, an object of defaults, or `null` for all, each a copy; `set`, `remove`, `clear`. A test reads them as `shim.local` and `shim.session`.
 - **Tabs and windows.** `addWindow()` and `addTab({ url, active, windowId })` make them; the first window is focused, and the tab given back is the live one. `tabs.query` takes address patterns (one or a list, as Chrome's match patterns, a port matching that port alone and `*` any), `active`, `windowId`, `currentWindow`, `groupId` and `pinned`; `tabs.get`, `create`, `update` and `remove` fire `onCreated`, `onUpdated`, `onActivated` and `onRemoved`. Closing the active tab makes the next one active, the rest move up, and a window left with no tab closes. A tab's address, title and icon are left out, and an address pattern matches it not at all, unless the manifest or a grant holds `tabs`, or an origin covers the page. `windows.get`, `getAll` and `getLastFocused` (`populate` for the tabs), `create`, `update` and `remove`, with `onFocusChanged` and `onRemoved`; closing the focused window hands the focus to another. A tab or window that is gone throws Chrome's `No tab with id: 7.`. Ids are never reused in a run.
 - **Messages.** `sendToWorker(message, sender)` sends a page's message to the worker's `runtime.onMessage` listeners and gives back the answer: what was passed to `sendResponse` after a listener returned true, or what a returned promise resolved to (Chrome 148 and later), the first to answer winning, as in Chrome's message passing guide. An async listener answers every message, with `null` when it returns nothing. A promise rejected with an Error rejects with its message. The worker's own `runtime.sendMessage` is recorded in `shim.sentMessages` and refused, as Chrome does with no page open to hear it.
 - **The native host.** `sendNativeMessage` is answered by `shim.nativeHost(host, message)` and refused with Chrome's "Specified native messaging host not found." when there is none; each is recorded in `shim.nativeMessages`. `connectNative` gives a port recorded in `shim.ports`, whose `posted` lists what the worker sent, `deliver(message)` sends it one from the host, and `close(error)` closes it with the error in `runtime.lastError` for the disconnect listeners, as Chrome does for a host it could not start.
 - **Permissions and the account.** `permissions.contains`, `request`, `remove` and `getAll`, with origins, counting what the manifest holds and a wider origin as covering a narrower one, never the reverse, and reading a host permission's path as `/*`, as Chrome does, and `onAdded` and `onRemoved`; `grant({ permissions, origins })` grants as the person would. `identity.getProfileUserInfo` leaves the email out unless the manifest or a grant holds `identity.email`; `signIn(account)`, or `signIn(null)`, fires `onSignInChanged`.
-- **Alarms.** `create`, `get`, `getAll`, `clear` and `clearAll`; `fireAlarm(name)` delivers one as it comes due.
-- **The rest.** The manifest (`runtime.getManifest`), `runtime.getURL`, `runtime.reload` (counted in `shim.reloads`), `onInstalled`, `onStartup` and Web Locks, which Bun lacks. There is no `runtime.id`, so a worker that starts only inside Chrome stays still when a test imports it. `reset()` clears every listener, as a kit worker adds its own when it starts.
+- **Alarms.** `create`, `get`, `getAll`, `clear` and `clearAll`; `fireAlarm(name)` delivers one as it comes due, and `deliverAlarm({ name, periodInMinutes, scheduledTime })` one as Chrome hands it over, made or not, with the due time it was set for, hours ago for one missed while the Mac slept.
+- **The rest.** The manifest (`runtime.getManifest`), `runtime.getURL`, `runtime.reload` (counted in `shim.reloads`), `runtime.getPlatformInfo` (counted in `shim.platformInfoCalls`), `onInstalled`, `onStartup` and Web Locks, which Bun lacks, with `ifAvailable` giving the callback null while the lock is held or already asked for. There is no `runtime.id`, so a worker that starts only inside Chrome stays still when a test imports it. `reset()` clears every listener, as a kit worker adds its own when it starts.
 
 What one extension alone uses, it adds with `extend`, once, in its start-up file or at the top of a test file. What it adds stays across `reset()`, and its events, made with `ChromeEvent` (whose `emit` a test calls as Chrome would), are cleared by it. `extend` refuses to replace what the stand-in has, so a test never runs against two versions of one call:
 
