@@ -410,3 +410,9 @@ Done when: with no time limit raised, `test/postgres.test.ts` passes five runs i
 Do not touch: time limits in the tests or bunfig.toml; what `openDb` does for apps; the ready-made empty database start-up.
 Needs: nothing.
 Touches: server/postgres/index.ts, test/postgres.test.ts.
+
+## console-app-bar-light · The console look's app bar draws its title in the theme's text color in light
+
+Goal: `lookTheme({ name: 'console' })` leaves MUI's AppBar in its default `color="primary"`, so the bar's title and icons take primary's contrast text, white, while the console look paints the bar in `surface` (#f0f0f0 in light). In light the title is white on light grey and cannot be read; in dark it happens to read. The plain look already sets `MuiAppBar: { defaultProps: { elevation: 0, color: 'inherit' } }` (web/theme.ts:106); the console look's MuiAppBar (web/theme.ts:218) sets only styleOverrides. Found by buddy-system's move to v0.47.1 (2026-11-07, pull request 15), which works around it with `<AppBar color="inherit">` in client/src/features/BuddySystemApp.tsx; every console app that takes light mode hits the same.
+Done when: the console look's MuiAppBar has `defaultProps: { elevation: 0, color: 'inherit' }`, the look's e2e draws a console app bar in light and holds its title's color to CONSOLE.light.text, and CHANGES.md tells console apps they may drop their own `color="inherit"`.
+Do not touch: the plain look.
