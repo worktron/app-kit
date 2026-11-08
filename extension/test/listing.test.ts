@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink, readListing, YOURS } from '../listing.ts'
+import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink, readListing, sectionText, YOURS } from '../listing.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-extension-listing-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -172,11 +172,14 @@ test('a listing missing a whole section says which heading', () => {
   ])
 })
 
-test("the reader joins a bullet's indented lines and keeps nested bullets under it", () => {
+test("the reader joins a bullet's indented lines, keeps its paragraphs apart, and keeps nested bullets under it", () => {
   const sections = readListing(LISTING)
   expect(sections.get('Store listing')?.find((bullet) => bullet.label === 'Description')?.value).toBe(
-    'Shelf keeps the list of things you need. It reads nothing until you connect it. Privacy: https://shelf.example.com/privacy',
+    'Shelf keeps the list of things you need.\n\nIt reads nothing until you connect it. Privacy: https://shelf.example.com/privacy',
   )
+  const collected = sections.get('Privacy practices')?.find((bullet) => bullet.label === 'Data collected')
+  expect(collected?.value).toBe("- Website content: the order pages' content.")
+  expect(collected?.children).toEqual([{ label: 'Website content', quoted: false, value: "the order pages' content.", children: [] }])
   expect(sections.get('Privacy practices')?.map((bullet) => bullet.label)).toEqual([
     'Single purpose',
     'alarms',
@@ -227,4 +230,25 @@ test('the command prints each item and exits 0 when every check passes, and 1 wh
   } finally {
     server.stop(true)
   }
+})
+
+test('a data use the dashboard has no box for fails, naming the dashboard\'s nine', () => {
+  const folder = extension({ listing: LISTING.replace('  - Website content:', '  - Web browsing activity:') })
+  expect(failures(folder)).toEqual([expect.stringMatching(/^Data collected names "Web browsing activity", which is not one of the dashboard's: Personally identifiable information, .*Web history, User activity, Website content$/)])
+})
+
+test("a section's plain text keeps its paragraphs and joins each paragraph's lines", () => {
+  const text = `${LISTING}\n## Test instructions\n\nSign in with an invited account,\nthen open Settings.\n\nReply for an account.\n`
+  expect(sectionText(text, 'Test instructions')).toBe('Sign in with an invited account, then open Settings.\n\nReply for an account.')
+  expect(sectionText(text, 'Distribution')).toBeUndefined()
+})
+
+test('a list in an answer keeps each item on its own line, and the paragraphs after it stay in the answer', () => {
+  const listing = LISTING.replace(
+    '  It reads nothing until you connect it. Privacy: https://shelf.example.com/privacy',
+    '  It does:\n  - Lists: keeps your list,\n    in order.\n  - finds what you usually buy.\n\n  It reads nothing until you connect it.',
+  )
+  const description = readListing(listing).get('Store listing')?.find((bullet) => bullet.label === 'Description')
+  expect(description?.value).toBe('Shelf keeps the list of things you need.\n\nIt does:\n- Lists: keeps your list, in order.\n- finds what you usually buy.\n\nIt reads nothing until you connect it.')
+  expect(description?.children).toEqual([{ label: 'Lists', quoted: false, value: 'keeps your list, in order.', children: [] }])
 })

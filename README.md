@@ -775,6 +775,7 @@ The Chrome Web Store's API uploads and publishes an extension's zip and nothing 
 - the Summary is the manifest's `description`, which is what the Store shows, and is at most 132 characters (a `__MSG_…__` description from `_locales` is left to the owner);
 - the Description, Single purpose, Remote code and Privacy policy answers are there, since Google rejects an item without the remote-code answer, and the Privacy policy answer holds a web address;
 - every permission, optional permission, host permission and content script's site in the manifest has its reason under Privacy practices, and no reason is left for one the manifest no longer asks for;
+- each data use named under Data collected is one of the nine the dashboard has a box for: Personally identifiable information, Health information, Financial and payment information, Authentication information, Personal communications, Location, Web history, User activity, Website content;
 - the manifest's 128 icon is a 128 by 128 PNG, by its header (the image itself is not decoded);
 - the privacy policy's address answers with a page (the command only, within five seconds).
 
@@ -784,9 +785,9 @@ It prints a line per item, `passed`, `failed` or `yours`, or a JSON list with `-
 "extension:publish": "app-kit extension listing && bun scripts/extension-zip.ts --upload"
 ```
 
-The `yours` lines are the dashboard's: the dashboard says what the file says, the store icon and at least one 1280 by 800 screenshot uploaded, the data-use answers and certifications, visibility and testers, and the first release, and the first after any visibility change made in the dashboard, submitted for review there rather than through the API. The checks compare the file with the manifest; whether each sentence is true stays the owner's to read. An extension can hold the same checks in its own tests, with `listingChecklist(folder)` from `app-kit/extension/listing`, failing on any item whose `result` is `failed`.
+The `yours` lines are the dashboard's: the dashboard says what the file says (which `app-kit extension dashboard fill`, below, types in and proves), at least one 1280 by 800 screenshot uploaded, visibility and testers, and the first release, and the first after any visibility change made in the dashboard, submitted for review there rather than through the API. The checks compare the file with the manifest; whether each sentence is true stays the owner's to read. An extension can hold the same checks in its own tests, with `listingChecklist(folder)` from `app-kit/extension/listing`, failing on any item whose `result` is `failed`.
 
-The file's shape, which the check reads by its two headings and its bullet labels (a permission or a host is quoted, and the lines indented under a bullet are its answer):
+The file's shape, which the check reads by its headings and its bullet labels (a permission or a host is quoted, the lines indented under a bullet are its answer, a blank line between them keeps a paragraph break, and the bullets indented under Data collected are its data uses):
 
 ```markdown
 # Shelf in the Chrome Web Store
@@ -796,9 +797,12 @@ The file's shape, which the check reads by its two headings and its bullet label
 - Name: Shelf (from the manifest)
 - Summary (from the manifest's description): Reads your orders on shop.example.com for Shelf.
 - Category: Shopping
+- Language: English
 - Description:
 
-  Shelf keeps the list of things you need. It reads nothing until you connect it.
+  Shelf keeps the list of things you need.
+
+  It reads nothing until you connect it.
 
 ## Privacy practices
 
@@ -809,12 +813,27 @@ The file's shape, which the check reads by its two headings and its bullet label
 - Remote code: No, I am not using remote code.
 - Data collected:
   - Website content: the order pages' content.
+- Certifications: all three (not sold to third parties; not used for purposes unrelated to the single purpose; not used for creditworthiness or lending).
 - Privacy policy: https://shelf.example.com/privacy
 
 ## Distribution
 
 - Visibility: Private, to trusted testers.
+
+## Test instructions
+
+Shelf is by invitation only, so without an invited account the extension reads nothing. Reply and one will be added.
 ```
+
+### The Store dashboard
+
+`app-kit extension dashboard fill` types `store-listing.md` into the item's dashboard and proves it, so an agent can fill a Store item for the owner and stop at Submit for review. Google's API sets none of these pages, and Chrome refuses every extension on Web Store pages, so it drives Google Chrome itself, headless, with no window or Dock icon, in a profile of its own under `~/.local/state/app-kit/store-dashboard`, through Chrome's DevTools connection, listening on this Mac only, and only while a run lasts.
+
+1. `app-kit extension dashboard sign-in` opens that profile's Chrome, started with no automation or debugging switch, at Google's sign-in. The owner signs in with the account that owns the item and quits Chrome. Nothing types into it or watches it, and no command ever types a password or works around a Google check: when Google asks to sign in again, a run stops and says to run sign-in.
+2. `app-kit extension dashboard read [<folder>] [--zip <file>]` compares each page with the file, box by box, and changes nothing. The item is the one the manifest's `key` gives (`--item <id>` names another).
+3. `app-kit extension dashboard fill [<folder>] [--zip <file>] [--screenshots <folder>] [--visibility]` sets each box on the Store listing, Privacy and Test instructions pages, saves the page as a draft, reloads it and reads every box back, exiting 1 on any that differs. It uploads the manifest's 128 icon into an empty icon slot, the screenshots in file-name order after those the dashboard already shows (five at most, 1280 by 800 or 640 by 400), and the zip only when it holds this extension at a version above the dashboard's. Every data-use box is ticked or cleared as the file names it, and the three certifications only when the file says "all three". Visibility is set only with `--visibility`, on an item never published, and only after the owner says yes to that change. The test account's username and password are left alone.
+
+It never presses Submit for review, Publish, Unpublish, Cancel review or Delete: every click goes through a guard that refuses those by name. Each run saves every page's screenshot and accessibility tree under the profile's `runs/` folder, which is how the labels were found, and how they are found again when Google changes the dashboard. The agent's side is the `chrome-web-store` skill in `extension/dashboard/skill/`.
 
 ## tauri/: Mac and iPhone apps
 

@@ -28,7 +28,10 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
                  copy.ts, layout.ts (the check that an extension's manifest is at its checkout's root, which
                  install-host makes too), listing.ts (`app-kit extension listing`, the Chrome Web Store
-                 listing, store-listing.md, held to the manifest), and its own test/ and e2e/
+                 listing, store-listing.md, held to the manifest), dashboard/ (`app-kit extension dashboard`, which
+                 types store-listing.md into the Store's developer dashboard in a Google Chrome profile of its own and
+                 reads it back, never pressing Submit for review, and skill/, the chrome-web-store skill that offers it),
+                 and its own test/ and e2e/
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
                  an app's shell builds, with desktop sign-in's shell half, the Mac menu bar (src/menu.rs) and updates from
                  the app's releases (src/updates.rs), and the page half (index.ts), with the update line (lines.tsx),

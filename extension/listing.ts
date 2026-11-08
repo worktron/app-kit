@@ -1,9 +1,10 @@
 // The Chrome Web Store listing an extension keeps beside its manifest, store-listing.md, held to that manifest. Google's
-// API sets none of the listing (text, privacy answers, screenshots, visibility), so the owner types this file's answers
-// into the Store's dashboard, and Google can remove an extension whose answers disagree with what it does. These checks
-// compare the file with the manifest: a permission with no reason, a reason for a permission it no longer asks for, a
-// summary that is not the manifest's description or runs past the Store's 132 characters, a missing remote-code
-// answer. Whether each sentence is true, and whether the dashboard says what the file says, stays the owner's to read.
+// API sets none of the listing (text, privacy answers, screenshots, visibility), so these answers go into the Store's
+// dashboard by hand or through `app-kit extension dashboard fill` (dashboard/), and Google can remove an extension whose
+// answers disagree with what it does. These checks compare the file with the manifest: a permission with no reason, a
+// reason for a permission it no longer asks for, a summary that is not the manifest's description or runs past the
+// Store's 132 characters, a missing remote-code answer, a data use the dashboard has no box for. Whether each sentence
+// is true stays the owner's to read.
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -28,53 +29,100 @@ type Manifest = {
   content_scripts?: { matches?: string[] }[]
 }
 
-/** A top-level bullet, `- Label: value`, with its label and its value joined with the indented lines under it. */
-type Bullet = { label: string; quoted: boolean; value: string }
+/**
+ * A top-level bullet, `- Label: value`, with its value joined with the indented lines under it: a blank line between
+ * them kept as a paragraph break (`\n\n`), and each indented list item on a line of its own. An indented item with a
+ * label, `  - Label: value`, is also one of its children.
+ */
+export type Bullet = { label: string; quoted: boolean; value: string; children: Bullet[] }
+
+/** The bullet a `- Label: value` line starts, or null for any other line. */
+function bulletIn(line: string): Bullet | null {
+  // A quoted label is a permission or a host: `alarms`: or Host `https://example.com/*`:
+  const quoted = /^- (?:Host )?`([^`]+)`:\s*(.*)$/.exec(line)
+  const found = quoted ?? /^- ([^:`(]+?)(?: \([^)]*\))?:\s*(.*)$/.exec(line)
+  return found ? { label: found[1]!.trim(), quoted: Boolean(quoted), value: found[2]!.trim(), children: [] } : null
+}
 
 /** The bullets under each `## ` heading, by heading. Indented bullets belong to the bullet above them. */
 export function readListing(text: string): Map<string, Bullet[]> {
   const sections = new Map<string, Bullet[]>()
   let bullets: Bullet[] | undefined
   let last: Bullet | undefined
+  let child: Bullet | undefined
+  let blank = false
   for (const line of text.split('\n')) {
     const heading = /^## (.+)$/.exec(line)
     if (heading) {
       bullets = []
       sections.set(heading[1]!.trim(), bullets)
-      last = undefined
+      last = child = undefined
       continue
     }
     if (!bullets) continue
-    // A quoted label is a permission or a host: `alarms`: or Host `https://example.com/*`:
-    const quoted = /^- (?:Host )?`([^`]+)`:\s*(.*)$/.exec(line)
-    const plain = quoted ? null : /^- ([^:`(]+?)(?: \([^)]*\))?:\s*(.*)$/.exec(line)
-    const found = quoted ?? plain
+    const found = bulletIn(line)
     if (found) {
-      last = { label: found[1]!.trim(), quoted: Boolean(quoted), value: found[2]!.trim() }
+      last = found
+      child = undefined
       bullets.push(last)
+    } else if (last && /^\s+- /.test(line)) {
+      // A list in the answer: each item keeps its own line in the value, and one with a label is a child too.
+      child = bulletIn(line.trim()) ?? undefined
+      if (child) last.children.push(child)
+      last.value = last.value ? `${last.value}${blank ? '\n\n' : '\n'}${line.trim()}` : line.trim()
     } else if (last && /^\s+\S/.test(line)) {
-      last.value = `${last.value} ${line.trim()}`.trim()
+      // A line after a blank one starts a paragraph; any other carries on the line above, and on its list item.
+      if (blank) child = undefined
+      if (child) child.value = `${child.value} ${line.trim()}`.trim()
+      last.value = last.value ? `${last.value}${blank ? '\n\n' : ' '}${line.trim()}` : line.trim()
     } else if (/^\S/.test(line)) {
-      last = undefined
+      last = child = undefined
     }
+    blank = line.trim() === ''
   }
   return sections
 }
 
+/** The plain text under a `## ` heading, its paragraphs kept apart by a blank line, or undefined with no such heading. */
+export function sectionText(text: string, heading: string): string | undefined {
+  const lines = text.split('\n')
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`)
+  if (start < 0) return undefined
+  const end = lines.findIndex((line, at) => at > start && line.startsWith('## '))
+  const body = lines.slice(start + 1, end < 0 ? undefined : end).join('\n')
+  return body
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.split('\n').map((line) => line.trim()).join(' ').trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** What user data the dashboard asks about under Privacy, by the names its boxes give them. */
+export const DATA_USES = [
+  'Personally identifiable information',
+  'Health information',
+  'Financial and payment information',
+  'Authentication information',
+  'Personal communications',
+  'Location',
+  'Web history',
+  'User activity',
+  'Website content',
+] as const
+
 /** The width and height a PNG's header gives, or null for a file that is not a PNG. The image itself is not decoded. */
-function pngSize(file: string): { width: number; height: number } | null {
+export function pngSize(file: string): { width: number; height: number } | null {
   const bytes = readFileSync(file)
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
   if (bytes.length < 24 || signature.some((byte, at) => bytes[at] !== byte)) return null
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
 }
 
-/** The steps only the owner can take, printed on every run, since the Store's API reads and sets none of them. */
+/** The steps the owner takes in the dashboard, or has the dashboard command take, printed on every run, since the Store's API sets none of them. */
 export const YOURS: ListingItem[] = [
-  'The dashboard says what store-listing.md says, field by field',
-  "The store icon (the same file as the manifest's 128 icon) and at least one 1280 by 800 screenshot are uploaded; promo tiles are optional",
-  'The data-use answers and the three certifications are set under Privacy practices',
-  'Visibility and its testers are set under Distribution',
+  'The dashboard says what store-listing.md says, field by field: `app-kit extension dashboard fill` types it in and reads it back',
+  'At least one 1280 by 800 screenshot is uploaded (the fill takes them with --screenshots); promo tiles are optional',
+  'Visibility and its testers are set under Distribution; the fill sets visibility only with --visibility, on a draft never published',
   'The first release, and the first after any visibility change made in the dashboard, is submitted for review in the dashboard; the API publishes the rest',
 ].map((line) => ({ result: 'yours', line }))
 
@@ -156,6 +204,10 @@ export function listingChecklist(folder = '.'): ListingItem[] {
   }
   for (const named of reasons.keys()) {
     if (!asked.includes(named)) items.push(failed(`Privacy practices gives a reason for \`${named}\`, which the manifest does not ask for`))
+  }
+
+  for (const named of bullet('Privacy practices', 'Data collected')?.children ?? []) {
+    if (!(DATA_USES as readonly string[]).includes(named.label)) items.push(failed(`Data collected names "${named.label}", which is not one of the dashboard's: ${DATA_USES.join(', ')}`))
   }
 
   const icon = manifest.icons?.['128']

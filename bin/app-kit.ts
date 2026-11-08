@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } from '../extension/listing.ts'
+import { dashboard } from '../extension/dashboard/command.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import { isColor, renderIcons } from '../icons/render.ts'
 import { makeKey } from '../tauri/mac-release/key.ts'
@@ -43,6 +44,21 @@ const USAGE = `app-kit <part> <command>
                               icon and the privacy link; prints passed, failed or yours
                               (the dashboard's steps) per line, or a JSON list with
                               --json, and exits 1 when any failed
+  extension dashboard sign-in
+                              open the Chrome Web Store dashboard in Google Chrome with a
+                              profile kept for it, for you to sign in to Google once and quit
+  extension dashboard read [<folder>] [--item <id>] [--zip <file>]
+                              compare the item's dashboard (the extension in <folder>, . by
+                              default; the item its manifest's key names) with its
+                              store-listing.md, box by box, changing nothing; exits 1 when
+                              any box differs
+  extension dashboard fill [<folder>] [--item <id>] [--zip <file>] [--screenshots <folder>] [--visibility]
+                              type store-listing.md into the item's Store listing, Privacy and
+                              Test instructions pages, upload the 128 icon, the screenshots
+                              and a newer zip, save each page as a draft, reload it and read
+                              every box back; sets visibility only with --visibility, on an
+                              item never published. Submits nothing; exits 1 when any box
+                              does not read back
   extension install-host <name> <host> [<folder>] --description <text> [--from-worktree]
                               tell Chrome about the native host <name>: a launcher that
                               runs <host> (a program, or a TypeScript or JavaScript file
@@ -145,6 +161,7 @@ function installHostArguments(args: string[]) {
 }
 
 async function extension([command, ...args]: string[]): Promise<boolean> {
+  if (command === 'dashboard') return await dashboard(args)
   if (command === 'install-host') {
     const options = installHostArguments(args)
     if (!options) return false
