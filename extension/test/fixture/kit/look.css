@@ -1,4 +1,4 @@
-/* Copied from app-kit 0.46.0 by `app-kit extension copy`. Change it in the kit. */
+/* Copied from app-kit 0.52.0 by `app-kit extension copy`. Change it in the kit. */
 :root {
   color-scheme: light dark;
   --text: #2a2c30;
@@ -7,12 +7,12 @@
   --ok: #276d45;
   --warn: #8d5300;
   --error: #b3261e;
-  --info: var(--accent-light, #2f5fa7);
+  --info: #2f5fa7;
   --bg: #f6f5f2;
   --surface: #f6f5f2;
-  --surface-hi: #efeee9;
-  --border: #e2e0da;
-  --border-hi: #d3d1ca;
+  --surface-hi: #eeedea;
+  --border: #e0dfdd;
+  --border-hi: #d3d3d1;
   --hover: #dfddd6;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
   --font-code: ui-monospace, "SF Mono", Menlo, monospace;
@@ -49,12 +49,12 @@
     --ok: #7cc49a;
     --warn: #e0b46a;
     --error: #f2a39c;
-    --info: var(--accent-dark, #8fb0e6);
+    --info: #8fb0e6;
     --bg: #1d1e20;
     --surface: #1d1e20;
-    --surface-hi: #242628;
-    --border: #323438;
-    --border-hi: #3c3e42;
+    --surface-hi: #252628;
+    --border: #333435;
+    --border-hi: #3f4040;
     --hover: #36383c;
   }
 }
@@ -63,8 +63,9 @@
  * The plain look for an extension's pages: a popup, an options page. Plain CSS, since an extension updates from its
  * checkout by git alone and has no build step. `app-kit extension copy` writes it as look.css beside the worker
  * copies, with the variable blocks above these rules written from the kit's tokens file (look/index.ts), light and
- * dark by the system's setting. The page links it, `<link rel="stylesheet" href="kit/look.css">`, and sets only its
- * accent, before or after it: `<style>:root { --accent-light: #2f5fa7; --accent-dark: #8fb0e6 }</style>`.
+ * dark by the system's setting. The page links it, `<link rel="stylesheet" href="kit/look.css">`, and sets no colors
+ * of its own: an extension's accent, and its paper with its highlight, go in look.json beside its manifest, which the
+ * copy checks and writes into the variables.
  *
  * The pieces: .page around everything, .title and .subtitle, .label above a section, .text, .rows of .row (a .name
  * with a <small> detail, and on the right a .status word, an .action, a .switch or a .menu), .field, .note, and .build

@@ -242,6 +242,28 @@ extension EnvironmentValues {
         get { self[LineSelected.self] }
         set { self[LineSelected.self] = newValue }
     }
+
+    var inSidePage: Bool {
+        get { self[InSidePage.self] }
+        set { self[InSidePage.self] = newValue }
+    }
+}
+
+/// Whether a view is drawn in a row's side page, beside the list, rather than in the list.
+struct InSidePage: EnvironmentKey {
+    static let defaultValue = false
+}
+
+/// A row's mark that a click on it opens something. In console it is on every such row and brightens while its row is
+/// selected; in plain it shows on the selected row only, so a list of links carries one mark rather than one a row, and
+/// its column stays, so nothing moves as the selection does.
+struct RowArrow: View {
+    @Environment(\.lineSelected) private var isSelected
+
+    var body: some View {
+        let onSelectedOnly = if case .plain = Look.app { true } else { false }
+        Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).opacity(onSelectedOnly && !isSelected ? 0 : 1)
+    }
 }
 
 /// Text that brightens to `selected` while its line is selected, as a row's mark or a footer item's label does.

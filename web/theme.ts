@@ -1,12 +1,12 @@
 /*
  * The MUI theme for each of the kit's looks, built from the tokens file (app-kit/look), so a web app picks its look as a
- * menu bar app does and keeps no copy of the colors. An app passes its look, in plain its accent, and any options of
- * its own; the kit builds the theme, since MUI computes the palette, the typography and the color schemes only from
- * createTheme's first argument and merges later ones raw, so a palette passed after would never get its light, dark
- * and contrast colors worked out.
+ * menu bar app does and keeps no copy of the colors. An app passes its look, in plain its accent and its paper with its
+ * highlight if it sets them, and any options of its own; the kit builds the theme, since MUI computes the palette, the
+ * typography and the color schemes only from createTheme's first argument and merges later ones raw, so a palette
+ * passed after would never get its light, dark and contrast colors worked out.
  */
 import { createTheme, type CssVarsTheme, type Theme, type ThemeOptions } from '@mui/material/styles';
-import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Accent, type Colors, type Look, type Role } from '../look';
+import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Colors, type Look, type PlainChoices, type Role } from '../look';
 import { rem } from './fields';
 
 type Options = Record<string, unknown>;
@@ -32,7 +32,7 @@ const isPlainObject = (value: unknown): value is Options =>
  * pass `{ components: fieldsNeverZoom }` as `options`.
  */
 export function lookTheme(look: Look = { name: 'plain' }, options: ThemeOptions = {}): Theme & Pick<CssVarsTheme, 'colorSchemes' | 'generateStyleSheets'> {
-  const kit = look.name === 'console' ? consoleOptions() : plainOptions(look.accent);
+  const kit = look.name === 'console' ? consoleOptions() : plainOptions(look);
   return createTheme(merge(kit, options as Options) as ThemeOptions) as Theme & Pick<CssVarsTheme, 'colorSchemes' | 'generateStyleSheets'>;
 }
 
@@ -66,8 +66,8 @@ function palette(colors: Colors) {
 }
 
 /** The plain look: the system typeface on the paper, no boxes or shadows, actions as words in the accent, and the kit's switch, menu and field. */
-function plainOptions(accent?: Accent): Options {
-  const { light, dark } = plainColors(accent);
+function plainOptions(choices: PlainChoices): Options {
+  const { light, dark } = plainColors(choices);
   const size = PLAIN_SIZES;
   const line = `${size.line}px solid var(--mui-palette-divider)`;
   return {
@@ -128,6 +128,10 @@ function plainOptions(accent?: Accent): Options {
           },
         },
       },
+      // A selected menu item or list row fills with the highlight, the color the kit checked the text against, in place
+      // of MUI's tint of the accent.
+      MuiMenuItem: { styleOverrides: { root: { '&.Mui-selected, &.Mui-selected:hover': { backgroundColor: 'var(--mui-palette-action-hover)' } } } },
+      MuiListItemButton: { styleOverrides: { root: { '&.Mui-selected, &.Mui-selected:hover': { backgroundColor: 'var(--mui-palette-action-hover)' } } } },
       MuiListItemText: {
         styleOverrides: { root: { margin: 0 }, secondary: { fontSize: rem(size.small), marginTop: 2 } },
       },

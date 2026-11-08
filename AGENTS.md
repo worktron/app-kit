@@ -24,7 +24,7 @@ web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, 
 extension/       browser extensions: worker/ (plain JavaScript Chrome loads, copied into each extension, with
                  amazon-never-sent.js, the Amazon requests no extension sends), look.css (the plain
                  look's rules for an extension's pages, copied beside the worker files with its variables written from
-                 look/), host/ (the Mac side),
+                 look/ and the extension's look.json beside its manifest), host/ (the Mac side),
                  harness/ (hidden Chromium), testing/ (a chrome stand-in, and a native host run as Chrome runs it),
                  copy.ts, layout.ts (the check that an extension's manifest is at its checkout's root, which
                  install-host makes too), listing.ts (`app-kit extension listing`, the Chrome Web Store
@@ -102,7 +102,8 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  made-up pages, and its README what marks each store's cart and a product's page, and what is not yet known)
 look/            the two looks' colors and sizes (app-kit/look), the only owner of them: web/theme.ts, the copied look.css
                  and swift/menu-bar's Tokens.swift take their values from it, the Swift copy held equal by
-                 test/look-swift.test.ts
+                 test/look-swift.test.ts; in plain an app may give its accent, and its paper with its highlight, the
+                 lines mixed from the paper, and colors whose text reads under 4.5 to 1 refused (test/look.test.ts)
 icons/           `app-kit icons render` (render.ts), every icon an app ships drawn from its drawings with sharp: Xcode
                  icon sets, a Tauri app's icons, the menu bar image, the extension's and the web's; test/fixtures/icons
                  holds the tests' drawings and the icon sets' Contents.json

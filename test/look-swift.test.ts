@@ -7,7 +7,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { CONSOLE, CONSOLE_SIZES, DEFAULT_ACCENT, PLAIN_SIZES, plainColors, type Colors, type Role } from '../look';
+import { CONSOLE, CONSOLE_SIZES, DEFAULT_ACCENT, DEFAULT_BACKGROUND, PLAIN_LINE_MIX, PLAIN_SIZES, plainColors, READABLE, type Role } from '../look';
 
 const theme = join(import.meta.dir, '../swift/menu-bar/Sources/MenuBarTheme');
 const tokens = readFileSync(join(theme, 'Tokens.swift'), 'utf8');
@@ -31,25 +31,30 @@ test("the console look's colors in Swift are the tokens file's, dark and light",
   expect(light).toEqual(CONSOLE.light);
 });
 
-test("the plain look's colors in Swift are the tokens file's, with the accent as info", () => {
-  const plain = block(tokens, 'public func plain(accent: Accent)');
-  const light: Partial<Colors> = {};
-  const dark: Partial<Colors> = {};
-  for (const [, cases, pair] of plain.matchAll(/case ([.\w, ]+): \(([^)]*)\)/g)) {
-    const [l, d] = pair!.split(',').map((value) => value.trim());
-    for (const role of cases!.split(',').map((name) => name.trim().replace(/^\./, '')) as Role[]) {
-      light[role] = l === 'accent.light' ? 'accent' : hex(l!);
-      dark[role] = d === 'accent.dark' ? 'accent' : hex(d!);
-    }
-  }
-  const expected = plainColors({ light: 'accent', dark: 'accent' });
-  expect(light).toEqual(expected.light);
-  expect(dark).toEqual(expected.dark);
+test("the plain look's colors in Swift are the tokens file's: its tones, the accent as info, the paper and highlight as given, and the lines mixed from the paper", () => {
+  const plain = block(tokens, 'public func plain(accent: Accent, background: Background = .default)');
+  const tones: Partial<Record<Role, { light: string; dark: string }>> = {};
+  for (const [, role, l, d] of plain.matchAll(/case \.(\w+): return \((0x[0-9a-f]+), (0x[0-9a-f]+)\)/g)) tones[role as Role] = { light: hex(l!), dark: hex(d!) };
+  const [, textLight, textDark] = plain.match(/let text: \(light: UInt32, dark: UInt32\) = \((0x[0-9a-f]+), (0x[0-9a-f]+)\)/) ?? [];
+  tones.text = { light: hex(textLight ?? ''), dark: hex(textDark ?? '') };
+  const { light, dark } = plainColors();
+  for (const role of ['text', 'secondary', 'muted', 'ok', 'warn', 'error'] as const) expect(tones[role], role).toEqual({ light: light[role], dark: dark[role] });
+  // The rest are the app's choices and the rule that mixes the lines, each held below.
+  expect(plain).toContain('case .info: return (accent.light, accent.dark)');
+  expect(plain).toContain('case .bg, .surface: return (paper.light, paper.dark)');
+  expect(plain).toContain('case .hover: return (background.highlight.light, background.highlight.dark)');
+  for (const role of ['surfaceHi', 'border', 'borderHi'] as const) expect(plain).toContain(`case .${role}: return mixed(Self.lineMix.${role})`);
+  const [, mix] = tokens.match(/static let lineMix = \(([^)]*)\)/) ?? [];
+  expect(Object.fromEntries((mix ?? '').split(',').map((pair) => pair.split(':').map((part) => part.trim())).map(([name, value]) => [name, Number(value)]))).toEqual({ ...PLAIN_LINE_MIX });
+  expect(tokens).toContain(`public static let readable = ${READABLE}`);
 });
 
-test("the default accent in Swift is the tokens file's", () => {
-  const [, l, d] = look.match(/static let `default` = Accent\(light: (0x[0-9a-f]+), dark: (0x[0-9a-f]+)\)/) ?? [];
+test("the default accent and background in Swift are the tokens file's", () => {
+  const [, l, d] = look.match(/static let defaultAccent = Accent\(light: (0x[0-9a-f]+), dark: (0x[0-9a-f]+)\)/) ?? [];
   expect({ light: hex(l ?? ''), dark: hex(d ?? '') }).toEqual(DEFAULT_ACCENT);
+  const [, pl, pd, hl, hd] =
+    look.match(/static let `default` = Background\(paper: LightDark\(light: (0x[0-9a-f]+), dark: (0x[0-9a-f]+)\), highlight: LightDark\(light: (0x[0-9a-f]+), dark: (0x[0-9a-f]+)\)\)/) ?? [];
+  expect({ paper: { light: hex(pl ?? ''), dark: hex(pd ?? '') }, highlight: { light: hex(hl ?? ''), dark: hex(hd ?? '') } }).toEqual(DEFAULT_BACKGROUND);
 });
 
 test("the plain look's sizes in Swift are the tokens file's, name for name", () => {

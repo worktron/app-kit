@@ -17,10 +17,13 @@ struct LabelText: View {
 }
 
 /// A section's label in a panel: 24 points below what is above it and 8 above what it labels, at the panel's sides. The
-/// panel's `first`, under the header, sits 14 below it. The arrow keys pass over it, since it does nothing.
+/// panel's `first`, under the header, sits 14 below it. In a row's side page in the plain look, the 24 points hold a line
+/// across the page, 8 below the group above, from the Plain Panel Studies page's A, since a side page's groups are short
+/// and run together on room alone; never above the page's first. The arrow keys pass over it, since it does nothing.
 public struct PanelSectionLabel: View {
     let text: String
     let first: Bool
+    @Environment(\.inSidePage) private var inSidePage
 
     public init(_ text: String, first: Bool = false) {
         self.text = text
@@ -28,12 +31,19 @@ public struct PanelSectionLabel: View {
     }
 
     public var body: some View {
-        LabelText(text: text, lineHeight: Look.app.lineHeight)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Metrics.inset)
-            .padding(.top, first ? 14 : PlainMetrics.sectionGap)
-            .padding(.bottom, PlainMetrics.labelGap)
+        let lined = if case .plain = Look.app { inSidePage && !first } else { false }
+        VStack(spacing: 0) {
+            if lined { Palette.border.color.frame(height: Metrics.line).padding(.top, Self.aboveLine) }
+            LabelText(text: text, lineHeight: Look.app.lineHeight)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Metrics.inset)
+                .padding(.top, first ? 14 : lined ? PlainMetrics.sectionGap - Self.aboveLine - Metrics.line : PlainMetrics.sectionGap)
+        }
+        .padding(.bottom, PlainMetrics.labelGap)
     }
+
+    /// Room between a side page's group and the line under it.
+    static let aboveLine: CGFloat = 8
 }
 
 /// A problem as one row, which one click on any of it acts on: its title in a tone, red unless asked, with the fix on the
@@ -135,7 +145,7 @@ public struct CompactRow: View {
                     word.frame(width: Metrics.trailingColumn, alignment: .leading)
                 }
             }
-            if opens { Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).frame(width: 6) }
+            if opens { RowArrow().frame(width: 6) }
         }
         .padding(.horizontal, Metrics.inset)
         .frame(height: PlainMetrics.rowCompact)

@@ -367,6 +367,23 @@ import Testing
         #expect(side.frame.height > list.height)
     }
 
+    @Test func aSidePageTakesItsOwnWidth() throws {
+        let panel = MenuBarPanel(width: 400, sideWidth: 300, state: PanelState(pasteboard: .withUniqueName())) {
+            Row(Words("a.example.com"), trailing: "work", id: "a", page: { Self.linkPage("a", { _ in }) })
+        }
+        panel.open(below: NSRect(x: 100, y: 1000, width: 24, height: 24), in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        rest(panel, on: "a")
+        let side = try #require(panel.sidePanel)
+        #expect(panel.frame.width == 400)
+        #expect(side.frame.width == 300)
+        #expect(side.frame.minX == panel.frame.maxX + MenuBarPanel.gap)
+        // With no width of its own, a page is as wide as the list, as before.
+        let same = linksPanel()
+        rest(same, on: "a")
+        #expect(try #require(same.sidePanel).frame.width == same.frame.width)
+    }
+
     @Test func theListNeverMovesWhenTheSidePageOpens() throws {
         var acted: [String] = []
         let panel = linksPanel { acted.append($0) }

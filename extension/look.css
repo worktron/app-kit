@@ -2,8 +2,9 @@
  * The plain look for an extension's pages: a popup, an options page. Plain CSS, since an extension updates from its
  * checkout by git alone and has no build step. `app-kit extension copy` writes it as look.css beside the worker
  * copies, with the variable blocks above these rules written from the kit's tokens file (look/index.ts), light and
- * dark by the system's setting. The page links it, `<link rel="stylesheet" href="kit/look.css">`, and sets only its
- * accent, before or after it: `<style>:root { --accent-light: #2f5fa7; --accent-dark: #8fb0e6 }</style>`.
+ * dark by the system's setting. The page links it, `<link rel="stylesheet" href="kit/look.css">`, and sets no colors
+ * of its own: an extension's accent, and its paper with its highlight, go in look.json beside its manifest, which the
+ * copy checks and writes into the variables.
  *
  * The pieces: .page around everything, .title and .subtitle, .label above a section, .text, .rows of .row (a .name
  * with a <small> detail, and on the right a .status word, an .action, a .switch or a .menu), .field, .note, and .build

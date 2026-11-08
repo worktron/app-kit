@@ -22,6 +22,8 @@ public final class MenuBarPanel: NSPanel {
     public private(set) var isOpen = false
 
     private let width: CGFloat
+    /// A row's side page's width: the list's unless the app gives one, as a narrower page beside a wide list.
+    private let sideWidth: CGFloat
     private var intent = PointerIntent()
     private var intentTimer: Timer?
     private var monitors: [Any] = []
@@ -34,9 +36,10 @@ public final class MenuBarPanel: NSPanel {
     /// The panel beside this one that shows a row's side page, made the first time one opens.
     private(set) var sidePanel: SidePanel?
 
-    public init<Content: View>(width: CGFloat, state: PanelState? = nil, @ViewBuilder content: () -> Content) {
+    public init<Content: View>(width: CGFloat, sideWidth: CGFloat? = nil, state: PanelState? = nil, @ViewBuilder content: () -> Content) {
         let state = state ?? PanelState()
         self.width = width
+        self.sideWidth = sideWidth ?? width
         self.state = state
         super.init(contentRect: NSRect(x: 0, y: 0, width: width, height: 1), styleMask: Self.style, backing: .buffered, defer: true)
         isFloatingPanel = true
@@ -237,7 +240,7 @@ public final class MenuBarPanel: NSPanel {
     func sideChanged(selectingFirst: Bool) {
         guard isOpen, let id = state.sidePage else { return hideSide() }
         guard state.sidePages.contains(where: { $0.id == id }) else { return state.closeSide() }
-        let side = sidePanel ?? SidePanel(width: width, state: state)
+        let side = sidePanel ?? SidePanel(width: sideWidth, state: state)
         sidePanel = side
         fitSide()
         // A child window is on the screen as soon as it is added to one that is, so a check never adds it.
@@ -251,7 +254,7 @@ public final class MenuBarPanel: NSPanel {
               let page = state.sidePages.first(where: { $0.id == state.sidePage }) else { return }
         hosting.layoutSubtreeIfNeeded()
         let row = NSRect(x: frame.minX + page.row.minX, y: frame.maxY - page.row.maxY, width: page.row.width, height: page.row.height)
-        let size = NSSize(width: width, height: state.side.panelHeight)
+        let size = NSSize(width: sideWidth, height: state.side.panelHeight)
         side.setFrame(Self.place(side: size, beside: row, of: frame, in: visibleFrame ?? screen?.visibleFrame ?? .infinite), display: isOpen)
         hosting.layoutSubtreeIfNeeded()
     }
@@ -354,7 +357,7 @@ struct SideContent: View {
     let state: PanelState
 
     var body: some View {
-        if let id = state.sidePage, let page = state.sidePages.first(where: { $0.id == id }) { page.content }
+        if let id = state.sidePage, let page = state.sidePages.first(where: { $0.id == id }) { page.content.environment(\.inSidePage, true) }
     }
 }
 

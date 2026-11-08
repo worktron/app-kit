@@ -31,7 +31,7 @@ import Testing
     /// How many pixels in a band of points, at scale 2, differ from the plain panel's paper in light.
     func ink(_ png: Data, x: Range<CGFloat>, y: Range<CGFloat>) throws -> Int {
         let rep = try #require(NSBitmapImageRep(data: png))
-        let paper = Palette.bg.plain(accent: .default).light
+        let paper = Palette.bg.plain(accent: Look.defaultAccent).light
         var inked = 0
         for py in Int(y.lowerBound * 2)..<Int(y.upperBound * 2) {
             for px in Int(x.lowerBound * 2)..<Int(x.upperBound * 2) {
@@ -44,7 +44,7 @@ import Testing
     }
 
     @Test func anAppThatSetsNoLookDrawsPlain() {
-        #expect(Look.default == .plain(accent: .default))
+        #expect(Look.default == .plain(accent: Look.defaultAccent))
         #expect(Look.default.inset == 20)
         #expect(Look.console.inset == 14)
     }
@@ -72,7 +72,7 @@ import Testing
         }
         #expect(Look.app == before, "the snapshot puts the look back")
         let (count, total) = try counts(png)
-        let pick = { (palette: Palette) in light ? palette.plain(accent: .default).light : palette.plain(accent: .default).dark }
+        let pick = { (palette: Palette) in light ? palette.plain(accent: Look.defaultAccent).light : palette.plain(accent: Look.defaultAccent).dark }
         // The paper fills the panel, header included, inside the plain outline.
         #expect(count[pick(.bg), default: 0] > total / 3)
         #expect(count[pick(.borderHi), default: 0] > 0)
@@ -87,17 +87,48 @@ import Testing
     @Test func everyToneReadsOnThePlainPanel() {
         let reading: [Palette] = [.text, .secondary, .ok, .warn, .error, .info]
         for tone in reading {
-            let words = tone.plain(accent: .default)
+            let words = tone.plain(accent: Look.defaultAccent)
             for ground in [Palette.bg, .hover] {
-                let paper = ground.plain(accent: .default)
+                let paper = ground.plain(accent: Look.defaultAccent)
                 #expect(contrast(words.light, paper.light) >= 4.5, "\(tone) on \(ground) in light: \(contrast(words.light, paper.light))")
                 #expect(contrast(words.dark, paper.dark) >= 4.5, "\(tone) on \(ground) in dark")
             }
         }
     }
 
+    /// The Plain Panel Studies page's Slate, and the same paper under a highlight too dark for the text.
+    static let slate = Background(paper: LightDark(light: 0xf7f8fa, dark: 0x1b1d21), highlight: LightDark(light: 0xe1e5ec, dark: 0x2f3540))
+    static let dim = Background(paper: slate.paper, highlight: LightDark(light: 0x9a9a9a, dark: 0x2f3540))
+
+    @Test func aPaperGivesItsLinesByTheTokensFilesRule() throws {
+        let line = { (palette: Palette, background: Background) in palette.plain(accent: Look.defaultAccent, background: background) }
+        // The values the tokens file's plainColors works out for the same papers (test/look.test.ts holds them there).
+        #expect(line(.border, .default) == (0xe0dfdd, 0x333435))
+        #expect(line(.border, Self.slate) == (0xe0e2e4, 0x313336))
+        #expect(line(.surfaceHi, Self.slate).light == 0xeff0f2)
+        #expect(line(.borderHi, Self.slate).dark == 0x3e3f41)
+        #expect(line(.bg, Self.slate) == (0xf7f8fa, 0x1b1d21))
+        #expect(line(.hover, Self.slate) == (0xe1e5ec, 0x2f3540))
+        // Drawn: a window's paper and a field's box in the app's own colors.
+        let png = try windowSnapshot(width: 300, appearance: Self.light, look: .plain(background: Self.slate)) { HairlineField("A link", text: .constant("")) }
+        let count = try counts(png).count
+        #expect(count[0xf7f8fa, default: 0] > 1000)
+        #expect(count[0xe0e2e4, default: 0] > 300)
+    }
+
+    @Test func unreadableColorsAreFoundInTheTokensFilesWords() {
+        #expect(Look.default.unreadable.isEmpty)
+        #expect(Look.plain(background: Self.slate).unreadable.isEmpty)
+        #expect(Look.console.unreadable.isEmpty)
+        let found = Look.plain(background: Self.dim).unreadable
+        // The same words the tokens file's plainColors refuses with (test/look.test.ts).
+        #expect(found.first == "light: secondary #5c5f65 reads 2.28 to 1 on the highlight #9a9a9a")
+        #expect(found.count == 5)
+        #expect(Look.plain(accent: LightDark(light: 0xc0187a, dark: 0xf08ac8)).unreadable == ["light: info #c0187a reads 4.23 to 1 on the highlight #dfddd6"])
+    }
+
     @Test func theAppsAccentDrawsTheCopyWord() throws {
-        let accent = Accent(light: 0xc0187a, dark: 0xf08ac8)
+        let accent = Accent(light: 0xa8146b, dark: 0xf08ac8)
         let png = try snapshot(width: 400, appearance: Self.light, look: .plain(accent: accent)) { CodeBox("bun bin/apply.ts") }
         let rep = try #require(NSBitmapImageRep(data: png))
         // "copy", on the right of the box, is the only ink in the accent's hue: far more red and blue than green.
@@ -110,7 +141,7 @@ import Testing
             }
         }
         #expect(near > 0, "\(near)")
-        #expect(Palette.info.hex(for: Self.light, in: .plain(accent: accent)) == 0xc0187a)
+        #expect(Palette.info.hex(for: Self.light, in: .plain(accent: accent)) == 0xa8146b)
         #expect(Palette.info.hex(for: Self.dark, in: .plain(accent: accent)) == 0xf08ac8)
     }
 

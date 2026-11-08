@@ -33,6 +33,19 @@ test("an app's accent is the plain theme's primary and info, light and dark", ()
   expect(theme.colorSchemes.dark!.palette.primary.main).toBe(accent.dark);
 });
 
+test("an app's paper and highlight are the plain theme's background and hover, and a selected row fills with the highlight", () => {
+  const background = { paper: { light: '#f7f8fa', dark: '#1b1d21' }, highlight: { light: '#e1e5ec', dark: '#2f3540' } };
+  const theme = lookTheme({ name: 'plain', background });
+  expect(theme.colorSchemes.light!.palette.background.default).toBe('#f7f8fa');
+  expect(theme.colorSchemes.dark!.palette.action.hover).toBe('#2f3540');
+  expect(theme.colorSchemes.light!.palette.divider).toBe(plainColors({ background }).light.border);
+  // MUI fills a selected item with a tint of the accent, which the kit's check never read; the kit's fills it with the highlight.
+  for (const name of ['MuiMenuItem', 'MuiListItemButton'] as const) {
+    expect(theme.components?.[name]?.styleOverrides?.root).toEqual({ '&.Mui-selected, &.Mui-selected:hover': { backgroundColor: 'var(--mui-palette-action-hover)' } });
+  }
+  expect(() => lookTheme({ name: 'plain', accent: { light: '#c0187a', dark: '#f08ac8' } })).toThrow('info #c0187a reads 4.23 to 1');
+});
+
 test('the plain theme draws in the system typeface at 13, and its section label is 12 at 600 without capitals', () => {
   const theme = lookTheme();
   expect(theme.typography.body1.fontFamily).toBe(FONTS.plain);

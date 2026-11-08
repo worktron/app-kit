@@ -2,7 +2,7 @@ import { afterAll, expect, test } from 'bun:test'
 import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copiedFiles, copyWorker, unlistedImports, workerCopyDiffers, workerFiles } from '../copy.ts'
+import { copiedFiles, copyWorker, LOOK_CHOICES, lookChoices, unlistedImports, workerCopyDiffers, workerFiles } from '../copy.ts'
 import { PLAIN_SIZES, plainColors } from '../../look/index.ts'
 import { LOADED_FILES } from './fixture/worker.js'
 import packageJson from '../../package.json'
@@ -31,13 +31,59 @@ test("the stylesheet's copy opens with a CSS comment and holds the tokens file's
   expect(lightBlock).toContain('color-scheme: light dark;')
   expect(lightBlock).toContain(`--text: ${light.text};`)
   expect(lightBlock).toContain(`--surface-hi: ${light.surfaceHi};`)
-  expect(lightBlock).toContain(`--info: var(--accent-light, ${light.info});`)
+  expect(lightBlock).toContain(`--info: ${light.info};`)
   expect(lightBlock).toContain(`--side-popup: ${PLAIN_SIZES.sidePopup}px;`)
   expect(lightBlock).toContain(`--label-weight: ${PLAIN_SIZES.labelWeight};`)
   expect(darkBlock).toContain(`--text: ${dark.text};`)
-  expect(darkBlock).toContain(`--info: var(--accent-dark, ${dark.info});`)
+  expect(darkBlock).toContain(`--info: ${dark.info};`)
   // The kit's rules follow the variables.
   expect(css).toContain('.switch:checked {')
+})
+
+/** An extension in `name` under the test's folder: its manifest, its look.json when given, and the folder its copies go in. */
+function extensionWith(name: string, look?: unknown): string {
+  const root = join(dir, name)
+  mkdirSync(join(root, 'extension'), { recursive: true })
+  writeFileSync(join(root, 'manifest.json'), '{}')
+  if (look !== undefined) writeFileSync(join(root, LOOK_CHOICES), JSON.stringify(look))
+  return join(root, 'extension', 'kit')
+}
+
+const slate = {
+  accent: { light: '#2f5fa7', dark: '#8fb0e6' },
+  background: { paper: { light: '#f7f8fa', dark: '#1b1d21' }, highlight: { light: '#e1e5ec', dark: '#2f3540' } },
+}
+
+test("an extension's look.json beside its manifest gives the copy its paper, highlight and accent, with the lines from the paper", () => {
+  const folder = extensionWith('slate', slate)
+  expect(lookChoices(folder)).toEqual(slate)
+  copyWorker(folder)
+  const [lightBlock, darkBlock] = readFileSync(join(folder, 'look.css'), 'utf8').split('@media (prefers-color-scheme: dark)')
+  const { light, dark } = plainColors(slate)
+  expect(lightBlock).toContain('--bg: #f7f8fa;')
+  expect(lightBlock).toContain('--hover: #e1e5ec;')
+  expect(lightBlock).toContain(`--border: ${light.border};`)
+  expect(light.border).not.toBe(plainColors().light.border)
+  expect(darkBlock).toContain('--bg: #1b1d21;')
+  expect(darkBlock).toContain(`--border: ${dark.border};`)
+  expect(workerCopyDiffers(folder)).toEqual([])
+  // A changed look.json leaves the copy behind the extension's choices until it is copied again.
+  writeFileSync(join(dir, 'slate', LOOK_CHOICES), JSON.stringify({ accent: { light: '#7a2fa7', dark: '#d29be6' } }))
+  expect(workerCopyDiffers(folder)).toEqual(['look.css'])
+})
+
+test('an extension with no look.json, or no manifest above its copies, takes the kit\'s own colors', () => {
+  expect(lookChoices(extensionWith('plain'))).toEqual({})
+  expect(lookChoices(join(dir, 'nowhere', 'kit'))).toEqual({})
+})
+
+test('copy refuses a look.json whose text would read poorly, or that is the wrong shape, and writes nothing', () => {
+  const dim = extensionWith('dim', { background: { paper: slate.background.paper, highlight: { light: '#9a9a9a', dark: '#2f3540' } } })
+  expect(() => copyWorker(dim)).toThrow(/light: secondary #5c5f65 reads \d\.\d\d to 1 on the highlight #9a9a9a/)
+  expect(readdirSync(join(dim, '..'))).toEqual([])
+  expect(() => lookChoices(extensionWith('half', { background: { paper: slate.background.paper } }))).toThrow('background.highlight needs a light and a dark color')
+  expect(() => lookChoices(extensionWith('named', { accent: { light: 'blue', dark: '#8fb0e6' } }))).toThrow('accent needs a light and a dark color')
+  expect(() => lookChoices(extensionWith('extra', { paper: slate.background.paper }))).toThrow('paper is not a choice the plain look takes')
 })
 
 test('a stylesheet copy edited by hand, or missing, differs from the kit, and the check command names it', () => {

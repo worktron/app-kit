@@ -36,7 +36,7 @@ import Testing
         }.values.reduce(0, +)
     }
 
-    func pick(_ palette: Palette, light: Bool, accent: Accent = .default) -> UInt32 {
+    func pick(_ palette: Palette, light: Bool, accent: Accent = Look.defaultAccent) -> UInt32 {
         light ? palette.plain(accent: accent).light : palette.plain(accent: accent).dark
     }
 
@@ -107,7 +107,9 @@ import Testing
         // The menu's hairline under its words and the field's box: both in the border color, and neither filled.
         #expect(count[pick(.border, light: true), default: 0] > 300)
         #expect(count[pick(.text, light: true), default: 0] > 20)
-        #expect(count[pick(.surfaceHi, light: true), default: 0] == 0)
+        // A fill would cover the field's box, thousands of pixels at 2x; the raised surface, 4% of the way from the paper to
+        // the text, also turns up at a few edges of the text, where its smoothing passes through that grey.
+        #expect(count[pick(.surfaceHi, light: true), default: 0] < 100, "\(count[pick(.surfaceHi, light: true), default: 0]) pixels in surfaceHi")
     }
 
     @Test func theWindowSizesAreTheTokensFiles() {

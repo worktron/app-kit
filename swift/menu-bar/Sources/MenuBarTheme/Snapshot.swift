@@ -18,9 +18,9 @@ public enum SnapshotError: Error, CustomStringConvertible {
 /// contents where SwiftUI's ImageRenderer leaves them blank. It draws in `appearance`, dark unless asked, never the
 /// machine's own setting, so a render is the same at any hour, and in `look`, the app's unless asked, which it sets for
 /// the draw and puts back after. With a side page open in `state`, the page is drawn beside the panel, its first line
-/// level with its row, as the side panel shows it. Throws, in the console look, when the bundled font is not loaded.
+/// level with its row, as the side panel shows it, `sideWidth` points wide, the list's width unless given. Throws, in the console look, when the bundled font is not loaded.
 @MainActor
-public func snapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, appearance: NSAppearance = NSAppearance(named: .darkAqua)!,
+public func snapshot<Content: View>(width: CGFloat, sideWidth: CGFloat? = nil, scale: CGFloat = 2, appearance: NSAppearance = NSAppearance(named: .darkAqua)!,
                                     look: Look = Look.app, state: PanelState? = nil, @ViewBuilder _ content: () -> Content) throws -> Data {
     let state = state ?? PanelState()
     let before = Look.app
@@ -30,7 +30,7 @@ public func snapshot<Content: View>(width: CGFloat, scale: CGFloat = 2, appearan
     let list = try draw(PanelRoot(width: width, state: state, surface: state.list, content: content()), width: width, scale: scale,
                         appearance: appearance, surface: state.list)
     guard let page = state.sidePages.first(where: { $0.id == state.sidePage }) else { return try png(list) }
-    guard let list = list.cgImage, let side = try draw(PanelRoot(width: width, state: state, surface: state.side, content: SideContent(state: state)), width: width,
+    guard let list = list.cgImage, let side = try draw(PanelRoot(width: sideWidth ?? width, state: state, surface: state.side, content: SideContent(state: state)), width: sideWidth ?? width,
                         scale: scale, appearance: appearance, surface: state.side).cgImage else { throw SnapshotError.draw }
     // Both on one canvas, the side page `gap` to the right, its frame's top line just above its row's top.
     let sideTop = max(0, page.row.minY - Metrics.line) * scale

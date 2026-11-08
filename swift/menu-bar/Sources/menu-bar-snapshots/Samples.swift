@@ -18,6 +18,10 @@ struct Sample {
     var mockup: Look? = .console
     /// A window's page rather than a panel, drawn by windowSnapshot.
     var window = false
+    /// The side page's width, the panel's unless given.
+    var sideWidth: CGFloat?
+    /// The look it is always drawn in, whatever look a render asks for: an app's own colors; nil for the render's.
+    var look: Look?
     let content: () -> AnyView
 }
 
@@ -35,6 +39,9 @@ private func machines(_ header: Header, fine: Bool = false) -> AnyView {
         footer
     })
 }
+
+/// The Plain Panel Studies page's Slate: a cool grey paper and highlight, light and dark, as an app might set them.
+let slate = Background(paper: LightDark(light: 0xf7f8fa, dark: 0x1b1d21), highlight: LightDark(light: 0xe1e5ec, dark: 0x2f3540))
 
 @MainActor
 let samples: [Sample] = [
@@ -91,8 +98,12 @@ let samples: [Sample] = [
     // text; e2e/beeline-mockups.html draws them with the page's own markup.
     Sample(name: "beeline-d", width: 480, mockup: .plain()) { beelineList() },
     Sample(name: "beeline-e", width: 480, mockup: .plain()) { beelinePage() },
+    // Beeline's menu with a link's side page open, the page 380 points wide beside the 480 point list, as the Plain Panel
+    // Studies page's A draws it: in the render's look, and in the page's Slate, a paper and highlight an app might set.
     Sample(name: "beeline-d-selected", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
-           mockup: nil) { beelineList() },
+           mockup: nil, sideWidth: 380) { beelineList() },
+    Sample(name: "beeline-slate", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
+           mockup: nil, sideWidth: 380, look: .plain(background: slate)) { beelineList() },
 ]
 
 @MainActor
@@ -246,6 +257,7 @@ func render(_ sample: Sample, appearance: NSAppearance = NSAppearance(named: .da
     state.selected = sample.selected
     if let copied = sample.copied { state.copy(copied) }
     if let sidePage = sample.sidePage { state.openSide(sidePage) }
-    if sample.window { return try windowSnapshot(width: sample.width, appearance: appearance) { sample.content() } }
-    return try snapshot(width: sample.width, appearance: appearance, state: state) { sample.content() }
+    let look = sample.look ?? Look.app
+    if sample.window { return try windowSnapshot(width: sample.width, appearance: appearance, look: look) { sample.content() } }
+    return try snapshot(width: sample.width, sideWidth: sample.sideWidth, appearance: appearance, look: look, state: state) { sample.content() }
 }

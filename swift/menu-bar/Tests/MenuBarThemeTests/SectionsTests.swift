@@ -17,7 +17,7 @@ import Testing
 
     static let light = NSAppearance(named: .aqua)!
     /// A role's plain light value, the color the snapshots below draw in.
-    func plain(_ palette: Palette) -> UInt32 { palette.plain(accent: .default).light }
+    func plain(_ palette: Palette) -> UInt32 { palette.plain(accent: Look.defaultAccent).light }
 
     func draw(selecting id: AnyHashable? = nil, @ViewBuilder _ content: () -> some View) throws -> NSBitmapImageRep {
         let state = PanelState(pasteboard: .withUniqueName())
@@ -164,13 +164,45 @@ import Testing
         panel.close()
     }
 
+    @Test func aRowsArrowShowsOnlyWhenItIsSelectedInPlainAndAlwaysInConsole() throws {
+        let row = { CompactRow("budget.example.com", time: "1:11 PM", trailing: "Personal", id: "a") {} }
+        // The arrow's column: the 20 point side and the 6 point mark, at the row's right.
+        let column = (from: 400 - 2 - 20 - 6 as CGFloat, to: 400 - 2 - 20 as CGFloat)
+        #expect(inked(try draw(row), from: column.from, to: column.to).isEmpty)
+        #expect(!inked(try draw(selecting: "a", row), from: column.from, to: column.to).isEmpty)
+        // Its column stays, so the time and profile sit where they did.
+        let unselected = try draw(row)
+        let selected = try draw(selecting: "a", row)
+        // On the darker fill the letters' smoothing inks a pixel or two more at their edges, so where they start and end is
+        // held to the point and a half the profile's column is held to.
+        let words = { (rep: NSBitmapImageRep) in inked(rep, from: 200, to: column.from - 6) }
+        #expect(abs((words(unselected).first ?? 0) - (words(selected).first ?? -9)) <= 3)
+        #expect(abs((words(unselected).last ?? 0) - (words(selected).last ?? -9)) <= 3)
+        let console = try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .console, state: PanelState(pasteboard: .withUniqueName()), row)))
+        #expect(!inked(console, from: column.from + 6, to: column.to + 6).isEmpty)
+    }
+
+    @Test func aSidePagesGroupsSitUnderALineButNotItsFirstOrInTheList() throws {
+        let label = { (first: Bool, inSide: Bool) in PanelSectionLabel("Open once in", first: first).environment(\.inSidePage, inSide) }
+        // 8 below the group above, a line, then the label's own 24 less those 9: as tall as a label anywhere.
+        let lined = try draw { label(false, true) }
+        #expect(color(lined, 200, 8) == plain(.border))
+        #expect(color(lined, 200, 6) == plain(.bg))
+        #expect(color(lined, 200, 10) == plain(.bg))
+        #expect(try height { label(false, true) } == height { label(false, false) })
+        #expect(color(try draw { label(false, false) }, 200, 8) == plain(.bg))
+        #expect(color(try draw { label(true, true) }, 200, 8) == plain(.bg))
+        let console = try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .console) { label(false, true) }))
+        #expect(color(console, 200, 8) == Palette.bg.light)
+    }
+
     @Test func aCompactRowWithAPageOpensItBesideTheList() throws {
         let before = Look.app
         defer { Look.app = before }
         Look.app = .plain()
         let sample = try #require(samples.first { $0.name == "beeline-d-selected" })
         let rep = try #require(NSBitmapImageRep(data: try render(sample, appearance: Self.light)))
-        #expect(rep.pixelsWide == Int((2 * sample.width + MenuBarPanel.gap) * 2))
+        #expect(rep.pixelsWide == Int((sample.width + MenuBarPanel.gap + (sample.sideWidth ?? sample.width)) * 2))
         // The page's first line sits level with its row: nothing drawn beside the header, the page there beside the row.
         let page = sample.width + MenuBarPanel.gap + 20
         let drawn = { (y: CGFloat) in

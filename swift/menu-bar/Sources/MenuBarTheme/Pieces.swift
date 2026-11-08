@@ -157,7 +157,7 @@ public struct Row: View {
             Text(status.attributed).console(name == nil ? Metrics.body : Metrics.small).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(age).console(Metrics.small, tone: .secondary).monospacedDigit().lineLimit(1).fixedSize()
-            if opens { Brightening(text: "›", size: Metrics.body, tone: .muted, selected: .text).fixedSize() }
+            if opens { RowArrow().fixedSize() }
         }
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity))

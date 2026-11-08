@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
-import { DEFAULT_ACCENT, plainColors } from '../../look/index.ts'
+import { plainColors } from '../../look/index.ts'
 import { withoutPage } from '../../test/dom.ts'
 
 const FIXTURE = join(import.meta.dir, '../test/fixture')
@@ -205,19 +205,15 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(hex(await style('.row + .row', 'border-top-color'))).toBe(colors.border)
       expect(await style('.row', 'min-height')).toBe('44px')
       expect(hex(await style('.status.ok', 'color'))).toBe(colors.ok)
-      expect(hex(await style('.action', 'color'))).toBe(DEFAULT_ACCENT[scheme])
+      expect(hex(await style('.action', 'color'))).toBe(colors.info)
       expect(hex(await style('.action.remove', 'color'))).toBe(colors.error)
-      expect(hex(await style('.switch:checked', 'background-color'))).toBe(DEFAULT_ACCENT[scheme])
+      expect(hex(await style('.switch:checked', 'background-color'))).toBe(colors.info)
       expect(hex(await style('.switch:not(:checked)', 'border-top-color'))).toBe(colors.muted)
       expect(hex(await style('.field', 'border-top-color'))).toBe(colors.border)
       expect(hex(await style('.menu', 'border-bottom-color'))).toBe(colors.border)
       expect(hex(await style('.build', 'color'))).toBe(colors.secondary)
       // Chrome's own controls and scrollbars follow the scheme.
       expect(await style(':root', 'color-scheme')).toBe('light dark')
-      // A page's own accent is the one thing it sets.
-      await page.addStyleTag({ content: ':root { --accent-light: #7a2fa7; --accent-dark: #d29be6 }' })
-      expect(hex(await style('.action', 'color'))).toBe(scheme === 'light' ? '#7a2fa7' : '#d29be6')
-      await page.addStyleTag({ content: ':root { --accent-light: initial; --accent-dark: initial }' })
       await page.screenshot({ path: join(process.env.LOOK_PICTURES ?? tmpdir(), `extension-${scheme}.png`), fullPage: true })
     } finally {
       await page.close()

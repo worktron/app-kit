@@ -43,25 +43,79 @@ public enum Palette: UInt32, CaseIterable, Sendable {
         }
     }
 
-    /// The plain look, from the Plain Look Studies page's option C: Beeline's paper and graphites, with no boxes, so the
-    /// header and a code box sit on the panel's own paper. Info is the app's accent. Every tone but muted reads at least
-    /// 4.5 to 1 on the panel and on a selected line, in light and in dark, for which ok and warn in light are a shade darker
-    /// than the page's #2e7d4f and #9a5b00, which read 4.0 on the selected line. That line is the Beeline Menu Studies
-    /// page's darker fill, since #ecebe6 measured 1.09 to 1 on the paper.
-    public func plain(accent: Accent) -> (light: UInt32, dark: UInt32) {
+    /// The plain look, from the Plain Look Studies page's option C: Beeline's graphites on the paper, with no boxes, so
+    /// the header and a code box sit on the panel's own paper. Info is the app's accent, bg and surface its paper, hover its
+    /// highlight, and the raised surface and the lines the paper moved toward the text by `lineMix`, as the tokens file
+    /// works them out. Every tone but muted reads at least 4.5 to 1 on the kit's paper and highlight, in light and in dark,
+    /// for which ok and warn in light are a shade darker than the page's #2e7d4f and #9a5b00, which read 4.0 on the
+    /// selected line; an app's own colors are held to the same by `Look.app`.
+    public func plain(accent: Accent, background: Background = .default) -> (light: UInt32, dark: UInt32) {
+        let text: (light: UInt32, dark: UInt32) = (0x2a2c30, 0xe6e4df)
+        let paper = background.paper
+        let mixed = { (fraction: Double) in (Self.mix(paper.light, text.light, fraction), Self.mix(paper.dark, text.dark, fraction)) }
         switch self {
-        case .text: (0x2a2c30, 0xe6e4df)
-        case .secondary: (0x5c5f65, 0xa3a6ab)
-        case .muted: (0x8e9197, 0x74777d)
-        case .ok: (0x276d45, 0x7cc49a)
-        case .warn: (0x8d5300, 0xe0b46a)
-        case .error: (0xb3261e, 0xf2a39c)
-        case .info: (accent.light, accent.dark)
-        case .bg, .surface: (0xf6f5f2, 0x1d1e20)
-        case .surfaceHi: (0xefeee9, 0x242628)
-        case .border: (0xe2e0da, 0x323438)
-        case .borderHi: (0xd3d1ca, 0x3c3e42)
-        case .hover: (0xdfddd6, 0x36383c)
+        case .text: return text
+        case .secondary: return (0x5c5f65, 0xa3a6ab)
+        case .muted: return (0x8e9197, 0x74777d)
+        case .ok: return (0x276d45, 0x7cc49a)
+        case .warn: return (0x8d5300, 0xe0b46a)
+        case .error: return (0xb3261e, 0xf2a39c)
+        case .info: return (accent.light, accent.dark)
+        case .bg, .surface: return (paper.light, paper.dark)
+        case .surfaceHi: return mixed(Self.lineMix.surfaceHi)
+        case .border: return mixed(Self.lineMix.border)
+        case .borderHi: return mixed(Self.lineMix.borderHi)
+        case .hover: return (background.highlight.light, background.highlight.dark)
+        }
+    }
+
+    /// How far the plain look's raised surface and lines sit from the paper toward the text: the tokens file's
+    /// PLAIN_LINE_MIX.
+    public static let lineMix = (surfaceHi: 0.04, border: 0.11, borderHi: 0.17)
+
+    /// `from` moved `fraction` of the way to `to`, channel by channel, each rounded to the nearest whole value: the tokens
+    /// file's `mix`.
+    public static func mix(_ from: UInt32, _ to: UInt32, _ fraction: Double) -> UInt32 {
+        [16, 8, 0].reduce(UInt32(0)) { color, shift in
+            let a = Double((from >> UInt32(shift)) & 0xff)
+            let b = Double((to >> UInt32(shift)) & 0xff)
+            return color | UInt32((a + (b - a) * fraction).rounded()) << UInt32(shift)
+        }
+    }
+
+    /// The WCAG contrast of two sRGB colors, from 1 to 21: the tokens file's `contrast`.
+    public static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+        let luminance = { (hex: UInt32) -> Double in
+            let linear = [16, 8, 0].map { shift -> Double in
+                let c = Double((hex >> UInt32(shift)) & 0xff) / 255
+                return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+        }
+        let (high, low) = (max(luminance(a), luminance(b)), min(luminance(a), luminance(b)))
+        return (high + 0.05) / (low + 0.05)
+    }
+
+    /// The least contrast every text tone but muted keeps on the paper and the selected line: the tokens file's READABLE.
+    public static let readable = 4.5
+
+    /// Each text tone that reads under `readable` on `background`'s paper or highlight with `accent` as info, in light and
+    /// in dark, in the words the tokens file's `unreadable` uses; muted, faint on purpose, is not held to it.
+    public static func unreadable(accent: Accent, background: Background) -> [String] {
+        let tones: [Palette] = [.text, .secondary, .ok, .warn, .error, .info]
+        let hex = { (color: UInt32) in "#" + String(format: "%06x", color) }
+        return [true, false].flatMap { light in
+            let pick = { (palette: Palette) in
+                let pair = palette.plain(accent: accent, background: background)
+                return light ? pair.light : pair.dark
+            }
+            return tones.flatMap { tone in
+                [("paper", pick(.bg)), ("highlight", pick(.hover))].compactMap { name, ground -> String? in
+                    let ratio = contrast(pick(tone), ground)
+                    guard ratio < readable else { return nil }
+                    return "\(light ? "light" : "dark"): \(tone) \(hex(pick(tone))) reads \(String(format: "%.2f", ratio)) to 1 on the \(name) \(hex(ground))"
+                }
+            }
         }
     }
 
@@ -70,8 +124,8 @@ public enum Palette: UInt32, CaseIterable, Sendable {
         let isLight = appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
         switch look {
         case .console: return isLight ? light : dark
-        case .plain(let accent):
-            let pair = plain(accent: accent)
+        case .plain(let accent, let background):
+            let pair = plain(accent: accent, background: background)
             return isLight ? pair.light : pair.dark
         }
     }

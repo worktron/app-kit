@@ -10,12 +10,13 @@
 // app-kit's releases are of another part, leaves every copy current. The stylesheet's copy, look.css, opens with a
 // CSS comment rather than a `//` line, which CSS would read as part of the rule after it, and holds the look's
 // variables, written from the tokens file as it is copied, above the kit's rules (extension/look.css), so the kit
-// keeps no generated file and no copy of the values.
+// keeps no generated file and no copy of the values. An extension that sets its own accent, or its paper with its
+// highlight, says so in look.json beside its manifest, which the copy reads, checks and writes into the variables.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, normalize, relative } from 'node:path'
+import { dirname, join, normalize, relative, resolve } from 'node:path'
 import packageJson from '../package.json'
-import { FONTS, PLAIN_SIZES, plainColors, type Colors } from '../look/index'
+import { FONTS, PLAIN_SIZES, plainColors, type Colors, type LightDark, type PlainChoices } from '../look/index'
 
 /** The kit's worker files, as shipped. */
 export const WORKER_DIR = join(import.meta.dir, 'worker')
@@ -35,34 +36,67 @@ export function copiedFiles(): string[] {
 
 const header = `Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.`
 
-function copied(name: string): string {
-  if (name === STYLESHEET) return `/* ${header} */\n${lookVariables()}\n${readFileSync(join(import.meta.dir, STYLESHEET), 'utf8')}`
+function copied(name: string, folder: string): string {
+  if (name === STYLESHEET) return `/* ${header} */\n${lookVariables(lookChoices(folder))}\n${readFileSync(join(import.meta.dir, STYLESHEET), 'utf8')}`
   return `// ${header}\n${readFileSync(join(WORKER_DIR, name), 'utf8')}`
 }
 
 const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
 
+/** The file beside an extension's manifest that holds the plain look's choices it makes: its accent, its paper and highlight. */
+export const LOOK_CHOICES = 'look.json'
+
 /**
- * The look's CSS variables from the tokens file: each color role, light, and dark under prefers-color-scheme, with
- * info as the page's accent, `--accent-light` and `--accent-dark`, or the kit's blue; the typefaces; and every size,
- * in pixels but for the weights and the line height.
+ * The plain look's choices for the extension whose copies are in `folder`: look.json in the nearest folder at or above
+ * it that holds a manifest.json, `{ "accent": { "light", "dark" }, "background": { "paper": {…}, "highlight": {…} } }`,
+ * each color #rrggbb; none when there is no such file. A file in another shape is refused, naming what is wrong.
  */
-export function lookVariables(): string {
-  const { light, dark } = plainColors()
-  const colors = (scheme: Colors, accent: 'light' | 'dark') =>
-    Object.entries(scheme).map(([role, value]) => `  --${kebab(role)}: ${role === 'info' ? `var(--accent-${accent}, ${value})` : value};`)
+export function lookChoices(folder: string): PlainChoices {
+  let at = resolve(folder)
+  while (!existsSync(join(at, 'manifest.json'))) {
+    if (dirname(at) === at) return {}
+    at = dirname(at)
+  }
+  const path = join(at, LOOK_CHOICES)
+  if (!existsSync(path)) return {}
+  const read = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  const pair = (value: unknown, name: string): LightDark => {
+    const { light, dark } = (value ?? {}) as Record<string, unknown>
+    const hex = (color: unknown) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)
+    if (!hex(light) || !hex(dark)) throw new Error(`${path}: ${name} needs a light and a dark color, each #rrggbb`)
+    return { light: (light as string).toLowerCase(), dark: (dark as string).toLowerCase() }
+  }
+  const unknown = Object.keys(read).filter((key) => key !== 'accent' && key !== 'background')
+  if (unknown.length) throw new Error(`${path}: ${unknown.join(', ')} is not a choice the plain look takes; it takes accent and background`)
+  const choices: PlainChoices = {}
+  if (read.accent !== undefined) choices.accent = pair(read.accent, 'accent')
+  if (read.background !== undefined) {
+    const { paper, highlight } = read.background as Record<string, unknown>
+    choices.background = { paper: pair(paper, 'background.paper'), highlight: pair(highlight, 'background.highlight') }
+  }
+  return choices
+}
+
+/**
+ * The look's CSS variables from the tokens file and the extension's choices: each color role, light, and dark under
+ * prefers-color-scheme; the typefaces; and every size, in pixels but for the weights and the line height. Colors whose
+ * text would read under 4.5 to 1 are refused, as `plainColors` refuses them.
+ */
+export function lookVariables(choices: PlainChoices = {}): string {
+  const { light, dark } = plainColors(choices)
+  const colors = (scheme: Colors) => Object.entries(scheme).map(([role, value]) => `  --${kebab(role)}: ${value};`)
   const sizes = Object.entries(PLAIN_SIZES).map(([name, value]) => `  --${kebab(name)}: ${/Weight|lineHeight/.test(name) ? value : `${value}px`};`)
   return [
     ':root {',
     '  color-scheme: light dark;',
-    ...colors(light, 'light'),
+    ...colors(light),
     `  --font: ${FONTS.plain};`,
     `  --font-code: ${FONTS.code};`,
     ...sizes,
     '}',
     '@media (prefers-color-scheme: dark) {',
     '  :root {',
-    ...colors(dark, 'dark').map((line) => `  ${line}`),
+    ...colors(dark).map((line) => `  ${line}`),
     '  }',
     '}',
     '',
@@ -110,8 +144,10 @@ export function copyWorker(folder: string): string[] {
     const own = present.filter((name) => !isCopy(join(folder, name)))
     if (own.length) throw new Error(`${own.join(', ')} in ${folder} ${own.length === 1 ? 'is' : 'are'} not a copy of the kit's, so copying would overwrite the extension's own code`)
   }
+  // Read before anything is written, so a refused look.json leaves the copies as they were.
+  const contents = names.map((name) => copied(name, folder))
   mkdirSync(folder, { recursive: true })
-  for (const name of names) writeFileSync(join(folder, name), copied(name))
+  names.forEach((name, at) => writeFileSync(join(folder, name), contents[at]!))
   return names
 }
 
@@ -146,6 +182,6 @@ export function unlistedImports(extensionFolder: string, loadedFiles: string[]):
 export function workerCopyDiffers(folder: string): string[] {
   return copiedFiles().filter((name) => {
     const path = join(folder, name)
-    return !existsSync(path) || below(readFileSync(path, 'utf8')) !== below(copied(name))
+    return !existsSync(path) || below(readFileSync(path, 'utf8')) !== below(copied(name, folder))
   })
 }
