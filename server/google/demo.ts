@@ -12,9 +12,9 @@
  */
 import { readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { opRead } from '../../command-line/index.ts';
-import { lock, stateFolder } from '../../tauri/state.ts';
-import { readGoogleResponse } from './index.ts';
+import { opRead } from '../../command-line/index';
+import { lock, stateFolder } from '../../tauri/state';
+import { readGoogleResponse } from './index';
 
 /** The folder of the Chrome profile signed in to the demo account `address`, which its videos are recorded in. */
 export function demoChromeFolder(address: string, env: Record<string, string | undefined> = process.env): string {

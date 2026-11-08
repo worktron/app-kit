@@ -6,8 +6,8 @@
 
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { runCommand, type Run } from './run.ts'
-import { stateFolder } from '../tauri/state.ts'
+import { runCommand, type Run } from './run'
+import { stateFolder } from '../tauri/state'
 
 /** The Swift package, in the kit's own folder wherever bun installed it. */
 export const RECORDER_PACKAGE = join(import.meta.dir, '..', 'swift', 'window-recording')

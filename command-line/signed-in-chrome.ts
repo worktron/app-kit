@@ -20,7 +20,7 @@ import { existsSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
-import { alive, lock } from '../tauri/state.ts'
+import { alive, lock } from '../tauri/state'
 
 /** Google Chrome's program, inside the app macOS installs. */
 export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
