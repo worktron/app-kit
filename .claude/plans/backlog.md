@@ -445,3 +445,13 @@ Shape: a way for `--web` to draw the manifest icons from the tile alone, its cor
 
 Done when: `icons render` on a fixture drawing writes `icon-192.png` and `icon-512.png` with no alpha channel and the tile filling the square, held by a test in test/icons.test.ts; and urge-surfer's icons rendered by it match its current ones within a shade, its make-icons.ts gone.
 Found by: urge-surfer's app-kit-v0-47-1 thread, 2026-11-07.
+
+## harness-stopped-worker-hang · The harness's stopped-worker test hangs now and then
+
+Goal: extension/e2e/harness.e2e.ts "a worker stopped in the middle of a run leaves it cut short, and the next run takes the lock" (landed with extension jobs in v0.49.0) hung for its full 60 seconds in one of five full runs of the file on the process-usage-window branch (2026-11-08, inside scripts/gates.sh, after "killed 1 dangling process"). Chrome then stopped running the extension, so the four tests after it failed with "Chrome is not running the extension, so its native host is not listening". The other four runs passed 10 of 10, and the branch touched nothing under extension/. The cause is unknown: find which wait in the test never ended (the running record, the next run after `stopWorker()`, or the "job cut short" console line, which may be the stale worker handle harness-stop-worker-handle describes), and fix it where it lives. Separately, run alone with `-t` the test fails in 2 ms, since it uses the native-host connection an earlier test in the file opens; give it its own setup so it runs alone.
+Gives up: nothing.
+Done when: the test runs alone with `-t` and passes; the reason for the hang is named in its fix, with a test that reproduces that order and fails on the old code; and the whole file passes 20 runs in a row, several of them alongside the rest of the gates.
+Do not touch: what `stopWorker()` waits for before it returns, which the extension-reload-alarms diagnostic relies on.
+Needs: none; may share a cause with harness-stop-worker-handle.
+Touches: extension/e2e/harness.e2e.ts, possibly extension/harness/index.ts.
+Source: process-usage-window thread, its full gates run on 2026-11-08.
