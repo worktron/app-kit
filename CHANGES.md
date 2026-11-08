@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.52.2
+
+Urgency: next round
+
+- An app that passes signUp to SignInGate takes this so a new address gets an emailed code instead of "There is no account"; others need nothing.
+
 ## v0.52.1
 
 Urgency: rides along
