@@ -426,3 +426,13 @@ Done when: the cause is named with evidence (a held first paint or a slowed cloc
 Do not touch: what `expectSteady` counts as steady for a page that really does draw a blank frame, which apps' tests rely on.
 
 Touches: web/playwright.js, web/e2e/steps.e2e.ts, web/e2e/fixture/.
+
+## harness-stop-worker-handle · The harness's worker stop picks up the worker Chrome starts next
+
+Goal: `stopWorker()` in extension/harness/index.ts (landed with extension-jobs in v0.49.0) stops the extension's service worker through the DevTools protocol and returns, leaving `worker` on the stopped worker's Playwright handle; only `nextWorker()` replaces it. extension/e2e/harness.e2e.ts "a worker stopped in the middle of a run leaves it cut short, and the next run takes the lock" then reads the run record and the worker's console through that handle. It passes today because Playwright 1.64 keeps the same Worker object across a stop and restart and emits no new 'serviceworker' event (Playwright PR 39476, as the extension-reload-alarms thread found), but the branch review of extension-jobs flagged it twice: a Playwright that gives a restarted worker a new handle would leave the test reading a closed one, so it fails at the next upgrade rather than in the change that caused it. Have the harness follow the worker Chrome starts after a stop (from the DevTools protocol's workerVersionUpdated reaching running, or Playwright's own event when it sends one), so `worker` is always the live one, and an extension's own test of a stopped worker needs no handle bookkeeping.
+
+Done when: after `stopWorker()` and the next event that starts the worker, `ext.worker` evaluates in the running worker and its console reaches a listener attached to it, held by a harness test that would fail if the handle went stale; the harness test above passes unchanged.
+
+Do not touch: what `stopWorker()` waits for before it returns (Chrome reporting the worker stopped), which the extension-reload-alarms diagnostic relies on.
+
+Touches: extension/harness/index.ts, extension/e2e/harness.e2e.ts, README's extension section.
