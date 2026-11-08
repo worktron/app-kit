@@ -8,12 +8,18 @@ import { expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'fs';
 import { relative } from 'path';
 
-/** An email address: a domain of letters ends it, so a package's name@1.2.3 is not one. */
-const EMAIL = /[\w.+-]+@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
+/**
+ * An email address: a domain of letters ends it, so a package's name@1.2.3 is not one. Its name before the @ is at most
+ * the 64 characters an address may have, which keeps a long run of letters from being tried from every start to its end.
+ */
+const EMAIL = /[\w.+-]{1,64}@[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}\b/gi;
 /** A home folder, as a path or as JSON writes one, with each slash escaped ("\/Users\/someone"). */
 const HOME_FOLDER = /\\?\/(?:Users|home)\\?\/[\w.-]+/g;
-/** A real Google Cloud project, by number, or an OAuth client of one. A test's stand-in project is a short number. */
-const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]+\.apps\.googleusercontent\.com/g;
+/**
+ * A real Google Cloud project, by number, or an OAuth client of one. A test's stand-in project is a short number. A
+ * client's name is one part of a host name, at most 63 characters, for the same reason as an email's.
+ */
+const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]{1,63}\.apps\.googleusercontent\.com/g;
 /** Test addresses, the project's own, and the Co-Authored-By trailer's, which names no one and a plan may quote. */
 const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$|^noreply@anthropic\.com$/;
 const COMMIT_NAMES = new Set(['Worktron']);
@@ -41,6 +47,19 @@ test('a personal email or a home folder is found, and test addresses are not', (
   // The trailer's address names no one; anyone else's at the same company is a person's.
   expect(personalFacts('Co-Authored-By: Claude <noreply@anthropic.com>, from someone@anthropic.com')).toEqual(['someone@anthropic.com']);
   expect(personalFacts('"dataPath" : "\\/Users\\/someone\\/Library"')).toEqual(['\\/Users\\/someone']);
+});
+
+// A run of letters as long as a test file's (the Apple Messages reader's has one of 70,000) took the email and Google
+// client patterns seconds, since each tried every start in the run to its end, and a busy machine stretched that past
+// the five seconds a test may take.
+test('a run of 200,000 letters is scanned at once, and what follows it is still found', () => {
+  const run = 'a'.repeat(200_000);
+  expect(personalFacts(`${run} someone@gmail.com ${run} 123-abc.apps.googleusercontent.com ${run}`)).toEqual([
+    'someone@gmail.com',
+    '123-abc.apps.googleusercontent.com',
+  ]);
+  // An address longer than any address may be is still found, from its last 64 characters.
+  expect(personalFacts(`${'x'.repeat(100)}@gmail.com`)).toEqual([`${'x'.repeat(64)}@gmail.com`]);
 });
 
 test("a Google Cloud project's number or OAuth client is found, and a test's stand-in project is not", () => {
