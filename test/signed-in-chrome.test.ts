@@ -2,7 +2,7 @@ import { afterAll, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { driveArguments, lastUsedProfile, ordinaryUserAgent, withProfile } from '../command-line/signed-in-chrome.ts'
+import { driveArguments, lastUsedProfile, ordinaryUserAgent, windowWhereAsked, withProfile } from '../command-line/signed-in-chrome.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-signed-in-chrome-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -48,4 +48,11 @@ test('a second run of the same profile is refused while the first holds it, nami
     writeFileSync(join(folder, 'profile.lock'), String(process.pid))
   })
   expect(String(second)).toContain('Another run holds the demo videos profile')
+})
+
+test('a window Chrome moved elsewhere, as macOS moves one it judges off every screen, is caught', () => {
+  const asked = { left: 2620, top: 1500, width: 1280, height: 800 }
+  expect(windowWhereAsked({ left: 2620, top: 1470 }, asked)).toBe(true)
+  expect(windowWhereAsked({ left: 380, top: 636 }, asked)).toBe(false)
+  expect(windowWhereAsked({}, asked)).toBe(false)
 })

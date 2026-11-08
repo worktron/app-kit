@@ -206,12 +206,27 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
   return { browser, page, pid: chrome.pid ?? 0, close }
 }
 
-/** Makes the run's one window at `window`, in the background, and gives its page. */
+/**
+ * Whether Chrome put its window where it was asked, its top within the height of a title bar and its left within two
+ * points: macOS moves a window it judges off every screen onto the main one, which is the owner's.
+ */
+export function windowWhereAsked(bounds: { left?: number; top?: number }, window: WindowPlace): boolean {
+  return Math.abs((bounds.left ?? Number.NaN) - window.left) <= 2 && Math.abs((bounds.top ?? Number.NaN) - window.top) <= 40
+}
+
+/**
+ * Makes the run's one window at `window`, in the background, and gives its page. A window Chrome put anywhere else is
+ * closed at once, with Chrome, and the run stops, so it never stays on the owner's screen.
+ */
 async function openWindow(browser: Browser, window: WindowPlace): Promise<Page> {
   const context = browser.contexts()[0]
   if (!context) throw new Error('Chrome has no default context to open a window in.')
   const opened = context.waitForEvent('page', { timeout: 15_000 })
   const session = await browser.newBrowserCDPSession()
-  await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true, ...window })
+  const { targetId } = await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true, ...window })
+  const { bounds } = await session.send('Browser.getWindowForTarget', { targetId })
+  if (!windowWhereAsked(bounds, window)) {
+    throw new Error(`Chrome put its window at ${bounds.left},${bounds.top} instead of ${window.left},${window.top}, so it was closed and nothing was recorded.`)
+  }
   return await opened
 }
