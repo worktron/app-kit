@@ -4,13 +4,19 @@
 // iPhone app's bridge at the App Store's sizes, each store size's exact pixels, a failing step, and a parent that ends
 // taking the browser with it. Run with `bun test ./web/e2e/drive.e2e.ts`, which scripts/gates.sh does; Playwright's own
 // run of web/e2e leaves it out.
+//
+// No case has a time limit: each starts a browser, which a busy machine can take any time to start, so a limit would
+// fail a landing on load alone. Each case ends when the run it waits for ends, and the run ends each of its steps by
+// Playwright's own limits; the waits below that no run ends also end when the process they wait on exits.
 
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { withoutPage } from '../../test/dom.ts'
+
+setDefaultTimeout(0)
 
 const COMMAND = join(import.meta.dir, '../../bin/app-kit.ts')
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-drive-')))
@@ -193,7 +199,7 @@ test('every step kind runs, with the page clock started at a past date and jumpe
   expect(stdout).not.toContain('images.example.com')
   expect(png(join(folder, 'start-phone.png')).width).toBe(390)
   expect(png(join(folder, 'signed-in.png'))).toEqual({ width: 390, height: 844, colorType: 2 })
-}, 30_000)
+})
 
 test("the steps file's initScript, a path beside it, runs in the page before the page's own scripts", async () => {
   writeFileSync(join(dir, 'extension-stand-in.js'), 'window.chrome = { runtime: { sendMessage: () => ({ connected: false }) } }\n')
@@ -202,7 +208,7 @@ test("the steps file's initScript, a path beside it, runs in the page before the
   expect(stdout).toContain('Extension: {\\"connected\\":false}')
   const plain = await run({ steps: [{ goto: '/who' }, { read: 'who' }] })
   expect(plain.stdout).toContain('Extension: none')
-}, 30_000)
+})
 
 test("a run that waits longer than the test runner's default limit before it starts its browser still passes", async () => {
   // A busy machine's delay: the run is kept from starting until six seconds have passed, past bun's default of five.
@@ -226,7 +232,7 @@ test("the steps file's cookies reach the server, and its time zone and locale se
   expect(stdout).toContain('When: 02.11.26, 18:00')
   const plain = await run({ steps: [{ goto: '/who' }, { read: 'who' }] })
   expect(plain.stdout).toContain('heading "Person: none"')
-}, 30_000)
+})
 
 test("each store size writes an image of that store's exact pixels, with no alpha channel, and the App Store's draw as the iPhone app", async () => {
   const expected = {
@@ -242,7 +248,7 @@ test("each store size writes an image of that store's exact pixels, with no alph
     expect(png(join(folder, 'home.png'))).toEqual({ width: want.width, height: want.height, colorType: 2 })
     expect(stdout).toContain(`In the iPhone app: ${want.app}`)
   })
-}, 60_000)
+})
 
 test('a step that fails exits 1 and prints the page as it was', async () => {
   const { code, stdout } = await run({ steps: [{ goto: '/' }, { fill: { role: 'button', name: 'Load the list' }, value: 'x' }] })
@@ -250,13 +256,13 @@ test('a step that fails exits 1 and prints the page as it was', async () => {
   expect(stdout).toContain('[step failed:')
   expect(stdout).toContain('=== the page when it failed, at / ===')
   expect(stdout).toContain('heading "Shelf"')
-}, 30_000)
+})
 
 test('a store image from a page with no viewport tag, which a phone scales, fails its step rather than writing the wrong size', async () => {
   const { code, stdout } = await run({ size: 'iphone-6.3', steps: [{ goto: '/bare' }, { shot: 'bare' }] })
   expect(code).toBe(1)
   expect(stdout).toContain('not the 1206 by 2622 iphone-6.3 asks for')
-}, 30_000)
+})
 
 test('a steps file that is wrong is refused before any browser starts', async () => {
   const { code, stderr } = await run({ steps: [{ goto: '/' }, { advance: 1000 }] })
@@ -289,11 +295,15 @@ test('with the watch asked for, the browser closes when the parent that started 
     stderr: 'pipe',
     env: { ...process.env, APP_KIT_DRIVE_STOP_WHEN_PARENT_ENDS: 'on' },
   })
-  // The browser is up once it has asked for the page.
+  // The browser is up once it has asked for the page; a run that ends first fails with what it printed.
   const before = served.length
-  await new Promise<void>((resolve) => {
-    onServed = () => served.length > before && resolve()
+  const asked = new Promise<boolean>((resolve) => {
+    onServed = () => served.length > before && resolve(true)
   })
+  if (!(await Promise.race([asked, child.exited.then(() => false)]))) {
+    const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
+    throw new Error(`the run ended (${child.exitCode}) before its browser asked for a page:\n${stdout}${stderr}`)
+  }
   const browser = descendants(child.pid)
   try {
     expect(browser.length).toBeGreaterThan(0)
@@ -303,10 +313,14 @@ test('with the watch asked for, the browser closes when the parent that started 
   }
   expect(await child.exited).toBe(1)
   // Playwright's close returns when the browser's main process ends; its helpers end a moment after it. Each is waited
-  // for until it is gone, and a helper that never goes fails the test at its time limit.
-  while (browser.some(alive)) await Bun.sleep(20)
-  expect(browser.filter(alive)).toEqual([])
-}, 30_000)
+  // for until it is gone, for up to 30 seconds from the run's end, so a helper that never goes fails the test, and is
+  // stopped, rather than leaving the gates waiting with no word. The limit is on the browser's teardown, never its start.
+  const ended = Date.now()
+  while (browser.some(alive) && Date.now() - ended < 30_000) await Bun.sleep(20)
+  const left = browser.filter(alive)
+  for (const pid of left) process.kill(pid, 'SIGKILL')
+  expect(left).toEqual([])
+})
 
 test('with the watch asked for, a run whose steps all pass exits 0 while its parent still holds the pipe', async () => {
   const folder = join(dir, 'watched-done')
@@ -323,7 +337,7 @@ test('with the watch asked for, a run whose steps all pass exits 0 while its par
   } finally {
     child.stdin.end()
   }
-}, 30_000)
+})
 
 /** A process macOS's audio service saw with an output device open, as audio-output.swift reports it. */
 type Output = { pid: number; executable: string; parents: number[] }
@@ -336,8 +350,10 @@ test("a page's sound opens no output device on the Mac", async () => {
   const outputs: Output[] = []
   let answered = () => {}
   let rest = ''
-  const ready = new Promise<void>((resolve, reject) => {
-    recorder.on('exit', (code, signal) => reject(new Error(`audio-output ended (${code ?? signal}) before it was ready`)))
+  // Every wait on the recorder also ends, as a failure, if it exits first.
+  const exited = new Promise<never>((_, reject) => recorder.on('exit', (code, signal) => reject(new Error(`audio-output ended (${code ?? signal}) before it answered`))))
+  exited.catch(() => {})
+  const ready = new Promise<void>((resolve) => {
     recorder.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       const lines = (rest + chunk).split('\n')
       rest = lines.pop()!
@@ -349,18 +365,21 @@ test("a page's sound opens no output device on the Mac", async () => {
     })
   })
   try {
-    await ready
+    await Promise.race([ready, exited])
     const { code, stdout } = await run({ steps: [{ goto: '/audio' }, { click: { role: 'button', name: 'Play' } }, { waitFor: { text: 'Played' } }, { read: 'played' }] })
     expect(code).toBe(0)
     expect(stdout).toContain('Played')
     // Every process that ran output while the page played is reported before the recorder answers a mark sent now.
-    await new Promise<void>((resolve) => {
-      answered = resolve
-      recorder.stdin.write('mark\n')
-    })
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        answered = resolve
+        recorder.stdin.write('mark\n')
+      }),
+      exited,
+    ])
     expect(outputs.filter((output) => output.parents.includes(process.pid))).toEqual([])
   } finally {
     recorder.stdin.end()
     recorder.kill()
   }
-}, 60_000)
+})
