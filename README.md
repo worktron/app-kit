@@ -863,7 +863,7 @@ It never presses Submit for review, Publish, Unpublish, Cancel review or Delete:
 An extension's first Store release is Unlisted, as practices' extensions rule says; these are the steps.
 
 1. The listing says `- Visibility: Unlisted, to invited testers.`, and `app-kit extension dashboard fill --visibility` sets it on the draft, with the rest of the listing, on the owner's yes.
-2. The owner presses Submit for review. Once Google approves it, it publishes by itself: anyone with the Store link can install it, and it shows in no Store search.
+2. The owner presses Submit for review. Once Google approves it, it publishes by itself: anyone with the Store link can install it, and it shows in no Store search, though Google's dashboard warns that web search engines may still list it.
 3. Testers are invited in the app itself, which is what lets them in, and sent the Store link. They install from the Store, so they get every update.
 4. Every later release goes through the extension's publish script and the Store's API.
 5. Going Public, once the app takes people beyond its invite list and the listing is written for strangers, is the owner's change of visibility in the dashboard, submitted and published there once. Until a visibility change made in the dashboard has been published by hand, the API refuses to publish, so the publish script fails until then.
