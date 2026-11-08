@@ -45,14 +45,20 @@ export const CERTIFICATE_RECORD: StandInCertificate = { id: 'CERT000001', serial
 /** An App Store profile Apple holds for the app. */
 export type StandInProfile = { id: string; uuid: string; content: string; type: string; state: string; certificates: string[]; bundle?: string };
 /**
- * A profile's content as Apple sends it, in base64: with App Groups, the plist Apple signs into a real one, in the shape
- * an App Store profile's Entitlements list them, before the stand-in's words, which end with the uuid.
+ * A profile's content as Apple sends it, in base64, ending with the stand-in's words and the uuid. A real one is a signed
+ * message holding its plist as plain text; this one holds the Entitlements dict laid out as an App Store profile on this
+ * Mac lays it out (the team replaced), with the keychain's access groups, an array of the same shape as the App Groups,
+ * and, with `groups`, the App Groups as Apple lists an assigned group (Apple's developer forums, thread 775022). No
+ * profile allowing an App Group was at hand to record, so that array's place in the dict follows the others'.
  */
 export const profileContent = (uuid: string, groups: string[] = []) => {
-  const entitlements = groups.length
-    ? `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>Entitlements</key>\n\t<dict>\n\t\t<key>com.apple.security.application-groups</key>\n\t\t<array>\n${groups.map((group) => `\t\t\t<string>${group}</string>\n`).join('')}\t\t</array>\n\t</dict>\n</dict>\n</plist>\n`
-    : '';
-  return Buffer.from(`${entitlements}a stand-in profile ${uuid}`).toString('base64');
+  const appGroups = groups.length ? `\t\t\t\t\n\t\t\t\t<key>com.apple.security.application-groups</key>\n\t\t<array>\n${groups.map((group) => `\t\t\t\t<string>${group}</string>\n`).join('')}\t\t</array>\n` : '';
+  const entitlements =
+    '0\x80\x06\t*\x86H\x86\xf7\r\x01\x07\x02<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>Entitlements</key>\n\t<dict>\n' +
+    `\t\t\t\t\n\t\t\t\t<key>application-identifier</key>\n\t\t<string>TEAM000000.*</string>\n${appGroups}` +
+    '\t\t\t\t\n\t\t\t\t<key>keychain-access-groups</key>\n\t\t<array>\n\t\t\t\t<string>TEAM000000.*</string>\n\t\t\t\t<string>com.apple.token</string>\n\t\t</array>\n' +
+    '\n\t</dict>\n</dict>\n</plist>\n';
+  return Buffer.from(`${entitlements}a stand-in profile ${uuid}`, 'latin1').toString('base64');
 };
 
 const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;

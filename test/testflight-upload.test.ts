@@ -667,6 +667,7 @@ describe('an app with a share extension', () => {
 
   test("a profile's App Groups are read from the plist Apple signs into it", () => {
     expect(profileGroups(profileContent('uuid-1', [GROUP, 'group.other']))).toEqual([GROUP, 'group.other']);
+    // The keychain's access groups, an array beside it, are not App Groups.
     expect(profileGroups(profileContent('uuid-1'))).toEqual([]);
   });
 });
@@ -709,6 +710,14 @@ describe('the pure parts', () => {
       info: { CFBundleVersion: '7', ITSAppUsesNonExemptEncryption: false },
       entitlements: { 'aps-environment': 'development', 'get-task-allow': true },
     };
+    // With the Xcode project's targets: the app's own signature must allow its App Group, and each extension the
+    // project builds must be inside the app.
+    const asked = { app: { name: 'past-the-break_iOS', bundleId: 'app.pastthebreak', groups: [GROUP], configurations: [] }, extensions: [] };
+    expect(ipaProblems(pastTheBreak, 108, asked)).toEqual([`its signature lacks the App Group ${GROUP} its entitlements ask for`]);
+    const grouped = { ...pastTheBreak, entitlements: { ...pastTheBreak.entitlements, 'com.apple.security.application-groups': [GROUP] } };
+    expect(ipaProblems(grouped, 108, asked)).toEqual([]);
+    const withShare = { ...asked, extensions: [{ name: 'past-the-break-share', bundleId: SHARE_ID, groups: [GROUP], configurations: [] }] };
+    expect(ipaProblems({ ...grouped, extensions: [] }, 108, withShare)).toEqual([`it holds no app extension ${SHARE_ID}, which the Xcode project builds`]);
     expect(ipaProblems(argonDevelopment, 7)).toEqual([
       "its aps-environment is development, not production, so push would go to Apple's sandbox",
       'its beta-reports-active is not true, so it is not signed for TestFlight',
