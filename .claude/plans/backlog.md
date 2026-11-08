@@ -515,3 +515,12 @@ Done when: a unit test starts a group of stand-in processes with no group leader
 Do not touch: what the script measures or how it counts a cycle.
 Needs: none.
 Touches: extension/e2e/reload-alarms.ts, a new test under extension/test/.
+
+## public-history-scan-main · The public-repository history check reads only what main holds, and stays under its time limit
+Written by: app-kit/share-extension-signing
+
+Goal: test/public.test.ts "no file in any commit ever named a personal email or home folder, though a later commit took it out" runs `git log --all -p` over every ref the repository holds. In a worktree that is every branch of every app-kit thread on the machine (265 refs on 2026-11-08), so its time grows with other threads' work, and one 5-second test does it all in JavaScript. On 2026-11-08 it ran 5.2 s and stopped the share-extension-signing landing (v0.52.3) at a load average of 145 to 185, after passing in four earlier gate runs that day; the git read alone took 1 s. The ticket at "a landing that changes only .claude/plans skips every gate" already notes that `--all` lets another thread's unlanded commit stop an unrelated landing. Read only main's history plus the branch being landed (or only what a landing adds, as that ticket proposes), so the check's cost and its verdict depend on this landing alone.
+
+Done when: the history checks in test/public.test.ts read no ref but main and HEAD, a test holds that an unlanded commit on another local branch neither slows nor fails them, and the file passes under its time limits in several parallel runs.
+
+Touches: test/public.test.ts.
