@@ -176,6 +176,10 @@ describe('reading ps', () => {
     ]);
   });
 
+  test("pcpu with a comma, as ps prints it under a locale such as de_DE (recorded on this Mac), reads the same", () => {
+    expect(parsePs('    1     0     0 287:51.67  22,1  23792 /sbin/launchd\n')[0]?.cpuPercent).toBe(22.1);
+  });
+
   test("the arguments ask every process for the parser's columns, with -c for the program's name alone", () => {
     expect(psArguments()).toEqual(['-A', '-o', 'pid=,ppid=,uid=,time=,pcpu=,rss=,comm=']);
     expect(psArguments('name')).toEqual(['-A', '-c', '-o', 'pid=,ppid=,uid=,time=,pcpu=,rss=,comm=']);
@@ -201,10 +205,15 @@ function readThisProcess(): MachineReading {
 }
 
 describe.if(process.platform === 'darwin')('on this Mac', () => {
-  test("every line of the real ps parses, a zombie's aside, by path and by name", () => {
-    for (const program of ['path', 'name'] as const) {
-      // One run of ps, read both ways: two runs list different processes on a machine that is starting and ending them.
-      const text = Bun.spawnSync(['ps', ...psArguments(program)]).stdout.toString();
+  test("every line of the real ps parses, a zombie's aside, by path and by name, and under a comma locale", () => {
+    const runs = [
+      { program: 'path', env: process.env },
+      { program: 'name', env: process.env },
+      { program: 'path', env: { ...process.env, LC_ALL: 'de_DE.UTF-8' } },
+    ] as const;
+    for (const { program, env } of runs) {
+      // One run of ps, counted and parsed: two runs list different processes on a machine that is starting and ending them.
+      const text = Bun.spawnSync(['ps', ...psArguments(program)], { env }).stdout.toString();
       const lines = text.split('\n').filter((l) => l.trim());
       const zombies = lines.filter((l) => /^\s*\d+\s+\d+\s+\d+\s+-\s/.test(l)).length;
       const rows = parsePs(text);

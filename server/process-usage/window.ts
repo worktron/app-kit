@@ -56,11 +56,14 @@ export function parseCpuTime(text: string): number | null {
   return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
 }
 
-/** The output of `ps` run with psArguments. A line with no time, a zombie's, is left out. */
+/**
+ * The output of `ps` run with psArguments. A line with no time, a zombie's, is left out. Under a locale such as de_DE
+ * `ps` prints pcpu with a comma (22,1) and the time still with a point, so pcpu takes either.
+ */
 export function parsePs(text: string): ProcessRow[] {
   const rows: ProcessRow[] = [];
   for (const line of text.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\d+(?:\.\d+)?)\s+(\d+)\s+(.+)$/.exec(line);
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\d+(?:[.,]\d+)?)\s+(\d+)\s+(.+)$/.exec(line);
     const cpuSeconds = m ? parseCpuTime(m[4]!) : null;
     if (!m || cpuSeconds === null) continue;
     rows.push({
@@ -68,7 +71,7 @@ export function parsePs(text: string): ProcessRow[] {
       ppid: Number(m[2]),
       uid: Number(m[3]),
       cpuSeconds,
-      cpuPercent: Number(m[5]),
+      cpuPercent: Number(m[5]!.replace(',', '.')),
       residentBytes: Number(m[6]) * 1024,
       program: m[7]!.trim(),
     });
