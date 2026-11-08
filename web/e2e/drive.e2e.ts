@@ -132,14 +132,30 @@ afterAll(() => {
 })
 let made = 0
 
-/** Runs the command on a steps file, with no input attached, as an agent's shell runs it. */
-async function run(steps: object, env: Record<string, string> = {}) {
+/**
+ * Runs the command on a steps file, with no input attached, as an agent's shell runs it. With `held`, the command is
+ * kept from starting, and so from starting its browser, until `held` settles, as a busy machine delays it: a shell
+ * waits for the test's word, then becomes the command with no input attached.
+ */
+async function run(steps: object, env: Record<string, string> = {}, options: { held?: Promise<unknown> } = {}) {
   const folder = join(dir, `run-${++made}`)
   const file = `${folder}.json`
   writeFileSync(file, JSON.stringify(steps))
-  const child = Bun.spawn([process.execPath, COMMAND, 'web', 'drive', address, file, folder], { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } })
+  const command = [process.execPath, COMMAND, 'web', 'drive', address, file, folder]
+  const output = { stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } } as const
+  const child = options.held ? holding(command, options.held, output) : Bun.spawn(command, { stdin: 'ignore', ...output })
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
   return { stdout, stderr, code, folder }
+}
+
+/** `command` started by a shell that waits for a line on its input, sent once `held` settles, before it becomes the command. */
+function holding(command: string[], held: Promise<unknown>, output: { stdout: 'pipe'; stderr: 'pipe'; env: Record<string, string | undefined> }) {
+  const child = Bun.spawn(['sh', '-c', 'read _ && exec "$@" </dev/null', 'sh', ...command], { stdin: 'pipe', ...output })
+  void held.then(() => {
+    child.stdin.write('\n')
+    child.stdin.end()
+  })
+  return child
 }
 
 /** A PNG's width, height and colour type, from its header. */
@@ -187,6 +203,13 @@ test("the steps file's initScript, a path beside it, runs in the page before the
   const plain = await run({ steps: [{ goto: '/who' }, { read: 'who' }] })
   expect(plain.stdout).toContain('Extension: none')
 }, 30_000)
+
+test("a run that waits longer than the test runner's default limit before it starts its browser still passes", async () => {
+  // A busy machine's delay: the run is kept from starting until six seconds have passed, past bun's default of five.
+  const { stdout, code } = await run({ steps: [{ goto: '/who' }, { read: 'who' }] }, {}, { held: Bun.sleep(6_000) })
+  expect(code).toBe(0)
+  expect(stdout).toContain('heading "Person: none"')
+})
 
 test("the steps file's cookies reach the server, and its time zone and locale set how the page draws the time", async () => {
   const { stdout, code } = await run({
