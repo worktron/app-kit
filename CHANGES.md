@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.48.0
+
+Urgency: now
+
+- add @electric-sql/pglite-prepopulatedfs as a dev dependency at exactly your @electric-sql/pglite version, and move the two together, so test databases stop timing out on a busy Mac; without it tests run as before and print one line saying so.
+
 ## v0.47.2
 
 Urgency: rides along
