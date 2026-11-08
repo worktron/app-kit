@@ -38,16 +38,15 @@ async function demoGrant(address: string): Promise<void> {
   const clientId = (await opRead(`op://agents/${item}/client id`)).trim()
   const clientSecret = (await opRead(`op://agents/${item}/client secret`)).trim()
   const state = crypto.randomUUID()
-  let resolveCode: (code: string) => void = () => {}
-  const code = new Promise<string>((resolve) => (resolveCode = resolve))
+  let given: string | undefined
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
     fetch: (request) => {
       const url = new URL(request.url)
-      const given = url.searchParams.get('code')
-      if (url.searchParams.get('state') !== state || !given) return new Response('This is not the demo grant\'s answer.', { status: 400 })
-      resolveCode(given)
+      const code = url.searchParams.get('code')
+      if (url.searchParams.get('state') !== state || !code) return new Response('This is not the demo grant\'s answer.', { status: 400 })
+      given = code
       return new Response('The demo grant is done. Quit this Chrome window.')
     },
   })
@@ -56,7 +55,6 @@ async function demoGrant(address: string): Promise<void> {
     const consent = demoConsentAddress(clientId, address, redirect, state)
     console.log(`Opening Google's consent for the demo app in ${address}'s own Chrome. Sign in as ${address}, allow it, then quit that Chrome.`)
     await withProfile(demoChromeFolder(address), `${address} demo`, async (profile) => await signIn(profile, consent, (line) => log(`grant: ${line}`)))
-    const given = await Promise.race([code, Promise.resolve(undefined)])
     if (!given) throw new Error('Chrome was quit before Google sent the consent back; run demo-grant again and allow the demo app first.')
     const refreshToken = await refreshTokenFor(given, clientId, clientSecret, redirect)
     // Written through 1Password's desktop app, which asks the owner once; the agents vault's reader is read only.

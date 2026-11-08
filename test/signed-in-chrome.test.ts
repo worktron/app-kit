@@ -1,8 +1,8 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { driveArguments, lastUsedProfile, ordinaryUserAgent, windowWhereAsked, withProfile } from '../command-line/signed-in-chrome.ts'
+import { driveArguments, lastUsedProfile, ordinaryUserAgent, signIn, windowWhereAsked, withProfile } from '../command-line/signed-in-chrome.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-signed-in-chrome-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -55,4 +55,23 @@ test('a window Chrome moved elsewhere, as macOS moves one it judges off every sc
   expect(windowWhereAsked({ left: 2620, top: 1470 }, asked)).toBe(true)
   expect(windowWhereAsked({ left: 380, top: 636 }, asked)).toBe(false)
   expect(windowWhereAsked({}, asked)).toBe(false)
+})
+
+test('sign-in waits for Chrome without stopping the caller, so a redirect server answers while Chrome is open', async () => {
+  // A stand-in open(1) that waits until the caller has run, as Chrome stays open until the owner allows the consent.
+  const bin = join(dir, 'bin')
+  mkdirSync(bin)
+  const ran = join(dir, 'caller-ran')
+  writeFileSync(join(bin, 'open'), `#!/bin/sh\nwhile [ ! -e '${ran}' ]; do sleep 0.05; done\n`)
+  chmodSync(join(bin, 'open'), 0o755)
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  try {
+    const signedIn = signIn(join(dir, 'profile'), 'https://accounts.example.com/', () => {})
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    writeFileSync(ran, 'yes')
+    await signedIn
+  } finally {
+    process.env.PATH = path
+  }
 })

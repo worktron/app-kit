@@ -47,9 +47,13 @@ export function readDemoFixtures(file: string): DemoFixtures {
   if (!Array.isArray(fixtures.events)) problems.push('"events" is a list of { summary, startsInMinutes, minutes?, description?, location? }');
   for (const [at, message] of (fixtures.mail ?? []).entries()) {
     if (!message || typeof message.from !== 'string' || typeof message.subject !== 'string' || typeof message.body !== 'string') problems.push(`mail ${at + 1} needs from, subject and body`);
+    else if (message.minutesAgo !== undefined && !(Number.isFinite(message.minutesAgo) && message.minutesAgo >= 0)) problems.push(`mail ${at + 1}'s minutesAgo is a number of minutes, 0 or more`);
+    else if (message.read !== undefined && typeof message.read !== 'boolean') problems.push(`mail ${at + 1}'s read is true or false`);
   }
   for (const [at, event] of (fixtures.events ?? []).entries()) {
-    if (!event || typeof event.summary !== 'string' || typeof event.startsInMinutes !== 'number') problems.push(`event ${at + 1} needs summary and startsInMinutes`);
+    if (!event || typeof event.summary !== 'string' || !Number.isFinite(event.startsInMinutes)) problems.push(`event ${at + 1} needs summary and startsInMinutes`);
+    else if (event.minutes !== undefined && !(Number.isFinite(event.minutes) && event.minutes > 0)) problems.push(`event ${at + 1}'s minutes is a number of minutes, more than 0`);
+    else if ((event.description !== undefined && typeof event.description !== 'string') || (event.location !== undefined && typeof event.location !== 'string')) problems.push(`event ${at + 1}'s description and location are text`);
   }
   if (problems.length) throw new Error(`${file}: ${problems.join('; ')}`);
   return fixtures as DemoFixtures;

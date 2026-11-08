@@ -82,9 +82,14 @@ function readPid(file: string): number | undefined {
  */
 export async function signIn(profile: string, address: string, log: Log): Promise<void> {
   log(`sign-in: opening ${address} in a plain Chrome for the owner`)
-  // open(1) starts a new instance in front, which a program started straight from here is not.
-  const opened = spawnSync('open', ['-n', '-W', '-a', 'Google Chrome', '--args', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', address], { stdio: 'inherit' })
-  if (opened.status !== 0) throw new Error(`open could not start Google Chrome (exit ${opened.status}).`)
+  // open(1) starts a new instance in front, which a program started straight from here is not. It is waited on without
+  // blocking, so a server of the caller's, such as the demo grant's redirect, answers while Chrome is open.
+  const opened = spawn('open', ['-n', '-W', '-a', 'Google Chrome', '--args', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', address], { stdio: 'inherit' })
+  const status = await new Promise<number | null>((resolve, reject) => {
+    opened.on('error', reject)
+    opened.on('close', resolve)
+  })
+  if (status !== 0) throw new Error(`open could not start Google Chrome (exit ${status}).`)
   log('sign-in: the owner quit Chrome')
 }
 
@@ -189,18 +194,32 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
     if (window) page = await openWindow(browser, window)
   } catch (error) {
     // The Chrome this run started would otherwise hold the profile and refuse every later run.
-    chrome.kill()
+    if (chrome.exitCode === null && chrome.signalCode === null) {
+      const gone = new Promise((resolve) => chrome.on('close', resolve))
+      chrome.kill('SIGKILL')
+      await gone
+    }
     log(`drive: Chrome never connected, so it was quit: ${error instanceof Error ? error.message : String(error)}`)
     throw error
   }
+  const exited = new Promise<void>((resolve) => chrome.on('close', () => resolve()))
+  // Returns once Chrome's process has ended, so its window is gone before a caller removes the display it was on:
+  // macOS moves a window still on a display that goes onto the owner's screen.
   const close = async () => {
-    try {
-      const session = await browser.newBrowserCDPSession()
-      await session.send('Browser.close')
-    } catch {
-      // already gone
+    if (chrome.exitCode === null && chrome.signalCode === null) {
+      try {
+        const session = await browser.newBrowserCDPSession()
+        await session.send('Browser.close')
+      } catch {
+        // already going
+      }
+      const quit = await Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))])
+      if (!quit) {
+        log('drive: Chrome did not quit within 5 seconds of being asked, so it was killed')
+        chrome.kill('SIGKILL')
+        await exited
+      }
     }
-    if (chrome.exitCode === null) chrome.kill()
     log('drive: Chrome closed')
   }
   return { browser, page, pid: chrome.pid ?? 0, close }
@@ -222,6 +241,8 @@ async function openWindow(browser: Browser, window: WindowPlace): Promise<Page> 
   const context = browser.contexts()[0]
   if (!context) throw new Error('Chrome has no default context to open a window in.')
   const opened = context.waitForEvent('page', { timeout: 15_000 })
+  // Chrome is quit when the window is refused, which ends this wait too; that is not a second failure.
+  opened.catch(() => {})
   const session = await browser.newBrowserCDPSession()
   const { targetId } = await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true, ...window })
   const { bounds } = await session.send('Browser.getWindowForTarget', { targetId })

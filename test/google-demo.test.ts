@@ -109,12 +109,12 @@ test('a second reset leaves the same inbox and calendar as the first', async () 
 
 test('a grant for another account changes nothing', async () => {
   state.account = 'someone@example.com'
-  expect(resetDemoAccount(fixtures, grant, endpoints)).rejects.toThrow('The demo grant is for someone@example.com, not demo@example.com')
+  await expect(resetDemoAccount(fixtures, grant, endpoints)).rejects.toThrow('The demo grant is for someone@example.com, not demo@example.com')
   expect(state.messages.map((m) => m.id)).toEqual(['old1', 'old2', 'old3'])
 })
 
 test('a grant Google no longer honors says to grant again', async () => {
-  expect(resetDemoAccount(fixtures, { ...grant, refreshToken: 'gone' }, endpoints)).rejects.toThrow('run app-kit google demo-grant again')
+  await expect(resetDemoAccount(fixtures, { ...grant, refreshToken: 'gone' }, endpoints)).rejects.toThrow('run app-kit google demo-grant again')
 })
 
 test('a message is sent raw with its sender, subject and a date its minutes back', () => {
@@ -127,6 +127,12 @@ test('a fixture file missing its parts is refused, naming each', () => {
   const file = join(dir, 'bad.json')
   writeFileSync(file, JSON.stringify({ account: 'demo', mail: [{ from: 'a' }] }))
   expect(() => readDemoFixtures(file)).toThrow(/"account".*"events".*mail 1 needs from, subject and body/)
+})
+
+test('a fixture value the reset would use after emptying the account is refused before anything changes', () => {
+  const file = join(dir, 'bad-values.json')
+  writeFileSync(file, JSON.stringify({ account: 'demo@example.com', mail: [{ from: 'a@example.com', subject: 's', body: 'b', minutesAgo: 'soon' }], events: [{ summary: 'Logo review', startsInMinutes: 60, minutes: 'unknown' }] }))
+  expect(() => readDemoFixtures(file)).toThrow(/mail 1's minutesAgo is a number.*event 1's minutes is a number/)
 })
 
 test('the grant is read from its 1Password item in the agents vault', async () => {

@@ -75,7 +75,7 @@ class Lines {
       this.seen.push(...lines.filter(Boolean))
       this.wake()
     })
-    child.on('exit', () => {
+    child.on('close', () => {
       this.ended = true
       this.wake()
     })
@@ -125,7 +125,8 @@ export async function openHiddenDisplay(
 ): Promise<HiddenDisplay> {
   const child = spawn(program, ['--width', String(options.width), '--height', String(options.height), '--out', options.out, '--scale', String(options.scale ?? 2)], { stdio: ['pipe', 'pipe', 'pipe'] })
   const lines = new Lines(child)
-  const ended = new Promise<void>((resolve) => child.on('exit', () => resolve()))
+  // 'close', not 'exit': the program's last lines, such as its error, are read by then.
+  const ended = new Promise<void>((resolve) => child.on('close', () => resolve()))
   const close = async () => {
     if (child.exitCode === null && child.signalCode === null) {
       child.stdin.end()
