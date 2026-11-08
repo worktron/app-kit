@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.53.0
+
+Urgency: next round
+
+- an app on the plain look may set its own paper and highlight together, light and dark, beside its accent: Look.plain(accent:background:) on the Mac (Accent is now LightDark, the default accent Look.defaultAccent), lookTheme({ name: 'plain', accent, background }) on the web, and for an extension a look.json beside its manifest, which takes the place of a page's --accent-light and --accent-dark (Getter moves its accent there, then runs app-kit extension copy); the kit refuses colors whose text reads under 4.5 to 1; plainColors takes { accent, background }; a side page takes its own width with MenuBarPanel(width:sideWidth:) and snapshot(width:sideWidth:) (Beeline sets 380 beside its 480 list); in the plain look a row's arrow shows only when it is selected and a side page's groups sit under a hairline.
+
 ## v0.52.4
 
 Urgency: next round
