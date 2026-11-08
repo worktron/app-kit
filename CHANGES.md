@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.52.0
+
+Urgency: next round
+
+- an app that builds Order values by hand adds inStore and deliveredOn; one that reads an order's page can take readOrderPage for counts, weights, prices and substitutions.
+
 ## v0.51.0
 
 Urgency: rides along
