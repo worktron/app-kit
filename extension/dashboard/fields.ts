@@ -40,6 +40,16 @@ type Manifest = {
   content_scripts?: { matches?: string[] }[]
 }
 
+/**
+ * Why the fill stops before saving anything, when the item has never been published and the listing names any visibility
+ * but Unlisted, or none: an extension's first Web Store release goes out Unlisted (practices' extensions rule), and
+ * Public is a later, deliberate step. Undefined when the item may go on. A published item is never held by it.
+ */
+export function firstVisibility(named: string | undefined, published: boolean): string | undefined {
+  if (published || named === 'Unlisted') return undefined
+  return `Distribution: an item's first release goes out Unlisted, and store-listing.md's Visibility ${named ? `says ${named}` : 'line is missing'}; make it "- Visibility: Unlisted, to invited testers." (practices' extensions rule)`
+}
+
 /** What the fill will type, the image it will upload as the icon, and the visibility the listing names. */
 export type Fields = { fields: Field[]; icon?: string; visibility?: Field; problems: string[] }
 

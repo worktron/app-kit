@@ -1,9 +1,9 @@
 import { afterAll, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CERTIFICATIONS, dashboardFields, HOSTS_BOX } from '../dashboard/fields.ts'
-import { DATA_USES } from '../listing.ts'
+import { CERTIFICATIONS, dashboardFields, firstVisibility, HOSTS_BOX } from '../dashboard/fields.ts'
+import { DATA_USES, readListing } from '../listing.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-dashboard-fields-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -136,4 +136,22 @@ test('a listing must name its data uses or say none, so leaving the answer out n
   const none = dashboardFields(extension(LISTING.replace(/- Data collected:\n(  - .*\n)+/, '- Data collected: none\n')))
   expect(none.problems).toEqual([])
   expect(none.fields.filter((field) => field.kind === 'checkbox' && (DATA_USES as readonly string[]).includes(field.label)).map((field) => field.value)).toEqual(Array(9).fill(false))
+})
+
+test('an item never published goes out Unlisted only, and a published one is never held', () => {
+  expect(firstVisibility('Unlisted', false)).toBeUndefined()
+  expect(firstVisibility('Private', false)).toContain('says Private; make it "- Visibility: Unlisted, to invited testers."')
+  expect(firstVisibility('Public', false)).toContain('says Public')
+  expect(firstVisibility(undefined, false)).toContain('Visibility line is missing')
+  for (const named of ['Public', 'Unlisted', 'Private', undefined]) expect(firstVisibility(named, true)).toBeUndefined()
+})
+
+test("the README's Store listing template goes out Unlisted on a first release", () => {
+  const readme = readFileSync(join(import.meta.dir, '../../README.md'), 'utf8')
+  const section = readme.slice(readme.indexOf('### The Store listing'), readme.indexOf('### The Store dashboard'))
+  const template = /```markdown\n([\s\S]*?)\n```/.exec(section)?.[1]
+  expect(template).toBeDefined()
+  const visibility = readListing(template!).get('Distribution')?.find((bullet) => bullet.label === 'Visibility')?.value
+  expect(visibility).toBe('Unlisted, to invited testers.')
+  expect(firstVisibility(/^\w+/.exec(visibility!)?.[0], false)).toBeUndefined()
 })

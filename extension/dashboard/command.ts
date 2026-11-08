@@ -9,7 +9,7 @@ import { extensionId } from '../host/index.ts'
 import { layoutProblems } from '../layout.ts'
 import { listingChecklist } from '../listing.ts'
 import { CONSOLE, dashboardFolder, drive, log, signIn, withProfile } from './chrome.ts'
-import { dashboardFields, type Field, type PageName } from './fields.ts'
+import { dashboardFields, type Field, firstVisibility, type PageName } from './fields.ts'
 import { fillPackage, fillPage, imagesShown, packageState, type PageOutcome, readField, screenshotsIn } from './fill.ts'
 import { differences, type Shown } from './readback.ts'
 import { drawn, openItem, pageAddresses, record, visit } from './survey.ts'
@@ -124,13 +124,15 @@ export async function dashboard([command, ...args]: string[]): Promise<boolean> 
       for (const each of ['Package', ...PAGES]) {
         if (!addresses.has(each)) outcomes.push({ page: each, differences: [`${each}: the dashboard's side menu has no such page, so nothing on it was compared`], notes: [] })
       }
-      if (options.zip && addresses.has('Package')) {
+      if (addresses.has('Package')) {
         await visit(page, addresses.get('Package')!)
         await drawn(page)
         const state = await packageState(page)
-        const verdict = judgeZip(zipManifest(options.zip), name, state.version)
-        const behind = verdict.upload ? [`Package: the dashboard is behind the zip; fill uploads it`] : []
-        outcomes.push({ page: 'Package', differences: verdict.ok ? behind : [verdict.line], notes: [verdict.line, state.published ? 'The item has been published' : 'The item has never been published'] })
+        const held = firstVisibility(visibility?.label, state.published)
+        const verdict = options.zip ? judgeZip(zipManifest(options.zip), name, state.version) : undefined
+        const behind = verdict?.upload ? [`Package: the dashboard is behind the zip; fill uploads it`] : []
+        const differences = [...(verdict && !verdict.ok ? [verdict.line] : behind), ...(held ? [held] : [])]
+        outcomes.push({ page: 'Package', differences, notes: [...(verdict ? [verdict.line] : []), state.published ? 'The item has been published' : 'The item has never been published'] })
       }
       for (const each of PAGES) {
         const address = addresses.get(each)
@@ -169,6 +171,12 @@ export async function dashboard([command, ...args]: string[]): Promise<boolean> 
     await visit(page, address('Package'))
     await drawn(page)
     const { published } = await packageState(page)
+    // Before the zip or any page: an item never published goes out Unlisted, so nothing is saved toward any other.
+    const held = firstVisibility(visibility?.label, published)
+    if (held) {
+      outcomes.push({ page: 'Package', differences: [held], notes: ['The item has never been published; nothing was typed into the dashboard'] })
+      return outcomes
+    }
     if (options.zip) outcomes.push(await fillPackage(page, address('Package'), options.zip, name))
     for (const each of PAGES) {
       const wanted = fields.filter((field) => field.page === each)

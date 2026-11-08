@@ -841,7 +841,7 @@ The file's shape, which the check reads by its headings and its bullet labels (a
 
 ## Distribution
 
-- Visibility: Private, to trusted testers.
+- Visibility: Unlisted, to invited testers.
 
 ## Test instructions
 
@@ -854,9 +854,20 @@ Shelf is by invitation only, so without an invited account the extension reads n
 
 1. `app-kit extension dashboard sign-in` opens that profile's Chrome, started with no automation or debugging switch, at Google's sign-in. The owner signs in with the account that owns the item and quits Chrome. It is the owner's to run in their own terminal: run by an agent's thread (`METAMAX_JOB_ID` or `AI_AGENT` set, which `runByThread` in `app-kit/command-line` reads), it opens nothing and prints the line for the owner. Nothing types into it or watches it, and no command ever types a password or works around a Google check: when Google asks to sign in again, a run stops and says to run sign-in.
 2. `app-kit extension dashboard read [<folder>] [--zip <file>]` compares each page with the file, box by box, and changes nothing. The item is the one the manifest's `key` gives (`--item <id>` names another).
-3. `app-kit extension dashboard fill [<folder>] [--zip <file>] [--screenshots <folder>] [--visibility]` sets each box on the Store listing, Privacy and Test instructions pages, saves the page as a draft, reloads it and reads every box back, exiting 1 on any that differs. It uploads the manifest's 128 icon into an empty icon slot, the screenshots in file-name order after those the dashboard already shows (five at most, 1280 by 800 or 640 by 400), and the zip only when it holds this extension at a version above the dashboard's. Every data-use box is ticked or cleared as the file names it, and the three certifications only when the file says "all three". Visibility is set only with `--visibility`, on an item never published, and only after the owner says yes to that change. The test account's username and password are left alone.
+3. `app-kit extension dashboard fill [<folder>] [--zip <file>] [--screenshots <folder>] [--visibility]` sets each box on the Store listing, Privacy and Test instructions pages, saves the page as a draft, reloads it and reads every box back, exiting 1 on any that differs. It uploads the manifest's 128 icon into an empty icon slot, the screenshots in file-name order after those the dashboard already shows (five at most, 1280 by 800 or 640 by 400), and the zip only when it holds this extension at a version above the dashboard's. Every data-use box is ticked or cleared as the file names it, and the three certifications only when the file says "all three". On an item never published it first checks the listing's Visibility line: anything but Unlisted, or no line, stops the run before the zip or any page is saved, and read reports the same line. Visibility is set only with `--visibility`, on an item never published, and only after the owner says yes to that change. The test account's username and password are left alone.
 
 It never presses Submit for review, Publish, Unpublish, Cancel review or Delete: every click goes through a guard that refuses those by name. Each run saves every page's screenshot and accessibility tree under the profile's `runs/` folder, which is how the labels were found, and how they are found again when Google changes the dashboard. The agent's side is the `chrome-web-store` skill in `extension/dashboard/skill/`.
+
+### Going to market
+
+An extension's first Store release is Unlisted, as practices' extensions rule says; these are the steps.
+
+1. The listing says `- Visibility: Unlisted, to invited testers.`, and `app-kit extension dashboard fill --visibility` sets it on the draft, with the rest of the listing, on the owner's yes.
+2. The owner presses Submit for review. Once Google approves it, it publishes by itself: anyone with the Store link can install it, and it shows in no Store search.
+3. Testers are invited in the app itself, which is what lets them in, and sent the Store link. They install from the Store, so they get every update.
+4. Every later release goes through the extension's publish script and the Store's API.
+5. Going Public, once the app takes people beyond its invite list and the listing is written for strangers, is the owner's change of visibility in the dashboard, submitted and published there once. Until a visibility change made in the dashboard has been published by hand, the API refuses to publish, so the publish script fails until then.
+6. Private, for an item whose Store page itself must stay hidden, takes an unpublish, the change, and a new submission once an item has been published.
 
 ## tauri/: Mac and iPhone apps
 

@@ -122,7 +122,7 @@ export function pngSize(file: string): { width: number; height: number } | null 
 export const YOURS: ListingItem[] = [
   'The dashboard says what store-listing.md says, field by field: `app-kit extension dashboard fill` types it in and reads it back',
   'At least one 1280 by 800 screenshot is uploaded (the fill takes them with --screenshots); promo tiles are optional',
-  'Visibility and its testers are set under Distribution; the fill sets visibility only with --visibility, on a draft never published',
+  'Visibility is set under Distribution: an item\'s first release is Unlisted, and the fill stops on an item never published whose listing says anything else; it sets visibility only with --visibility',
   'The first release, and the first after any visibility change made in the dashboard, is submitted for review in the dashboard; the API publishes the rest',
 ].map((line) => ({ result: 'yours', line }))
 
