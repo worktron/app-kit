@@ -119,18 +119,34 @@ export type OpenInBrowserOptions = {
   /** The environment variable that, set to anything but empty, keeps the browser closed: `DFRACT_NO_OPEN`. */
   offSwitch: string;
   env?: Record<string, string | undefined>;
+  /** Where the command's output goes, `process.stdout` unless a test stands in for it: a browser opens only for a terminal. */
+  stream?: { isTTY?: boolean };
   print?: (line: string) => void;
   /** How the address is opened; the system's `open` (`xdg-open` on Linux) unless a test stands in for it. */
   open?: (url: string) => void;
 };
 
 /**
- * Prints the full address, which a terminal makes clickable, and opens it in the browser unless the off switch is set
- * or this is a test (`bun test` sets NODE_ENV to test). Says whether it opened.
+ * Prints the full address, which a terminal makes clickable, and opens it in the browser only when a person runs the
+ * command: its output goes to a terminal and no agent's thread is named in the environment (runByThread). It never
+ * opens when the off switch is set or in a test (`bun test` sets NODE_ENV to test), and never from a script, a pipe or
+ * a thread, which get the address to hand over instead. Says whether it opened.
  */
-export function openInBrowser(url: string, { offSwitch, env = process.env, print = console.log, open = openWithSystem }: OpenInBrowserOptions): boolean {
+export function openInBrowser(
+  url: string,
+  { offSwitch, env = process.env, stream = process.stdout, print = console.log, open = openWithSystem }: OpenInBrowserOptions,
+): boolean {
   const address = new URL(url).href;
-  const kept = env[offSwitch] ? `${offSwitch} is set` : env.NODE_ENV === 'test' ? 'a test never opens it' : null;
+  const thread = runByThread(env);
+  const kept = env[offSwitch]
+    ? `${offSwitch} is set`
+    : env.NODE_ENV === 'test'
+      ? 'a test never opens it'
+      : thread
+        ? `${thread} is set, so an agent's thread runs this and leaves the browser to you`
+        : stream.isTTY !== true
+          ? 'the output is not a terminal, so no one may be there to see it'
+          : null;
   if (kept) {
     print(`Open ${address} in your browser (${kept}).`);
     return false;

@@ -1,5 +1,5 @@
 // What every command-line tool ships (app-kit/command-line): the version line, help and wrong usage, color, the
-// browser's off switch, the worktree warning, the 1Password read, and the runner's time limit.
+// browser opened only for a person, the worktree warning, the 1Password read, and the runner's time limit.
 import { expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -125,7 +125,8 @@ test('color only on a terminal with NO_COLOR unset or empty, whatever FORCE_COLO
 test('the browser opens with the full address printed, and stays closed under its off switch and in a test', () => {
   const opened: string[] = [];
   const printed: string[] = [];
-  const options = { offSwitch: 'TOOL_NO_OPEN', print: (line: string) => printed.push(line), open: (url: string) => opened.push(url) };
+  // A person's terminal, so only the off switch and the test's own environment keep the browser closed here.
+  const options = { offSwitch: 'TOOL_NO_OPEN', stream: { isTTY: true }, print: (line: string) => printed.push(line), open: (url: string) => opened.push(url) };
   expect(openInBrowser('https://example.com/sign-in?code=1', { ...options, env: {} })).toBe(true);
   expect(opened).toEqual(['https://example.com/sign-in?code=1']);
   expect(printed).toEqual(['Opening https://example.com/sign-in?code=1']);
@@ -144,6 +145,57 @@ test('the browser opens with the full address printed, and stays closed under it
   expect(() => openInBrowser('/sign-in', { ...options, env: {} })).toThrow();
 });
 
+test("a thread's run gets the address and no browser, and a person's terminal opens it", () => {
+  const opened: string[] = [];
+  const printed: string[] = [];
+  const as = (stream: { isTTY?: boolean }, env: Record<string, string>) =>
+    openInBrowser('https://example.com/sign-in', { offSwitch: 'TOOL_NO_OPEN', stream, env, print: (line) => printed.push(line), open: (url) => opened.push(url) });
+  // A thread's Bash call: no terminal, and its thread named, by metamax or by the agent.
+  expect(as({ isTTY: false }, { METAMAX_JOB_ID: 'job' })).toBe(false);
+  expect(as({ isTTY: false }, { AI_AGENT: 'claude-code' })).toBe(false);
+  // An agent that gives its commands a terminal is still a thread.
+  expect(as({ isTTY: true }, { AI_AGENT: 'codex' })).toBe(false);
+  // A person's own script or pipe: no thread, but no terminal either.
+  expect(as({}, {})).toBe(false);
+  expect(opened).toEqual([]);
+  expect(printed).toEqual([
+    "Open https://example.com/sign-in in your browser (METAMAX_JOB_ID is set, so an agent's thread runs this and leaves the browser to you).",
+    "Open https://example.com/sign-in in your browser (AI_AGENT is set, so an agent's thread runs this and leaves the browser to you).",
+    "Open https://example.com/sign-in in your browser (AI_AGENT is set, so an agent's thread runs this and leaves the browser to you).",
+    'Open https://example.com/sign-in in your browser (the output is not a terminal, so no one may be there to see it).',
+  ]);
+  // The person at their own terminal, with no thread named.
+  expect(as({ isTTY: true }, { METAMAX_JOB_ID: '', AI_AGENT: '' })).toBe(true);
+  expect(opened).toEqual(['https://example.com/sign-in']);
+});
+
+test('run as a thread runs it, with its output piped and its thread named, the tool opens nothing', () => {
+  const place = scratch('command-line-thread-');
+  try {
+    // An `open` and an `xdg-open` that record any call, first on PATH, so a broken check is caught rather than shown.
+    const bin = join(place.folder, 'bin');
+    mkdirSync(bin);
+    const calls = join(place.folder, 'calls');
+    for (const name of ['open', 'xdg-open']) {
+      writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $*" >> ${JSON.stringify(calls)}\n`, { mode: 0o755 });
+    }
+    const tool = join(place.folder, 'tool.ts');
+    writeFileSync(
+      tool,
+      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nconsole.log(openInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN' }));\n`,
+    );
+    const ran = Bun.spawnSync([process.execPath, tool], { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: place.folder, METAMAX_JOB_ID: 'job' }, stdout: 'pipe', stderr: 'pipe' });
+    expect({ code: ran.exitCode, out: ran.stdout.toString(), err: ran.stderr.toString() }).toEqual({
+      code: 0,
+      out: "Open http://localhost:4000/ in your browser (METAMAX_JOB_ID is set, so an agent's thread runs this and leaves the browser to you).\nfalse\n",
+      err: '',
+    });
+    expect(existsSync(calls)).toBe(false);
+  } finally {
+    place.done();
+  }
+});
+
 test('with no opener on the machine, the tool goes on with the address printed', () => {
   const place = scratch('command-line-no-opener-');
   try {
@@ -153,7 +205,7 @@ test('with no opener on the machine, the tool goes on with the address printed',
     const tool = join(place.folder, 'tool.ts');
     writeFileSync(
       tool,
-      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nimport { spawn } from 'node:child_process';\nopenInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN', env: {} });\n// A second missing program, started after the opener: its failure comes after the opener's, so the line it prints\n// shows the tool lived through the opener's.\nspawn('no-such-program', []).on('error', () => console.log('went on'));\n`,
+      `import { openInBrowser } from ${JSON.stringify(join(import.meta.dir, '../command-line/index.ts'))};\nimport { spawn } from 'node:child_process';\nopenInBrowser('http://localhost:4000', { offSwitch: 'TOOL_NO_OPEN', env: {}, stream: { isTTY: true } });\n// A second missing program, started after the opener: its failure comes after the opener's, so the line it prints\n// shows the tool lived through the opener's.\nspawn('no-such-program', []).on('error', () => console.log('went on'));\n`,
     );
     const ran = Bun.spawnSync([process.execPath, tool], { env: { PATH: empty, HOME: place.folder }, stdout: 'pipe', stderr: 'pipe' });
     expect({ code: ran.exitCode, out: ran.stdout.toString() }).toEqual({ code: 0, out: 'Opening http://localhost:4000/\nwent on\n' });

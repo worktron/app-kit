@@ -1,9 +1,10 @@
-// The copy of Playwright's WebKit that macOS keeps out of the Dock (web/playwright-webkit.js), made in scratch folders,
-// never the cache other checkouts' test runs use, from a stand-in for the WebKit Playwright installs: the parts the kit
-// touches, a few files rather than WebKit's thousands. That the copy of the real WebKit starts, on Safari's engine, and
-// stays out of the Dock is web/e2e/dock.e2e.ts's to show, since only a launch tells. The kit runs in its own
-// process each time, as in an app's Playwright run: @playwright/test, which it imports, throws an AggregateError from a
-// socket when it loads beside the simulated page every unit test here has.
+// The copy of Playwright's WebKit that macOS keeps out of the Dock (web/playwright-webkit.js, through
+// testing/playwright-dock.js), made in scratch folders, never the cache other checkouts' test runs use, from a
+// stand-in for the WebKit Playwright installs: the parts the kit touches, a few files rather than WebKit's thousands.
+// That the copy of the real WebKit starts, on Safari's engine, and stays out of the Dock is web/e2e/dock.e2e.ts's to
+// show, since only a launch tells. The kit runs in its own process each time, as in an app's Playwright run:
+// @playwright/test, which it imports, throws an AggregateError from a socket when it loads beside the simulated page
+// every unit test here has.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { execFileSync } from 'child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs';
@@ -122,8 +123,9 @@ test.concurrent("an app loads it by its import name with Node, from inside node_
   const app = folder('app');
   const installed = join(app, 'node_modules', 'app-kit');
   mkdirSync(join(installed, 'web'), { recursive: true });
+  mkdirSync(join(installed, 'testing'), { recursive: true });
   cpSync(join(root, 'package.json'), join(installed, 'package.json'));
-  for (const file of ['playwright-webkit.js', 'playwright-webkit.d.ts']) cpSync(join(root, 'web', file), join(installed, 'web', file));
+  for (const file of ['web/playwright-webkit.js', 'web/playwright-webkit.d.ts', 'testing/playwright-dock.js', 'testing/playwright-dock.d.ts']) cpSync(join(root, file), join(installed, file));
   mkdirSync(join(app, 'node_modules', '@playwright'));
   symlinkSync(join(root, 'node_modules/@playwright/test'), join(app, 'node_modules/@playwright/test'));
 

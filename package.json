@@ -50,6 +50,7 @@
     "./amazon-orders": "./server/amazon-orders/index.ts",
     "./amazon-cart": "./server/amazon-cart/index.ts",
     "./testing/start-up": "./testing/start-up.ts",
+    "./testing/playwright-dock": "./testing/playwright-dock.js",
     "./command-line": "./command-line/index.ts",
     "./command-line/signed-in-chrome": "./command-line/signed-in-chrome.ts",
     "./command-line/window-recording": "./command-line/window-recording.ts",

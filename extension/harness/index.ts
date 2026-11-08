@@ -3,8 +3,12 @@
 // answers what a unit test with a stand-in `chrome` cannot: that the worker
 // starts, that Chrome starts the native host and the port carries messages,
 // that no tab or window opens, and that a new commit in the checkout reloads
-// the worker. Chromium runs headless, so nothing shows on screen. Needs
-// Playwright's Chromium: `bunx playwright install chromium`.
+// the worker. Chromium runs headless, so no window shows. Extensions load only
+// in Playwright's full Chromium (Google Chrome for Testing), a Mac app macOS
+// would put in the Dock for a moment each time it starts, so it runs from a
+// copy marked a background app (testing/playwright-dock.js), and no Dock icon
+// shows either; extension/e2e/dock.e2e.ts holds that. Needs Playwright's
+// Chromium: `bunx playwright install chromium`.
 
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
@@ -12,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, type BrowserContext, type Worker } from 'playwright'
 import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install'
+import { withoutDockIcon } from '../../testing/playwright-dock.js'
 
 export type HarnessOptions = {
   /** The folder whose tracked and untracked-but-not-ignored files become the checkout's root, where manifest.json is. */
@@ -24,6 +29,8 @@ export type HarnessOptions = {
   linkPackages?: boolean
   /** Passed to Playwright: ignore certificate errors, for a stand-in site with a self-made certificate. */
   ignoreHTTPSErrors?: boolean
+  /** Where the copy of Chromium kept out of the Dock is made: app-kit's folder under ~/Library/Caches unless a test names its own. */
+  chromiumCopyFolder?: string
 }
 
 export type LoadedExtension = {
@@ -105,6 +112,7 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
 
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium',
+    ...withoutDockIcon(chromium, options.chromiumCopyFolder),
     headless: true,
     ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
     args: [`--disable-extensions-except=${checkout}`, `--load-extension=${checkout}`, ...(options.args ?? [])],
