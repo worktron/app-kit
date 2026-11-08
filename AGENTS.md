@@ -92,7 +92,8 @@ server/          server-only pieces no kind of app owns: google/ (what a refusal
                  writes other websites send, and listen, which serves it and stops it cleanly; web/e2e/serve.ts runs on it),
                  every/ (a job on a clock that never runs twice at once, with no imports, app-kit/server/every),
                  process-usage/ (one reading of a macOS process's CPU time, memory and disk, finished child processes
-                 included, through bun:ffi opened only at the first reading, app-kit/server/process-usage),
+                 included, through bun:ffi opened only at the first reading, and in window.ts `ps`'s parser and the
+                 cores each process used between two readings of the machine, app-kit/server/process-usage),
                  amazon-orders/ (reading Amazon's order pages from their HTML, on happy-dom, the only file that imports it,
                  app-kit/amazon-orders; test/fixtures/amazon-orders holds the tests' made-up pages),
                  amazon-cart/ (reading one store's Amazon cart page, which throws on a page that is not that store's cart,

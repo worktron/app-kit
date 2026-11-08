@@ -1,6 +1,7 @@
 /*
- * One reading of one macOS process's CPU time, memory and disk (app-kit/server/process-usage). Sampling, differences
- * between readings and who owns a process stay in the app. What this reading has that `ps` and every other reader lack is
+ * One reading of one macOS process's CPU time, memory and disk (app-kit/server/process-usage), and in window.ts the cores
+ * each process used between two readings of the machine. Sampling and who owns a process stay in the app. What this
+ * reading has that `ps` and every other reader lack is
  * finishedChildrenCpuSeconds: the kernel adds a child's own and child time to its parent's child total when the child is
  * reaped, so a process that lived too short for any sample to see it still shows, in its parent.
  *
@@ -8,6 +9,17 @@
  * server. Importing this file loads nothing: bun:ffi and the two libraries are opened at the first reading on a Mac.
  */
 import type { dlopen as bunDlopen, FFIType as BunFFIType } from 'bun:ffi';
+
+export {
+  coresBetween,
+  parseCpuTime,
+  parsePs,
+  psArguments,
+  type MachineReading,
+  type ProcessCores,
+  type ProcessCpu,
+  type ProcessRow,
+} from './window';
 
 export type ProcessUsage = {
   pid: number;

@@ -10,7 +10,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
-| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders`, `app-kit/amazon-cart` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order, cart and product pages, the last into the request that adds to a cart. |
+| `server/` | `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/amazon-orders`, `app-kit/amazon-cart` | Server-only pieces no kind of app owns: the server's start and its clean stop, a job on a clock, one reading of what a Mac process has used and the cores each used between two readings, what a refusal from Google means, the Postgres database opener on Drizzle, and reading Amazon's order, cart and product pages, the last into the request that adds to a cart. |
 | `icons/` | the `app-kit icons render` command | Every icon an app ships, drawn from the drawings it commits: Mac and iPhone icon sets, a Tauri app's icons, the menu bar image, the extension's icons and the web's. |
 | `look/` | `app-kit/look` | The two looks' colors and sizes, the only owner of them: the plain look, the system typeface on warm paper with the app's accent, and the console look. Every web theme, extension stylesheet and Swift view takes its values from here. |
 | `bin/`, `scripts/`, `test/` | the `app-kit` command | The command, the gates and the landing, and every unit test. |
@@ -1946,8 +1946,33 @@ if (usage) console.log(usage.ownCpuSeconds + usage.finishedChildrenCpuSeconds, u
 | `diskReadBytes`, `diskWriteBytes` | What it has read from and written to disk since it started. A read the file cache answers is not in it. |
 
 - **Null.** It answers null when macOS will not say: another user's process, a process gone, or not macOS. A pid that is not a whole number a C int holds is null too, since the kernel would read some other process.
-- **One reading.** Every number is a total since the process started. Sampling, the differences between readings and who owns a process stay in the app. A difference is only good between two readings with the same `pid` and `startedAt`.
+- **One reading.** Every number is a total since the process started. Sampling and who owns a process stay in the app. A difference is only good between two readings with the same `pid` and `startedAt`, which `coresBetween` below takes care of.
 - **Where to run it.** It calls `proc_pid_rusage` through `bun:ffi`, which Bun marks experimental and which a Bun runtime alone has, and it takes a process of its own for a server that must not go down with a crash there. Importing it loads nothing: `bun:ffi` and the two libraries are opened at the first reading on a Mac, and never off one.
+
+#### Cores per process between two readings
+
+`coresBetween(first, second, readableUid)` turns two readings of the machine into the cores each process alive at the second used since the first: its own, and its finished children's, which is where a test runner's or a build's short-lived processes show. It is pure: the app runs `ps`, reads each pid, and keeps the readings.
+
+```ts
+import { coresBetween, parsePs, psArguments, readProcessUsage, type MachineReading } from 'app-kit/server/process-usage';
+
+function readMachine(): MachineReading {
+  const rows = parsePs(Bun.spawnSync(['ps', ...psArguments('name')]).stdout.toString());
+  const usage = new Map(rows.flatMap((r) => { const u = readProcessUsage(r.pid); return u ? [[r.pid, u] as const] : []; }));
+  return { at: Date.now(), rows, usage };
+}
+
+const first = readMachine();
+// ... some seconds later
+const cores = coresBetween(first, readMachine(), process.getuid!());
+cores.get(pid); // { ownCores, finishedChildrenCores }
+```
+
+- **`ps`.** `psArguments()` lists every process with its program's path, `psArguments('name')` with its name alone (`ps -c`), and `parsePs` reads either into rows of `pid`, `ppid`, `uid`, `cpuSeconds` (`time`), `cpuPercent` (`pcpu`), `residentBytes` (`rss`) and `program`. A zombie's line, which has no time, is left out. `cpuPercent` and `residentBytes` are for what `coresBetween` cannot give: the first reading, which has nothing before it, and memory for a process the reader cannot read.
+- **A process alive at both** counts the change in its own time and its finished children's time. A child that was already running at the first reading and ends inside the window would bring all its earlier time into its parent's child total; that earlier time is taken back from its nearest ancestor alive at both readings, at any depth, so a whole tree ending in one window counts only what it used inside it. No figure goes under zero.
+- **A new process** at the second reading counts whole. A pid is the same process only with the same `startedAt`, so one on a reused pid counts as new, and the old one is taken from its parent like any process gone.
+- **A process the reader cannot read** (another user's, such as a root daemon) counts the change in `ps`'s time, which `ps` reads for every user, and has no child time. `readableUid` is the uid the reader runs as; a process of that uid that `ps` listed and the reader then could not read ended between the two and is counted as gone. With `readableUid` null, as when the reader failed, `ps` is all there is for every process.
+- **What it cannot charge.** A child orphaned to launchd before it ends leaves its time with launchd, which cannot be read, and the kernel's own threads are in no process. Those are the gap between the sum of the cores here and the machine's total.
 
 ### What a refusal from Google means
 
