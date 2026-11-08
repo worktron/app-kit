@@ -436,3 +436,12 @@ Done when: after `stopWorker()` and the next event that starts the worker, `ext.
 Do not touch: what `stopWorker()` waits for before it returns (Chrome reporting the worker stopped), which the extension-reload-alarms diagnostic relies on.
 
 Touches: extension/harness/index.ts, extension/e2e/harness.e2e.ts, README's extension section.
+
+## phone-web-icons · `app-kit icons render --web` draws a phone app's home-screen icons full-bleed, for its maskable icon
+
+Goal: an app that runs on phones can draw its web icons with `app-kit icons render` and drop its own icon script. Today `--web` writes `icon-192.png` and `icon-512.png` from the whole 1024 drawing, the Mac's shape (`icons/render.ts` at v0.47.1, line 185, `mac(size)`): an 824 tile with rounded corners inset on a see-through margin. A phone app's web manifest wants them opaque and full-bleed, and lists the 512 as `purpose: 'maskable'`, which Android crops to its own shape, so an inset tile on transparency shrinks the installed icon and can show see-through corners. urge-surfer declined `icons render` for this in its move to v0.47.1 (pull request 160, 2026-11-07) and keeps scripts/make-icons.ts, which renders through Chromium and `tauri icon`; its current icons are opaque (`sips -g hasAlpha`: no) and its manifest lists icon-512 as maskable (vite.config.ts).
+
+Shape: a way for `--web` to draw the manifest icons from the tile alone, its corners filled in the tile's own colour as the iPhone icons already are (`phone(size)`), whether as a flag (`--web-shape phone`) or by default when the app has an iPhone icon set; the README's "icons/" section says which a phone app passes and that a maskable icon needs it. Then urge-surfer moves onto it: a `design/icon/app-icon.svg` framing its full-bleed drawing, `--icon-set src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset --tauri src-tauri --web public`, sharp as a dev dependency, and scripts/make-icons.ts deleted.
+
+Done when: `icons render` on a fixture drawing writes `icon-192.png` and `icon-512.png` with no alpha channel and the tile filling the square, held by a test in test/icons.test.ts; and urge-surfer's icons rendered by it match its current ones within a shade, its make-icons.ts gone.
+Found by: urge-surfer's app-kit-v0-47-1 thread, 2026-11-07.
