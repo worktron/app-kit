@@ -1,8 +1,8 @@
 // The window recording for real: the program built as an app builds it, the hidden display made, a test window of
 // its own shown there (no Dock icon, never active), three seconds recorded, and the mp4 read back with ffprobe and
 // ffmpeg. Nothing shows on the owner's screens, though macOS moves their other displays aside for a moment as the
-// display appears. Needs Screen Recording permission for the app the run is started from, and ffmpeg. scripts/gates.sh
-// runs it when a branch changes the recording.
+// display appears. Needs Screen Recording permission for the app the run is started from, and ffmpeg. The owner runs it in
+// their own terminal, never an agent or the gates, since a fault in the placement puts the window on their screen.
 import { afterAll, expect, test } from 'bun:test'
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
@@ -28,7 +28,10 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
     await new Promise((resolve) => setTimeout(resolve, 3000))
     await display.stop()
   } finally {
-    shown.stdin.end()
+    // The test window goes before the display does, or macOS moves it onto the owner's screen.
+    const gone = new Promise((resolve) => shown.on('exit', resolve))
+    shown.kill()
+    await gone
     await display.close()
   }
   expect(frontmostPid()).toBe(before)

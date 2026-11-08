@@ -5,8 +5,10 @@
 //   out  recording <ms>               the file has its first frame, at that time in milliseconds since 1970
 //   in   stop                         finish the file
 //   out  stopped                      the file is closed and complete
-//   out  error <kind>: <message>      then the program ends: usage (2), screen-recording (4), display (5), recording (6)
-// Standard input closing, or SIGTERM or SIGINT, finishes any recording first, then removes the display and ends.
+//   out  error <kind>: <message>      a line it could not do; the display stays until standard input closes
+// An error before the display is up ends the program: usage (2), display (5). Standard input closing, or SIGTERM or
+// SIGINT, finishes any recording, removes the display and ends; the caller closes the recorded program first, since a
+// window left on a display that goes is moved to the owner's screen.
 import CoreGraphics
 import Foundation
 import WindowRecording
@@ -20,8 +22,7 @@ func say(_ line: String) {
 
 func fail(_ kind: String, _ message: String) -> Never {
     say("error \(kind): \(message)")
-    let codes = ["usage": Int32(2), "screen-recording": 4, "display": 5]
-    exit(codes[kind] ?? 6)
+    exit(kind == "usage" ? 2 : 5)
 }
 
 let options: Options
@@ -43,17 +44,25 @@ say("display \(display.id) \(Int(place.x)) \(Int(place.y))")
 let recorder = WindowRecorder()
 let out = URL(fileURLWithPath: options.out)
 
-/** Finishes any recording, then ends the program, which removes the display. */
+/** Says what went wrong with a line, and keeps the display, so a window on it never lands on the owner's screen. */
+func refuse(_ kind: String, _ message: String) {
+    say("error \(kind): \(message)")
+}
+
+/** Finishes any recording, removes the display, and ends the program. */
 func finish() async -> Never {
+    var code: Int32 = 0
     if recorder.recording {
         do {
             try await recorder.stop()
             say("stopped")
         } catch {
-            fail("recording", "\(error)")
+            refuse("recording", "\(error)")
+            code = 6
         }
     }
-    exit(0)
+    display.remove()
+    exit(code)
 }
 
 var signals: [DispatchSourceSignal] = []
@@ -70,27 +79,32 @@ Task {
         for try await line in FileHandle.standardInput.bytes.lines {
             switch parseCommand(line) {
             case let .record(pid):
-                if recorder.recording { fail("usage", "already recording") }
+                if recorder.recording {
+                    refuse("usage", "already recording")
+                    continue
+                }
                 do {
                     let window = try await findWindow(pid: pid, display: display.bounds)
                     try await recorder.start(window: window, scale: options.scale, out: out)
                     say("recording \(Int(recorder.startedAt))")
                 } catch let error as RecordingError {
-                    fail(error.kind, error.description)
+                    refuse(error.kind, error.description)
+                } catch {
+                    refuse("recording", "\(error)")
                 }
             case .stop:
                 do {
                     try await recorder.stop()
                     say("stopped")
                 } catch {
-                    fail("recording", "\(error)")
+                    refuse("recording", "\(error)")
                 }
             case nil:
-                fail("usage", "unknown line \(line); the lines are record <pid> and stop")
+                refuse("usage", "unknown line \(line); the lines are record <pid> and stop")
             }
         }
     } catch {
-        fail("usage", "standard input failed: \(error)")
+        refuse("usage", "standard input failed: \(error)")
     }
     await finish()
 }

@@ -10,7 +10,7 @@ public struct DisplayError: Error, CustomStringConvertible {
 
 public final class HiddenDisplay {
     /** Held for as long as the display should exist; macOS removes the display when this goes. */
-    private let display: CGVirtualDisplay
+    private var display: CGVirtualDisplay?
     public let id: CGDirectDisplayID
     /** The display's bounds in global points, once placed. */
     public private(set) var bounds: CGRect
@@ -62,6 +62,18 @@ public final class HiddenDisplay {
         // macOS may give a size of its own choosing near the one asked for; any that holds the window will do.
         guard fits(bounds, size) else {
             throw DisplayError(description: "the hidden display came up \(bounds.size), too small for \(size)")
+        }
+    }
+
+    /**
+     * Removes the display while it is still past the corner, and returns once macOS no longer lists it. Left to the
+     * program's end, macOS first moves it back beside the main display, shifting the owner's other displays again, and
+     * any window still on it lands on the owner's screen; so the recorded program is closed before this.
+     */
+    public func remove() {
+        display = nil
+        for _ in 0..<100 where Self.activeDisplays().contains(id) {
+            Thread.sleep(forTimeInterval: 0.02)
         }
     }
 

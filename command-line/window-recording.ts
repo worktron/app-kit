@@ -32,7 +32,10 @@ export type HiddenDisplay = {
   record: (pid: number) => Promise<number>
   /** Finishes the file. Throws when the recorded program took focus at any time while it recorded. */
   stop: () => Promise<void>
-  /** Ends the program, which removes the display. */
+  /**
+   * Removes the display and ends the program. Close the recorded program first: macOS moves a window still on a display
+   * that goes onto the owner's screen.
+   */
   close: () => Promise<void>
 }
 

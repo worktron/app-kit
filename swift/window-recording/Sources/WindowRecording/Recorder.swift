@@ -28,7 +28,11 @@ public func findWindow(pid: Int32, display: CGRect, seconds: Double = 15) async 
             return window
         }
         if Date() > until {
-            throw RecordingError(kind: "recording", description: "process \(pid) showed no window on the hidden display within \(Int(seconds)) seconds")
+            // What the screen's list held for the process, so a run that misses its window says why.
+            let seen = content.windows.filter { $0.owningApplication?.processID == pid }
+                .map { "window \($0.windowID) at \($0.frame) layer \($0.windowLayer)" }
+            let unowned = content.windows.filter { $0.owningApplication == nil }.count
+            throw RecordingError(kind: "recording", description: "process \(pid) showed no window on the hidden display \(display) within \(Int(seconds)) seconds; its windows listed: \(seen.isEmpty ? "none" : seen.joined(separator: ", ")); windows with no owner: \(unowned)")
         }
         try await Task.sleep(nanoseconds: 200_000_000)
     }
