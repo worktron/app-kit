@@ -506,3 +506,12 @@ Done when: the script's reports for both browsers on 157 are in the README secti
 Do not touch: the self-reload's rules for when to reload; the gate test "after a self-reload, an alarm starts the stopped worker and its job runs", unless the new result shows it misses the fault.
 Needs: the installed Chrome on version 157.
 Touches: README.md, possibly extension/e2e/reload-alarms.ts if Chrome for Testing's downloads change.
+
+## reload-alarms-helper-cleanup-test · A test that the reload-alarms script stops Chrome helpers left without their browser
+Written by: app-kit/extension-reload-alarms
+
+Goal: extension/e2e/reload-alarms.ts runs a headless Chrome for hours, and when a run is killed it leaves a per-run file in the temporary folder so the next run stops what it left. It finds what to stop by process group, stopping a group only when one of its members was started with that run's `--user-data-dir`, which covers Chrome's helper processes left running after the browser's main process is gone. That case was proved once by hand on 2026-11-08 (kill the script and the browser's main process with SIGKILL, then start another run) but has no test, so a change to the cleanup could break it unseen. Pull the leftover-run cleanup into a function a test can call, and test it against stand-in processes (not Chrome) in a group of their own, one of which carries the scratch folder's `--user-data-dir` on its command line.
+Done when: a unit test starts a group of stand-in processes with no group leader left, writes a run file naming them, calls the cleanup and sees every member gone and the run file and scratch folder removed; a second test sees a group whose members do not carry the scratch folder left running; both fail when the command-line check or the group stop is removed.
+Do not touch: what the script measures or how it counts a cycle.
+Needs: none.
+Touches: extension/e2e/reload-alarms.ts, a new test under extension/test/.
