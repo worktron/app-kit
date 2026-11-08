@@ -20,17 +20,19 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const out = join(dir, 'take.mp4')
   const before = frontmostPid()
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
+  let windowSize = { width: 0, height: 0 }
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
   // A recording program that ends unasked took the display with it: the window goes at once, before anyone sees it.
   void display.ended.then(() => shown.kill())
   try {
-    const pid = await new Promise<number>((resolve, reject) =>
+    const [pid, width, height] = await new Promise<number[]>((resolve, reject) =>
       shown.stdout.on('data', (chunk: Buffer) => {
-        const said = /shown (\d+)/.exec(String(chunk))?.[1]
-        if (said) resolve(Number(said))
+        const said = /shown (\d+) (\d+) (\d+)/.exec(String(chunk))
+        if (said) resolve(said.slice(1).map(Number))
         else reject(new Error(`the test window was not shown: ${String(chunk).trim()}`))
       }),
     )
+    windowSize = { width: width!, height: height! }
     const startedAt = await display.record(pid)
     expect(Math.abs(Date.now() - startedAt)).toBeLessThan(10_000)
     await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -47,7 +49,8 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
     streams: { width: number; height: number; codec_name: string }[]
     format: { duration: string }
   }
-  expect(probe.streams[0]).toEqual({ width: 1280, height: 800, codec_name: 'h264' })
+  // The whole window, title bar included, at two pixels per point.
+  expect(probe.streams[0]).toEqual({ width: windowSize.width * 2, height: windowSize.height * 2, codec_name: 'h264' })
   expect(Number(probe.format.duration)).toBeGreaterThan(2)
   // Two frames a second apart differ, so the window kept drawing and the recording kept taking it.
   const frame = (at: string) => spawnSync('ffmpeg', ['-v', 'error', '-ss', at, '-i', out, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 1 << 24 }).stdout

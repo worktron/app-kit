@@ -1,6 +1,6 @@
 // A window for the live recording test: an app with no Dock icon (accessory) that shows one window at the global point
 // its arguments give, without ever becoming active, and changes its color ten times a second, so the recording's frames
-// must differ. It prints `shown` once the window is up and ends when its standard input closes.
+// must differ. It prints `shown <pid> <width> <height>`, the whole window's size in points, once the window is up and ends when its standard input closes.
 //
 // The window is made on the hidden display's own screen. A titled window made at a global frame with no screen named is
 // put on the main display instead (seen on macOS 27, 2026-11-08, with a diagnostic of invisible windows), and when the
@@ -35,7 +35,8 @@ NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenPar
     if !NSScreen.screens.contains(where: { $0.frame.contains(wanted) }) { exit(0) }
 }
 window.orderFrontRegardless()
-print("shown \(getpid())")
+// The whole window, title bar included, which is what the recording takes.
+print("shown \(getpid()) \(Int(window.frame.width)) \(Int(window.frame.height))")
 fflush(stdout)
 FileHandle.standardInput.readabilityHandler = { handle in
     if handle.availableData.isEmpty { exit(0) }
