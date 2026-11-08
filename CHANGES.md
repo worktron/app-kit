@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.52.4
+
+Urgency: next round
+
+- nothing to change; a worktree's iPhone Simulator made from this version on is deleted once the worktree is gone.
+
 ## v0.52.3
 
 Urgency: next round
