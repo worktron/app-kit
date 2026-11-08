@@ -3,16 +3,25 @@
 // recorded for three seconds, and the mp4 read back. Chrome shows its icon in the Dock while it runs; its window is on
 // the hidden display, and one Chrome put anywhere else is closed at once and fails the test. The owner runs it in their
 // own terminal, never an agent or the gates. Needs Screen Recording permission for the app it is started from, and ffmpeg.
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { withoutPage } from '../../test/dom.ts'
 import { drive } from '../signed-in-chrome.ts'
 import { buildRecorder, frontmostPid, openHiddenDisplay } from '../window-recording.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-chrome-recording-e2e-')))
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
+// The tests' simulated page replaces fetch with one that refuses Chrome's DevTools answer as another origin's.
+let putPageBack: () => void
+beforeAll(async () => {
+  putPageBack = await withoutPage()
+})
+afterAll(() => {
+  putPageBack()
+  rmSync(dir, { recursive: true, force: true })
+})
 
 const PAGE = `data:text/html,<title>app-kit Chrome recording test</title><style>body{margin:0;height:100vh;display:grid;place-items:center;font:48px system-ui;animation:c 1s infinite}@keyframes c{0%{background:%23d33}50%{background:%233d3}100%{background:%2333d}}</style><body>app-kit Chrome recording test`
 
