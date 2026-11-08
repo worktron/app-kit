@@ -18,6 +18,12 @@ export const ENTITLEMENTS_PUSH = plist(
   '\t<key>application-identifier</key>\n\t<string>TEAM000000.app.pastthebreak</string>\n\t<key>aps-environment</key>\n\t<string>production</string>\n\t<key>beta-reports-active</key>\n\t<true/>\n\t<key>get-task-allow</key>\n\t<false/>\n',
 );
 export const ENTITLEMENTS_DEVELOPMENT = plist('\t<key>aps-environment</key>\n\t<string>development</string>\n\t<key>get-task-allow</key>\n\t<true/>\n');
+/** The App Group an app and its share extension share, and an App Store signature allowing it. */
+export const GROUP = 'group.app.pastthebreak';
+export const groupEntitlements = (identifier: string) =>
+  plist(
+    `\t<key>application-identifier</key>\n\t<string>TEAM000000.${identifier}</string>\n\t<key>beta-reports-active</key>\n\t<true/>\n\t<key>com.apple.security.application-groups</key>\n\t<array>\n\t\t<string>${GROUP}</string>\n\t</array>\n\t<key>get-task-allow</key>\n\t<false/>\n`,
+  );
 
 /**
  * A small PNG written by hand, unfiltered: `pixels` are its samples in rows `width` long, at `depth` bits (8 or 16), and
@@ -79,6 +85,115 @@ export const XCODE_PROJECT = `// !$*UTF8*$!
 }
 `;
 
+/** The share extension's bundle id, and its folder in the Tauri project, as metamax's is laid out. */
+export const SHARE_ID = 'app.pastthebreak.share';
+export const SHARE_INFO_FILE = 'src-tauri/gen/apple/ShareExtension/Info.plist';
+
+/**
+ * The project as xcodegen writes it for an app with a share extension, cut to its two targets, their configuration
+ * lists and build configurations: the app's configurations as XCODE_PROJECT's, with its entitlements, and the
+ * extension's with its own bundle id, entitlements and Info.plist, and the development identity xcodegen leaves.
+ */
+export const XCODE_PROJECT_WITH_SHARE = `// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXNativeTarget section */
+		T1 /* past-the-break-share */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = L1 /* Build configuration list for PBXNativeTarget "past-the-break-share" */;
+			name = "past-the-break-share";
+			productType = "com.apple.product-type.app-extension";
+		};
+		T2 /* past-the-break_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = L2 /* Build configuration list for PBXNativeTarget "past-the-break_iOS" */;
+			name = "past-the-break_iOS";
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin XCBuildConfiguration section */
+		A1 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "past-the-break_iOS/past-the-break_iOS.entitlements";
+				DEVELOPMENT_TEAM = TEAM000000;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;
+			};
+			name = debug;
+		};
+		A2 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "past-the-break_iOS/past-the-break_iOS.entitlements";
+				DEVELOPMENT_TEAM = TEAM000000;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;
+			};
+			name = release;
+		};
+		E1 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ${SHARE_ID};
+			};
+			name = debug;
+		};
+		E2 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = ${SHARE_ID};
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		L1 /* Build configuration list for PBXNativeTarget "past-the-break-share" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E1 /* debug */,
+				E2 /* release */,
+			);
+			defaultConfigurationName = debug;
+		};
+		L2 /* Build configuration list for PBXNativeTarget "past-the-break_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1 /* debug */,
+				A2 /* release */,
+			);
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+}
+`;
+
+/** The files an app with a share extension adds: its project, both entitlements files and the extension's Info.plist. */
+export const SHARE_FILES: Record<string, string> = {
+  [XCODE_PROJECT_FILE]: XCODE_PROJECT_WITH_SHARE,
+  'src-tauri/gen/apple/past-the-break_iOS/past-the-break_iOS.entitlements': plist(`\t<key>com.apple.security.application-groups</key>\n\t<array>\n\t\t<string>${GROUP}</string>\n\t</array>\n`),
+  'src-tauri/gen/apple/ShareExtension/ShareExtension.entitlements': plist(`\t<key>com.apple.security.application-groups</key>\n\t<array>\n\t\t<string>${GROUP}</string>\n\t</array>\n`),
+  [SHARE_INFO_FILE]: INFO,
+};
+
 /** The project as Tauri leaves it when it signs by hand: each configuration's signing settings set or added. */
 export function signedProject(text: string, profileUuid: string): string {
   return text.replaceAll(
@@ -92,9 +207,10 @@ export const ICON_CONTENTS = JSON.stringify({ images: [{ size: '1024x1024', idio
 
 /**
  * An app's origin with main two commits long, its clone checked out at main, and a cargo folder holding rustc. With
- * `appFolder`, the Tauri project is in that subfolder of the repository, as Timescale's is in `desktop/`.
+ * `appFolder`, the Tauri project is in that subfolder of the repository, as Timescale's is in `desktop/`. With `share`,
+ * its Xcode project holds a share extension sharing an App Group with the app.
  */
-export function uploadFixture(folder: string, appFolder = '') {
+export function uploadFixture(folder: string, appFolder = '', { share = false }: { share?: boolean } = {}) {
   const inApp = (path: string) => (appFolder ? `${appFolder}/${path}` : path);
   const origin = repository(join(folder, 'origin'), {
     [inApp('src-tauri/tauri.conf.json')]: JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../dist' } }),
@@ -103,6 +219,7 @@ export function uploadFixture(folder: string, appFolder = '') {
     [inApp(XCODE_PROJECT_FILE)]: XCODE_PROJECT,
     [inApp('src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/Contents.json')]: ICON_CONTENTS,
     [inApp('src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png')]: rgb(),
+    ...(share ? Object.fromEntries(Object.entries(SHARE_FILES).map(([path, text]) => [inApp(path), text])) : {}),
     '.gitignore': `${inApp('src-tauri/gen/apple/build/')}\nnode_modules/\n`,
   });
   commit(origin, { 'src/app.ts': 'export {};\n' }, 'the page');
@@ -141,11 +258,15 @@ export type Apple = {
   states?: string[];
   /** Where the stand-in hangs, printing a line with the marker, which also names the hanging process. */
   hang?: { at: 'build' | 'altool'; marker: string };
+  /** What codesign reads from a share extension's signature; by default it allows the App Group. */
+  extensionEntitlements?: string;
 };
 
 /** Tauri, altool, codesign, the keychain and 1Password as they answered in the first real uploads. */
 export function apple(app: string, builds: StandInBuild[], options: Apple = {}) {
   const keyFolders: string[] = [];
+  /** What the build saw: the Xcode project, and the `xcodebuild` first on its PATH, or null when there is none. */
+  const during: { project?: string; xcodebuild?: string | null } = {};
   const answer: Answer = (command, runOptions): ReturnType<Answer> => {
     const line = command.join(' ');
     const cwd = runOptions.cwd ?? app;
@@ -183,6 +304,9 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
         mkdirSync(join(home, 'Library/MobileDevice/Provisioning Profiles'), { recursive: true });
         writeFileSync(join(home, 'Library/MobileDevice/Provisioning Profiles', `${Math.random().toString(36).slice(2, 18)}.mobileprovision`), Buffer.from(env.IOS_MOBILE_PROVISION, 'base64'));
         const project = join(cwd, XCODE_PROJECT_FILE);
+        during.project = readFileSync(project, 'utf8');
+        const standIn = join(tools, 'xcodebuild');
+        during.xcodebuild = existsSync(standIn) ? readFileSync(standIn, 'utf8') : null;
         const uuid = Buffer.from(env.IOS_MOBILE_PROVISION, 'base64').toString().split(' ').pop()!;
         const signed = signedProject(readFileSync(project, 'utf8'), uuid);
         writeFileSync(project, options.projectEdit ? signed.replace('PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak;', 'PRODUCT_BUNDLE_IDENTIFIER = app.pastthebreak.edited;') : signed);
@@ -194,8 +318,10 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       };
       // Tauri writes the build number and the export method into the tracked plists, then builds.
       const n = JSON.parse(command[command.length - 1]).bundle.iOS.bundleVersion as string;
-      const info = join(cwd, 'src-tauri/gen/apple/past-the-break_iOS/Info.plist');
-      writeFileSync(info, readFileSync(info, 'utf8').replace('<string>0.1.0</string>\n</dict>', `<string>${n}</string>\n</dict>`));
+      // agvtool new-version -all, in Tauri's archive, writes it into every target's Info.plist.
+      for (const info of [join(cwd, 'src-tauri/gen/apple/past-the-break_iOS/Info.plist'), join(cwd, SHARE_INFO_FILE)].filter((file) => existsSync(file))) {
+        writeFileSync(info, readFileSync(info, 'utf8').replace('<string>0.1.0</string>\n</dict>', `<string>${n}</string>\n</dict>`));
+      }
       const exportOptions = join(cwd, 'src-tauri/gen/apple/ExportOptions.plist');
       writeFileSync(exportOptions, readFileSync(exportOptions, 'utf8').replace('debugging', 'app-store-connect'));
       if (options.hang?.at === 'build') return hang(options.hang.marker, runOptions);
@@ -205,10 +331,20 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       mkdirSync(appFolder, { recursive: true });
       const encryption = options.encryption === false ? '' : '\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n';
       writeFileSync(join(appFolder, 'Info.plist'), plist(`\t<key>CFBundleIdentifier</key>\n\t<string>app.pastthebreak</string>\n\t<key>CFBundleVersion</key>\n\t<string>${(options.version ?? ((v) => v))(n)}</string>\n${encryption}`));
+      if (existsSync(join(cwd, SHARE_INFO_FILE))) {
+        const appex = join(appFolder, 'PlugIns/past-the-break-share.appex');
+        mkdirSync(appex, { recursive: true });
+        writeFileSync(join(appex, 'Info.plist'), plist(`\t<key>CFBundleIdentifier</key>\n\t<string>${SHARE_ID}</string>\n\t<key>CFBundleVersion</key>\n\t<string>${n}</string>\n`));
+      }
       return ended(undefined); // zipped below by the real zip
     }
     if (command[0] === 'codesign') {
-      writeFileSync(command[3], options.entitlements ?? ENTITLEMENTS_NO_PUSH);
+      const sharing = existsSync(join(cwd, SHARE_INFO_FILE));
+      if (command[5]!.endsWith('.appex')) {
+        writeFileSync(command[3]!, options.extensionEntitlements ?? groupEntitlements(SHARE_ID));
+        return ok(`Executable=${command[5]}/past-the-break-share\n`);
+      }
+      writeFileSync(command[3]!, options.entitlements ?? (sharing ? groupEntitlements('app.pastthebreak') : ENTITLEMENTS_NO_PUSH));
       return ok(`Executable=${command[5]}/Past the Break\n`);
     }
     if (line.startsWith('xcrun altool --upload-app')) {
@@ -242,7 +378,7 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
     }
     return answered;
   }, ['git', 'plutil', 'unzip', 'rustc']);
-  return { ...runner, keyFolders };
+  return { ...runner, keyFolders, during };
 }
 
 

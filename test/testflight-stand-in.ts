@@ -44,7 +44,16 @@ export type StandInCertificate = { id: string; serialNumber: string; expirationD
 export const CERTIFICATE_RECORD: StandInCertificate = { id: 'CERT000001', serialNumber: 'ABC123', expirationDate: '2099-01-01T00:00:00.000+00:00' };
 /** An App Store profile Apple holds for the app. */
 export type StandInProfile = { id: string; uuid: string; content: string; type: string; state: string; certificates: string[]; bundle?: string };
-export const profileContent = (uuid: string) => Buffer.from(`a stand-in profile ${uuid}`).toString('base64');
+/**
+ * A profile's content as Apple sends it, in base64: with App Groups, the plist Apple signs into a real one, in the shape
+ * an App Store profile's Entitlements list them, before the stand-in's words, which end with the uuid.
+ */
+export const profileContent = (uuid: string, groups: string[] = []) => {
+  const entitlements = groups.length
+    ? `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>Entitlements</key>\n\t<dict>\n\t\t<key>com.apple.security.application-groups</key>\n\t\t<array>\n${groups.map((group) => `\t\t\t<string>${group}</string>\n`).join('')}\t\t</array>\n\t</dict>\n</dict>\n</plist>\n`
+    : '';
+  return Buffer.from(`${entitlements}a stand-in profile ${uuid}`).toString('base64');
+};
 
 const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;
 
@@ -90,6 +99,12 @@ export async function appStoreConnect(config: {
   profiles?: StandInProfile[];
   /** Whether Apple refuses the key making a profile, as it refuses a role that may not. */
   refuseProfiles?: boolean;
+  /** Bundle ids the team has registered beside the app's and `<app>.widget`, as BUNDLE0003 on. */
+  bundles?: string[];
+  /** Whether Apple refuses registering a bundle id. */
+  refuseBundleIds?: boolean;
+  /** The App Groups assigned to each bundle id, by identifier, which a profile made for it allows. */
+  groups?: Record<string, string[]>;
 }) {
   const appId = config.appId ?? '1000000001';
   const bundleResource = 'BUNDLE0001';
@@ -97,6 +112,11 @@ export async function appStoreConnect(config: {
   const certificates = config.certificates ?? [CERTIFICATE_RECORD];
   const profiles: StandInProfile[] = config.profiles ?? [{ id: 'PROFILE001', uuid: 'uuid-0001', content: profileContent('uuid-0001'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id] }];
   const requests: string[] = [];
+  const bundles = [config.bundleId, `${config.bundleId}.widget`, ...(config.bundles ?? [])].map((identifier, at) => ({
+    id: at ? `BUNDLE${String(at + 1).padStart(4, '0')}` : bundleResource,
+    identifier,
+  }));
+  const madeBundles: { identifier: string; name: string; platform: string }[] = [];
   const profileResource = (p: StandInProfile) => ({
     type: 'profiles',
     id: p.id,
@@ -112,10 +132,19 @@ export async function appStoreConnect(config: {
       return [200, { data: certificates.map((c) => ({ type: 'certificates', id: c.id, attributes: { serialNumber: c.serialNumber, expirationDate: c.expirationDate } })) }];
     }
     if (url.pathname === '/v1/bundleIds') {
+      if (method === 'POST') {
+        if (config.refuseBundleIds) {
+          return [403, { errors: [{ status: '403', code: 'FORBIDDEN_ERROR', title: 'The API key in use does not allow this request', detail: 'The API key in use does not allow this request' }] }];
+        }
+        const attributes = (JSON.parse(body) as { data: { attributes: { identifier: string; name: string; platform: string } } }).data.attributes;
+        madeBundles.push(attributes);
+        const made = { id: `BUNDLE${String(bundles.length + 1).padStart(4, '0')}`, identifier: attributes.identifier };
+        bundles.push(made);
+        return [201, { data: { type: 'bundleIds', id: made.id, attributes: { identifier: made.identifier, name: attributes.name, platform: attributes.platform } } }];
+      }
       const identifier = q('filter[identifier]');
       // Apple's filter matches part of an identifier, so an app's id with a suffix comes back too.
-      const all = [config.bundleId, `${config.bundleId}.widget`].map((id, at) => ({ type: 'bundleIds', id: at ? 'BUNDLE0002' : bundleResource, attributes: { identifier: id } }));
-      return [200, { data: all.filter((b) => identifier && b.attributes.identifier.includes(identifier)) }];
+      return [200, { data: bundles.filter((b) => identifier && b.identifier.includes(identifier)).map((b) => ({ type: 'bundleIds', id: b.id, attributes: { identifier: b.identifier } })) }];
     }
     if (url.pathname === '/v1/profiles' && method === 'GET') {
       // Apple's filters, and the links the upload matches on; Apple refuses `include` on a bundle id's own list.
@@ -130,9 +159,18 @@ export async function appStoreConnect(config: {
     if (method === 'POST' && url.pathname === '/v1/profiles') {
       if (config.refuseProfiles) return [403, { errors: [{ status: '403', title: 'The API key in use does not allow this request', detail: 'FORBIDDEN_ERROR' }] }];
       const made = JSON.parse(body) as { data: { relationships: { bundleId: { data: { id: string } }; certificates: { data: { id: string }[] } } } };
-      if (made.data.relationships.bundleId.data.id !== bundleResource) return [409, { errors: [{ status: '409', title: 'wrong bundle id' }] }];
+      const bundle = bundles.find((b) => b.id === made.data.relationships.bundleId.data.id);
+      if (!bundle) return [409, { errors: [{ status: '409', title: 'wrong bundle id' }] }];
       const uuid = `uuid-${String(profiles.length + 1).padStart(4, '0')}`;
-      const profile = { id: `PROFILE${profiles.length + 1}`, uuid, content: profileContent(uuid), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: made.data.relationships.certificates.data.map((c) => c.id) };
+      const profile = {
+        id: `PROFILE${profiles.length + 1}`,
+        uuid,
+        content: profileContent(uuid, config.groups?.[bundle.identifier]),
+        type: 'IOS_APP_STORE',
+        state: 'ACTIVE',
+        certificates: made.data.relationships.certificates.data.map((c) => c.id),
+        bundle: bundle.id,
+      };
       profiles.push(profile);
       return [201, { data: profileResource(profile) }];
     }
@@ -189,6 +227,7 @@ export async function appStoreConnect(config: {
     builds,
     profiles,
     requests,
+    madeBundles,
     options: { baseUrl, fetch: Bun.fetch as typeof fetch },
     stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };

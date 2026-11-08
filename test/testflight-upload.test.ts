@@ -18,8 +18,27 @@ import {
   upload,
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
-import { projectToPutBack, writeSecurityRecorder } from '../tauri/testflight/signing.ts';
-import { apple as appleFor, ENTITLEMENTS_DEVELOPMENT, ENTITLEMENTS_PUSH, INFO, png, rgb, rgba, signedProject, tauriCli, uploadFixture, XCODE_PROJECT, XCODE_PROJECT_FILE, type Apple } from './testflight-apple-stand-in.ts';
+import { extensionSigningSettings, profileGroups, projectToPutBack, withBuildSettings, writeSecurityRecorder, writeXcodebuildStandIn } from '../tauri/testflight/signing.ts';
+import {
+  apple as appleFor,
+  ENTITLEMENTS_DEVELOPMENT,
+  ENTITLEMENTS_PUSH,
+  GROUP,
+  groupEntitlements,
+  INFO,
+  plist,
+  png,
+  rgb,
+  rgba,
+  SHARE_ID,
+  signedProject,
+  tauriCli,
+  uploadFixture,
+  XCODE_PROJECT,
+  XCODE_PROJECT_FILE,
+  XCODE_PROJECT_WITH_SHARE,
+  type Apple,
+} from './testflight-apple-stand-in.ts';
 import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
@@ -447,7 +466,7 @@ describe('signing with the certificate from 1Password', () => {
   });
 
   test("the project is put back only when the build changed nothing but Tauri's signing lines for this certificate and profile", () => {
-    const signedWith = { team: 'TEAM000000', profileUuid: 'uuid-0001' };
+    const signedWith = { team: 'TEAM000000', profileUuids: ['uuid-0001'] };
     const signed = signedProject(XCODE_PROJECT, 'uuid-0001');
     expect(signed).not.toBe(XCODE_PROJECT);
     expect(projectToPutBack(XCODE_PROJECT, signed, signedWith)).toBe(XCODE_PROJECT);
@@ -489,6 +508,166 @@ describe('signing with the certificate from 1Password', () => {
     const stand = apple();
     expect((await runUpload(stand, { env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome } })).code).toBe(0);
     expect(stand.calls.filter((c) => c.command.includes('pkcs12') || c.command.includes('x509')).map((c) => c.command[0])).toEqual(['/usr/bin/openssl', '/usr/bin/openssl']);
+  });
+});
+
+describe('an app with a share extension', () => {
+  /** The app's checkout, with a share extension in its Xcode project, and App Store Connect as the test sets it. */
+  const share = async (config: Omit<Parameters<typeof appStoreConnect>[0], 'bundleId'> = {}) => {
+    ({ origin, app, cargoHome } = uploadFixture(join(place.folder, 'share'), '', { share: true }));
+    await asc.stop();
+    asc = await appStoreConnect({ bundleId: 'app.pastthebreak', ...config });
+  };
+  const withGroup = (id: string, uuid: string, bundle?: string) => ({
+    id,
+    uuid,
+    content: profileContent(uuid, [GROUP]),
+    type: 'IOS_APP_STORE',
+    state: 'ACTIVE',
+    certificates: [CERTIFICATE_RECORD.id],
+    ...(bundle ? { bundle } : {}),
+  });
+  const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
+
+  test("each target signs with its own profile: the extension's App ID is registered, its profile made, and the export lists it", async () => {
+    // The app's profile allows the group; the team has no App ID for the extension yet, and Apple has the group assigned to it once registered.
+    await share({ profiles: [withGroup('APP', 'uuid-app0')], groups: { [SHARE_ID]: [GROUP] } });
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(printed.filter((line) => line.startsWith('!'))).toEqual([]);
+    expect(code).toBe(0);
+    expect(asc.madeBundles).toEqual([{ identifier: SHARE_ID, name: 'app-kit app pastthebreak share', platform: 'IOS' }]);
+    expect(asc.requests.filter((request) => request === 'POST /v1/profiles')).toHaveLength(1);
+    const made = asc.profiles.at(-1)!;
+    expect(made.bundle).toBe('BUNDLE0003');
+    // Tauri signs the app with the app's profile; the extension's configurations were signed by hand with its own.
+    expect(stand.named('tauri ios build')[0].options.env?.IOS_MOBILE_PROVISION).toBe(profileContent('uuid-app0', [GROUP]));
+    const during = stand.during.project!;
+    for (const line of [
+      'CODE_SIGN_STYLE = Manual;',
+      'CODE_SIGN_IDENTITY = "Apple Distribution: Team (TEAM000000)";',
+      '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution: Team (TEAM000000)";',
+      'DEVELOPMENT_TEAM = TEAM000000;',
+      `PROVISIONING_PROFILE_SPECIFIER = "${made.uuid}";`,
+      `"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "${made.uuid}";`,
+    ]) {
+      expect(during.split('\n').filter((text) => text.trim() === line)).toHaveLength(line.startsWith('DEVELOPMENT_TEAM') ? 4 : 2);
+    }
+    expect(during).not.toContain('iPhone Developer');
+    // The export is given the extension's profile by the xcodebuild first on the build's PATH.
+    expect(stand.during.xcodebuild).toContain(`Set :provisioningProfiles:${SHARE_ID} ${made.uuid}`);
+    // Xcode's folder holds both profiles, and the project and both Info.plists are as committed.
+    expect(existsSync(xcodeProfile('uuid-app0'))).toBe(true);
+    expect(readFileSync(xcodeProfile(made.uuid))).toEqual(Buffer.from(made.content, 'base64'));
+    expect(git(app, 'status', '--porcelain')).toBe('');
+    // The next upload reuses both, registering and making nothing.
+    const again = asc.requests.length;
+    commit(origin, { 'src/next.ts': 'export {};\n' });
+    git(app, 'pull', '-q');
+    expect((await runUpload(apple())).code).toBe(0);
+    expect(asc.requests.slice(again).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+
+  test('an active profile without the App Group stops the upload before the build, with the steps for every App ID on one line, and makes nothing', async () => {
+    const lacking = { id: 'OLD', uuid: 'uuid-old0', content: profileContent('uuid-old0'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id] };
+    await share({ profiles: [lacking, { ...lacking, id: 'OLDSHARE', uuid: 'uuid-old1', content: profileContent('uuid-old1'), bundle: 'BUNDLE0003' }], bundles: [SHARE_ID] });
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toEqual([
+      `! the App Store profile for app.pastthebreak and ${SHARE_ID} lacks the App Group ${GROUP}, which Apple's API cannot add: on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, choose App Groups in the menu at the right, and if ${GROUP} is not listed, +, App Groups, Continue, a description and the identifier, Continue, Register; then choose App IDs in that menu and open app.pastthebreak (tick App Groups, Configure, tick ${GROUP}, Continue, Assign, Done, Save, Confirm), then ${SHARE_ID} (tick App Groups, Configure, tick ${GROUP}, Continue, Assign, Done, Save, Confirm); then run the upload again, which makes profiles that allow it`,
+    ]);
+    expect(asc.requests.filter((request) => request.startsWith('POST') || request.startsWith('DELETE'))).toEqual([]);
+    expect(stand.named('tauri')).toEqual([]);
+    expect(git(app, 'status', '--porcelain')).toBe('');
+  });
+
+  test('with no active profile, one is made; made without the App Group, it is kept and the upload stops with the steps', async () => {
+    // The app's group is assigned; the extension's App ID exists without it.
+    await share({ profiles: [withGroup('APP', 'uuid-app0')], bundles: [SHARE_ID] });
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toStartWith(`! the App Store profile for ${SHARE_ID} lacks the App Group ${GROUP}, which Apple's API cannot add:`);
+    expect(asc.requests.filter((request) => request.startsWith('POST') || request.startsWith('DELETE'))).toEqual(['POST /v1/profiles']);
+    expect(asc.profiles.at(-1)).toMatchObject({ bundle: 'BUNDLE0003', state: 'ACTIVE' });
+    expect(stand.named('tauri')).toEqual([]);
+    // Tried again before the step, the kept profile stops it with nothing more made.
+    const before = asc.requests.length;
+    expect((await runUpload(apple())).code).toBe(1);
+    expect(asc.requests.slice(before).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+
+  test("Apple's refusal to register the extension's App ID gives Apple's reason and the steps by hand", async () => {
+    await share({ profiles: [withGroup('APP', 'uuid-app0')], refuseBundleIds: true });
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toEqual([
+      `! Apple refused registering the app extension's bundle id ${SHARE_ID} (App Store Connect answered 403 to /v1/bundleIds: The API key in use does not allow this request: The API key in use does not allow this request): register it once on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers, +, App IDs, App, its description and the explicit bundle id ${SHARE_ID}, Continue, Register), and the next upload uses it`,
+    ]);
+    expect(stand.named('tauri')).toEqual([]);
+  });
+
+  test("a built app whose extension's signature lacks its App Group never goes up", async () => {
+    await share({ profiles: [withGroup('APP', 'uuid-app0'), withGroup('SHARE', 'uuid-shr0', 'BUNDLE0003')], bundles: [SHARE_ID] });
+    const stand = apple({ extensionEntitlements: groupEntitlements(SHARE_ID).replace(`<string>${GROUP}</string>`, '') });
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed.at(-1)).toBe(`! Past the Break.ipa must not go up: its extension ${SHARE_ID}'s signature lacks the App Group ${GROUP} its entitlements ask for`);
+    expect(stand.named('altool')).toEqual([]);
+    expect(git(app, 'status', '--porcelain')).toBe('');
+  });
+
+  test('an app with no extension makes no extra calls and puts no xcodebuild on the build\'s path', async () => {
+    const stand = apple();
+    expect((await runUpload(stand)).code).toBe(0);
+    expect(stand.during.xcodebuild).toBeNull();
+    expect(asc.requests.filter((request) => request.startsWith('POST') || request.startsWith('/v1/bundleIds'))).toEqual(['/v1/bundleIds?filter[identifier]=app.pastthebreak&limit=200&fields[bundleIds]=identifier']);
+  });
+
+  test("the xcodebuild stand-in sets each extension's profile in the export settings, over an entry already there, and hands every call on", () => {
+    const folder = join(place.folder, 'tools');
+    mkdirSync(folder);
+    writeXcodebuildStandIn(folder, [{ bundleId: SHARE_ID, profileUuid: 'uuid-shr0' }, { bundleId: 'app.pastthebreak.widget', profileUuid: 'uuid-wid0' }], '/bin/echo');
+    // As Tauri 2.12 writes it: the app's profile alone; and as a later Tauri would, the extension's committed entry kept.
+    const tauriWrote = join(place.folder, 'export.plist');
+    writeFileSync(tauriWrote, plist(`\t<key>method</key>\n\t<string>app-store-connect</string>\n\t<key>provisioningProfiles</key>\n\t<dict>\n\t\t<key>app.pastthebreak</key>\n\t\t<string>uuid-app0</string>\n\t\t<key>${SHARE_ID}</key>\n\t\t<string>uuid-stale</string>\n\t</dict>\n`));
+    const exported = Bun.spawnSync([join(folder, 'xcodebuild'), '-exportArchive', '-archivePath', 'a.xcarchive', '-exportOptionsPlist', tauriWrote, '-exportPath', 'out'], { stdout: 'pipe' });
+    expect(exported.exitCode).toBe(0);
+    expect(exported.stdout.toString()).toBe(`-exportArchive -archivePath a.xcarchive -exportOptionsPlist ${tauriWrote} -exportPath out\n`);
+    const read = Bun.spawnSync(['plutil', '-convert', 'json', '-o', '-', tauriWrote], { stdout: 'pipe' });
+    expect(JSON.parse(read.stdout.toString()).provisioningProfiles).toEqual({ 'app.pastthebreak': 'uuid-app0', [SHARE_ID]: 'uuid-shr0', 'app.pastthebreak.widget': 'uuid-wid0' });
+    // Export settings with no list get one; a build or an archive is handed on untouched.
+    const bare = join(place.folder, 'bare.plist');
+    writeFileSync(bare, plist('\t<key>method</key>\n\t<string>app-store-connect</string>\n'));
+    expect(Bun.spawnSync([join(folder, 'xcodebuild'), '-exportArchive', '-exportOptionsPlist', bare]).exitCode).toBe(0);
+    expect(JSON.parse(Bun.spawnSync(['plutil', '-convert', 'json', '-o', '-', bare], { stdout: 'pipe' }).stdout.toString()).provisioningProfiles[SHARE_ID]).toBe('uuid-shr0');
+    const built = Bun.spawnSync([join(folder, 'xcodebuild'), 'archive', '-scheme', 'app'], { stdout: 'pipe' });
+    expect(built.stdout.toString()).toBe('archive -scheme app\n');
+    expect(() => writeXcodebuildStandIn(folder, [{ bundleId: 'a"; rm -rf /', profileUuid: 'x' }])).toThrow();
+  });
+
+  test("the extension's signing lines are set in its configurations alone, and put back with the app's", () => {
+    const settings = extensionSigningSettings({ identity: 'Apple Distribution: Team (TEAM000000)', team: 'TEAM000000', profileUuid: 'uuid-shr0' });
+    const signed = withBuildSettings(XCODE_PROJECT_WITH_SHARE, ['E1', 'E2'], settings)!;
+    // The development identity is replaced, the other settings added, and the app's configurations untouched.
+    expect(signed).not.toContain('iPhone Developer');
+    expect(signed.match(/PROVISIONING_PROFILE_SPECIFIER = "uuid-shr0";/g)).toHaveLength(2);
+    expect(signed.slice(signed.indexOf('A1 /* debug */'), signed.indexOf('E1 /* debug */'))).toBe(XCODE_PROJECT_WITH_SHARE.slice(XCODE_PROJECT_WITH_SHARE.indexOf('A1 /* debug */'), XCODE_PROJECT_WITH_SHARE.indexOf('E1 /* debug */')));
+    // Set twice, each setting is still one line.
+    expect(withBuildSettings(signed, ['E1', 'E2'], settings)).toBe(signed);
+    const both = signedProject(signed, 'uuid-app0');
+    expect(projectToPutBack(XCODE_PROJECT_WITH_SHARE, both, { team: 'TEAM000000', profileUuids: ['uuid-app0', 'uuid-shr0'] })).toBe(XCODE_PROJECT_WITH_SHARE);
+    // Signed with a profile this build did not use, it is not put back.
+    expect(projectToPutBack(XCODE_PROJECT_WITH_SHARE, both, { team: 'OTHERTEAM1', profileUuids: ['uuid-app0'] })).toBeNull();
+    expect(withBuildSettings(XCODE_PROJECT_WITH_SHARE, ['NOPE'], settings)).toBeNull();
+  });
+
+  test("a profile's App Groups are read from the plist Apple signs into it", () => {
+    expect(profileGroups(profileContent('uuid-1', [GROUP, 'group.other']))).toEqual([GROUP, 'group.other']);
+    expect(profileGroups(profileContent('uuid-1'))).toEqual([]);
   });
 });
 

@@ -1,7 +1,8 @@
 /*
  * The App Store Connect calls the TestFlight part makes: the app by its bundle id, the builds it holds, one build's
- * processing, and what signing needs: the team's distribution certificate by its serial number, and each app's App
- * Store provisioning profile, made when the app has none. Each request carries a token made from the team's App Store Connect API key (see key.ts).
+ * processing, and what signing needs: the team's distribution certificate by its serial number, an app extension's
+ * bundle id, registered when the team has none, and each target's App Store provisioning profile, made when it has
+ * none. Each request carries a token made from the team's App Store Connect API key (see key.ts).
  */
 import { appleToken } from '../apple-token.ts';
 
@@ -138,10 +139,25 @@ export class AppStoreConnect {
   }
 
   /**
-   * The active App Store profile for the bundle id that signs with the certificate, or null when there is none. Apple
+   * Registers `identifier` as the team's bundle id for an iPhone app, as an app extension's App ID is, and gives its id.
+   * Its name is the identifier with every character but letters and digits made a space, since Apple's developer site
+   * refuses dots and hyphens in an App ID's description.
+   */
+  async createBundleId(identifier: string): Promise<string> {
+    const made = await this.request('/v1/bundleIds', {
+      data: { type: 'bundleIds', attributes: { identifier, name: `app-kit ${identifier.replace(/[^A-Za-z0-9]+/g, ' ').trim()}`, platform: 'IOS' } },
+    });
+    const id = (Array.isArray(made.data) ? made.data[0] : made.data)?.id;
+    if (!id) throw new Error(`App Store Connect registered ${identifier} without its id`);
+    return id;
+  }
+
+  /**
+   * Every active App Store profile for the bundle id that signs with the certificate, in the server's order. Apple
    * refuses `include` on a bundle id's own profile list, so the team's list is read, filtered, with both linked.
    */
-  async appStoreProfile(bundleId: string, certificateId: string): Promise<Profile | null> {
+  async appStoreProfiles(bundleId: string, certificateId: string): Promise<Profile[]> {
+    const found: Profile[] = [];
     let next: string | undefined =
       '/v1/profiles?filter[profileType]=IOS_APP_STORE&filter[profileState]=ACTIVE&limit=200&fields[profiles]=profileType,profileState,uuid,profileContent,bundleId,certificates&include=bundleId,certificates&limit[certificates]=50';
     for (let pages = 0; next && pages < 20; pages++) {
@@ -154,12 +170,12 @@ export class AppStoreConnect {
           return (Array.isArray(linked) ? linked : linked ? [linked] : []).map((resource) => resource.id);
         };
         if (ids('bundleId').includes(bundleId) && ids('certificates').includes(certificateId) && typeof a.uuid === 'string' && typeof a.profileContent === 'string') {
-          return { uuid: a.uuid, content: a.profileContent };
+          found.push({ uuid: a.uuid, content: a.profileContent });
         }
       }
       next = page.links?.next;
     }
-    return null;
+    return found;
   }
 
   /** Makes the App Store profile for the bundle id with the certificate. Apple refuses a key whose role may not. */

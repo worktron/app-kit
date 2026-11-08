@@ -36,19 +36,27 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
-import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type Profile, type TestFlightKey } from './app-store-connect.ts';
+import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type CertificateRecord, type Profile, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
 import { lock } from '../state.ts';
 import {
   bundleIdentifier,
   certificateFacts,
   deleteRecordedKeychains,
+  extensionSigningSettings,
   installProfile,
+  profileGroups,
   projectToPutBack,
   removeTauriProfileCopy,
   tauriCliProblem,
   tauriProfileFiles,
+  withBuildSettings,
   writeSecurityRecorder,
+  writeXcodebuildStandIn,
+  xcodeProjectFile,
+  xcodeTargets,
+  type XcodeTarget,
+  type XcodeTargets,
 } from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
@@ -56,7 +64,8 @@ import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-l
 export { buildEnv, STOP_SIGNALS };
 
 export const EXPORT_OPTIONS = 'src-tauri/gen/apple/ExportOptions.plist';
-const INFO_PLIST = /^src-tauri\/gen\/apple\/[^/]+_iOS\/Info\.plist$/;
+/** The app's Info.plist and each extension's, all of which Tauri's archive writes the build number into. */
+const INFO_PLIST = /^src-tauri\/gen\/apple\/[^/]+\/Info\.plist$/;
 const XCODE_PROJECT = /^src-tauri\/gen\/apple\/[^/]+\.xcodeproj\/project\.pbxproj$/;
 /** Where the README says how to make the distribution certificate, named by every refusal that needs a new one. */
 const MAKE_CERTIFICATE = `make it as app-kit's README, TestFlight, "The distribution certificate", says`;
@@ -224,13 +233,41 @@ export function appStoreIconProblem(cwd: string): string | null {
   return null;
 }
 
-/** What the built app says about itself: its Info.plist and its signed entitlements, each as JSON. */
-export type IpaFacts = { info: Record<string, unknown>; entitlements: Record<string, unknown> };
+/**
+ * What the built app says about itself: its Info.plist and its signed entitlements, each as JSON, and the same for each
+ * app extension inside it.
+ */
+export type IpaFacts = {
+  info: Record<string, unknown>;
+  entitlements: Record<string, unknown>;
+  extensions?: { info: Record<string, unknown>; entitlements: Record<string, unknown> }[];
+};
 
-/** Each reason the build must not go up, or none. */
-export function ipaProblems(facts: IpaFacts, buildNumber: number): string[] {
+/** The App Groups a signature allows. */
+const signedGroups = (entitlements: Record<string, unknown>) => {
+  const groups = entitlements['com.apple.security.application-groups'];
+  return Array.isArray(groups) ? groups.map(String) : [];
+};
+
+/**
+ * Each reason the build must not go up, or none. `targets` are the Xcode project's, whose App Groups each signature must
+ * allow: an extension signed without its group installs, and its share sheet entry cannot hand anything to the app.
+ */
+export function ipaProblems(facts: IpaFacts, buildNumber: number, targets: XcodeTargets = { app: null, extensions: [] }): string[] {
   const problems: string[] = [];
   const { info, entitlements } = facts;
+  const lacking = (signed: Record<string, unknown>, asked: string[]) => asked.filter((group) => !signedGroups(signed).includes(group));
+  const appLacks = lacking(entitlements, targets.app?.groups ?? []);
+  if (appLacks.length) problems.push(`its signature lacks the App Group ${appLacks.join(', ')} its entitlements ask for`);
+  for (const target of targets.extensions) {
+    const built = facts.extensions?.find((extension) => extension.info.CFBundleIdentifier === target.bundleId);
+    if (!built) {
+      problems.push(`it holds no app extension ${target.bundleId}, which the Xcode project builds`);
+      continue;
+    }
+    const lacks = lacking(built.entitlements, target.groups);
+    if (lacks.length) problems.push(`its extension ${target.bundleId}'s signature lacks the App Group ${lacks.join(', ')} its entitlements ask for`);
+  }
   if (info.CFBundleVersion !== String(buildNumber)) {
     problems.push(`its CFBundleVersion is ${String(info.CFBundleVersion)}, not the build number ${buildNumber}`);
   }
@@ -344,6 +381,11 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   if (tauriCli) return fail(tauriCli);
   const identifier = bundleIdentifier(cwd);
   if (!identifier) return fail('src-tauri/tauri.conf.json names no identifier, the bundle id the App Store profile is for');
+  // The app's target and its app extensions, from the committed Xcode project, which Tauri keeps as it is.
+  const projectFile = xcodeProjectFile(cwd);
+  const targetsRead: XcodeTargets | { error: string } = projectFile ? await xcodeTargets(cwd, projectFile, run, env) : { app: null, extensions: [] };
+  if ('error' in targetsRead) return fail(targetsRead.error);
+  const targets = targetsRead;
 
   const sysroot = await run(['rustc', '--print', 'sysroot'], { cwd, env });
   if (sysroot.code !== 0) return fail(`rustc not found in ${env.PATH?.split(':')[0]} or on PATH: install Rust from https://rustup.rs`);
@@ -367,14 +409,19 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   if ('error' in certificateRead) return fail(certificateRead.error);
   const certificate = certificateRead.certificate;
   const appStoreConnect = new AppStoreConnect(key, options.appStoreConnect);
-  const signing = await signingFiles(certificate, identifier, appStoreConnect, run, env, now);
+  const signing = await signingFiles(certificate, identifier, targets, appStoreConnect, run, env, now);
   if (typeof signing === 'string') return fail(signing);
+  const profileUuids = [signing.profile.uuid, ...signing.extensions.map((extension) => extension.profile.uuid)];
 
   // The committed values of what Tauri writes, to put back after. ls-files names each file from the folder it runs in,
   // and `HEAD:./` reads it from there too, so a Tauri project in a subfolder of its repository is put back as well.
   const tracked = (await git('ls-files', '--', 'src-tauri/gen/apple')).out.split('\n');
   const restores: { file: string; key: string; wrote: string; committed: string }[] = [];
   const projects = tracked.filter((file) => XCODE_PROJECT.test(file)).map((file) => ({ file, before: readFileSync(join(cwd, file), 'utf8') }));
+  // An extension's signing is written into the project for the build, so it must be one put back after.
+  if (signing.extensions.length && !projects.some((project) => project.file === projectFile)) {
+    return fail(`${projectFile} is not committed, so the signing written into it for the app extensions could not be put back: commit it`);
+  }
   for (const file of tracked) {
     const plistKey = file === EXPORT_OPTIONS ? 'method' : INFO_PLIST.test(file) ? 'CFBundleVersion' : null;
     if (!plistKey) continue;
@@ -401,7 +448,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
     for (const project of projects) {
       const path = join(cwd, project.file);
       if (!existsSync(path)) continue;
-      const text = projectToPutBack(project.before, readFileSync(path, 'utf8'), { team: signing.team, profileUuid: signing.profile.uuid });
+      const text = projectToPutBack(project.before, readFileSync(path, 'utf8'), { team: signing.team, profileUuids });
       if (text === null) changedProjects.push(project.file);
       else writeFileSync(path, text);
     }
@@ -412,6 +459,21 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
     installProfile(home, signing.profile.uuid, signing.profile.content);
     symlinkSync('/usr/bin/rsync', join(tools, 'rsync'));
     writeSecurityRecorder(tools);
+    if (signing.extensions.length && projectFile) {
+      // Each extension signs by hand with its own profile, as Tauri signs the app; put back after with the app's lines.
+      const path = join(cwd, projectFile);
+      let text: string | null = readFileSync(path, 'utf8');
+      for (const { target, profile } of signing.extensions) {
+        installProfile(home, profile.uuid, profile.content);
+        text = text && withBuildSettings(text, target.configurations, extensionSigningSettings({ identity: signing.name, team: signing.team, profileUuid: profile.uuid }));
+      }
+      if (text === null) return fail(`could not find the app extensions' build settings in ${projectFile} to write their signing into`);
+      writeFileSync(path, text);
+      writeXcodebuildStandIn(
+        tools,
+        signing.extensions.map(({ target, profile }) => ({ bundleId: target.bundleId, profileUuid: profile.uuid })),
+      );
+    }
     print(`building build ${buildNumber} (${short})`);
     const config = JSON.stringify({ bundle: { iOS: { bundleVersion: String(buildNumber) } } });
     const built = await run(['bunx', 'tauri', 'ios', 'build', '--ci', '--export-method', 'app-store-connect', '--config', config], {
@@ -447,7 +509,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
 
   const facts = await readIpa(ipa, run, env);
   if (typeof facts === 'string') return fail(facts);
-  const problems = ipaProblems(facts, buildNumber);
+  const problems = ipaProblems(facts, buildNumber, targets);
   if (problems.length) return fail(`${ipaName} must not go up: ${problems.join('; ')}`);
   const bundleId = String(facts.info.CFBundleIdentifier ?? '');
 
@@ -483,18 +545,85 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
   }
 }
 
+/** A target's App Store profile, or the App Groups the profile for it lacks, or why there is none. */
+type TargetProfile = { profile: Profile } | { lacks: string[] } | { error: string };
+
 /**
- * The App Store profile the build signs with, after checking the certificate against Apple's record of it; or why the
- * build cannot sign. The profile is made when the app has none, which Apple refuses a key whose role may not do.
+ * The profile `target` signs with: an active one for its bundle id and the certificate that allows every App Group its
+ * entitlements ask for, else one made when it has no active one. When active ones exist and none allows the groups, or
+ * the one made does not, Apple's record of the App ID lacks the group, which only a person can add on the developer
+ * site; nothing more is made, and nothing is deleted. Adding it changes the App ID, which makes Apple mark every
+ * profile for it invalid, so the next upload makes one that allows it.
+ */
+async function targetProfile(
+  appStoreConnect: AppStoreConnect,
+  target: { bundleId: string; groups: string[]; extension: boolean },
+  certificate: CertificateRecord,
+): Promise<TargetProfile> {
+  const { bundleId: identifier, groups } = target;
+  let bundleId = await appStoreConnect.bundleId(identifier);
+  if (!bundleId && !target.extension) {
+    return { error: `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses` };
+  }
+  if (!bundleId) {
+    try {
+      bundleId = await appStoreConnect.createBundleId(identifier);
+    } catch (error) {
+      if (!(error instanceof AppStoreConnectError)) throw error;
+      return {
+        error: `Apple refused registering the app extension's bundle id ${identifier} (${error.message}): register it once on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers, +, App IDs, App, its description and the explicit bundle id ${identifier}, Continue, Register), and the next upload uses it`,
+      };
+    }
+  }
+  const allows = (profile: Profile) => groups.every((group) => profileGroups(profile.content).includes(group));
+  const lacks = (profile: Profile) => groups.filter((group) => !profileGroups(profile.content).includes(group));
+  const active = await appStoreConnect.appStoreProfiles(bundleId, certificate.id);
+  const fitting = active.find(allows);
+  if (fitting) return { profile: fitting };
+  if (active.length) return { lacks: lacks(active[0]!) };
+  let made: Profile;
+  try {
+    made = await appStoreConnect.createAppStoreProfile(bundleId, identifier, certificate.id);
+  } catch (error) {
+    if (error instanceof AppStoreConnectError && error.status === 403) {
+      return {
+        error: `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${certificate.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`,
+      };
+    }
+    throw error;
+  }
+  return allows(made) ? { profile: made } : { lacks: lacks(made) };
+}
+
+/**
+ * What a person does on Apple's developer site so each App ID's profile allows its App Groups, which Apple's API cannot
+ * do, as one line: the watcher keeps only the upload's last line in its log.
+ */
+export function appGroupSteps(lacking: { bundleId: string; groups: string[] }[]): string {
+  const groups = [...new Set(lacking.flatMap((target) => target.groups))];
+  const assign = lacking.map((target) => `${target.bundleId} (tick App Groups, Configure, tick ${target.groups.join(' and ')}, Continue, Assign, Done, Save, Confirm)`);
+  return (
+    `the App Store profile for ${lacking.map((target) => target.bundleId).join(' and ')} lacks the App Group ${groups.join(' and ')}, which Apple's API cannot add: ` +
+    `on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, choose App Groups in the menu at the right, and if ${groups.join(' or ')} is not listed, ` +
+    `+, App Groups, Continue, a description and the identifier, Continue, Register; then choose App IDs in that menu and open ` +
+    `${assign.join(', then ')}; then run the upload again, which makes profiles that allow it`
+  );
+}
+
+/**
+ * The App Store profile the app signs with, and each extension's, after checking the certificate against Apple's record
+ * of it; or why the build cannot sign. A missing App Group is told for every target at once, so one visit to the
+ * developer site settles them all.
  */
 async function signingFiles(
   certificate: Certificate,
   identifier: string,
+  targets: XcodeTargets,
   appStoreConnect: AppStoreConnect,
   run: Run,
   env: Env,
   now: () => number,
-): Promise<{ profile: Profile; team: string } | string> {
+): Promise<{ profile: Profile; extensions: { target: XcodeTarget; profile: Profile }[]; team: string; name: string } | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-certificate-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
   let facts: Awaited<ReturnType<typeof certificateFacts>>;
@@ -504,29 +633,29 @@ async function signingFiles(
     remove();
   }
   if ('error' in facts) return facts.error;
-  const { team } = facts;
+  const { team, name } = facts;
   try {
     const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
     if (record.expires && Date.parse(record.expires) <= now()) return `the distribution certificate expired on ${record.expires.slice(0, 10)}: ${MAKE_CERTIFICATE}`;
-    const bundleId = await appStoreConnect.bundleId(identifier);
-    if (!bundleId) return `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses`;
-    const found = await appStoreConnect.appStoreProfile(bundleId, record.id);
-    if (found) return { profile: found, team };
-    try {
-      return { profile: await appStoreConnect.createAppStoreProfile(bundleId, identifier, record.id), team };
-    } catch (error) {
-      if (error instanceof AppStoreConnectError && error.status === 403) {
-        return `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${record.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`;
-      }
-      throw error;
+    const app = await targetProfile(appStoreConnect, { bundleId: identifier, groups: targets.app?.groups ?? [], extension: false }, record);
+    if ('error' in app) return app.error;
+    const lacking: { bundleId: string; groups: string[] }[] = 'lacks' in app ? [{ bundleId: identifier, groups: app.lacks }] : [];
+    const extensions: { target: XcodeTarget; profile: Profile }[] = [];
+    for (const target of targets.extensions) {
+      const found = await targetProfile(appStoreConnect, { ...target, extension: true }, record);
+      if ('error' in found) return found.error;
+      if ('lacks' in found) lacking.push({ bundleId: target.bundleId, groups: found.lacks });
+      else extensions.push({ target, profile: found.profile });
     }
+    if (lacking.length || !('profile' in app)) return appGroupSteps(lacking);
+    return { profile: app.profile, extensions, team, name };
   } catch (error) {
-    return `App Store Connect could not give the signing profile for ${identifier}: ${error instanceof Error ? error.message : String(error)}`;
+    return `App Store Connect could not give the signing profiles for ${identifier}: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-/** The built app's Info.plist and entitlements, or why they could not be read. */
+/** The built app's Info.plist and entitlements, and each extension's, or why they could not be read. */
 async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-ipa-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
@@ -536,18 +665,30 @@ async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | stri
     const payload = join(folder, 'Payload');
     const app = existsSync(payload) ? readdirSync(payload).find((name) => name.endsWith('.app')) : undefined;
     if (!app) return `${ipa} holds no app in Payload/`;
-    const entitlementsFile = join(folder, 'entitlements.plist');
-    const signed = await run(['codesign', '-d', '--entitlements', entitlementsFile, '--xml', join(payload, app)], { env });
-    if (signed.code !== 0) return `codesign could not read ${app}'s entitlements: ${lastLine(signed.out)}`;
     const json = async (file: string) => {
       if (!existsSync(file)) return {};
       const done = await run(['plutil', '-convert', 'json', '-o', '-', file], { env });
       return done.code === 0 ? (JSON.parse(done.out) as Record<string, unknown>) : null;
     };
-    const info = await json(join(payload, app, 'Info.plist'));
-    const entitlements = await json(entitlementsFile);
-    if (!info || !entitlements) return `could not read ${app}'s Info.plist or entitlements`;
-    return { info, entitlements };
+    const bundleFacts = async (bundle: string, name: string, at: number) => {
+      const entitlementsFile = join(folder, `entitlements-${at}.plist`);
+      const signed = await run(['codesign', '-d', '--entitlements', entitlementsFile, '--xml', bundle], { env });
+      if (signed.code !== 0) return `codesign could not read ${name}'s entitlements: ${lastLine(signed.out)}`;
+      const info = await json(join(bundle, 'Info.plist'));
+      const entitlements = await json(entitlementsFile);
+      if (!info || !entitlements) return `could not read ${name}'s Info.plist or entitlements`;
+      return { info, entitlements };
+    };
+    const facts = await bundleFacts(join(payload, app), app, 0);
+    if (typeof facts === 'string') return facts;
+    const plugIns = join(payload, app, 'PlugIns');
+    const extensions: NonNullable<IpaFacts['extensions']> = [];
+    for (const name of existsSync(plugIns) ? readdirSync(plugIns).filter((entry) => entry.endsWith('.appex')).sort() : []) {
+      const extension = await bundleFacts(join(plugIns, name), name, extensions.length + 1);
+      if (typeof extension === 'string') return extension;
+      extensions.push(extension);
+    }
+    return { ...facts, extensions };
   } finally {
     remove();
   }
