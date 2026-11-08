@@ -22,7 +22,13 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
   try {
-    const pid = await new Promise<number>((resolve) => shown.stdout.on('data', (chunk: Buffer) => resolve(Number(/shown (\d+)/.exec(String(chunk))?.[1]))))
+    const pid = await new Promise<number>((resolve, reject) =>
+      shown.stdout.on('data', (chunk: Buffer) => {
+        const said = /shown (\d+)/.exec(String(chunk))?.[1]
+        if (said) resolve(Number(said))
+        else reject(new Error(`the test window was not shown: ${String(chunk).trim()}`))
+      }),
+    )
     const startedAt = await display.record(pid)
     expect(Math.abs(Date.now() - startedAt)).toBeLessThan(10_000)
     await new Promise((resolve) => setTimeout(resolve, 3000))
