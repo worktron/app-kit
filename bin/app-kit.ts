@@ -16,9 +16,10 @@ import { dirname, join, resolve } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
 import packageJson from '../package.json'
 
-// Each part loads only when its command is asked for, so help, --version and wrong usage start in the time Bun itself
-// takes, and one part's dependencies never slow another's command. test/command.test.ts runs them from a kit that holds
-// no other part.
+// Each part loads only when its command is asked for, after its arguments are checked here, so help, --version and
+// wrong usage start in the time Bun itself takes, and one part's dependencies never slow another's command.
+// test/command.test.ts runs wrong usage from a kit that holds no other part. extension dashboard is the one command
+// whose part reads its own arguments, so it loads that part first.
 
 const USAGE = `app-kit <part> <command>
 
@@ -183,10 +184,10 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
     return true
   }
   if (command === 'listing') {
-    const { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } = await import('../extension/listing.ts')
     const json = args.includes('--json')
     const words = args.filter((word) => word !== '--json')
     if (words.length > 1 || words[0]?.startsWith('-')) return false
+    const { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } = await import('../extension/listing.ts')
     const folder = words[0] ?? '.'
     const items = listingChecklist(folder)
     const link = privacyPolicyLink(folder)
@@ -222,8 +223,11 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
   return true
 }
 
+/** A toolbar color, #rgb or #rrggbb. */
+const isColor = (value: string) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)
+
 /** icons render's arguments: the drawings folder at most, and its flags. Null for wrong usage. */
-function iconsArguments(args: string[], isColor: (value: string) => boolean) {
+function iconsArguments(args: string[]) {
   const words: string[] = []
   const iconSets: string[] = []
   const flags: Record<string, string> = {}
@@ -256,10 +260,9 @@ function iconsArguments(args: string[], isColor: (value: string) => boolean) {
 }
 
 async function icons([command, ...args]: string[]): Promise<boolean> {
-  if (command !== 'render') return false
-  const { isColor, renderIcons } = await import('../icons/render.ts')
-  const options = iconsArguments(args, isColor)
+  const options = command === 'render' ? iconsArguments(args) : null
   if (!options) return false
+  const { renderIcons } = await import('../icons/render.ts')
   const written = await renderIcons(options)
   console.log(`Drew ${written.length} icon files from ${options.drawings}; commit them with the drawings.`)
   return true

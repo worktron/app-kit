@@ -21,14 +21,14 @@ test('no arguments, help, -h and --help print the usage with its exit codes, and
 });
 
 test('an unknown part, a part with no command, a command missing its argument or given one too many prints the usage to stderr and exits 2, loading no part', () => {
-  // Run from a kit that holds only the command, its shared command-line file and the icons part, whose color check
-  // reads the arguments: wrong usage that loaded any other part would fail to find it and exit 1. Each run is then
-  // about as quick as Bun's own start, which on a busy machine is what keeps these runs inside the test's time.
+  // Run from a kit that holds only the command and its shared command-line file: wrong usage that loaded any part
+  // would fail to find it and exit 1. Each run is then about as quick as Bun's own start, which on a busy machine is
+  // what keeps these runs inside the test's time.
   const cache = join(import.meta.dir, '../node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   const kit = mkdtempSync(join(cache, 'app-kit-usage-'));
   try {
-    for (const path of ['bin', 'command-line', 'icons/render.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
+    for (const path of ['bin', 'command-line', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
     wrongUsage(kit);
   } finally {
     rmSync(kit, { recursive: true, force: true });
