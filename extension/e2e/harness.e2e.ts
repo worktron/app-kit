@@ -121,23 +121,36 @@ test('a request that never answers ends at its limit, is kept as an error, and t
 }, 60_000)
 
 test('a worker stopped in the middle of a run leaves it cut short, and the next run takes the lock', async () => {
+  // Its own setup: the host is listening, and nothing here needs an earlier test's run of the job.
+  const connected = () => until(status, (s) => s?.connected === true)
+  expect((await connected())?.connected).toBe(true)
   const lines: string[] = []
   ext.worker.on('console', (message) => lines.push(message.text()))
-  expect(await ask(socket, { type: 'request-address', url: address('/hang'), ms: 25_000 })).toEqual({ kept: true })
-  const last = (await record('request'))!
-  await ext.fireAlarm('request')
-  const running = await until(() => record('request'), (found) => found !== null && found.started > last.started && found.outcome === 'running')
-  expect(running?.outcome).toBe('running')
+  // The fixture's own once-a-minute alarm is moved out of the way, so only the alarm brought forward below can start
+  // the stopped worker. Bringing it forward through the stopped worker waited for whatever started it next, which was
+  // this alarm, most of a minute later, and the test hung past its limit whenever that minute ran long.
+  await ext.fireAlarm('check', 10 * 60_000)
+  try {
+    expect(await ask(socket, { type: 'request-address', url: address('/hang'), ms: 25_000 })).toEqual({ kept: true })
+    const last = await record('request')
+    await ext.fireAlarm('request')
+    const running = await until(() => record('request'), (found) => found !== null && found.started > (last?.started ?? '') && found.outcome === 'running')
+    expect(running?.outcome).toBe('running')
 
-  await ext.stopWorker()
-  // Set once the stop is reported, so it can only reach the next worker, which setting it starts.
-  await ext.fireAlarm('request')
-  const next = await until(() => record('request'), (found) => found !== null && found.started > running!.started, 30_000)
-  expect(next?.outcome).toBe('running')
-  await until(() => lines, (seen) => seen.some((line) => line.startsWith('job cut short')))
-  expect(lines.some((line) => line.startsWith('job cut short'))).toBe(true)
-  expect(await ask(socket, { type: 'request-address', url: address('/ok') })).toEqual({ kept: true })
-}, 60_000)
+    await ext.stopWorker()
+    // Set from an extension page once the stop is reported, so it reaches only the next worker, which the alarm starts.
+    await ext.fireAlarm('request')
+    const next = await until(() => record('request'), (found) => found !== null && found.started > running!.started)
+    expect(next?.outcome).toBe('running')
+    await until(() => lines, (seen) => seen.some((line) => line.startsWith('job cut short')))
+    expect(lines.some((line) => line.startsWith('job cut short'))).toBe(true)
+    // The new worker opens the port again, and Chrome starts the host for it.
+    await connected()
+    expect(await ask(socket, { type: 'request-address', url: address('/ok') })).toEqual({ kept: true })
+  } finally {
+    await ext.fireAlarm('check')
+  }
+}, 30_000)
 
 /** A CSS color as #rrggbb. */
 const hex = (value: string) => `#${value.match(/\d+/g)!.slice(0, 3).map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`

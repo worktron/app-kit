@@ -39,7 +39,11 @@ export type LoadedExtension = {
   git: (...args: string[]) => string
   /** Commits every change in the checkout, and returns the new commit. */
   commit: (message: string) => string
-  /** Brings the worker's named alarm forward to `inMs` from now (half a second unless given), keeping its period. */
+  /**
+   * Brings the worker's named alarm forward to `inMs` from now (half a second unless given), keeping its period. It sets
+   * it from an extension page that it opens and closes, not through the worker, so it works the same with the worker
+   * stopped, and a stopped worker starts when the alarm comes due.
+   */
   fireAlarm: (name: string, inMs?: number) => Promise<void>
   /**
    * Stops the extension's service worker as Chrome does when it is idle, through the DevTools protocol, and resolves
@@ -127,14 +131,22 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
       return git('rev-parse', 'HEAD')
     },
     async fireAlarm(name, inMs = 500) {
-      await worker.evaluate(
-        async ({ alarm, inMs }) => {
-          const chrome = (globalThis as any).chrome
-          const existing = await chrome.alarms.get(alarm)
-          await chrome.alarms.create(alarm, { when: Date.now() + inMs, periodInMinutes: existing?.periodInMinutes })
-        },
-        { alarm: name, inMs },
-      )
+      // From one of the extension's own pages, never through the worker: Playwright holds code meant for a stopped
+      // worker until something else starts it, so an alarm set that way after stopWorker() waited for the next one due.
+      const page = await context.newPage()
+      try {
+        await page.goto(`chrome-extension://${id}/manifest.json`)
+        await page.evaluate(
+          async ({ alarm, inMs }) => {
+            const chrome = (globalThis as any).chrome
+            const existing = await chrome.alarms.get(alarm)
+            await chrome.alarms.create(alarm, { when: Date.now() + inMs, periodInMinutes: existing?.periodInMinutes })
+          },
+          { alarm: name, inMs },
+        )
+      } finally {
+        await page.close()
+      }
     },
     async stopWorker() {
       const page = await context.newPage()
