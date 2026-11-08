@@ -535,3 +535,13 @@ Goal: Tauri CLI 2.12.1 to 2.12.4 write the export settings with only the app's p
 Done when: with the kit's Tauri CLI floor at a release that includes #15773, the upload puts no xcodebuild on the build's PATH, an extension's profile reaches the export through ExportOptions.plist, which is put back after, and test/testflight-upload.test.ts holds both.
 
 Touches: tauri/testflight/signing.ts, tauri/testflight/upload.ts, test/testflight-upload.test.ts, test/testflight-apple-stand-in.ts.
+
+## apps-test-git-time · The apps round's test that reads an app from origin is not timed on its git commands
+
+Written by: app-kit/mac-menu-look
+
+Goal: test/apps.test.ts "an app is read as it landed on origin: the oldest tag it names, the lock checked against the tag, its kit tickets, each field the round names" makes a bare origin, a seed checkout and a clone, and runs several git commands as subprocesses, all under bun's default 5-second limit for one test. On 2026-11-08 it ran past that limit in a full gates run at a load average of about 100 on 18 cores, and stopped the gates; alone it passes 3 of 3 in about a second. It is the same fault drive-test-browser-time fixed in web/e2e/drive.e2e.ts: a wall-clock limit on subprocess work the test does not control, which the test rules forbid. Like the drive test, it can stop any landing on a busy machine.
+
+Done when: the test's outcome no longer depends on how fast git runs, a reproduction that slows its git commands past 5 seconds fails on the old test and passes on the new, and test/apps.test.ts passes in several parallel runs.
+
+Touches: test/apps.test.ts.
