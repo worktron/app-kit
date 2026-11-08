@@ -10,6 +10,7 @@ import {
   openInBrowser,
   opRead,
   readArguments,
+  runByThread,
   runCommand,
   useColor,
   versionLine,
@@ -102,6 +103,13 @@ test('wrong usage, an unknown flag and a flag missing its value print what was w
   const read = readArguments(['--json', '--limit', '5', 'folder'], { usage: USAGE, options, allowPositionals: true }, kept().output);
   expect(read.values).toEqual({ json: true, limit: '5' });
   expect(read.positionals).toEqual(['folder']);
+});
+
+test('a thread is named by METAMAX_JOB_ID or AI_AGENT, and a person by neither', () => {
+  expect(runByThread({ METAMAX_JOB_ID: 'job' })).toBe('METAMAX_JOB_ID');
+  expect(runByThread({ AI_AGENT: 'claude-code' })).toBe('AI_AGENT');
+  expect(runByThread({ METAMAX_JOB_ID: '', AI_AGENT: '' })).toBeUndefined();
+  expect(runByThread({ PATH: '/usr/bin' })).toBeUndefined();
 });
 
 test('color only on a terminal with NO_COLOR unset or empty, whatever FORCE_COLOR says', () => {

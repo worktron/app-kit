@@ -106,6 +106,15 @@ export function useColor(stream: { isTTY?: boolean } = process.stdout, env: Reco
   return stream.isTTY === true && !env.NO_COLOR;
 }
 
+/**
+ * The environment variable that says an agent's thread runs this command, or undefined when a person does: metamax
+ * names its thread in METAMAX_JOB_ID, and Claude Code, like other agents, sets AI_AGENT. A command whose purpose is a
+ * window for the owner refuses when one is set and prints the line for the owner to run in their own terminal.
+ */
+export function runByThread(env: Record<string, string | undefined> = process.env): string | undefined {
+  return ['METAMAX_JOB_ID', 'AI_AGENT'].find((name) => env[name]);
+}
+
 export type OpenInBrowserOptions = {
   /** The environment variable that, set to anything but empty, keeps the browser closed: `DFRACT_NO_OPEN`. */
   offSwitch: string;

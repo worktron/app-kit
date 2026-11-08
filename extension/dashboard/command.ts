@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
+import { runByThread } from '../../command-line/index.ts'
 import { extensionId } from '../host/index.ts'
 import { layoutProblems } from '../layout.ts'
 import { listingChecklist } from '../listing.ts'
@@ -94,6 +95,15 @@ export async function dashboard([command, ...args]: string[]): Promise<boolean> 
   const options = parse(args)
   if (!options) return false
   if (command === 'sign-in') {
+    // The sign-in is a Chrome window for the owner to type their password into, so a thread never opens it.
+    const thread = runByThread()
+    if (thread) {
+      log(`sign-in: refused, ${thread} is set, so a thread runs it`)
+      console.log(`Chrome stays closed: ${thread} is set, so a thread runs this, and the sign-in is the owner's. The owner runs this in their own terminal:`)
+      // Single quotes, each one inside closed and reopened, so a folder with a space or shell syntax pastes as itself.
+      console.log(`  cd '${process.cwd().replaceAll("'", "'\\''")}' && bun run app-kit extension dashboard sign-in`)
+      process.exit(1)
+    }
     await withProfile(async (profile) => await signIn(profile, `https://accounts.google.com/ServiceLogin?continue=${encodeURIComponent(CONSOLE)}`))
     console.log('Signed in. Run: app-kit extension dashboard read')
     return true
