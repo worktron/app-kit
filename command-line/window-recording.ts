@@ -37,6 +37,11 @@ export type HiddenDisplay = {
    * that goes onto the owner's screen.
    */
   close: () => Promise<void>
+  /**
+   * Settles when the program ends, asked or not. A caller closes the recorded program the moment it settles, since a
+   * program that crashed took its display with it and macOS moves the window onto the owner's screen.
+   */
+  ended: Promise<void>
 }
 
 /** What the recording program said went wrong, by its kind: usage, screen-recording, display or recording. */
@@ -54,8 +59,14 @@ class Lines {
   private seen: string[] = []
   private waiting: (() => void)[] = []
   private ended = false
+  /** The end of what the program wrote on standard error, for the message when it ends unasked. */
+  private errors = ''
 
   constructor(child: ChildProcessWithoutNullStreams) {
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      this.errors = (this.errors + chunk).slice(-2000)
+    })
     let partial = ''
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
@@ -84,7 +95,10 @@ class Lines {
         if (error) throw new RecordingFailed(error[1]!, error[2]!)
         return line.split(' ').slice(1)
       }
-      if (this.ended) throw new RecordingFailed('recording', `the window recording program ended before it said "${word}"`)
+      if (this.ended) {
+        const said = this.errors.trim() ? `: ${this.errors.trim().split('\n').slice(-5).join(' ')}` : ''
+        throw new RecordingFailed('recording', `the window recording program ended before it said "${word}"${said}`)
+      }
       await new Promise<void>((resolve) => this.waiting.push(resolve))
     }
   }
@@ -150,5 +164,6 @@ export async function openHiddenDisplay(
       if (tookFocus) throw new RecordingFailed('recording', 'the recorded program came to the front while it recorded, so the owner\'s keys could have reached it')
     },
     close,
+    ended,
   }
 }

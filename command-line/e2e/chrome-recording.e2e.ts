@@ -25,6 +25,8 @@ test('a Chrome window on the hidden display is recorded with its address bar, ne
   const log: string[] = []
   try {
     const chrome = await drive(profile, (line) => log.push(line), { left: display.left, top: display.top, width: 1280, height: 800 })
+    // A recording program that ends unasked took the display with it: Chrome goes at once, before anyone sees its window.
+    void display.ended.then(() => chrome.close())
     try {
       await chrome.page!.goto(PAGE)
       await display.record(chrome.pid)

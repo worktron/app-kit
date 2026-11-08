@@ -9,9 +9,15 @@
 // An error before the display is up ends the program: usage (2), display (5). Standard input closing, or SIGTERM or
 // SIGINT, finishes any recording, removes the display and ends; the caller closes the recorded program first, since a
 // window left on a display that goes is moved to the owner's screen.
+import AppKit
 import CoreGraphics
 import Foundation
 import WindowRecording
+
+// An app with no Dock icon and no windows of its own: ScreenCaptureKit puts macOS's recording mark in the menu bar
+// from this process, which takes an application to hold it.
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
@@ -109,4 +115,4 @@ Task {
     await finish()
 }
 
-dispatchMain()
+app.run()

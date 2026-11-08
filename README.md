@@ -1721,12 +1721,13 @@ const display = await openHiddenDisplay({ width: 1280, height: 800, out: 'take.m
 const chrome = await drive(profile, log, { left: display.left, top: display.top, width: 1280, height: 800 });
 const startedAt = await display.record(chrome.pid); // the first frame's time, the video's clock zero
 // ... drive chrome.page ...
+void display.ended.then(() => chrome.close()); // a recorder that crashed took the display: Chrome goes at once
 await display.stop(); // throws if Chrome came to the front while it recorded
 await chrome.close();
 await display.close(); // the display goes
 ```
 
-`buildRecorder()` builds the program with `swift build` into `~/.local/state/app-kit/window-recording`, never into the installed kit; an unchanged package builds in a second or two. macOS asks once for Screen Recording permission for the app the run is started from (System Settings, Privacy & Security, Screen & System Audio Recording); without it `record` throws a `RecordingFailed` of kind `screen-recording` and nothing is recorded. While it records, the app in front is checked every half second, and `stop` throws if the recorded program was ever in front, since the owner's keys could then have reached it. When the display first appears macOS slots it beside the main display for a moment, shifting the owner's other displays, before it moves to the corner; it is removed while still there. Close the recorded program before `close()`: macOS moves a window still on a display that goes onto the owner's screen.
+`buildRecorder()` builds the program with `swift build` into `~/.local/state/app-kit/window-recording`, never into the installed kit; an unchanged package builds in a second or two. macOS asks once for Screen Recording permission for the app the run is started from (System Settings, Privacy & Security, Screen & System Audio Recording); without it `record` throws a `RecordingFailed` of kind `screen-recording` and nothing is recorded. While it records, macOS shows its screen recording mark in the menu bar, as it does for every screen recording; the program carries an Info.plist in its binary for it, without which ScreenCaptureKit stops the program. While it records, the app in front is checked every half second, and `stop` throws if the recorded program was ever in front, since the owner's keys could then have reached it. When the display first appears macOS slots it beside the main display for a moment, shifting the owner's other displays, before it moves to the corner; it is removed while still there. Close the recorded program before `close()`: macOS moves a window still on a display that goes onto the owner's screen.
 
 Its live test, `bun test ./swift/window-recording/e2e/record.e2e.ts`, shows a test window of its own on the hidden display and records it. It is the owner's to run in their own terminal, never an agent's or the gates', since a fault in the placement puts that window on the owner's screen.
 

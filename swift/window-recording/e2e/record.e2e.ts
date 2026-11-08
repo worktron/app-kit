@@ -21,6 +21,8 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const before = frontmostPid()
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
+  // A recording program that ends unasked took the display with it: the window goes at once, before anyone sees it.
+  void display.ended.then(() => shown.kill())
   try {
     const pid = await new Promise<number>((resolve, reject) =>
       shown.stdout.on('data', (chunk: Buffer) => {

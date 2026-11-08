@@ -30,6 +30,10 @@ Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
     step += 1
     window.contentView?.layer?.backgroundColor = NSColor(hue: CGFloat(step % 20) / 20, saturation: 0.8, brightness: 0.9, alpha: 1).cgColor
 }
+// The hidden display going (the recording program ended) ends this at once, before macOS shows the window elsewhere.
+NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in
+    if !NSScreen.screens.contains(where: { $0.frame.contains(wanted) }) { exit(0) }
+}
 window.orderFrontRegardless()
 print("shown \(getpid())")
 fflush(stdout)
