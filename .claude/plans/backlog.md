@@ -533,3 +533,12 @@ Goal: the extension signing in `app-kit testflight upload` (v0.52.3) was tested 
 Done when: test/fixtures holds a recorded bundle id registration answer and a recorded profile allowing an App Group, both scrubbed for the public repository (test/public.test.ts passes), and the extension tests in test/testflight-upload.test.ts read them.
 
 Touches: test/fixtures, test/testflight-stand-in.ts, test/testflight-upload.test.ts.
+
+## testflight-xcodebuild-standin-removal · The TestFlight upload stops shimming xcodebuild once Tauri keeps an extension's export profile
+Written by: app-kit/share-extension-signing
+
+Goal: Tauri CLI 2.12.1 to 2.12.4 write the export settings with only the app's provisioning profile, replacing any list the committed ExportOptions.plist holds (tauri-cli src/helpers/plist.rs, merge_plist), so since v0.52.3 the upload puts an `xcodebuild` first on the build's PATH that adds each app extension's profile to the export settings before handing the call to Apple's (tauri/testflight/signing.ts, writeXcodebuildStandIn). Tauri pull request #15773, merged to its dev branch on 2026-10-21 and not yet released, keeps the committed entries. Once a Tauri CLI with it is released, raise TAURI_CLI_FLOOR past it, write each extension's entry into ExportOptions.plist for the build and put it back as the export method is, and remove the stand-in and its test.
+
+Done when: with the kit's Tauri CLI floor at a release that includes #15773, the upload puts no xcodebuild on the build's PATH, an extension's profile reaches the export through ExportOptions.plist, which is put back after, and test/testflight-upload.test.ts holds both.
+
+Touches: tauri/testflight/signing.ts, tauri/testflight/upload.ts, test/testflight-upload.test.ts, test/testflight-apple-stand-in.ts.
