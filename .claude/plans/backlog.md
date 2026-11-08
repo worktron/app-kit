@@ -467,3 +467,9 @@ Done when: an app's own step runs, and finishes, before the session ends on ever
 Goal: argon-watcher cannot take `openDb` from app-kit/server/postgres, because openDb migrates on open, and argon migrates once before each deploy (server/db/migrate.ts, run by its deploy) so that a failed migration stops the deploy rather than a running server; it also opens postgres-js with `prepare: false` (server/db/client.ts). An option to open without migrating, and to pass postgres-js options (as opendb-idle-timeout asks for lifeform), would let it. Found by argon-watcher's app-kit-v0-48-0 thread, 2026-11-08. Decide with opendb-idle-timeout, which wants options too.
 
 Done when: openDb can open Railway's Postgres without migrating and with the app's postgres-js options, held by a test, and the README says when an app picks that.
+
+## age-in-playwright · A browser test can write the age a row should show with the kit's own age
+
+Goal: a browser test that checks a row's "how long ago" cannot import `age` from `app-kit/web/age`: Playwright stops the whole suite at load with "Stripping types is currently unsupported for files under node_modules" for node_modules/app-kit/web/age.ts. argon-watcher's e2e/mobile.spec.ts (app-kit-v0-48-0 thread, 2026-11-08) had to write the expected date by hand with `toLocaleDateString('en-US', { month: 'short', day: 'numeric' })` and its own same-year rule, which drifts from the kit's words the day `age` changes. Every app that tests its dates meets this; the kit's other Playwright pieces are already plain JavaScript (web/playwright.js). Ship `age` where a Playwright test loads it (a .js beside age.ts, or from `app-kit/web/playwright`), with one source of the words.
+
+Done when: a Playwright spec in an app imports the kit's age and its expectation matches what the page draws, held by the kit's own e2e importing it the way an app does; the README's age section says where tests take it.
