@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.49.0
+
+Urgency: next round
+
+- copy the kit's worker files again (bun run app-kit extension copy), pass each job's signal to every fetch it makes through within(signal), drop the job's own one-run-at-a-time flag, and have the extension's unit test hold that every request in shim.networkRequests carried a signal, as the README's Jobs on a clock section shows
+
 ## v0.48.0
 
 Urgency: now
