@@ -335,6 +335,17 @@ describe("deleting a worktree's Simulator", () => {
     expect(m.devices.GONE).toBeUndefined();
   });
 
+  test('the sweep stops at the first delete past its time limit, so the lock is never held for several', async () => {
+    const m = mac({ ONE: { name: 'Sample App (ONE)' }, TWO: { name: 'Sample App (TWO)' } });
+    recordMade(m.lifetime, made('ONE'));
+    recordMade(m.lifetime, made('TWO'));
+    m.simctl.deleteTimesOut = true;
+    await takePlace(m.lifetime, { ...MINE, checkout });
+    expect(m.deletes()).toHaveLength(1);
+    expect(readMade(folder, 'ONE')).not.toBeNull();
+    expect(readMade(folder, 'TWO')).not.toBeNull();
+  });
+
   test('a delete that fails with a listing simctl cannot give keeps the record: a failed list is not an empty one', async () => {
     const m = mac({ MINE: { name: MINE.name, booted: true } });
     const gone = join(place.folder, 'deleted-worktree');

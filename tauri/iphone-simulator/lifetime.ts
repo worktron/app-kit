@@ -198,25 +198,28 @@ export function claimMade(lifetime: Lifetime, udid: string, checkout: string): v
 
 /**
  * Deletes a recorded Simulator whose checkout is gone, and forgets it once simctl's list no longer has it. A refusal,
- * a delete past its time limit, or a list simctl cannot give keeps the record for the next run.
+ * a delete past its time limit, or a list simctl cannot give keeps the record for the next run. Gives false only for a
+ * delete past its time limit.
  */
-async function deleteMade(lifetime: Lifetime, run: Run, made: Made): Promise<void> {
+async function deleteMade(lifetime: Lifetime, run: Run, made: Made): Promise<boolean> {
   const done = await run(['xcrun', 'simctl', 'delete', made.udid], { timeoutMs: DELETE_LIMIT_MS });
   if (done.code !== 0) {
     const why = done.timedOut ? `it took over ${DELETE_LIMIT_MS / 1000} seconds` : (done.out.trim().split('\n').at(-1) ?? `exit ${done.code}`);
     const listed = await devices(run);
     if (typeof listed === 'string' || listed.some((d) => d.udid === made.udid)) {
       log(lifetime, `${label(made)}: its checkout ${made.checkout} is gone, and simctl would not delete it (${why}${typeof listed === 'string' ? `; ${listed}` : ''}); trying again at the next run`);
-      return;
+      return !done.timedOut;
     }
   }
   forgetMade(lifetime.folder, made.udid);
   log(lifetime, `${label(made)}: deleted, its checkout ${made.checkout} is gone`);
+  return true;
 }
 
 /**
  * Deletes every recorded Simulator whose checkout is gone and that simctl lists as shut down, other than `udid`, the
- * one this run is taking a place for; one the kit holds a time for is its watcher's. Called holding the lock.
+ * one this run is taking a place for; one the kit holds a time for is its watcher's. Called holding the lock, so it
+ * stops at the first delete past its time limit: a few more would hold the lock past other runs' minute of waiting.
  */
 async function deleteGone(lifetime: Lifetime, run: Run, listed: SimDevice[], udid: string): Promise<void> {
   for (const made of udidsIn(join(lifetime.folder, 'made')).flatMap((each) => readMade(lifetime.folder, each) ?? [])) {
@@ -226,7 +229,7 @@ async function deleteGone(lifetime: Lifetime, run: Run, listed: SimDevice[], udi
       forgetMade(lifetime.folder, made.udid);
       log(lifetime, `${label(made)}: its checkout ${made.checkout} is gone, and so is the Simulator; forgotten`);
     } else if (device.state === 'Shutdown') {
-      await deleteMade(lifetime, run, made);
+      if (!(await deleteMade(lifetime, run, made))) return;
     }
   }
 }
