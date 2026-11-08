@@ -17,15 +17,24 @@
  * Only a Simulator the kit booted has a time: one already running when a run starts, booted some other way, is used
  * and left as it was. Every decision is one line, with its reason, in simulators.log.
  *
+ * A Simulator the run made for a linked worktree holds an iOS data folder of a few GB, and Apple's tools never delete
+ * one, so they piled up as worktrees came and went. The run records each one it makes, and once that checkout is gone
+ * the kit deletes it: its watcher, right after shutting it down, and every later run, under the lock, for any recorded
+ * one that is shut down with no watcher of its own. Only a recorded Simulator is ever deleted: one made by hand, a main
+ * checkout's, which every worktree of it shares, or one made before the kit kept records, never is. A recorded one used
+ * from another checkout (by a worktree with the same folder name, or by its udid) is no longer the kit's to delete,
+ * and its record goes.
+ *
  * Files, under $XDG_STATE_HOME/app-kit/simulators (~/.local/state/app-kit/simulators by default):
  *   <udid>.json      the Simulator's name, checkout, shut-down time, the run's and the watcher's process ids, and whether
  *                    the run has seen it booted; written under another name and renamed into place
+ *   made/<udid>.json a Simulator the run made for a linked worktree: its name and checkout, kept until it is deleted
  *   simulators.lock  held while places are counted and taken
  *   simulators.log   one line per decision, rotated to simulators.log.1 at 1 MB
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { runCommand, type Run } from '../../command-line/run.ts';
 import { alive, appendLog, lock } from '../state.ts';
 
@@ -45,6 +54,8 @@ const WAIT_EVERY_MS = 5_000;
 const WAIT_PAST_MS = 2 * WATCH_EVERY_MS;
 /** How long a run waits for the lock, which is held while a few simctl calls run. */
 const LOCK_WAIT_MS = 60_000;
+/** How long a delete may take, held under the lock: past it, the record is kept for the next run. */
+export const DELETE_LIMIT_MS = 30_000;
 
 /** What the kit keeps for a Simulator it booted. */
 export type Held = {
@@ -63,6 +74,9 @@ export type Held = {
    */
   booted: boolean;
 };
+
+/** A Simulator the run made for a linked worktree, which the kit deletes once its checkout is gone. */
+export type Made = { udid: string; name: string; checkout: string };
 
 export type Lifetime = {
   /** The state folder. */
@@ -103,19 +117,35 @@ export function readHeld(folder: string, udid: string): Held | null {
   }
 }
 
-function writeHeld(folder: string, held: Held): void {
-  mkdirSync(folder, { recursive: true });
-  const file = fileOf(folder, held.udid);
-  writeFileSync(`${file}.${process.pid}`, `${JSON.stringify(held, null, 2)}\n`);
+/** Writes `value` to `file` under another name and renames it into place, so no reader sees half of it. */
+function writeJson(file: string, value: unknown): void {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(`${file}.${process.pid}`, `${JSON.stringify(value, null, 2)}\n`);
   renameSync(`${file}.${process.pid}`, file);
 }
 
-function allHeld(folder: string): Held[] {
-  const names = existsSync(folder) ? readdirSync(folder).filter((name) => name.endsWith('.json')) : [];
-  return names.flatMap((name) => readHeld(folder, name.slice(0, -'.json'.length)) ?? []);
+const writeHeld = (folder: string, held: Held) => writeJson(fileOf(folder, held.udid), held);
+
+/** The udids of the `.json` files in `folder`. */
+function udidsIn(folder: string): string[] {
+  return existsSync(folder) ? readdirSync(folder).flatMap((name) => (name.endsWith('.json') ? [name.slice(0, -'.json'.length)] : [])) : [];
 }
 
+const allHeld = (folder: string): Held[] => udidsIn(folder).flatMap((udid) => readHeld(folder, udid) ?? []);
+
 const forget = (folder: string, udid: string) => rmSync(fileOf(folder, udid), { force: true });
+
+const madeFile = (folder: string, udid: string) => join(folder, 'made', `${udid}.json`);
+
+export function readMade(folder: string, udid: string): Made | null {
+  try {
+    return JSON.parse(readFileSync(madeFile(folder, udid), 'utf8')) as Made;
+  } catch {
+    return null;
+  }
+}
+
+const forgetMade = (folder: string, udid: string) => rmSync(madeFile(folder, udid), { force: true });
 
 function log(lifetime: Lifetime, line: string): void {
   appendLog(join(lifetime.folder, 'simulators.log'), `${new Date((lifetime.now ?? Date.now)()).toISOString()} ${line}`);
@@ -148,6 +178,58 @@ async function shutDown(run: Run, udid: string): Promise<true | string> {
 
 /** Whether simctl's list has the Simulator shut down, or no longer has it at all. */
 const isDown = (listed: SimDevice[], udid: string) => (listed.find((d) => d.udid === udid)?.state ?? 'Shutdown') === 'Shutdown';
+
+/** Records a Simulator the run just made for a linked worktree, for deleting once its checkout is gone. */
+export function recordMade(lifetime: Lifetime, made: Made): void {
+  writeJson(madeFile(lifetime.folder, made.udid), made);
+  log(lifetime, `${label(made)}: made for ${made.checkout}; deleted once that checkout is gone`);
+}
+
+/**
+ * A run is about to use the Simulator from `checkout`. When the kit made it for another checkout, it is shared from now
+ * on and its record goes, so it is never deleted under the one still using it.
+ */
+export function claimMade(lifetime: Lifetime, udid: string, checkout: string): void {
+  const made = readMade(lifetime.folder, udid);
+  if (!made || made.checkout === checkout) return;
+  forgetMade(lifetime.folder, udid);
+  log(lifetime, `${label(made)}: made for ${made.checkout}, now used from ${checkout} too, so kept from now on and never deleted by app-kit`);
+}
+
+/**
+ * Deletes a recorded Simulator whose checkout is gone, and forgets it once simctl's list no longer has it. A refusal,
+ * a delete past its time limit, or a list simctl cannot give keeps the record for the next run.
+ */
+async function deleteMade(lifetime: Lifetime, run: Run, made: Made): Promise<void> {
+  const done = await run(['xcrun', 'simctl', 'delete', made.udid], { timeoutMs: DELETE_LIMIT_MS });
+  if (done.code !== 0) {
+    const why = done.timedOut ? `it took over ${DELETE_LIMIT_MS / 1000} seconds` : (done.out.trim().split('\n').at(-1) ?? `exit ${done.code}`);
+    const listed = await devices(run);
+    if (typeof listed === 'string' || listed.some((d) => d.udid === made.udid)) {
+      log(lifetime, `${label(made)}: its checkout ${made.checkout} is gone, and simctl would not delete it (${why}${typeof listed === 'string' ? `; ${listed}` : ''}); trying again at the next run`);
+      return;
+    }
+  }
+  forgetMade(lifetime.folder, made.udid);
+  log(lifetime, `${label(made)}: deleted, its checkout ${made.checkout} is gone`);
+}
+
+/**
+ * Deletes every recorded Simulator whose checkout is gone and that simctl lists as shut down, other than `udid`, the
+ * one this run is taking a place for; one the kit holds a time for is its watcher's. Called holding the lock.
+ */
+async function deleteGone(lifetime: Lifetime, run: Run, listed: SimDevice[], udid: string): Promise<void> {
+  for (const made of udidsIn(join(lifetime.folder, 'made')).flatMap((each) => readMade(lifetime.folder, each) ?? [])) {
+    if (made.udid === udid || existsSync(made.checkout) || readHeld(lifetime.folder, made.udid)) continue;
+    const device = listed.find((d) => d.udid === made.udid);
+    if (!device) {
+      forgetMade(lifetime.folder, made.udid);
+      log(lifetime, `${label(made)}: its checkout ${made.checkout} is gone, and so is the Simulator; forgotten`);
+    } else if (device.state === 'Shutdown') {
+      await deleteMade(lifetime, run, made);
+    }
+  }
+}
 
 /** In-process turns at the lock, which the file lock alone cannot give: its holder is this same process. */
 let turn: Promise<unknown> = Promise.resolve();
@@ -191,7 +273,8 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
       await shutDownPast(lifetime, run);
       const listed = await devices(run);
       if (typeof listed === 'string') return { refused: listed };
-      const up = (udid: string) => listed.some((d) => d.udid === udid && d.state !== 'Shutdown');
+      await deleteGone(lifetime, run, listed, device.udid);
+      const up =(udid: string) => listed.some((d) => d.udid === udid && d.state !== 'Shutdown');
       const mine = readHeld(lifetime.folder, device.udid);
       if (up(device.udid) && !mine) {
         log(lifetime, `${label(device)}: was running already, booted some other way; used without a shut-down time`);
@@ -339,6 +422,8 @@ export async function watchSimulator(lifetime: Lifetime, udid: string): Promise<
       if (down === true) {
         forget(lifetime.folder, udid);
         log(lifetime, `${label(held)}: shut down by its watcher, ${gone ? `its checkout ${held.checkout} is gone` : `its time of ${clock(held.until)} came`}`);
+        const made = gone ? readMade(lifetime.folder, udid) : null;
+        if (made && !existsSync(made.checkout)) await deleteMade(lifetime, run, made);
         return 'shut down';
       }
       log(lifetime, `${label(held)}: its watcher could not shut it down (${down}); trying again`);

@@ -15,6 +15,9 @@
  *   hours made it barely usable; so before the boot the run takes one of two places on the Mac and gives the Simulator
  *   a shut-down time and a watcher (../iphone-simulator/lifetime.ts), and a run that fails after the boot, or is
  *   stopped, shuts it down itself.
+ * - A linked worktree's Simulator holds a few GB of its own, so the run records each one it makes there, and the kit
+ *   deletes it once the worktree is gone (../iphone-simulator/lifetime.ts); one it picks that was made for another
+ *   checkout is kept from then on.
  * - Signing for a phone needs the phone in the team's development profile for the app. Xcode adds it during a build
  *   for that phone; Tauri's own build is a generic one that never does, so when no profile holds the phone, one Xcode
  *   build for it runs first. That build stops at the Rust step, which only runs under Tauri; the profile is what it is
@@ -29,7 +32,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
-import { clock, type Lifetime, markBooted, MINUTES, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
+import { claimMade, clock, type Lifetime, markBooted, MINUTES, recordMade, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
 import { stateFolder } from '../state.ts';
 import { lastLine } from '../testflight/key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
@@ -206,34 +209,6 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
   return options.target === 'sim' ? simulator() : phone();
 
   async function simulator(): Promise<0 | 1> {
-    let udid = options.udid;
-    let name = udid ?? '';
-    if (udid) {
-      print(`using the Simulator ${udid}`);
-    } else {
-      // In a linked worktree, git's own folder is not the shared one.
-      const where = await run(['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'], { cwd, env });
-      const [gitDir, commonDir, top] = where.out.trim().split('\n');
-      name = where.code === 0 && gitDir !== commonDir ? `${app.name} (${basename(top)})` : app.name;
-      const listing = await run(['xcrun', 'simctl', 'list', 'devices', '-j'], { cwd, env });
-      if (listing.code !== 0) return fail(`could not list the Simulators (${lastLine(listing.out)}): is Xcode installed, with an iOS Simulator runtime?`);
-      const found = findSimulator(listing.out, name);
-      if (found) {
-        udid = found.udid;
-        print(`using the Simulator "${name}" (${udid})`);
-      } else {
-        const made = await run(['xcrun', 'simctl', 'create', name, DEVICE_TYPE], { cwd, env });
-        if (made.code !== 0) {
-          return fail(`could not make the Simulator "${name}": ${lastLine(made.out)}. Install an iOS Simulator runtime that runs the iPhone 17 in Xcode, Settings, Components.`);
-        }
-        udid = lastLine(made.out);
-        print(`made the Simulator "${name}" (${udid}), an iPhone 17 on the newest runtime that runs one`);
-      }
-    }
-    if (!(await build('--debug', '--target', 'aarch64-sim'))) return fail('the Simulator build failed; its output is above');
-    const bundle = built(join(cwd, APPLE, 'build/arm64-sim'), '.app', [app.name]);
-    if (!bundle) return fail(`the build made no .app in ${APPLE}/build/arm64-sim`);
-    // The place is taken after the build, which needs none, and before the sound step, which can boot the Simulator.
     // The lifetime's own calls run from wherever the process is: the checkout's folder is no part of them.
     const lifetime: Lifetime = {
       folder: stateFolder('simulators', options.env ?? process.env, home),
@@ -241,6 +216,39 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
       print,
       ...options.lifetime,
     };
+    let udid = options.udid;
+    let name = udid ?? '';
+    if (udid) {
+      print(`using the Simulator ${udid}`);
+      claimMade(lifetime, udid, cwd);
+    } else {
+      // In a linked worktree, git's own folder is not the shared one.
+      const where = await run(['git', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel'], { cwd, env });
+      const [gitDir, commonDir, top] = where.out.trim().split('\n');
+      const linked = where.code === 0 && gitDir !== commonDir;
+      name = linked ? `${app.name} (${basename(top)})` : app.name;
+      const listing = await run(['xcrun', 'simctl', 'list', 'devices', '-j'], { cwd, env });
+      if (listing.code !== 0) return fail(`could not list the Simulators (${lastLine(listing.out)}): is Xcode installed, with an iOS Simulator runtime?`);
+      const found = findSimulator(listing.out, name);
+      if (found) {
+        udid = found.udid;
+        print(`using the Simulator "${name}" (${udid})`);
+        claimMade(lifetime, udid, cwd);
+      } else {
+        const made = await run(['xcrun', 'simctl', 'create', name, DEVICE_TYPE], { cwd, env });
+        if (made.code !== 0) {
+          return fail(`could not make the Simulator "${name}": ${lastLine(made.out)}. Install an iOS Simulator runtime that runs the iPhone 17 in Xcode, Settings, Components.`);
+        }
+        udid = lastLine(made.out);
+        print(`made the Simulator "${name}" (${udid}), an iPhone 17 on the newest runtime that runs one`);
+        // A main checkout's Simulator is shared by every worktree of it, so only a linked worktree's is deleted with it.
+        if (linked) recordMade(lifetime, { udid, name, checkout: cwd });
+      }
+    }
+    if (!(await build('--debug', '--target', 'aarch64-sim'))) return fail('the Simulator build failed; its output is above');
+    const bundle = built(join(cwd, APPLE, 'build/arm64-sim'), '.app', [app.name]);
+    if (!bundle) return fail(`the build made no .app in ${APPLE}/build/arm64-sim`);
+    // The place is taken after the build, which needs none, and before the sound step, which can boot the Simulator.
     let place;
     try {
       place = await takePlace(lifetime, { udid, name, checkout: cwd });

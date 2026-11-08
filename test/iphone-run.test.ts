@@ -8,7 +8,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import { join } from 'node:path';
 import { colorWrittenIn, DEVICE_TYPE, pairedPhones, readApp, runIphone, TESTING_SECTION, type IphoneRunOptions } from '../tauri/iphone-run/index.ts';
 import { runCommand } from '../command-line/run.ts';
-import { clock, readHeld } from '../tauri/iphone-simulator/lifetime.ts';
+import { clock, readHeld, readMade, recordMade } from '../tauri/iphone-simulator/lifetime.ts';
 import { alive, stateFolder } from '../tauri/state.ts';
 import { exit, git, ok, repository, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
 
@@ -311,9 +311,27 @@ describe('iphone run sim', () => {
     expect(stand.named('simctl create')[0].command).toEqual(['xcrun', 'simctl', 'create', 'Sample App (feature-x)', DEVICE_TYPE]);
     expect(printed[0]).toBe(`made the Simulator "Sample App (feature-x)" (${NEW_SIMULATOR}), an iPhone 17 on the newest runtime that runs one`);
     expect(calls).toContain(`quiet ${NEW_SIMULATOR}`);
-    // The app's main checkout keeps the plain name, and finds the device that has it.
+    // Recorded as the kit's, for deleting once the worktree is gone.
+    const simulators = stateFolder('simulators', {}, home);
+    expect(readMade(simulators, NEW_SIMULATOR)).toEqual({ udid: NEW_SIMULATOR, name: 'Sample App (feature-x)', checkout: worktree });
+    // The app's main checkout keeps the plain name, and finds the device that has it, which no record makes the kit's.
     const fromMain = await runIn(app, apple(), { target: 'sim' });
     expect(fromMain.printed[0]).toBe(`using the Simulator "Sample App" (${SIMULATOR})`);
+    expect(readMade(simulators, SIMULATOR)).toBeNull();
+  });
+
+  test('a Simulator the kit made for another checkout, picked by name or by its udid, is kept from then on', async () => {
+    const lifetime = { folder: stateFolder('simulators', {}, home) };
+    recordMade(lifetime, { udid: SIMULATOR, name: 'Sample App', checkout: join(place.folder, 'other-worktree') });
+    recordMade(lifetime, { udid: 'SCRATCH-UDID', name: 'Sample App (other)', checkout: join(place.folder, 'other-worktree') });
+    expect((await runIn(app, apple(), { target: 'sim' })).code).toBe(0);
+    expect(readMade(lifetime.folder, SIMULATOR)).toBeNull();
+    expect((await runIn(app, apple(), { target: 'sim', udid: 'SCRATCH-UDID' })).code).toBe(0);
+    expect(readMade(lifetime.folder, 'SCRATCH-UDID')).toBeNull();
+    // One the same checkout made keeps its record.
+    recordMade(lifetime, { udid: SIMULATOR, name: 'Sample App', checkout: app });
+    await runIn(app, apple(), { target: 'sim' });
+    expect(readMade(lifetime.folder, SIMULATOR)).not.toBeNull();
   });
 
   test("a Simulator simctl cannot make stops the run before the build, saying what to install", async () => {

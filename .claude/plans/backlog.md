@@ -267,13 +267,6 @@ Done when: one Simulator the kit boots runs measurably fewer processes, with the
 Needs: nothing.
 Touches: tauri/iphone-simulator/, tauri/iphone-run/index.ts.
 
-## simulator-device-cleanup · A deleted worktree's Simulator device is deleted too
-
-Goal: `app-kit iphone run sim` makes one Simulator per linked worktree, named after it, and since v0.36.0 its watcher shuts it down once the worktree is deleted. The device itself stays in simctl's list and on disk (each holds an iOS data folder of its own), so they pile up as worktrees come and go. Delete the device once its worktree is gone, only for a device the kit made for a worktree, never one made by hand or a shared one.
-Done when: a test shows the watcher deleting the device it shut down once its checkout is gone, and leaving alone a device the kit did not make; a device made by hand keeps working.
-Needs: nothing.
-Touches: tauri/iphone-simulator/lifetime.ts, tauri/iphone-run/index.ts.
-
 ## simulator-lock-races · The Simulator places and shut-down times have no race left
 
 Goal: two rare races remain from the v0.36.0 Simulator work, both raised by its review. First, the lock in tauri/state.ts takes over a lock whose holder is dead with a plain write, so two runs that both find the same dead holder can both count places at once and boot a third Simulator for a while. Second, `app-kit iphone-simulator keep` writes the new time without the lock, so a watcher or a waiting run that read the old time just before can shut the Simulator down anyway. Make the takeover exclusive, and have keep and every shut-down for a time that has come decide under the same lock, reading the time again there.
