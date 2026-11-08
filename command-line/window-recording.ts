@@ -124,6 +124,9 @@ export async function openHiddenDisplay(
   front: () => number | undefined = frontmostPid,
 ): Promise<HiddenDisplay> {
   const child = spawn(program, ['--width', String(options.width), '--height', String(options.height), '--out', options.out, '--scale', String(options.scale ?? 2)], { stdio: ['pipe', 'pipe', 'pipe'] })
+  // A write after the program ended fails with EPIPE; the line reader already says it ended, which is the error the
+  // caller gets.
+  child.stdin.on('error', () => {})
   const lines = new Lines(child)
   // 'close', not 'exit': the program's last lines, such as its error, are read by then.
   const ended = new Promise<void>((resolve) => child.on('close', () => resolve()))

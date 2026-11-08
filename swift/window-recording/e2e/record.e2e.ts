@@ -22,6 +22,7 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const before = frontmostPid()
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
   // Watched from before the window exists until after the display is gone: a sighting on the owner's screens fails it.
+  let sightings: string[] = []
   const watch = await watchWindows(dir, 'test-window', display.left, display.top)
   let windowSize = { width: 0, height: 0 }
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
@@ -46,8 +47,9 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
     shown.kill()
     await gone
     await display.close()
+    sightings = await watch.stop()
   }
-  expect(await watch.stop()).toEqual([])
+  expect(sightings).toEqual([])
   expect(frontmostPid()).toBe(before)
   const probe = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,codec_name:format=duration', '-of', 'json', out], { encoding: 'utf8' }).stdout) as {
     streams: { width: number; height: number; codec_name: string }[]

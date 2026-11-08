@@ -35,6 +35,7 @@ test('a Chrome window on the hidden display is recorded with its address bar, ne
   const display = await openHiddenDisplay({ width: 1280, height: 800, out }, await buildRecorder())
   // Watched from before Chrome starts until after the display is gone, so a window of Chrome's on the owner's screens at
   // any moment, its first frame and its last included, fails the test.
+  let sightings: string[] = []
   const watch = await watchWindows(dir, 'Google Chrome', display.left, display.top)
   const log: string[] = []
   try {
@@ -51,8 +52,9 @@ test('a Chrome window on the hidden display is recorded with its address bar, ne
     }
   } finally {
     await display.close()
+    sightings = await watch.stop()
   }
-  expect(await watch.stop()).toEqual([])
+  expect(sightings).toEqual([])
   expect(frontmostPid()).toBe(before)
   const probe = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', out], { encoding: 'utf8' }).stdout) as {
     streams: { width: number; height: number }[]
