@@ -84,6 +84,11 @@ test('copy refuses a look.json whose text would read poorly, or that is the wron
   expect(() => lookChoices(extensionWith('half', { background: { paper: slate.background.paper } }))).toThrow('background.highlight needs a light and a dark color')
   expect(() => lookChoices(extensionWith('named', { accent: { light: 'blue', dark: '#8fb0e6' } }))).toThrow('accent needs a light and a dark color')
   expect(() => lookChoices(extensionWith('extra', { paper: slate.background.paper }))).toThrow('paper is not a choice the plain look takes')
+  for (const [name, look] of [['null', null], ['true', true], ['list', []]] as const) {
+    expect(() => lookChoices(extensionWith(`not-object-${name}`, look))).toThrow('look.json: the file must be an object whose keys are accent and background')
+  }
+  expect(() => lookChoices(extensionWith('null-background', { background: null }))).toThrow('background needs a paper and a highlight')
+  expect(() => lookChoices(extensionWith('extra-in-pair', { accent: { ...slate.accent, mid: '#000000' } }))).toThrow('accent needs a light and a dark color')
 })
 
 test('a stylesheet copy edited by hand, or missing, differs from the kit, and the check command names it', () => {

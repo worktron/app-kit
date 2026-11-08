@@ -59,19 +59,28 @@ export function lookChoices(folder: string): PlainChoices {
   }
   const path = join(at, LOOK_CHOICES)
   if (!existsSync(path)) return {}
-  const read = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  /** `value` as an object holding no keys but `keys`, or a refusal saying what `name` needs. */
+  const object = (value: unknown, name: string, keys: string[], needs: string): Record<string, unknown> => {
+    const fits = typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).every((key) => keys.includes(key))
+    if (!fits) throw new Error(`${path}: ${name} ${needs}`)
+    return value as Record<string, unknown>
+  }
   const pair = (value: unknown, name: string): LightDark => {
-    const { light, dark } = (value ?? {}) as Record<string, unknown>
+    const needs = 'needs a light and a dark color, each #rrggbb'
+    const { light, dark } = object(value, name, ['light', 'dark'], needs)
     const hex = (color: unknown) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)
-    if (!hex(light) || !hex(dark)) throw new Error(`${path}: ${name} needs a light and a dark color, each #rrggbb`)
+    if (!hex(light) || !hex(dark)) throw new Error(`${path}: ${name} ${needs}`)
     return { light: (light as string).toLowerCase(), dark: (dark as string).toLowerCase() }
   }
-  const unknown = Object.keys(read).filter((key) => key !== 'accent' && key !== 'background')
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error(`${path}: the file must be an object whose keys are accent and background`)
+  const unknown = Object.keys(parsed).filter((key) => key !== 'accent' && key !== 'background')
   if (unknown.length) throw new Error(`${path}: ${unknown.join(', ')} is not a choice the plain look takes; it takes accent and background`)
+  const read = parsed as Record<string, unknown>
   const choices: PlainChoices = {}
   if (read.accent !== undefined) choices.accent = pair(read.accent, 'accent')
   if (read.background !== undefined) {
-    const { paper, highlight } = read.background as Record<string, unknown>
+    const { paper, highlight } = object(read.background, 'background', ['paper', 'highlight'], 'needs a paper and a highlight, each a light and a dark color')
     choices.background = { paper: pair(paper, 'background.paper'), highlight: pair(highlight, 'background.highlight') }
   }
   return choices
