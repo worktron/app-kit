@@ -42,6 +42,7 @@
     "./tauri/window": "./tauri/window/index.ts",
     "./tauri/playwright": "./tauri/playwright.js",
     "./server/google": "./server/google/index.ts",
+    "./server/google/demo": "./server/google/demo.ts",
     "./server/postgres": "./server/postgres/index.ts",
     "./server/start": "./server/start/index.ts",
     "./server/every": "./server/every/index.ts",
@@ -50,6 +51,8 @@
     "./amazon-cart": "./server/amazon-cart/index.ts",
     "./testing/start-up": "./testing/start-up.ts",
     "./command-line": "./command-line/index.ts",
+    "./command-line/signed-in-chrome": "./command-line/signed-in-chrome.ts",
+    "./command-line/window-recording": "./command-line/window-recording.ts",
     "./package.json": "./package.json"
   },
   "scripts": {

@@ -850,7 +850,7 @@ Shelf is by invitation only, so without an invited account the extension reads n
 
 ### The Store dashboard
 
-`app-kit extension dashboard fill` types `store-listing.md` into the item's dashboard and proves it, so an agent can fill a Store item for the owner and stop at Submit for review. Google's API sets none of these pages, and Chrome refuses every extension on Web Store pages, so it drives Google Chrome itself, headless, with no window or Dock icon, in a profile of its own under `~/.local/state/app-kit/store-dashboard`, through Chrome's DevTools connection, listening on this Mac only, and only while a run lasts.
+`app-kit extension dashboard fill` types `store-listing.md` into the item's dashboard and proves it, so an agent can fill a Store item for the owner and stop at Submit for review. Google's API sets none of these pages, and Chrome refuses every extension on Web Store pages, so it drives Google Chrome itself (the signed-in Chrome, under command-line/), headless, with no window or Dock icon, in a profile of its own under `~/.local/state/app-kit/store-dashboard`, through Chrome's DevTools connection, listening on this Mac only, and only while a run lasts.
 
 1. `app-kit extension dashboard sign-in` opens that profile's Chrome, started with no automation or debugging switch, at Google's sign-in. The owner signs in with the account that owns the item and quits Chrome. It is the owner's to run in their own terminal: run by an agent's thread (`METAMAX_JOB_ID` or `AI_AGENT` set, which `runByThread` in `app-kit/command-line` reads), it opens nothing and prints the line for the owner. Nothing types into it or watches it, and no command ever types a password or works around a Google check: when Google asks to sign in again, a run stops and says to run sign-in.
 2. `app-kit extension dashboard read [<folder>] [--zip <file>]` compares each page with the file, box by box, and changes nothing. The item is the one the manifest's `key` gives (`--item <id>` names another).
@@ -1699,6 +1699,35 @@ const { values, positionals } = readArguments(args, {
 - **`opRead(reference)`** reads an `op://` reference with 1Password's `op read`, with nothing added, under a time limit of a minute that leaves room for Touch ID's prompt. A failure throws with the reference and `op`'s own last line, never the secret, and anything that is not a reference is refused without printing it, since it may be the secret pasted by mistake.
 - **`runCommand(command, { cwd, env, input, timeoutMs, output })`** runs another program in a process group of its own, and gives back its exit code, the end of its output and errors together as they came (`out`), and each apart (`stdout`, `stderr`), so a tool that parses a program's output never reads a warning such as `du`'s "Permission denied" as part of it. `output(chunk, stream)` hears each piece as it comes, with `'stdout'` or `'stderr'`, for a tool that shows a long scan's progress line by line. Past `timeoutMs` the whole group is stopped, everything the program started included, which `Bun.spawn`'s own timeout does not do: it signals the program alone. A program that ignores the polite signal is forced to stop five seconds later, and when the program ends, whatever it left running in its group goes with it. `stopRunning(signal)` passes a signal on to every group still running, for a command stopped itself (`STOP_SIGNALS`), and a test stands in for every outside program by passing its own `Run`. The kit's TestFlight, `iphone run` and `icons render` commands run every outside program through it; the Swift Mac app package has the same for a Swift app.
 
+### A signed-in Chrome
+
+`app-kit/command-line/signed-in-chrome`: Google Chrome with a profile of its own, which the owner signs in to by hand once, driven through Playwright for pages only a signed-in Google account reaches. The Store dashboard (below, under extension/) and an app's demo videos use it.
+
+- **`withProfile(folder, name, work)`** holds the profile's lock (`<folder>/profile.lock`) while `work` runs with the profile's path (`<folder>/profile`): a second run, or a Chrome left open on the profile, fails at once naming the process.
+- **`signIn(profile, address, log)`** opens the profile's Chrome in front with no debugging or automation switch, so Google's sign-in sees an ordinary browser, and waits for the owner to quit it. It is the owner's to run: a command that calls it refuses when `runByThread()` names a thread.
+- **`drive(profile, log, window?)`** starts the same profile with a debugging port on this Mac only and connects Playwright. With no `window` it is headless: no window and no Dock icon. With `window` (`left`, `top`, `width`, `height`, in points from the main display's top left) Chrome opens no window of its own and the run makes one there in the background, which leaves focus where it was; Chrome is told to keep drawing when covered. A run with a window shows Chrome's icon in the Dock while it lasts (a copy of Chrome marked a background app, which keeps Playwright's WebKit out of the Dock, does not start), so a command that opens one is one the owner approves first.
+
+Playwright's own launch is not used: it adds `--use-mock-keychain`, which would make the profile the owner signed in to read as signed out.
+
+### Window recording
+
+`app-kit/command-line/window-recording`: one program's window recorded to an mp4 on a display nobody sees, for a video that must show a real browser window, address bar included. The Swift program in `swift/window-recording` makes the display (macOS's virtual display, which no public header declares; BetterDisplay, DeskPad and Chromium's tests use the same classes) past the far corner of the owner's displays, for its own life only, and records the window with ScreenCaptureKit's single-window filter.
+
+```ts
+import { drive } from 'app-kit/command-line/signed-in-chrome';
+import { buildRecorder, openHiddenDisplay } from 'app-kit/command-line/window-recording';
+
+const display = await openHiddenDisplay({ width: 1280, height: 800, out: 'take.mp4' }, await buildRecorder());
+const chrome = await drive(profile, log, { left: display.left, top: display.top, width: 1280, height: 800 });
+const startedAt = await display.record(chrome.pid); // the first frame's time, the video's clock zero
+// ... drive chrome.page ...
+await display.stop(); // throws if Chrome came to the front while it recorded
+await chrome.close();
+await display.close(); // the display goes
+```
+
+`buildRecorder()` builds the program with `swift build` into `~/.local/state/app-kit/window-recording`, never into the installed kit; an unchanged package builds in a second or two. macOS asks once for Screen Recording permission for the app the run is started from (System Settings, Privacy & Security, Screen & System Audio Recording); without it `record` throws a `RecordingFailed` of kind `screen-recording` and nothing is recorded. While it records, the app in front is checked every half second, and `stop` throws if the recorded program was ever in front, since the owner's keys could then have reached it. When the display first appears macOS slots it beside the main display for a moment, shifting the owner's other displays, before it moves to the corner.
+
 ## authentication/: who is calling
 
 A person signed in through a sign-in provider, or an agent with a person's key. Nothing outside `authentication/clerk/` imports Clerk, which `test/clerk-imports.test.ts` holds, so every other part works with another provider.
@@ -2026,6 +2055,26 @@ if (refusal?.kind === 'freshToken') {
 | Anything else: an API the Google Cloud project has not switched on (`accessNotConfigured`), a permission on the item itself, a 404, a 410 `fullSyncRequired`, the token endpoint's `invalid_client` | `failed` |
 
 A permission is known to be missing only from Google's own answer, `missingAccess` above: the list of permissions Clerk reports for a token it holds has been seen to name one the grant no longer carries. Every reading carries Google's own `reason` and a one-line `message` for the log. Only answers with a recorded or Google-documented sample have a meaning; anything else reads as `failed` until one is recorded. What the person sees is the app's: its server sends the words with the status, a reconnect names the service ("Reconnect Google Calendar"), says how old what is shown is, and for `missingAccess` says to tick the box on Google's screen.
+
+### A demo Google account for videos
+
+`app-kit google demo-reset <fixture file>` and `app-kit/server/google/demo`: a demo Google account set to a known inbox and calendar before an app's Google verification or demo video is recorded, so every run starts from the same state, mail the app itself sent last run included. Every message in the account's Inbox and Sent goes to Trash and every event on its primary calendar is deleted, then the file's messages and meetings are added:
+
+```json
+{
+  "account": "demo@example.com",
+  "mail": [{ "from": "Dana Ortiz <dana@example.com>", "subject": "Invoice 1042 is due Friday", "body": "Hi, the invoice is attached.", "minutesAgo": 40 }],
+  "events": [{ "summary": "Logo review", "startsInMinutes": 1440, "minutes": 30 }]
+}
+```
+
+A message is unread unless `"read": true`; a meeting starts at the quarter hour at or after its minutes from now. The reset acts only on the account its grant is for, refusing any other address, and one run at a time holds each account (`withDemoAccount(address, work)`, which a recording holds across its reset and its take). Its grant is a demo-only one, never a Workspace service account, which can act as every person in the domain:
+
+1. The owner makes a Google Cloud project of its own for demos, in the demo account's Workspace, with the Gmail and Google Calendar APIs on, an OAuth consent screen of type Internal (an Internal app's grant does not expire after 7 days), and a Desktop app OAuth client. If the Workspace admin console restricts Gmail or Calendar under Security, API controls, the demo app is marked Trusted there.
+2. The client's id and secret go into a 1Password item in the agents vault, "Google demo grant <address>", in fields `client id` and `client secret`.
+3. `app-kit google demo-grant <address>`, in the owner's own terminal, opens Google's consent for `gmail.modify` and `calendar.events` in the demo account's own Chrome profile (`~/.local/state/app-kit/demo-chrome/<address>`, the one its videos are recorded in, which this signs in to the demo account too). The owner signs in as the demo account, allows it and quits Chrome; the refresh token goes into the item's `refresh token` field through 1Password's app, which asks once. Run by a thread it opens nothing and prints the line for the owner.
+
+A grant Google no longer honors (revoked, the demo account's password changed, or unused for six months) stops the reset with Google's reason and the line to run the grant again.
 
 ### The Postgres database
 

@@ -31,6 +31,9 @@ bash swift/menu-bar/e2e/swiftc-build.sh
 # The Mac app package the same two ways: its log, launch at login, Dock icon, native host, build, refresh and runner.
 (cd swift/mac-app && swift build -Xswiftc -warnings-as-errors && swift test -Xswiftc -warnings-as-errors)
 bash swift/mac-app/e2e/swiftc-build.sh
+# The window recording program, a Swift package built only by Swift's package manager, as command-line/window-recording.ts
+# builds it. Its tests make no display and record nothing, so they need no Screen Recording permission.
+(cd swift/window-recording && swift build -Xswiftc -warnings-as-errors && swift test -Xswiftc -warnings-as-errors)
 
 # The plugins' Rust and Swift. rustup puts cargo in ~/.cargo/bin, which a plain bash, as a landing runs this, has not
 # read into PATH. One build folder serves every app-kit checkout, so only the first landing builds all of Tauri; cargo

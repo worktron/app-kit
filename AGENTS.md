@@ -1,6 +1,6 @@
 # app-kit
 
-The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/look`, `app-kit/testing/start-up`, and two that name no folder, `app-kit/amazon-orders` and `app-kit/amazon-cart`, which live in `server/amazon-orders/` and `server/amazon-cart/`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
+The app baseline as one public package, which apps install from GitHub at a tag. Its top folders are the kinds of app (`web/`, `extension/`, `tauri/`, `swift/`, `command-line/`) and five for what several kinds share (`authentication/`, `server/`, `icons/`, `look/`, `testing/`), and import names follow the folders: `app-kit/web`, `app-kit/command-line`, `app-kit/extension/...`, `app-kit/tauri/sign-in`, `app-kit/tauri/iphone-notifications`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/authentication/...`, `app-kit/server/google`, `app-kit/server/google/demo`, `app-kit/server/postgres`, `app-kit/server/start`, `app-kit/server/every`, `app-kit/server/process-usage`, `app-kit/look`, `app-kit/testing/start-up`, `app-kit/command-line/signed-in-chrome`, `app-kit/command-line/window-recording`, and two that name no folder, `app-kit/amazon-orders` and `app-kit/amazon-cart`, which live in `server/amazon-orders/` and `server/amazon-cart/`. README.md says what each piece is and how an app takes it in, one section per folder; practices' rules files say why each exists.
 
 ## Layout
 
@@ -69,13 +69,18 @@ swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift
                  window's pieces, Window.swift, and the switch, the menu and the field, Controls.swift), Sources/menu-bar-snapshots
                  (the Studies screens drawn in either look, and compared in the console look), Tests/, and
                  e2e/ (the mockups, the comparison with a headless Chromium, and the bare swiftc build)
+                 window-recording/, the program that makes a display nobody sees and records one window on it
+                 (ScreenCaptureKit), built by Swift's package manager only, by command-line/window-recording.ts;
                  mac-app/, what every Swift Mac app writes for itself, a Swift package built the same way: Sources/MacApp
                  (the log, launch at login, the Dock icon while a window is open and opening Settings, the native
                  messaging host, the build's version and commit, the refresh on a clock and after wake, and a program
                  run with a time limit), Tests/, and e2e/ (the bare swiftc build)
 command-line/    command-line tools (app-kit/command-line): the version line, help and wrong usage, color, opening the
                  browser, the worktree warning and the 1Password read (index.ts), and run.ts, the runner every outside
-                 program goes through, which the TestFlight part, `iphone run` and `icons render` use
+                 program goes through, which the TestFlight part, `iphone run` and `icons render` use;
+                 signed-in-chrome.ts, Google Chrome in a profile of its own the owner signs in to once, driven headless
+                 or with one window placed where the caller says (the Store dashboard and demo videos use it);
+                 window-recording.ts, which builds and drives swift/window-recording
 authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the Clerk readers for the server checks, server.ts,
                  a user's verified addresses and the allowlist among them; the steps for browser tests against a development instance, playwright.js, with one user signed in per worker,
                  and their test against the kit's own instance, e2e/, run by scripts/e2e-clerk.sh; a stand-in for Clerk's Backend API
@@ -85,7 +90,9 @@ authentication/  who is calling: clerk/ (the Clerk adapter, index.tsx, and the C
                  and the check of every route for server tests, testing.ts),
                  owner/ (the server checks that let in only the one person an app serves, or only the people on an invited list),
                  server-sign-in/ (whether a server requires sign-in, from its environment: refused hosted without it, open on this machine only)
-server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React),
+server/          server-only pieces no kind of app owns: google/ (what a refusal from Google means, with no React, and
+                 demo.ts with demo-command.ts, `app-kit google demo-reset` and `demo-grant`, a demo account's inbox and
+                 calendar set for an app's verification and demo videos),
                  postgres/ (the database opener on Drizzle: Postgres from a postgres:// URL, PGlite otherwise, and the
                  migrated in-memory databases for tests; test/fixtures/postgres holds the tests' schema and migration),
                  start/ (the Hono app every server starts from, with its health route, request log, JSON errors and refusal of

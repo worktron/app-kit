@@ -2,7 +2,7 @@ import { afterAll, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { itemAddress, lastUsedProfile, publisherIn } from '../dashboard/chrome.ts'
+import { itemAddress, publisherIn } from '../dashboard/chrome.ts'
 import { parse } from '../dashboard/command.ts'
 import type { Field } from '../dashboard/fields.ts'
 import { pickedIn, screenshotsIn, screenshotsLeft } from '../dashboard/fill.ts'
@@ -51,14 +51,6 @@ test("the publisher comes from the developer dashboard's address, and an item's 
   expect(publisherIn('https://chromewebstore.google.com/')).toBeUndefined()
   expect(publisherIn('https://chrome.google.com/webstore/devconsole/register')).toBeUndefined()
   expect(itemAddress(publisher, 'abc')).toBe(`https://chrome.google.com/webstore/devconsole/${publisher}/abc/edit`)
-})
-
-test('a run opens the profile Chrome last used, and the first one when Chrome has not said', () => {
-  const folder = join(dir, 'profile')
-  mkdirSync(folder)
-  expect(lastUsedProfile(folder)).toBe('Default')
-  writeFileSync(join(folder, 'Local State'), JSON.stringify({ profile: { last_used: 'Profile 1' } }))
-  expect(lastUsedProfile(folder)).toBe('Profile 1')
 })
 
 /** A PNG's header with the width and height set, which is all the check reads. */

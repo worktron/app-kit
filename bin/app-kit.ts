@@ -8,7 +8,8 @@
 // an iPhone build, and watches apps' main to upload after each landing. The Mac
 // part publishes a Mac app's release, which its installed copies update to, and
 // makes the key that signs it. The icons part draws every icon an app ships from
-// its drawings.
+// its drawings. The google part sets a demo Google account's inbox and calendar
+// for an app's verification and demo videos.
 
 import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -16,6 +17,7 @@ import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/in
 import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
 import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } from '../extension/listing.ts'
 import { dashboard } from '../extension/dashboard/command.ts'
+import { google } from '../server/google/demo-command.ts'
 import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
 import { isColor, renderIcons } from '../icons/render.ts'
 import { makeKey } from '../tauri/mac-release/key.ts'
@@ -70,6 +72,14 @@ const USAGE = `app-kit <part> <command>
                               the extension's build, commit and kept errors; when no
                               host answers, why and the fix, checking how Chrome is
                               told of the host <name> and the extension in <folder>
+  google demo-reset <fixture file>
+                              set the demo Google account the file names to its
+                              messages and meetings: every message in its Inbox and Sent
+                              goes to Trash and every event on its calendar is deleted
+                              first; acts only on the account the demo grant is for
+  google demo-grant <address> the owner's one-time step: allow the demo app (its client id
+                              and secret in 1Password, "Google demo grant <address>") in
+                              <address>'s own Chrome, and save the refresh token beside them
   icons render [<drawings>] [--icon-set <set>]... [--tauri <src-tauri>] [--menu-bar <imageset>]
                [--extension <folder>] [--toolbar-color <#hex>] [--web <folder>]
                               draw every icon an app ships from the drawings in
@@ -332,6 +342,7 @@ async function main(args: string[]) {
   if (answerHelpOrVersion(args, { usage: USAGE, version: () => versionLine(packageJson, join(import.meta.dir, '..')) })) return
   const [part, ...rest] = args
   if (part === 'extension' && (await extension(rest))) return
+  if (part === 'google' && (await google(rest))) return
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return
