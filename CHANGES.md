@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.50.0
+
+Urgency: next round
+
+- An extension headed for the Chrome Web Store can run `app-kit extension dashboard fill` to type store-listing.md into its dashboard item and read it back; a store-listing.md whose Data collected names a data use the dashboard has no box for (such as "Web browsing activity" for "Web history") now fails `app-kit extension listing`.
+
 ## v0.49.0
 
 Urgency: next round
