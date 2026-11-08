@@ -416,11 +416,3 @@ Touches: server/postgres/index.ts, test/postgres.test.ts.
 Goal: `lookTheme({ name: 'console' })` leaves MUI's AppBar in its default `color="primary"`, so the bar's title and icons take primary's contrast text, white, while the console look paints the bar in `surface` (#f0f0f0 in light). In light the title is white on light grey and cannot be read; in dark it happens to read. The plain look already sets `MuiAppBar: { defaultProps: { elevation: 0, color: 'inherit' } }` (web/theme.ts:106); the console look's MuiAppBar (web/theme.ts:218) sets only styleOverrides. Found by buddy-system's move to v0.47.1 (2026-11-07, pull request 15), which works around it with `<AppBar color="inherit">` in client/src/features/BuddySystemApp.tsx; every console app that takes light mode hits the same.
 Done when: the console look's MuiAppBar has `defaultProps: { elevation: 0, color: 'inherit' }`, the look's e2e draws a console app bar in light and holds its title's color to CONSOLE.light.text, and CHANGES.md tells console apps they may drop their own `color="inherit"`.
 Do not touch: the plain look.
-
-## public-scan-cheaper · The public-repository check's scan of every tracked file stops timing out on a busy Mac
-
-Goal: `test/public.test.ts` "no tracked file names a personal email or home folder" reads all 473 tracked files as text and runs three patterns over each, three 270 KB font files and the 268 KB README among them, inside Bun's 5 seconds. On 2026-11-07 it stopped a landing (postgres-tests-do-less-work, 1020 of 1021 tests passing) at 14.8 seconds. Timed alone the same evening, it took 2.3 to 6.2 seconds on that branch and 3.2 to 8.4 on a clean copy of main at load 45 to 57, so it fails on a busy machine whatever is landing. Where the time goes is not traced: reading binary files such as the fonts as text and matching the email pattern over them is the first guess, untested; trace it first.
-Done when: with no time limit raised, the test takes under a second alone on this Mac at whatever load it has, and still finds a personal email or home folder planted in a tracked text file, shown by a test; the plan or the commit says its time before and after.
-Do not touch: what `test/public.test.ts` counts as a personal fact; the history and commit tests in the same file; time limits in the tests or bunfig.toml.
-Needs: nothing.
-Touches: test/public.test.ts.
