@@ -53,12 +53,12 @@ const HOME = `<!doctype html><html><head><meta name="viewport" content="width=de
 
 const SIGN_IN = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
 <h1>Sign in</h1>
-<form id="email"><label>Email <input name="email" aria-label="Email"></label></form>
+<form id="email"><label>Email <input name="email" aria-label="Email" autocomplete="username"></label></form>
 <script>
   document.getElementById('email').onsubmit = (event) => {
     event.preventDefault();
     const address = event.target.email.value;
-    document.body.innerHTML = '<form id="code"><label>Code <input name="code" aria-label="Code"></label></form>';
+    document.body.innerHTML = '<form id="code"><label>Code <input name="code" aria-label="Code" autocomplete="one-time-code"></label></form>';
     document.getElementById('code').onsubmit = (next) => {
       next.preventDefault();
       document.body.innerHTML = next.target.code.value === '424242' ? '<h1>Signed in as ' + address + '</h1>' : '<h1>Wrong code</h1>';

@@ -39,7 +39,9 @@ export interface SignInByCodeOptions {
 
 /**
  * Signs in on the app's own sign-in screen by emailed code: types the address and presses Enter, then types the code
- * and presses Enter. Against Clerk's development instance the address must have +clerk_test in it, the page needs
+ * and presses Enter. Before typing in each field it throws unless the email field's autocomplete names `username` and the
+ * code field's names `one-time-code`, the markers a password manager, Safari and the phone fill by (README, Password
+ * managers). Against Clerk's development instance the address must have +clerk_test in it, the page needs
  * Clerk's testing token first (`setupClerkTestingToken` from `@clerk/testing/playwright`), and Clerk takes only a few
  * sign-ins a minute.
  */

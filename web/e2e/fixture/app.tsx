@@ -58,7 +58,7 @@ function SignInScreen() {
           }}
         >
           <label>
-            Code <input value={code} onChange={(e) => setCode(e.target.value)} />
+            Code <input value={code} autoComplete="one-time-code" inputMode="numeric" onChange={(e) => setCode(e.target.value)} />
           </label>
           <button type="submit">Sign in</button>
         </form>
@@ -71,7 +71,7 @@ function SignInScreen() {
           }}
         >
           <label>
-            Email <input value={email} onChange={(e) => setEmail(e.target.value)} />
+            Email <input type="email" value={email} autoComplete="username" onChange={(e) => setEmail(e.target.value)} />
           </label>
           <button type="submit">Email me a code</button>
         </form>

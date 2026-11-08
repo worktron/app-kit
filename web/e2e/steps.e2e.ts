@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test, type Page } from '@playwright/test';
-import { hidePage, lockFor, serveNewerBuild, showPage } from '../../authentication/stand-in/playwright';
+import { hidePage, lockFor, serveNewerBuild, showPage, signInByCode, STAND_IN_CODE } from '../../authentication/stand-in/playwright';
 import { standInTicket } from '../../authentication/stand-in';
 import { NOT_FROM_THIS_WINDOW } from '../../tauri/sign-in';
 import { fakeTauri, handOverSignIn, IPHONE_USER_AGENT, launchedByTap, loadWithSignIn, tapNotification, tauriCalls, windowAsksForSignIn } from '../../tauri/playwright';
@@ -63,6 +63,35 @@ test('a locked phone moves the page\'s own time on by exactly the time away, fir
 test('a locked phone without an installed clock fails at once, saying so', async ({ page }) => {
   await page.goto(plainPage);
   await expect(lockFor(page, 60_000)).rejects.toThrow('install the clock with page.clock.install()');
+});
+
+/** A sign-in screen of the test's own: the email field, then the code field once the address is sent. */
+function signInScreen(email: string, code: string) {
+  return `<form id="email"><label>Email <input aria-label="Email" ${email}></label></form>
+<script>
+  document.getElementById('email').onsubmit = (event) => {
+    event.preventDefault();
+    document.body.innerHTML = '<label>Code <input aria-label="Code" ${code}></label>';
+  };
+</script>`;
+}
+
+test('signing in by code types nothing into an email field not marked username, saying which marker it needs', async ({ page }) => {
+  await page.setContent(signInScreen('type="email" autocomplete="email"', 'autocomplete="one-time-code"'));
+  await expect(signInByCode(page, 'ana@example.com')).rejects.toThrow(`the Email field's autocomplete is "email"; mark it autocomplete="username"`);
+  await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue('');
+});
+
+test('signing in by code types no code into a field not marked one-time-code, saying which marker it needs', async ({ page }) => {
+  await page.setContent(signInScreen('autocomplete="username"', 'inputmode="numeric"'));
+  await expect(signInByCode(page, 'ana@example.com')).rejects.toThrow(`the Code field's autocomplete is ""; mark it autocomplete="one-time-code"`);
+  await expect(page.getByRole('textbox', { name: 'Code' })).toHaveValue('');
+});
+
+test('signing in by code takes a marker among other autocomplete words, in any case', async ({ page }) => {
+  await page.setContent(signInScreen('autocomplete="section-a Username webauthn"', 'autocomplete="one-time-code"'));
+  await signInByCode(page, 'ana@example.com', { submit: false });
+  await expect(page.getByRole('textbox', { name: 'Code' })).toHaveValue(STAND_IN_CODE);
 });
 
 test('page loads are counted from the step on', async ({ page }) => {

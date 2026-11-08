@@ -118,6 +118,35 @@ What an app can choose:
 
 Sign out is last, under a line, in the menu's plain text color. In a Tauri window, Sign Out is in the Mac menu bar too (`useWindowMenu`, below), and the account menu still says who is signed in.
 
+### Password managers
+
+The sign-in screen's two fields carry the markers a password manager, Safari and the phone fill by: the email field `type="email"` with `autocomplete="username"`, and the code field `autocomplete="one-time-code"` with `inputMode="numeric"`. `username` says the field is the account the sign-in is for, where `email` would mean any contact address; Apple ([Password AutoFill on an HTML input](https://developer.apple.com/documentation/security/enabling-password-autofill-on-an-html-input-element)), Chromium ([form styles Chromium understands](https://www.chromium.org/developers/design-documents/form-styles-that-chromium-understands/)) and [web.dev](https://web.dev/articles/sign-in-form-best-practices) each give `type="email"` with `autocomplete="username"` for it. With MUI:
+
+```tsx
+<TextField label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
+<TextField label="Code" slotProps={{ htmlInput: { autoComplete: 'one-time-code', inputMode: 'numeric' } }} value={code} onChange={(e) => setCode(e.target.value)} />
+```
+
+`signInByCode` (Browser tests, below) fails until both are set, naming the marker. An app whose tests sign in through a step of their own checks the two markers there.
+
+The markers make filling right on a later visit. They bring up no save: 1Password offers to save a login only from a form with a password, so an emailed code never asks, and its save comes after Continue with Google, or from the person's own Save in its menu. (1Password's extension 8.12.44, read 2026-11-07, has a feature for emailed-code sign-ins, switched off.)
+
+What 1Password names the saved login is not the app's to choose. It works from the address alone: the main domain, looked up in a list of site names 1Password ships inside its extension (about 46,600 of them, keyed by main domains such as `google.com`, never by a subdomain), and otherwise the main domain's own name. Every app under worktron.com is saved as "Worktron". The page's `<title>`, its manifest, Open Graph tags and a passkey's name for itself all leave it unchanged, and putting the domain on the Public Suffix List would not either, since that list's private part is not used for names. The Save in 1Password button ([1Password's guide](https://www.1password.dev/web/add-1password-button-website)) takes a title, but it saves the field values the page holds, and an app on the kit holds no password, so it is not used.
+
+The one way to the app's own name is a domain of its own: Getter at getter.app would be saved as "Getter". What a move costs:
+
+- Clerk's production instance changes its domain ([changing domains](https://clerk.com/docs/guides/development/deployment/changing-domains)): new DNS records, a new publishable key in the build, and Google's redirect addresses updated.
+- The Google consent screen's home page changes, which Google verifies again (A home page at the root, above).
+- People's saved items, which hold only the email or the Google link, are suggested on the old address only, until saved again. An entry in Apple's [shared credentials list](https://github.com/apple/password-manager-resources/blob/main/CONTRIBUTING.md), which 1Password reads, keeps them filling on the new one.
+
+The icon is the app's to ask for. 1Password draws a login's icon from its own collection, never from the favicon, kept by the login's whole address (`https://c.1password.com/richicons/images/login/120/<address>.png`), so a subdomain can have an icon its main domain does not. Ask for it once the app has its icons (`app-kit icons render --web`), to support+forum@1password.com or as a post in 1Password's community:
+
+> Subject: Icon for getter.worktron.com
+>
+> Please show the attached icon for logins saved at getter.worktron.com. The app is Getter. The icon is a 512 by 512 PNG.
+
+with the app's name and address in place of Getter's, and the web folder's `icon-512.png` attached. 1Password gives no date: an icon comes in a later update of its collection, and the request may wait.
+
 ### A page open across a deploy
 
 A tab left open on one build can be handed data in a shape only the next build knows: the server was deployed, or rolled back, while the page stayed. Drawing it crashes, and the kit mends that by itself. When a screen crashes on a built page, the error boundary asks the server for its index page, past every cache, and reads which built entry it names. When that is another build than the one running, the page reloads onto it, and the crash screen never shows. The same build means a real crash, which shows. While it asks, at most three seconds, it draws the `placeholder` it was given, the same one the sign-in gate has, so the person sees one steady screen through the crash, the reload and the sign-in gate; given none, it draws the crash while it asks. The page never reloads again toward the build it last reloaded toward in that tab, nor within 30 seconds of its last reload, so a crash the newer build has too, a reload that a cache answers with the old page, or two builds answering in turn mid-rollout ends on the crash screen rather than in a loop. With storage blocked the reload could not be remembered, so none is made. A boundary around one part of a page does not reload over text typed outside it. The console says what was decided and why, in lines starting `[app-kit] crash`.
@@ -174,7 +203,7 @@ These steps depend on how the kit works inside, so an app takes them from the ki
 - `showPage(page)` brings the page back in front, as a phone does when the home-screen app returns. After `hidePage`, it makes the page visible again, since the kit looks only from a visible page.
 - `hidePage(page)` hides the page, as when the person switches to another tab: `document.visibilityState` reads `hidden` and `document.hidden` reads true, for code that asks either way.
 - `lockFor(page, ms)` is the phone locked for `ms` and unlocked: the page hides, its clock jumps that far past the page's own time with no timer fired, as a locked phone runs none, and it shows again. It needs `page.clock.install()` before the page loads, and throws without it. `performance.now()` and audio time do not move.
-- `signInByCode(page, email, options)` signs in on the app's own screen by emailed code: it types the address in the textbox named Email and presses Enter, then `STAND_IN_CODE` in the one named Code and presses Enter. `emailField` and `codeField` take the app's own fields, `code` another code, and `submit: false` leaves out the last Enter, for a field that signs in at its last digit. Clerk's development instance takes the same code, 424242, for an address with +clerk_test in it, once the page has Clerk's testing token, and only a few times a minute.
+- `signInByCode(page, email, options)` signs in on the app's own screen by emailed code: it types the address in the textbox named Email and presses Enter, then `STAND_IN_CODE` in the one named Code and presses Enter. `emailField` and `codeField` take the app's own fields, `code` another code, and `submit: false` leaves out the last Enter, for a field that signs in at its last digit. Before typing in each field it fails unless the email field is marked `autocomplete="username"` and the code field `autocomplete="one-time-code"` (Password managers, above). Clerk's development instance takes the same code, 424242, for an address with +clerk_test in it, once the page has Clerk's testing token, and only a few times a minute.
 - `serveNewerBuild(page)` serves the index page as a newer deploy would, naming another built entry, and returns `{ stop }`, which serves the real page again. It throws at once if the page names no module script under `/assets/`, which is how the kit tells a page's build.
 
 ```ts

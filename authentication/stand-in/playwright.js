@@ -39,12 +39,28 @@ export async function lockFor(page, ms) {
   await showPage(page);
 }
 
+/**
+ * Throws unless the field's autocomplete names `token`, which tells a password manager, Safari and the phone what the
+ * field holds (README, Password managers).
+ * @param {import('@playwright/test').Locator} field
+ * @param {string} name
+ * @param {string} token
+ */
+async function expectMarked(field, name, token) {
+  const found = (await field.getAttribute('autocomplete')) ?? '';
+  if (!found.toLowerCase().split(/\s+/).includes(token)) {
+    throw new Error(`signInByCode: the ${name} field's autocomplete is "${found}"; mark it autocomplete="${token}" (app-kit README, Password managers)`);
+  }
+}
+
 /** @type {typeof import('./playwright').signInByCode} */
 export async function signInByCode(page, email, options = {}) {
   const emailField = options.emailField ?? page.getByRole('textbox', { name: 'Email' });
   const codeField = options.codeField ?? page.getByRole('textbox', { name: 'Code' });
+  await expectMarked(emailField, 'Email', 'username');
   await emailField.fill(email);
   await emailField.press('Enter');
+  await expectMarked(codeField, 'Code', 'one-time-code');
   await codeField.fill(options.code ?? STAND_IN_CODE);
   // Pressed on the keyboard rather than the field: a field that signs in at its last digit is gone by now, and the
   // field's own press would wait for it until the test timed out.
