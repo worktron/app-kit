@@ -9,6 +9,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildRecorder, frontmostPid, openHiddenDisplay } from '../../../command-line/window-recording.ts'
+import { watchWindows } from './watch.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-window-recording-e2e-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -20,6 +21,8 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const out = join(dir, 'take.mp4')
   const before = frontmostPid()
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
+  // Watched from before the window exists until after the display is gone: a sighting on the owner's screens fails it.
+  const watch = await watchWindows(dir, 'test-window', display.left, display.top)
   let windowSize = { width: 0, height: 0 }
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
   // A recording program that ends unasked took the display with it: the window goes at once, before anyone sees it.
@@ -44,6 +47,7 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
     await gone
     await display.close()
   }
+  expect(await watch.stop()).toEqual([])
   expect(frontmostPid()).toBe(before)
   const probe = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,codec_name:format=duration', '-of', 'json', out], { encoding: 'utf8' }).stdout) as {
     streams: { width: number; height: number; codec_name: string }[]
