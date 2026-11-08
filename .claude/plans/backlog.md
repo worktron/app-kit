@@ -524,3 +524,12 @@ Goal: test/public.test.ts "no file in any commit ever named a personal email or 
 Done when: the history checks in test/public.test.ts read no ref but main and HEAD, a test holds that an unlanded commit on another local branch neither slows nor fails them, and the file passes under its time limits in several parallel runs.
 
 Touches: test/public.test.ts.
+
+## testflight-extension-recordings · The TestFlight upload's extension tests use Apple's recorded answers for App ID registration and an App Group profile
+Written by: app-kit/share-extension-signing
+
+Goal: the extension signing in `app-kit testflight upload` (v0.52.3) was tested against App Store Connect answers built from Apple's documentation, since none could be recorded yet: Apple's answer to `POST /v1/bundleIds` (an extension's App ID registered), and an App Store profile whose embedded Entitlements list an App Group (`com.apple.security.application-groups`). The stand-in profile in test/testflight-stand-in.ts follows a real App Store profile on the Mac for its layout, and places the App Group array by Apple's forum description (thread 775022). After metamax's first TestFlight upload with its share extension, record both from the real answers (ids, team, names and certificates replaced) as fixtures, and point the stand-ins at them, so profileGroups and the registration are held to what Apple sent.
+
+Done when: test/fixtures holds a recorded bundle id registration answer and a recorded profile allowing an App Group, both scrubbed for the public repository (test/public.test.ts passes), and the extension tests in test/testflight-upload.test.ts read them.
+
+Touches: test/fixtures, test/testflight-stand-in.ts, test/testflight-upload.test.ts.
