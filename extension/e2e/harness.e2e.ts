@@ -4,7 +4,7 @@
 // repository root under the ID its key gives, that Chrome starts the host and
 // the port carries messages both ways, that the worker's errors reach the
 // status, that a new commit in the checkout reloads the worker and restarts the
-// host, that the plain look's stylesheet draws a page light and dark, that a
+// host, that after a reload an alarm still starts the stopped worker, that the plain look's stylesheet draws a page light and dark, that a
 // link shown twice opens one tab, and that nothing else opens a tab.
 // Run with `bun test ./extension/e2e/harness.e2e.ts`, which scripts/gates.sh does.
 
@@ -141,6 +141,51 @@ test('a worker stopped in the middle of a run leaves it cut short, and the next 
 
 /** A CSS color as #rrggbb. */
 const hex = (value: string) => `#${value.match(/\d+/g)!.slice(0, 3).map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`
+
+// The fault behind a silent day in an extension of ours, suspected and tried by extension/e2e/reload-alarms.ts: after
+// a reload, an alarm that reaches no saved listener starts nothing. So nothing attached may start the worker here:
+// the record is read and the alarm set from an extension page, never through the worker, which DevTools would start.
+test('after a self-reload, an alarm starts the stopped worker and its job runs', async () => {
+  const origin = `chrome-extension://${ext.extensionId}/`
+  writeFileSync(join(ext.checkout, 'landing.txt'), 'a landing\n')
+  ext.commit('a landing')
+  const reloaded = ext.nextWorker()
+  await ext.fireAlarm('check')
+  await reloaded
+
+  const page = await ext.context.newPage()
+  try {
+    await page.goto(`${origin}look.html`)
+    const readRecord = () => page.evaluate(async (key) => ((await (globalThis as any).chrome.storage.local.get(key))[key] ?? null) as JobRecord | null, 'job:check')
+    const session = await ext.context.newCDPSession(page)
+    const starts: number[] = []
+    session.on('ServiceWorker.workerVersionUpdated', ({ versions }: { versions: { scriptURL: string; runningStatus: string }[] }) => {
+      if (versions.some((version) => version.scriptURL.startsWith(origin) && version.runningStatus === 'starting')) starts.push(Date.now())
+    })
+    await session.send('ServiceWorker.enable')
+    // A reload deletes the alarm, so one here was made again by the reloaded worker's job, which the clock rests on.
+    const remade = await until(() => page.evaluate(async () => ((await (globalThis as any).chrome.alarms.get('check')) ?? null) as { periodInMinutes?: number } | null), (found) => found !== null)
+    expect(remade?.periodInMinutes).toBe(1)
+
+    await ext.stopWorker()
+    const stopped = Date.now()
+    const before = await readRecord()
+    // Brought forward once the stop is reported, from the page, so only the alarm can start the worker.
+    const due = await page.evaluate(async () => {
+      const when = Date.now() + 1500
+      await (globalThis as any).chrome.alarms.create('check', { when, periodInMinutes: 1 })
+      return when
+    })
+    const after = await until(readRecord, (found) => found !== null && found.started > (before?.started ?? '') && found.outcome === 'ok', 10_000)
+    expect(after).toMatchObject({ outcome: 'ok', error: null })
+    // The worker started for the alarm, not for the page's reads before it was due.
+    const firstStart = starts.find((at) => at >= stopped)
+    expect(firstStart).toBeGreaterThanOrEqual(due)
+    await session.detach()
+  } finally {
+    await page.close()
+  }
+}, 30_000)
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`the copied stylesheet draws the fixture's popup in the tokens' ${scheme} colors, with the kit's controls`, async () => {

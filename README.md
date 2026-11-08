@@ -704,6 +704,21 @@ What it cannot see: a worker whose alarms reach nothing does not run until somet
 
 Its decisions (started, ended, skipped, cut short, over its limit, quiet, resumed after a gap, the alarm made again) go to the worker's console for now; the worker's log will keep them in storage.
 
+### Alarms after a self-reload
+
+An unpacked extension reloads itself with `chrome.runtime.reload()` after every landing. By Chromium's source, a reload deletes the extension's alarms and the event listeners Chrome saved for its worker, and Chrome starts a stopped worker for an alarm only through a saved listener. So the clock keeps going only if the first worker after the reload adds its alarm listener again at its top level and makes the alarm again, which `every` does. A known class of Chromium fault leaves alarms reaching nothing after a reload until something else starts the worker, and it was the likeliest cause of an extension of ours going quiet for a day and a half.
+
+It did not happen when tried on 2026-11-08. `extension/e2e/reload-alarms.ts` loads a worker built on `every` and the self-reload, with no native host, in a headless browser that nothing attaches to, so Chrome stops the worker after its 30 idle seconds as it does for a person. It then commits in the checkout, as a landing does, and waits for the next alarm to start the worker, whose job sees the commit and reloads. On Chrome for Testing 156.0.8078.4 (Playwright's Chromium) and 156.0.8078.80, 200 reloads each, the alarm after every reload reached the stopped worker and ran the job, 30 seconds after the commit, give or take half a second. No alarm was missing and none was held but undelivered for two minutes. Each of the 402 first starts after a load or a reload found the alarm gone and made it again. That is two builds of one Chrome release and not Google Chrome itself, which has refused `--load-extension` since 137, so the quiet-job check above stays the defence.
+
+Run it by hand, never in the gates: 200 reloads take about three and a half hours, with each cycle a line in a file it names and the counts at the end. `--browser chrome-for-testing` downloads Chrome for Testing at the version of the Google Chrome installed on the Mac, or at `--version`:
+
+```sh
+bun extension/e2e/reload-alarms.ts --browser chromium --reloads 200
+bun extension/e2e/reload-alarms.ts --browser chrome-for-testing --reloads 200
+```
+
+The harness's test "after a self-reload, an alarm starts the stopped worker and its job runs" holds one such reload in the gates. It stops the worker with `stopWorker()`, sets the alarm from an extension page, and reads the job's record from that page, never through the worker, because DevTools attached to a worker starts it and keeps it from stopping.
+
 ### Amazon requests never sent
 
 An extension that reaches Amazon in the person's own signed-in browser keeps its own short list of the paths it asks for, and checks every request against `extension/worker/amazon-never-sent.js` besides, so neither a mistake in its own list nor a request its server hands it whole ever starts a purchase:
