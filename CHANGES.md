@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.51.0
+
+Urgency: rides along
+
+- nothing to change; an app that works out CPU between two readings can call coresBetween, parsePs and psArguments from app-kit/server/process-usage, as the README's Cores per process between two readings section shows
+
 ## v0.50.0
 
 Urgency: next round
