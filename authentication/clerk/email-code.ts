@@ -15,7 +15,8 @@ export interface EmailCodeSignIn {
   readonly status: string;
   create(params: { identifier: string; signUpIfMissing?: boolean }): Result;
   emailCode: {
-    sendCode(params: { emailAddress: string }): Result;
+    /** Takes nothing: given an address, Clerk starts a second sign-in for it, without `signUpIfMissing`. */
+    sendCode(): Result;
     verifyCode(params: { code: string }): Result;
   };
   finalize(): Result;
@@ -68,11 +69,13 @@ export function messageFor(error: unknown, email: string): string {
 /**
  * Starts a sign-in for the address and emails it a code. With `signUp`, Clerk's sign-in goes on to the code whether
  * the address has an account or not, and only the checked code says which, so nobody learns from this step who has one.
+ * The code goes out on the sign-in just started: given the address again, Clerk would start a second sign-in without
+ * `signUpIfMissing`, which tells an address with no account that it has none.
  */
 export async function sendEmailCode(signIn: EmailCodeSignIn, email: string, options: { signUp?: boolean } = {}): Promise<Outcome> {
   const created = await signIn.create(options.signUp ? { identifier: email, signUpIfMissing: true } : { identifier: email });
   if (created.error) return { ok: false, message: messageFor(created.error, email) };
-  const sent = await signIn.emailCode.sendCode({ emailAddress: email });
+  const sent = await signIn.emailCode.sendCode();
   if (sent.error) return { ok: false, message: messageFor(sent.error, email) };
   return { ok: true };
 }

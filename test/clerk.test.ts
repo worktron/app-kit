@@ -18,8 +18,8 @@ function fakeSignIn(fail: Partial<Record<'create' | 'sendCode' | 'verifyCode' | 
       return { error: fail.create ?? null };
     },
     emailCode: {
-      async sendCode({ emailAddress }) {
-        calls.push(`sendCode ${emailAddress}`);
+      async sendCode(...params: unknown[]) {
+        calls.push(params.length ? `sendCode ${JSON.stringify(params)}` : 'sendCode');
         return { error: fail.sendCode ?? null };
       },
       async verifyCode({ code }) {
@@ -55,10 +55,10 @@ describe('what the person is told', () => {
   });
 });
 
-test('an emailed code starts a sign-in for the address, then emails it', async () => {
+test('an emailed code starts a sign-in for the address, then emails it on that same sign-in', async () => {
   const { signIn, calls } = fakeSignIn();
   expect(await sendEmailCode(signIn, 'a@example.com')).toEqual({ ok: true });
-  expect(calls).toEqual(['create a@example.com', 'sendCode a@example.com']);
+  expect(calls).toEqual(['create a@example.com', 'sendCode']);
 });
 
 test('an unknown address stops before any email goes out', async () => {
@@ -284,13 +284,13 @@ describe('sign-up by emailed code', () => {
     expect(calls).toEqual([`create ${NEW}`]);
   });
 
-  test('with sign-up on, the sign-in is started to sign up if missing and goes on to the code, as Clerk answered it', async () => {
+  test('with sign-up on, the sign-in is started to sign up if missing and the code goes out on it, as Clerk answered it', async () => {
     // Recorded: an address with no account is offered an emailed code just as one with an account is.
     expect(recorded.signInSignUpIfMissing.body.response?.status).toBe('needs_first_factor');
     expect(recorded.signInSignUpIfMissing.body.response?.supported_first_factors.map((f) => f.strategy)).toContain('email_code');
     const { signIn, calls } = fakeSignIn();
     expect(await sendEmailCode(signIn, NEW, { signUp: true })).toEqual({ ok: true });
-    expect(calls).toEqual([`create ${NEW} signUpIfMissing`, `sendCode ${NEW}`]);
+    expect(calls).toEqual([`create ${NEW} signUpIfMissing`, 'sendCode']);
   });
 
   test("a wrong code, as Clerk recorded it, says so and makes no account", async () => {
