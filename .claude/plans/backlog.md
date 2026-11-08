@@ -461,3 +461,9 @@ Source: process-usage-window thread, its full gates run on 2026-11-08.
 Goal: argon-watcher cannot take `AccountMenu` from app-kit/web in place of its own menu (src/UserMenu.tsx), because its Sign out also forgets the person's unsent drafts (`useSignOutAndForgetDrafts` in src/Settings.tsx), and the kit's menu takes only `items`, `button` and `showName` (web/AccountMenu.tsx at v0.48.0), calling `useSignOut()` directly. Taking it would leave drafts readable on a shared machine after sign-out. Either AccountMenu takes a step to run before sign-out, or SignInGate takes one that every sign-out runs (the Mac menu's Sign Out, through useWindowMenu, too), which is the better owner since sign-out has more than one door. Found by argon-watcher's app-kit-v0-48-0 thread, 2026-11-08.
 
 Done when: an app's own step runs, and finishes, before the session ends on every sign-out the kit offers, held by a test; the README's account menu section shows it; argon-watcher can then drop src/UserMenu.tsx (its own ticket).
+
+## opendb-without-migrating · openDb opens without migrating, for an app that migrates before each deploy
+
+Goal: argon-watcher cannot take `openDb` from app-kit/server/postgres, because openDb migrates on open, and argon migrates once before each deploy (server/db/migrate.ts, run by its deploy) so that a failed migration stops the deploy rather than a running server; it also opens postgres-js with `prepare: false` (server/db/client.ts). An option to open without migrating, and to pass postgres-js options (as opendb-idle-timeout asks for lifeform), would let it. Found by argon-watcher's app-kit-v0-48-0 thread, 2026-11-08. Decide with opendb-idle-timeout, which wants options too.
+
+Done when: openDb can open Railway's Postgres without migrating and with the app's postgres-js options, held by a test, and the README says when an app picks that.
