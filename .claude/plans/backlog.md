@@ -455,3 +455,9 @@ Do not touch: what `stopWorker()` waits for before it returns, which the extensi
 Needs: none; may share a cause with harness-stop-worker-handle.
 Touches: extension/e2e/harness.e2e.ts, possibly extension/harness/index.ts.
 Source: process-usage-window thread, its full gates run on 2026-11-08.
+
+## account-menu-sign-out-step · AccountMenu's Sign out runs the app's own step first, such as clearing unsent drafts
+
+Goal: argon-watcher cannot take `AccountMenu` from app-kit/web in place of its own menu (src/UserMenu.tsx), because its Sign out also forgets the person's unsent drafts (`useSignOutAndForgetDrafts` in src/Settings.tsx), and the kit's menu takes only `items`, `button` and `showName` (web/AccountMenu.tsx at v0.48.0), calling `useSignOut()` directly. Taking it would leave drafts readable on a shared machine after sign-out. Either AccountMenu takes a step to run before sign-out, or SignInGate takes one that every sign-out runs (the Mac menu's Sign Out, through useWindowMenu, too), which is the better owner since sign-out has more than one door. Found by argon-watcher's app-kit-v0-48-0 thread, 2026-11-08.
+
+Done when: an app's own step runs, and finishes, before the session ends on every sign-out the kit offers, held by a test; the README's account menu section shows it; argon-watcher can then drop src/UserMenu.tsx (its own ticket).
