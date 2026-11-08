@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.52.3
+
+Urgency: next round
+
+- An app whose Xcode project embeds an app extension, such as metamax's share extension, uploads it signed, after assigning its App Group on Apple's developer site as the upload's stop line says; others change nothing.
+
 ## v0.52.2
 
 Urgency: next round
