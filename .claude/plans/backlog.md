@@ -497,3 +497,12 @@ Done when: the fixture holds the recorded attempt_first_factor and sign_ups answ
 Goal: checkEmailCode (authentication/clerk/email-code.ts) treats any sign-in status other than complete after verifyCode as "Signing in did not work. Try again." Clerk's sign-in-or-up guide names two more: needs_second_factor (the account has a second factor) and needs_client_trust (a new device needs a check). A person in either case is told to try again, which can never work, and the server log says nothing. Investigate first: whether any app on the kit can reach either status with its Clerk settings, and if so, what the gate should say or do (a line naming the step, or a log line naming the status). Found by the sign-up-send-code thread, 2026-11-08, from Clerk's guide (clerk.com/docs/guides/development/custom-flows/authentication/sign-in-or-up).
 
 Done when: a unit test holds what the person is told and what is logged for each of needs_second_factor and needs_client_trust after a right code, or the README says the kit's sign-in assumes neither and why.
+
+## reload-alarms-next-chrome · Run the 200-reload alarms check again on Chrome 157
+Written by: app-kit/extension-reload-alarms
+
+Goal: extension/e2e/reload-alarms.ts found on 2026-11-08 that after each of 200 self-reloads, on Chrome for Testing 156.0.8078.4 (Playwright's Chromium) and 156.0.8078.80, the alarm reached the stopped worker and ran its job, so a silent day in one of our extensions stays unexplained on those builds. The fault it looks for, an alarm missing or held but undelivered after `chrome.runtime.reload()`, could arrive with a later Chrome. Once the installed Chrome is on 157, run it again, 200 reloads on Playwright's Chromium at whatever version the kit then pins and 200 on Chrome for Testing at the installed Chrome's version, and write the result beside the first in the README's "Alarms after a self-reload" section.
+Done when: the script's reports for both browsers on 157 are in the README section, with the versions and counts; when any reload left an alarm missing or undelivered, a ticket for the work-around is on the backlog with the script's report quoted.
+Do not touch: the self-reload's rules for when to reload; the gate test "after a self-reload, an alarm starts the stopped worker and its job runs", unless the new result shows it misses the fault.
+Needs: the installed Chrome on version 157.
+Touches: README.md, possibly extension/e2e/reload-alarms.ts if Chrome for Testing's downloads change.
