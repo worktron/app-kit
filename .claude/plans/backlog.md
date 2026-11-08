@@ -416,3 +416,13 @@ Touches: server/postgres/index.ts, test/postgres.test.ts.
 Goal: `lookTheme({ name: 'console' })` leaves MUI's AppBar in its default `color="primary"`, so the bar's title and icons take primary's contrast text, white, while the console look paints the bar in `surface` (#f0f0f0 in light). In light the title is white on light grey and cannot be read; in dark it happens to read. The plain look already sets `MuiAppBar: { defaultProps: { elevation: 0, color: 'inherit' } }` (web/theme.ts:106); the console look's MuiAppBar (web/theme.ts:218) sets only styleOverrides. Found by buddy-system's move to v0.47.1 (2026-11-07, pull request 15), which works around it with `<AppBar color="inherit">` in client/src/features/BuddySystemApp.tsx; every console app that takes light mode hits the same.
 Done when: the console look's MuiAppBar has `defaultProps: { elevation: 0, color: 'inherit' }`, the look's e2e draws a console app bar in light and holds its title's color to CONSOLE.light.text, and CHANGES.md tells console apps they may drop their own `color="inherit"`.
 Do not touch: the plain look.
+
+## steady-frames-first-blank · The web fixture's steady-frames test never sees a blank first frame on a busy Mac
+
+Goal: web/e2e/steps.e2e.ts "frames are noted from the first, and a page drawn in one background throughout is steady" stopped the extension-jobs landing on 2026-11-07 (94 of 95 web tests passing, all 1047 unit tests passing), at a machine load around 100: `expectSteady` in web/playwright.js found one frame with nothing drawn (`{ background: "rgb(244, 239, 230)", drawn: false, text: "" }`). Run alone the same evening at load 64, it passed 10 of 10 (`bash scripts/e2e.sh steps.e2e.ts -g "frames are noted from the first" --repeat-each 10`). The branch it stopped touched nothing under web/. The likely cause, untested, is a race between `watchFrames` noting its first frame and the page's first paint, which only a loaded machine widens; whether the fault is in `watchFrames`, in the fixture's first paint, or in what the test calls steady is to be found first, per practices' tests rule (no longer limit, no rerun as the fix).
+
+Done when: the cause is named with evidence (a held first paint or a slowed clock reproduces the blank frame), fixed where it lives, and the reproduction lands as a test that fails on the old code; the test then passes in several parallel runs on a loaded machine.
+
+Do not touch: what `expectSteady` counts as steady for a page that really does draw a blank frame, which apps' tests rely on.
+
+Touches: web/playwright.js, web/e2e/steps.e2e.ts, web/e2e/fixture/.
