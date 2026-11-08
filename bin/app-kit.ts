@@ -14,22 +14,11 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { answerHelpOrVersion, versionLine, wrongUsage } from '../command-line/index.ts'
-import { copyWorker, workerCopyDiffers } from '../extension/copy.ts'
-import { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } from '../extension/listing.ts'
-import { dashboard } from '../extension/dashboard/command.ts'
-import { google } from '../server/google/demo-command.ts'
-import { diagnoseHost, extensionId, hostStatus, installHost, NotConnected } from '../extension/host/index.ts'
-import { isColor, renderIcons } from '../icons/render.ts'
-import { makeKey } from '../tauri/mac-release/key.ts'
-import { release } from '../tauri/mac-release/release.ts'
 import packageJson from '../package.json'
-import { runIphone } from '../tauri/iphone-run/index.ts'
-import { quietSimulator } from '../tauri/iphone-simulator/index.ts'
-import { clock, MINUTES, MOST_MINUTES, setTime, watchSimulator } from '../tauri/iphone-simulator/lifetime.ts'
-import { stateFolder } from '../tauri/state.ts'
-import { upload } from '../tauri/testflight/upload.ts'
-import { drive, readSteps } from '../web/drive.ts'
-import { watch } from '../tauri/testflight/watch.ts'
+
+// Each part loads only when its command is asked for, so help, --version and wrong usage start in the time Bun itself
+// takes, and one part's dependencies never slow another's command. test/command.test.ts runs them from a kit that holds
+// no other part.
 
 const USAGE = `app-kit <part> <command>
 
@@ -171,11 +160,11 @@ function installHostArguments(args: string[]) {
 }
 
 async function extension([command, ...args]: string[]): Promise<boolean> {
-  if (command === 'dashboard') return await dashboard(args)
+  if (command === 'dashboard') return await (await import('../extension/dashboard/command.ts')).dashboard(args)
   if (command === 'install-host') {
     const options = installHostArguments(args)
     if (!options) return false
-    const installed = installHost(options)
+    const installed = (await import('../extension/host/index.ts')).installHost(options)
     console.log(`Wrote ${installed.manifest}, which tells Chrome to start ${installed.launcher} for the extension ${installed.extensionId}.`)
     console.log(`The host's errors go to ${installed.errorLog}.`)
     console.log(`Load the extension in Chrome from: ${installed.extensionFolder}`)
@@ -183,6 +172,7 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
   }
   if (command === 'status' && args.length >= 1 && args.length <= 3) {
     const [socket, name, folder] = args as [string, string?, string?]
+    const { diagnoseHost, hostStatus, NotConnected } = await import('../extension/host/index.ts')
     try {
       console.log(JSON.stringify(await hostStatus(socket), null, 2))
     } catch (error) {
@@ -193,6 +183,7 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
     return true
   }
   if (command === 'listing') {
+    const { listingChecklist, privacyPolicyAnswers, privacyPolicyLink } = await import('../extension/listing.ts')
     const json = args.includes('--json')
     const words = args.filter((word) => word !== '--json')
     if (words.length > 1 || words[0]?.startsWith('-')) return false
@@ -212,8 +203,10 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
   const [argument, ...extra] = args
   if (extra.length) return false
   if (command === 'copy' && argument) {
+    const { copyWorker } = await import('../extension/copy.ts')
     console.log(`Copied ${copyWorker(argument).join(', ')} into ${argument}`)
   } else if (command === 'check' && argument) {
+    const { workerCopyDiffers } = await import('../extension/copy.ts')
     const differs = workerCopyDiffers(argument)
     if (differs.length) {
       console.error(`${differs.join(', ')} in ${argument} differ from app-kit ${packageJson.version}; run: bun run app-kit extension copy ${argument}`)
@@ -222,7 +215,7 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
   } else if (command === 'id') {
     const manifest = JSON.parse(readFileSync(join(argument ?? '.', 'manifest.json'), 'utf8'))
     if (!manifest.key) throw new Error('The manifest has no key, so its ID changes from profile to profile')
-    console.log(extensionId(manifest.key))
+    console.log((await import('../extension/host/index.ts')).extensionId(manifest.key))
   } else {
     return false
   }
@@ -230,7 +223,7 @@ async function extension([command, ...args]: string[]): Promise<boolean> {
 }
 
 /** icons render's arguments: the drawings folder at most, and its flags. Null for wrong usage. */
-function iconsArguments(args: string[]) {
+function iconsArguments(args: string[], isColor: (value: string) => boolean) {
   const words: string[] = []
   const iconSets: string[] = []
   const flags: Record<string, string> = {}
@@ -263,7 +256,9 @@ function iconsArguments(args: string[]) {
 }
 
 async function icons([command, ...args]: string[]): Promise<boolean> {
-  const options = command === 'render' ? iconsArguments(args) : null
+  if (command !== 'render') return false
+  const { isColor, renderIcons } = await import('../icons/render.ts')
+  const options = iconsArguments(args, isColor)
   if (!options) return false
   const written = await renderIcons(options)
   console.log(`Drew ${written.length} icon files from ${options.drawings}; commit them with the drawings.`)
@@ -272,8 +267,8 @@ async function icons([command, ...args]: string[]): Promise<boolean> {
 
 async function mac([command, ...args]: string[]): Promise<boolean> {
   let code: number
-  if (command === 'release' && args.length === 0) code = await release({ cwd: process.cwd() })
-  else if (command === 'key' && args.length === 1 && !args[0]!.startsWith('-')) code = await makeKey({ cwd: process.cwd(), repository: args[0]! })
+  if (command === 'release' && args.length === 0) code = await (await import('../tauri/mac-release/release.ts')).release({ cwd: process.cwd() })
+  else if (command === 'key' && args.length === 1 && !args[0]!.startsWith('-')) code = await (await import('../tauri/mac-release/key.ts')).makeKey({ cwd: process.cwd(), repository: args[0]! })
   else return false
   if (code !== 0) process.exit(code)
   return true
@@ -281,11 +276,11 @@ async function mac([command, ...args]: string[]): Promise<boolean> {
 
 async function testflight([command, ...args]: string[]): Promise<boolean> {
   if (command === 'upload' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
-    const code = await upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
+    const code = await (await import('../tauri/testflight/upload.ts')).upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
     if (code !== 0) process.exit(code)
   } else if (command === 'watch' && args.length > 0 && !args.some((url) => url.startsWith('-'))) {
     // Each failure is a line in the watcher's log; the exit code says a pass had one.
-    if ((await watch({ urls: args })) > 0) process.exit(1)
+    if ((await (await import('../tauri/testflight/watch.ts')).watch({ urls: args })) > 0) process.exit(1)
   } else {
     return false
   }
@@ -294,17 +289,25 @@ async function testflight([command, ...args]: string[]): Promise<boolean> {
 
 async function iphone([command, target, udid, ...extra]: string[]): Promise<boolean> {
   if (command !== 'run' || (target !== 'sim' && target !== 'phone') || udid?.startsWith('-') || extra.length) return false
-  const code = await runIphone({ target, udid, cwd: process.cwd() })
+  const code = await (await import('../tauri/iphone-run/index.ts')).runIphone({ target, udid, cwd: process.cwd() })
   if (code !== 0) process.exit(code)
   return true
 }
 
 async function iphoneSimulator([command, udid, ...extra]: string[]): Promise<boolean> {
   if (!udid || udid.startsWith('-')) return false
-  const folder = stateFolder('simulators')
-  if (command === 'keep' && extra.length <= 1) {
+  const keep = command === 'keep' && extra.length <= 1 && (extra.length === 0 || (Number.isInteger(Number(extra[0])) && Number(extra[0]) >= 1))
+  // The watcher `iphone run sim` starts for a Simulator it boots, in a session of its own; not a command for people.
+  const watch = command === 'watch' && (extra.length === 0 || (extra.length === 2 && extra[0] === '--every' && Number(extra[1]) > 0))
+  if (keep || watch) {
+    const { stateFolder } = await import('../tauri/state.ts')
+    const { clock, MINUTES, MOST_MINUTES, setTime, watchSimulator } = await import('../tauri/iphone-simulator/lifetime.ts')
+    const folder = stateFolder('simulators')
+    if (watch) {
+      await watchSimulator({ folder, watchEveryMs: extra.length ? Number(extra[1]) : undefined }, udid)
+      return true
+    }
     const minutes = extra.length ? Number(extra[0]) : MINUTES
-    if (!Number.isInteger(minutes) || minutes < 1) return false
     const held = setTime({ folder }, udid, minutes)
     if (!held) {
       console.error(`[iphone-simulator] app-kit holds no shut-down time for ${udid}: app-kit iphone run sim did not boot it, or it has shut down already`)
@@ -313,13 +316,8 @@ async function iphoneSimulator([command, udid, ...extra]: string[]): Promise<boo
     console.log(`[iphone-simulator] "${held.name}" (${udid}) shuts down at ${clock(held.until)}, in ${Math.min(minutes, MOST_MINUTES)} minutes`)
     return true
   }
-  // The watcher `iphone run sim` starts for a Simulator it boots, in a session of its own; not a command for people.
-  if (command === 'watch' && (extra.length === 0 || (extra.length === 2 && extra[0] === '--every' && Number(extra[1]) > 0))) {
-    await watchSimulator({ folder, watchEveryMs: extra.length ? Number(extra[1]) : undefined }, udid)
-    return true
-  }
   if (command !== 'quiet' || extra.length) return false
-  const { code, line } = quietSimulator(udid)
+  const { code, line } = (await import('../tauri/iphone-simulator/index.ts')).quietSimulator(udid)
   if (code === 0) console.log(line)
   else {
     console.error(line)
@@ -333,6 +331,7 @@ async function web([command, ...args]: string[]): Promise<boolean> {
   const [address, stepsFile, out] = args as [string, string, string]
   if (!/^https?:\/\//.test(address)) return false
   mkdirSync(out, { recursive: true })
+  const { drive, readSteps } = await import('../web/drive.ts')
   const code = await drive({ address: address.replace(/\/$/, ''), steps: readSteps(readFileSync(stepsFile, 'utf8'), dirname(resolve(stepsFile))), out })
   // Exits here whatever the outcome: with the parent watch on, its read of the pipe would keep a finished run waiting.
   process.exit(code)
@@ -342,7 +341,7 @@ async function main(args: string[]) {
   if (answerHelpOrVersion(args, { usage: USAGE, version: () => versionLine(packageJson, join(import.meta.dir, '..')) })) return
   const [part, ...rest] = args
   if (part === 'extension' && (await extension(rest))) return
-  if (part === 'google' && (await google(rest))) return
+  if (part === 'google' && (await (await import('../server/google/demo-command.ts')).google(rest))) return
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return

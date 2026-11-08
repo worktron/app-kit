@@ -20,14 +20,28 @@ test('no arguments, help, -h and --help print the usage with its exit codes, and
   }
 });
 
-test('an unknown part, a part with no command, a command missing its argument or given one too many prints the usage to stderr and exits 2', () => {
-  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['--version', 'extra'], ['help', 'extra'], ['iphone'], ['iphone', 'run'], ['iphone', 'run', 'tablet'], ['iphone', 'run', 'sim', 'udid', 'extra'], ['iphone', 'run', 'phone', '--udid'], ['iphone-simulator'], ['iphone-simulator', 'quiet'], ['iphone-simulator', 'quiet', 'udid', 'extra'], ['iphone-simulator', 'keep'], ['iphone-simulator', 'keep', 'udid', '0'], ['iphone-simulator', 'keep', 'udid', 'ten'], ['iphone-simulator', 'keep', 'udid', '5', 'extra'], ['iphone-simulator', 'watch', 'udid', '--every'], ['icons'], ['icons', 'draw', '--web', 'public'], ['icons', 'render'], ['icons', 'render', 'design/icon'], ['icons', 'render', '--web'], ['icons', 'render', 'a', 'b', '--web', 'public'], ['icons', 'render', '--web', 'public', '--web', 'other'], ['icons', 'render', '--extension', 'icons', '--toolbar-color', 'grey'], ['icons', 'render', '--web', 'public', '--toolbar-color', '#1f1f1f'], ['icons', 'render', '--web', 'public', '--size', '64']]) {
-    const { code, out, err } = run(...args);
-    expect(code).toBe(2);
-    expect(out).toBe('');
-    expect(err).toContain('app-kit <part> <command>');
+test('an unknown part, a part with no command, a command missing its argument or given one too many prints the usage to stderr and exits 2, loading no part', () => {
+  // Run from a kit that holds only the command, its shared command-line file and the icons part, whose color check
+  // reads the arguments: wrong usage that loaded any other part would fail to find it and exit 1. Each run is then
+  // about as quick as Bun's own start, which on a busy machine is what keeps these runs inside the test's time.
+  const cache = join(import.meta.dir, '../node_modules/.cache');
+  mkdirSync(cache, { recursive: true });
+  const kit = mkdtempSync(join(cache, 'app-kit-usage-'));
+  try {
+    for (const path of ['bin', 'command-line', 'icons/render.ts', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
+    wrongUsage(kit);
+  } finally {
+    rmSync(kit, { recursive: true, force: true });
   }
 });
+
+const wrongUsage = (kit: string) => {
+  for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['--version', 'extra'], ['help', 'extra'], ['iphone'], ['iphone', 'run'], ['iphone', 'run', 'tablet'], ['iphone', 'run', 'sim', 'udid', 'extra'], ['iphone', 'run', 'phone', '--udid'], ['iphone-simulator'], ['iphone-simulator', 'quiet'], ['iphone-simulator', 'quiet', 'udid', 'extra'], ['iphone-simulator', 'keep'], ['iphone-simulator', 'keep', 'udid', '0'], ['iphone-simulator', 'keep', 'udid', 'ten'], ['iphone-simulator', 'keep', 'udid', '5', 'extra'], ['iphone-simulator', 'watch', 'udid', '--every'], ['icons'], ['icons', 'draw', '--web', 'public'], ['icons', 'render'], ['icons', 'render', 'design/icon'], ['icons', 'render', '--web'], ['icons', 'render', 'a', 'b', '--web', 'public'], ['icons', 'render', '--web', 'public', '--web', 'other'], ['icons', 'render', '--extension', 'icons', '--toolbar-color', 'grey'], ['icons', 'render', '--web', 'public', '--toolbar-color', '#1f1f1f'], ['icons', 'render', '--web', 'public', '--size', '64']]) {
+    const { code, out, err } = runFrom(kit, ...args);
+    expect({ args, code, out }).toEqual({ args, code: 2, out: '' });
+    expect(err).toContain('app-kit <part> <command>');
+  }
+};
 
 test('keep for a Simulator app-kit holds no time for says so and exits 1', () => {
   const cache = join(import.meta.dir, '../node_modules/.cache');
