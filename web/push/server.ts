@@ -191,9 +191,26 @@ export function outcomeOf(status: number, text = ''): 'sent' | 'gone' | 'failed'
 export type WebPushRequest = { endpoint: string; headers: Record<string, string>; body: Uint8Array<ArrayBuffer> };
 export type WebPushResponse = { status: number; text: string };
 
-/** One POST to a push service. */
+/**
+ * Whether an endpoint is at a browser's push service: Google's (Chrome, and the browsers built on it), Apple's
+ * (Safari), Mozilla's (Firefox) or Microsoft's (Edge on Windows), over https on its usual port. The endpoint comes from
+ * the page, so a server that sent to any address would POST wherever a signed-in caller pointed it, its own network
+ * included; a route that keeps subscriptions refuses any other, and `sendWebPush` never sends to one.
+ */
+export function isPushService(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && url.port === '' && !url.username && !url.password && PUSH_SERVICE_HOST.test(url.hostname);
+}
+const PUSH_SERVICE_HOST = /^(fcm\.googleapis\.com|[a-z0-9-]+\.push\.apple\.com|([a-z0-9-]+\.)*push\.services\.mozilla\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
+
+/** One POST to a push service, which never follows a redirect: the endpoint checked is the one sent to. */
 export async function fetchPost(req: WebPushRequest, signal: AbortSignal): Promise<WebPushResponse> {
-  const res = await fetch(req.endpoint, { method: 'POST', headers: req.headers, body: req.body, signal });
+  const res = await fetch(req.endpoint, { method: 'POST', headers: req.headers, body: req.body, signal, redirect: 'error' });
   return { status: res.status, text: await res.text() };
 }
 
@@ -239,6 +256,11 @@ export async function sendWebPush(
   await Promise.all(
     subscriptions.map(async (subscription) => {
       const short = shortEndpoint(subscription.endpoint);
+      if (!isPushService(subscription.endpoint)) {
+        result.failed++;
+        console.error(`${LOG_PREFIX} refused to send to ${short}: not a browser's push service`);
+        return;
+      }
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       // The race ends the wait even for a post that never reads the signal; the abort ends fetch's own connection.

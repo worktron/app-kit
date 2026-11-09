@@ -175,11 +175,13 @@ export async function startWebPush(options: WebPushOptions): Promise<void> {
  */
 export async function turnOffWebPush(options: { forget: (endpoint: string) => Promise<unknown> }): Promise<WebPushState> {
   const known = before();
-  if (known) return known;
+  if (known === 'unsupported' || known === 'needs-home-screen') return known;
+  // Remembered with permission denied too, so a person who allows notifications again later still has them off.
   write(local, TURNED_OFF_KEY, '1');
+  const after = known ?? 'off';
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = registration ? await registration.pushManager.getSubscription() : null;
-  if (!subscription) return 'off';
+  if (!subscription) return after;
   const { endpoint } = subscription;
   await subscription.unsubscribe();
   try {
@@ -188,5 +190,5 @@ export async function turnOffWebPush(options: { forget: (endpoint: string) => Pr
     console.error(`${LOG_PREFIX} the server did not forget this phone`, error);
   }
   console.log(`${LOG_PREFIX} turned off for this phone`);
-  return 'off';
+  return after;
 }

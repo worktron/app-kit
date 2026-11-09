@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   encryptFor,
+  isPushService,
   makeWebPushKeys,
   outcomeOf,
   sendWebPush,
@@ -248,4 +249,33 @@ test('the key pair comes from the environment, and a wrong part says which', () 
   expect(() => webPushConfig({ ...env, WEB_PUSH_CONTACT: 'http://app.example.com' })).toThrow('mailto: or https:');
   expect(() => webPushConfig({ ...env, WEB_PUSH_CONTACT: 'mailto:owner@localhost' })).toThrow('localhost');
   expect(() => webPushConfig({ ...env, WEB_PUSH_CONTACT: 'https://localhost/contact' })).toThrow('localhost');
+});
+
+test("only a browser's push service is sent to, so a caller's own address never gets the server's request", async () => {
+  for (const endpoint of [
+    'https://fcm.googleapis.com/fcm/send/abc',
+    'https://web.push.apple.com/QH',
+    'https://updates.push.services.mozilla.com/wpush/v2/gAAA',
+    'https://wns2-by3p.notify.windows.com/w/?token=x',
+  ])
+    expect(isPushService(endpoint)).toBe(true);
+  for (const endpoint of [
+    'http://fcm.googleapis.com/fcm/send/abc',
+    'https://fcm.googleapis.com:8443/fcm/send/abc',
+    // A name before the host, joined here so the line names no address.
+    ['https://someone', 'fcm.googleapis.com/fcm/send/abc'].join('@'),
+    'https://fcm.googleapis.com.example.com/x',
+    'https://push.apple.com.example.com/x',
+    'https://10.0.0.5/push',
+    'https://localhost/push',
+    'not an address',
+  ])
+    expect(isPushService(endpoint)).toBe(false);
+
+  const d = deps(async () => ({ status: 201, text: '' }));
+  const inside = phone('https://internal.example.com/admin');
+  const result = await sendWebPush([inside.subscription, phone().subscription], { title: 'T', body: 'B' }, { origin: ORIGIN, ttlSeconds: 60 }, d);
+  expect(result).toEqual({ sent: 1, gone: [], failed: 1 });
+  expect(d.asked.map((r) => r.endpoint)).toEqual(['https://fcm.googleapis.com/fcm/send/abc123']);
+  expect(logged.join('\n')).toContain("not a browser's push service");
 });

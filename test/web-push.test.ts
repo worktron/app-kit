@@ -246,3 +246,13 @@ test('a server that fails to forget leaves the phone off all the same', async ()
   expect(await turnOffWebPush({ forget: async () => Promise.reject(new Error('offline')) })).toBe('off');
   expect(browser.subscription).toBeNull();
 });
+
+test('turning off with permission denied is remembered, so allowing notifications again later never turns them on', async () => {
+  const s = server();
+  browser.permission = 'denied';
+  expect(await turnOffWebPush({ forget: async () => {} })).toBe('denied');
+  browser.permission = 'granted';
+  await startWebPush({ publicKey: KEY, register: s.register });
+  expect(browser.calls).toEqual([`register ${WORKER_ADDRESS}`]);
+  expect(s.registered).toEqual([]);
+});

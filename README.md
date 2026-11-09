@@ -653,7 +653,7 @@ export async function forgetWebPushSubscription(db: Database, userId: string, en
 }
 ```
 
-The routes read the person from the session, never from the body. They check the body's shape: an `https:` endpoint and both keys. They answer `/api/push/key` with `webPushConfig()?.publicKey`, a kept subscription with 204, and one `keepWebPushSubscription` refused with 409.
+The routes read the person from the session, never from the body. They check the body's shape: an endpoint `isPushService` (from `app-kit/web/push/server`) accepts, which is one at Google's, Apple's, Mozilla's or Microsoft's push service, and both keys. Since the page sends the endpoint, a route that kept any address would have the server POST wherever a signed-in caller chose; `sendWebPush` also refuses one, and never follows a redirect. They answer `/api/push/key` with `webPushConfig()?.publicKey`, a kept subscription with 204, and one `keepWebPushSubscription` refused with 409.
 
 A success from a push service is not proof a phone shows anything: Apple's has been seen answering one for phones that will never show a notification. So `seenAt` is the app's own record of whether a phone still has the app. A good start is to show "last checked in" beside each phone in Settings, and to forget a phone not seen in 60 days. The kit removes nothing by age.
 
