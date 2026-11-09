@@ -138,7 +138,14 @@ export async function fillPackage(page: Page, address: string, zip: string, name
   await (await chooser).setFiles(zip)
   // Done is the dialog closing once Google has taken the zip (it then moves to the Store listing); reloading before
   // that leaves the dashboard's old version in place.
-  if (opened === 'dialog') await page.getByRole('dialog', { name: 'Upload new package' }).waitFor({ state: 'hidden', timeout: 180_000 })
+  const dialog = page.getByRole('dialog', { name: 'Upload new package' })
+  const refused =
+    opened === 'dialog'
+      ? await dialog.waitFor({ state: 'hidden', timeout: 180_000 }).then(
+          () => undefined,
+          async () => `the upload dialog still shows "${(await dialog.innerText().catch(() => '')).replace(/\s+/g, ' ').trim()}"`,
+        )
+      : undefined
   await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => undefined)
   await visit(page, address)
   await drawn(page)
@@ -146,7 +153,7 @@ export async function fillPackage(page: Page, address: string, zip: string, name
   const wanted = zipManifest(zip).version
   return {
     page: 'Package',
-    differences: after.version === wanted ? [] : [`Package: the dashboard shows version ${after.version ?? 'none'} after the upload, not ${wanted}`],
+    differences: after.version === wanted ? [] : [`Package: the dashboard shows version ${after.version ?? 'none'} after the upload, not ${wanted}${refused ? `; ${refused}` : ''}`],
     notes: [verdict.line, after.version === wanted ? `Uploaded; the dashboard shows version ${wanted}` : 'The upload did not take'],
   }
 }

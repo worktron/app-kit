@@ -11,7 +11,7 @@ test("the buttons that submit, publish, cancel a review or delete are refused, w
 })
 
 test('every control the fill presses is allowed', () => {
-  for (const name of ['Save draft', 'Save changes', 'Upload new package', 'Category* Select a category', 'Shopping', 'English', 'No, I am not using Remote code', 'Yes, I am using Remote code', ...DATA_USES, ...CERTIFICATIONS, ...VISIBILITIES]) {
+  for (const name of ['Save draft', 'Save changes', 'Upload new package', 'Select file', 'Category* Select a category', 'Shopping', 'English', 'No, I am not using Remote code', 'Yes, I am using Remote code', ...DATA_USES, ...CERTIFICATIONS, ...VISIBILITIES]) {
     expect(mayPress(name)).toBe(true)
   }
 })
