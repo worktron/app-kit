@@ -157,7 +157,8 @@ const hex = (value: string) => `#${value.match(/\d+/g)!.slice(0, 3).map((part) =
 
 // The fault behind a silent day in an extension of ours, suspected and tried by extension/e2e/reload-alarms.ts: after
 // a reload, an alarm that reaches no saved listener starts nothing. So nothing attached may start the worker here:
-// the record is read and the alarm set from an extension page, never through the worker, which DevTools would start.
+// the record is read and the alarm set from an extension page, never through the stopped worker's handle, whose code
+// Playwright holds until something else starts the worker.
 test('after a self-reload, an alarm starts the stopped worker and its job runs', async () => {
   const origin = `chrome-extension://${ext.extensionId}/`
   writeFileSync(join(ext.checkout, 'landing.txt'), 'a landing\n')
