@@ -662,8 +662,9 @@ import Testing
 
     @Test func theOpenPanelFitsItsContent() {
         let panel = panel()
-        // A 40 point header, three 44 point rows, a 36 point footer and the 1 point border above and below.
-        let expected: CGFloat = 40 + 3 * 44 + 36 + 2
+        // A 40 point header, three 44 point rows, a 36 point footer with the 6 of the panel's bottom room it leaves below
+        // its items' fill, and the 1 point border above and below.
+        let expected: CGFloat = 40 + 3 * 44 + 36 + 6 + 2
         #expect(panel.frame.height == expected)
         #expect(panel.frame.maxY == Self.icon.minY - MenuBarPanel.gap)
     }

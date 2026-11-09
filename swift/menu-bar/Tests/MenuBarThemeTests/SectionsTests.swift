@@ -139,13 +139,31 @@ import Testing
         let first = try #require(span(try fleetMenu(selecting: ["machine", "alpha"]), of: plain(.hover), x: 150))
         #expect(first.first == Metrics.panelEdge)
         #expect(first.last == Metrics.panelEdge + PlainMetrics.rowCompact - 0.5)
-        // The last row's fill ends the same 10 points above the footer's line, which sits on the bottom edge.
+        // The last row's fill ends the same 10 points above the footer's line, which ends 6 above the bottom edge.
         let menu = try fleetMenu(selecting: "dashboard")
         let last = try #require(span(menu, of: plain(.hover), x: 150))
         let inside = CGFloat(menu.pixelsHigh) / 2 - 2
-        let footerLine = inside - Metrics.footer
+        let footerLine = inside - Metrics.footer - (Metrics.panelEdge - FooterItem.paperBelow)
         #expect(color(menu, 150, footerLine) == plain(.border))
         #expect(footerLine - (last.last + 0.5) == first.first)
+    }
+
+    @Test func aLitFooterItemEndsAsFarAboveTheBottomEdgeAsTheFirstRowStartsBelowTheTop() throws {
+        // Fleet's menu with Settings… lit: its fill ends 10 points above the bottom edge, where the first row's starts
+        // 10 below the top.
+        let first = try #require(span(try fleetMenu(selecting: ["machine", "alpha"]), of: plain(.hover), x: 24))
+        let menu = try fleetMenu(selecting: ["footer", "Settings…"])
+        let lit = try #require(span(menu, of: plain(.hover), x: 24))
+        let inside = CGFloat(menu.pixelsHigh) / 2 - 2
+        #expect(inside - (lit.last + 0.5) == Metrics.panelEdge)
+        #expect(inside - (lit.last + 0.5) == first.first)
+        // The same in the console look, under a header and its rows, as the Fleet Menu Studies page's F.
+        let sample = try #require(samples.first { $0.name == "f-list" })
+        let state = PanelState(pasteboard: .withUniqueName())
+        state.selected = ["footer", "settings"]
+        let console = try #require(NSBitmapImageRep(data: try snapshot(width: sample.width, look: .console, state: state) { sample.content() }))
+        let consoleLit = try #require(span(console, of: Palette.hover.dark, x: Metrics.panelEdge + 10))
+        #expect(CGFloat(console.pixelsHigh) / 2 - 2 - (consoleLit.last + 0.5) == Metrics.panelEdge)
     }
 
     @Test func aFirstLabelWithNoHeaderSitsTwentyFourBelowTheEdgeAndUnderAHeaderStaysWhereItWas() throws {

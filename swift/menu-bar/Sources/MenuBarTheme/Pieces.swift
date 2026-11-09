@@ -333,20 +333,27 @@ public struct FooterItem {
         self.action = action
     }
 
+    /// Its words' line height, in both looks, and the room its fill takes around them.
+    static let lineHeight = Metrics.lineHeight
+    static let outset = EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7)
+    /// The paper between its fill and the bottom of the footer's line, 4 points: (36 - (12 × 1.5 + 5 + 5)) / 2.
+    static var paperBelow: CGFloat { (Metrics.footer - (Metrics.small * lineHeight + outset.top + outset.bottom)) / 2 }
+
     @MainActor var view: some View {
         HStack(spacing: 6) {
-            Brightening(text: label, size: Metrics.small, tone: .secondary, selected: .text)
-            if let key { Text("⌘\(String(key).uppercased())").console(Metrics.small, tone: .muted) }
+            Brightening(text: label, size: Metrics.small, tone: .secondary, selected: .text, lineHeight: Self.lineHeight)
+            if let key { Text("⌘\(String(key).uppercased())").console(Metrics.small, tone: .muted, lineHeight: Self.lineHeight) }
         }
         .fixedSize()
-        .modifier(Selectable(id: AnyHashable(["footer", label]), action: action, corner: Metrics.cornerInside,
-                             outset: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7)))
+        .modifier(Selectable(id: AnyHashable(["footer", label]), action: action, corner: Metrics.cornerInside, outset: Self.outset))
     }
 }
 
 /// The panel's last line: its actions on the left and the last ones (Quit) on the right. With `lineAbove`, it draws the
 /// 1 point border along its top, inside its height, for when what is above it has no line of its own, as compact rows.
-/// It draws out into the room the panel keeps at its bottom, so it sits on the edge; it is always the panel's last line.
+/// It draws out into the room the panel keeps at its bottom only by the paper under its items' fill, so a lit item ends
+/// the panel's 10 points above the bottom edge, as a lit first row starts 10 below the top; it is always the panel's last
+/// line.
 public struct Footer: View {
     let leading: [FooterItem]
     let trailing: [FooterItem]
@@ -371,7 +378,7 @@ public struct Footer: View {
         .preference(key: Shortcuts.self, value: (leading + trailing).compactMap { item in
             item.key.map { Shortcut(key: Character($0.lowercased()), action: item.action) }
         })
-        .padding(.bottom, -edge)
+        .padding(.bottom, -min(edge, FooterItem.paperBelow))
     }
 }
 

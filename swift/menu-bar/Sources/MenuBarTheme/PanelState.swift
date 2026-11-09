@@ -289,9 +289,10 @@ struct Brightening: View {
     let size: CGFloat
     let tone: Tone
     let selected: Tone
+    var lineHeight = Metrics.lineHeight
     @Environment(\.lineSelected) private var isSelected
 
     var body: some View {
-        Text(text).console(size, tone: isSelected ? selected : tone)
+        Text(text).console(size, tone: isSelected ? selected : tone, lineHeight: lineHeight)
     }
 }

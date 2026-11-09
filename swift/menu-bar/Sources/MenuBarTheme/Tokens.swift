@@ -164,8 +164,9 @@ public enum Metrics {
     public static let trailingColumn: CGFloat = 56
     public static let cornerInside: CGFloat = 3
     public static let cornerPanel: CGFloat = 8
-    /// The room a menu bar panel keeps at its top and bottom edges, so a first or last row never sits against them; a
-    /// header and a footer draw out into it, on the edge. A closing list leaves the same under its rows.
+    /// The room a menu bar panel keeps at its top and bottom edges, so a first or last row never sits against them. A
+    /// header draws out into it, on the top edge; a footer only by the paper under its items, so a lit one ends this far
+    /// above the bottom edge. A closing list leaves the same under its rows.
     public static let panelEdge: CGFloat = 10
     public static let line: CGFloat = 1
     /// Text sizes: the body, the smaller status and detail text, and the header's note.
