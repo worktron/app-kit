@@ -482,12 +482,15 @@ export function usedBy(processes: Process[], device: Pick<SimDevice, 'udid' | 'n
   if (hub) return `Device Hub (${hub.pid})`;
   // A destination names a Simulator as `name=<name>` up to a comma, the next flag or the end, so `name=iPhone 17 Pro`
   // is not a use of a Simulator named iPhone 17.
-  const named = new RegExp(`name=${device.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=,| -|$)`);
+  const escaped = device.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = new RegExp(`name=${escaped}(?=,| -|$)`);
+  // simctl and devicectl also take the name itself where the udid goes, as a whole argument.
+  const bare = new RegExp(`(^| )${escaped}( |$)`);
   const user = processes.find(
     (p) =>
       USERS.has(p.program) &&
       (p.command.includes(device.udid) ||
-        (device.name !== '' && named.test(p.command)) ||
+        (device.name !== '' && (named.test(p.command) || (BOOTED_SHORTHAND.has(p.program) && bare.test(p.command)))) ||
         (BOOTED_SHORTHAND.has(p.program) && /(^|\s)booted(\s|$)/.test(p.command))),
   );
   return user ? `${user.program} (${user.pid})` : null;

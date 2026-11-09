@@ -489,12 +489,19 @@ describe('shutting down idle Simulators booted some other way', () => {
     expect(usedBy(parseProcesses('70004 /bin/zsh\n', mention), { udid: HAND, name: HAND_NAME })).toBeNull();
   });
 
-  test('a destination naming one Simulator is not a use of another whose name starts the same', () => {
+  test('a destination or a simctl argument naming one Simulator is not a use of another whose name starts the same', () => {
     const pro = processes(`${BUSY}41300 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme Sample -destination platform=iOS Simulator,name=iPhone 17 Pro -only-testing:SampleTests\n`);
     expect(usedBy(pro, { udid: 'PLAIN', name: 'iPhone 17' })).toBeNull();
     expect(usedBy(pro, { udid: 'PRO', name: 'iPhone 17 Pro' })).toBe('xcodebuild (41300)');
     const last = processes(`41301 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -destination platform=iOS Simulator,name=iPhone 17,OS=27.2\n`);
     expect(usedBy(last, { udid: 'PLAIN', name: 'iPhone 17' })).toBe('xcodebuild (41301)');
+    // simctl takes the name where the udid goes.
+    const spawn = processes(`52002 /Applications/Xcode.app/Contents/Developer/usr/bin/simctl spawn ${HAND_NAME} log stream\n`);
+    expect(usedBy(spawn, { udid: HAND, name: HAND_NAME })).toBe('simctl (52002)');
+    expect(usedBy(spawn, { udid: 'OTHER', name: 'Getter' })).toBeNull();
+    // ps joins the arguments with spaces and loses where each ends, so a name that is a whole word at the head of
+    // another's counts as used too: it errs toward keeping a Simulator up, never toward shutting one down in use.
+    expect(usedBy(spawn, { udid: 'OTHER', name: 'Metamax' })).toBe('simctl (52002)');
   });
 
   test('Device Hub open keeps every Simulator up, logged once, and its 10 minutes count from its closing', async () => {
