@@ -18,8 +18,8 @@ import packageJson from '../package.json'
 
 // Each part loads only when its command is asked for, after its arguments are checked here, so help, --version and
 // wrong usage start in the time Bun itself takes, and one part's dependencies never slow another's command.
-// test/command.test.ts runs wrong usage from a kit that holds no other part. extension dashboard is the one command
-// whose part reads its own arguments, so it loads that part first.
+// test/command.test.ts runs wrong usage from a kit that holds no other part. extension dashboard and google are the
+// commands whose parts read their own arguments, so they load those parts first.
 
 const USAGE = `app-kit <part> <command>
 
