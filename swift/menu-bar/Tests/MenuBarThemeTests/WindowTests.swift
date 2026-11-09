@@ -230,11 +230,15 @@ import Testing
         #expect(!window.pointer.travelled, "a key press darkens what the pointer lit")
         // A modifier held is the system's or a text field's, not the column's.
         window.sendEvent(key(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), code: 125, flags: [.numericPad, .function, .command]))
-        // A text field with the keyboard keeps its arrows.
+        // A control with the keyboard keeps its arrows: a text field, a slider.
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
-        window.contentView?.addSubview(field)
-        #expect(window.makeFirstResponder(field))
-        window.sendEvent(key(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), code: 125))
+        let slider = NSSlider(value: 5, minValue: 0, maxValue: 10, target: nil, action: nil)
+        for control in [field, slider] as [NSView] {
+            window.contentView?.addSubview(control)
+            #expect(window.makeFirstResponder(control))
+            window.sendEvent(key(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), code: 125))
+        }
+        // The column heard neither; whether the slider moves is AppKit's, in a window never made key.
         #expect(steps == [1, -1])
     }
 

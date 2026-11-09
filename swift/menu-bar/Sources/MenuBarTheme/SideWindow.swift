@@ -10,10 +10,11 @@ import SwiftUI
 /// A window holding one app's view: titled, closable and resizable, its title bar see-through so the content sits under
 /// the window's close, minimize and zoom buttons, and draggable by its empty background. It opens at `size`, centered,
 /// the first time, and after that where and as large as the person left it, under `name`, while that place is at least
-/// `minimum` and wholly on one connected display, the Dock's strip included; anything else opens at `size` again. It
+/// `minimum` and wholly on one connected display, the Dock's strip included; anything else opens at `size` again, but for
+/// a place larger than every display, which AppKit itself shrinks onto one as it restores it. It
 /// never measures its content, which scrolls when it is longer. `opening` says which, in words for the app's log.
 ///
-/// With `arrows`, the up and down keys go to it as -1 and +1 while no text field has the keyboard, so the app moves its
+/// With `arrows`, the up and down keys go to it as -1 and +1 while no control has the keyboard, so the app moves its
 /// side column's selection, as a Mac sidebar answers the arrows, whether or not the Mac's Keyboard navigation is on.
 /// Every key press darkens what the pointer lit, and the pointer lights nothing again until it has travelled
 /// (`PointerIntent`), as in the menu panel.
@@ -81,10 +82,11 @@ public final class AppWindow: NSWindow {
         super.sendEvent(event)
     }
 
-    /// The up and down arrows, to `arrows`, unless a text field has the keyboard or a modifier other than the arrow
-    /// keys' own is held.
+    /// The up and down arrows, to `arrows`, while no control has the keyboard (the window or its content view holds it,
+    /// as when a click on a side row leaves it), so a text field, a slider or a list keeps its own arrows, and while no
+    /// modifier other than the arrow keys' own is held.
     func handle(key event: NSEvent) -> Bool {
-        guard let arrows, !(firstResponder is NSText),
+        guard let arrows, firstResponder == nil || firstResponder === self || firstResponder === contentView,
               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
         switch event.charactersIgnoringModifiers?.unicodeScalars.first.map({ Int($0.value) }) {
         case NSUpArrowFunctionKey: arrows(-1)

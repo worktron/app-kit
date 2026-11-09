@@ -5,8 +5,9 @@ import SwiftUI
 /// The theme's window made for real and never shown, as an app makes it, in each case a saved place can leave it. A window
 /// named for its place saves that place in the running program's own preferences, which a scratch home folder does not
 /// move (cfprefsd reads the user, not the program's environment), so the check runs only as this program, never inside an
-/// app, gives each case its saved place through the arguments' volatile domain, and clears this program's preferences at
-/// the end, failing if a saved place is left there. Prints one line a case; true when every case is right.
+/// app, gives each case its saved place through the arguments' volatile domain, and saves under a name of its own run, so
+/// two runs at once never read each other's place; it removes that one key after each case and fails if it is left at
+/// the end. Prints one line a case; true when every case is right.
 @MainActor
 func windowCheck() -> Bool {
     let defaults = UserDefaults.standard
@@ -21,7 +22,7 @@ func windowCheck() -> Bool {
         return false
     }
     let size = CGSize(width: 880, height: 640), minimum = CGSize(width: 720, height: 480)
-    let name = "MenuBarThemeCheck.main", key = "NSWindow Frame \(name)"
+    let name = "MenuBarThemeCheck.\(ProcessInfo.processInfo.processIdentifier).main", key = "NSWindow Frame \(name)"
     let visible = main.visibleFrame, full = main.frame
     // AppKit's own form of a saved place: the frame, then the display's frame it was saved on.
     func saved(_ r: NSRect) -> String {
@@ -40,7 +41,7 @@ func windowCheck() -> Bool {
         // Its size is kept; AppKit may put it on another display of the same size, so only being wholly on one is asked.
         ("a saved place that fits", saved(fits), { $0.opening.hasSuffix("(saved place)") && sameSize($0, fits) && onDisplay($0) }),
         ("a saved place equal to the default", saved(defaultFrame), { $0.opening == "\(defaultWords) (saved place)" }),
-        // AppKit holds this one to the display as it restores it; either way the window must open wholly on one.
+        // AppKit shrinks this one onto a display as it restores it, so it opens there as a saved place, wholly on one.
         ("a saved place larger than every display",
          saved(NSRect(x: visible.minX, y: visible.minY, width: visible.width + 900, height: visible.height + 700)), onDisplay),
     ]
@@ -68,9 +69,7 @@ func windowCheck() -> Bool {
     report("a second window under a name in use", second.opening == "\(defaultWords) (default, another window has this name)", second, second.opening)
     done(second)
     done(first)
-    defaults.removePersistentDomain(forName: domain)
-    let left = (defaults.persistentDomain(forName: domain) ?? [:]).keys.filter { $0.hasPrefix("NSWindow Frame") }
-    let clean = left.isEmpty
-    print("\(clean ? "ok" : "FAIL") nothing saved is left in \(domain)'s preferences\(clean ? "" : ": \(left.sorted().joined(separator: ", "))")")
+    let clean = defaults.persistentDomain(forName: domain)?[key] == nil
+    print("\(clean ? "ok" : "FAIL") nothing this run saved is left in \(domain)'s preferences\(clean ? "" : ": \(key)")")
     return right && clean
 }
