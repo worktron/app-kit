@@ -420,20 +420,27 @@ const BOOTED_SHORTHAND = new Set(['xcrun', 'simctl', 'devicectl']);
 /** Xcode 27's Device Hub, either of its programs, and the Simulator app before it. */
 const DEVICE_HUB = ['/DeviceHub.app/Contents/MacOS/', '/Simulator.app/Contents/MacOS/Simulator'];
 
-/** One line of `ps -axww -o pid=,command=`: the process id, its program's base name, and its whole command line. */
+/** A process: its id, its program's base name, and its whole command line. */
 export type Process = { pid: number; program: string; command: string };
 
-/** One of the programs that count, at the head of a command line, its path free to hold spaces (`/Applications/Xcode 26.app/...`). */
-const USER_AT_HEAD = new RegExp(`^(?:[^ ].*?/)?(${[...USERS].join('|')})(?: |$)`);
-
-export function parseProcesses(listing: string): Process[] {
-  return listing.split('\n').flatMap((line) => {
+/** Each line of a `ps -axww -o pid=,<column>=` listing, by process id. */
+function byPid(listing: string): Map<number, string> {
+  return new Map(listing.split('\n').flatMap((line) => {
     const found = line.match(/^\s*(\d+)\s+(\S.*)$/);
-    if (!found) return [];
-    const command = found[2];
-    const path = command.split(' ')[0];
-    const program = command.match(USER_AT_HEAD)?.[1] ?? path.slice(path.lastIndexOf('/') + 1);
-    return [{ pid: Number(found[1]), program, command }];
+    return found ? [[Number(found[1]), found[2]] as const] : [];
+  }));
+}
+
+/**
+ * The processes in ps's `comm` listing, each program's path, and its `command` listing, each whole command line. The
+ * program comes from its own column, since a path can hold spaces (`/Applications/Xcode 26.app/...`) and a command line
+ * can hold another program's path in its arguments (`zsh -c '... /usr/bin/xcrun ...'`).
+ */
+export function parseProcesses(programs: string, commands: string): Process[] {
+  const lines = byPid(commands);
+  return [...byPid(programs)].flatMap(([pid, path]) => {
+    const command = lines.get(pid);
+    return command === undefined ? [] : [{ pid, program: path.slice(path.lastIndexOf('/') + 1), command }];
   });
 }
 
@@ -488,12 +495,14 @@ export async function shutDownIdle(lifetime: Lifetime, only?: string): Promise<v
     }
     const timed = listed.filter((d) => d.state === 'Booted' && (!only || d.udid === only) && (readHeld(lifetime.folder, d.udid)?.checkout ?? null) === null);
     if (!timed.length) return;
-    const ps = await run(['ps', '-axww', '-o', 'pid=,command=']);
-    if (ps.code !== 0) {
-      log(lifetime, `idle check: could not list the Mac's processes (${ps.out.trim().split('\n').at(-1) ?? `exit ${ps.code}`}); nothing shut down`);
+    // Programs and command lines are two columns of their own, since either can hold spaces.
+    const programs = await run(['ps', '-axww', '-o', 'pid=,comm=']);
+    const commands = programs.code === 0 ? await run(['ps', '-axww', '-o', 'pid=,command=']) : programs;
+    if (commands.code !== 0) {
+      log(lifetime, `idle check: could not list the Mac's processes (${commands.out.trim().split('\n').at(-1) ?? `exit ${commands.code}`}); nothing shut down`);
       return;
     }
-    const processes = parseProcesses(ps.out);
+    const processes = parseProcesses(programs.out, commands.out);
     for (const device of timed) {
       const held = readHeld(lifetime.folder, device.udid);
       const user = usedBy(processes, device);

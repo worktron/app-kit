@@ -43,6 +43,9 @@ beforeEach(() => {
 
 afterEach(() => place.done());
 
+/** ps's `comm` listing for a `command` listing whose program paths hold no spaces: each line's first word. */
+const programsOf = (commands: string) => commands.replace(/^(\s*\d+ \S+).*$/gm, '$1');
+
 /** A Mac's Simulators by udid, with their names and whether each is booted, and the clock; `onSleep` runs at each wait. */
 function mac(devices: Record<string, { name: string; booted?: boolean }>, onSleep: (now: number) => void = () => {}, refusals = 0) {
   let now = T0;
@@ -62,7 +65,10 @@ function mac(devices: Record<string, { name: string; booted?: boolean }>, onSlee
       const listed = Object.entries(devices).map(([udid, d]) => ({ udid, name: d.name, state: d.booted ? 'Booted' : 'Shutdown' }));
       return ok(JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': listed } }));
     }
-    if (line === 'ps -axww -o pid=,command=') return simctl.processes === null ? { code: 1, out: 'ps: not permitted', stdout: '', stderr: '', timedOut: false } : ok(simctl.processes);
+    if (line.startsWith('ps -axww -o pid=,')) {
+      if (simctl.processes === null) return { code: 1, out: 'ps: not permitted', stdout: '', stderr: '', timedOut: false };
+      return ok(line.endsWith('comm=') ? programsOf(simctl.processes) : simctl.processes);
+    }
     if (line.startsWith('xcrun simctl shutdown ')) {
       if (simctl.shutdownTimesOut) return { code: -1, out: '', stdout: '', stderr: '', timedOut: true };
       if (refuse-- > 0) return { code: 1, out: 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to shutdown device in current state: Booting', stdout: '', stderr: '', timedOut: false };
@@ -408,6 +414,7 @@ describe('shutting down idle Simulators booted some other way', () => {
   // Lines shaped as this Mac's `ps -axww -o pid=,command=` prints them: right-aligned ids, full program paths.
   const BUSY = '    1 /sbin/launchd\n  316 /usr/libexec/PerfPowerServices\n87339 /Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/XPCServices/com.apple.CoreSimulator.CoreSimulatorService.xpc/Contents/MacOS/com.apple.CoreSimulator.CoreSimulatorService\n';
   const xcodebuildTest = (destination: string) => `${BUSY}41207 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme Sample -destination ${destination} -only-testing:SampleTests/SampleTests/testOne\n`;
+  const processes = (commands: string) => parseProcesses(programsOf(commands), commands);
   /** Each look the background job takes, a minute apart, until `minutes` have passed. */
   async function looks(m: ReturnType<typeof mac>, minutes: number, between: (minute: number) => void = () => {}) {
     for (let minute = 1; minute <= minutes; minute++) {
@@ -453,21 +460,25 @@ describe('shutting down idle Simulators booted some other way', () => {
   });
 
   test("simctl's booted shorthand counts as using every booted Simulator", () => {
-    const listing = parseProcesses(`${BUSY}52001 /Applications/Xcode.app/Contents/Developer/usr/bin/simctl spawn booted log stream --level debug\n`);
+    const listing = processes(`${BUSY}52001 /Applications/Xcode.app/Contents/Developer/usr/bin/simctl spawn booted log stream --level debug\n`);
     expect(usedBy(listing, { udid: HAND, name: HAND_NAME })).toBe('simctl (52001)');
     expect(usedBy(listing, { udid: 'OTHER', name: 'Getter' })).toBe('simctl (52001)');
   });
 
   test("a shell loop, a grep or the kit's own watcher naming the Simulator does not count as use", () => {
-    const listing = parseProcesses(
+    const listing = processes(
       `${BUSY}60001 /bin/zsh -c while true; do bun bin/app-kit.ts iphone-simulator shut-down-idle ${HAND}; sleep 60; done\n` +
         `60002 grep ${HAND}\n` +
         `60003 /opt/homebrew/bin/bun /kit/bin/app-kit.ts iphone-simulator watch ${HAND}\n` +
         `60004 /var/devices/CoreSimulator/Devices/${HAND}/data/Containers/Bundle/Application/X/Sample.app/Sample\n`,
     );
     expect(usedBy(listing, { udid: HAND, name: HAND_NAME })).toBeNull();
-    expect(usedBy(parseProcesses(`70001 /opt/homebrew/bin/axe tap --udid ${HAND} -x 10 -y 20\n`), { udid: HAND, name: HAND_NAME })).toBe('axe (70001)');
-    expect(usedBy(parseProcesses(`70002 /Applications/Xcode 26.app/Contents/Developer/usr/bin/xcodebuild test -destination id=${HAND}\n`), { udid: HAND, name: HAND_NAME })).toBe('xcodebuild (70002)');
+    expect(usedBy(processes(`70001 /opt/homebrew/bin/axe tap --udid ${HAND} -x 10 -y 20\n`), { udid: HAND, name: HAND_NAME })).toBe('axe (70001)');
+    // ps prints the program's path in a column of its own, spaces and all.
+    const spaced = `70002 /Applications/Xcode 26.app/Contents/Developer/usr/bin/xcodebuild test -destination id=${HAND}\n`;
+    expect(usedBy(parseProcesses('70002 /Applications/Xcode 26.app/Contents/Developer/usr/bin/xcodebuild\n', spaced), { udid: HAND, name: HAND_NAME })).toBe('xcodebuild (70002)');
+    const shell = `70003 /bin/zsh -c while true; do /usr/bin/xcrun simctl io ${HAND} screenshot x.png; sleep 60; done\n`;
+    expect(usedBy(parseProcesses('70003 /bin/zsh\n', shell), { udid: HAND, name: HAND_NAME })).toBeNull();
   });
 
   test('Device Hub open keeps every Simulator up, logged once, and its 10 minutes count from its closing', async () => {
@@ -477,7 +488,7 @@ describe('shutting down idle Simulators booted some other way', () => {
     expect(m.shutdowns().sort()).toEqual([`xcrun simctl shutdown ${HAND}`, 'xcrun simctl shutdown OTHER']);
     expect(lines().filter((line) => line.includes('Device Hub (88001)'))).toHaveLength(4);
     expect(lines().filter((line) => line.includes('shut down by the idle check')).every((line) => line.includes(clock(T0 + 40 * MINUTE)))).toBe(true);
-    expect(usedBy(parseProcesses('5 /Applications/Xcode-26.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator\n'), { udid: HAND, name: HAND_NAME })).toBe('Device Hub (5)');
+    expect(usedBy(processes('5 /Applications/Xcode-26.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator\n'), { udid: HAND, name: HAND_NAME })).toBe('Device Hub (5)');
   });
 
   test("a Simulator the kit's run booted is left to its watcher", async () => {
