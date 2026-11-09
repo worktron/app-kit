@@ -125,9 +125,20 @@ export async function fillPackage(page: Page, address: string, zip: string, name
   const before = await packageState(page)
   const verdict = judgeZip(zipManifest(zip), name, before.version)
   if (!verdict.upload) return { page: 'Package', differences: verdict.ok ? [] : [verdict.line], notes: [verdict.line] }
-  const chooser = page.waitForEvent('filechooser', { timeout: 30_000 })
+  const chooser = page.waitForEvent('filechooser', { timeout: 60_000 })
   await press(page.getByRole('button', { name: 'Upload new package', exact: true }))
+  // Since 2026-11-09 the button opens a dialog ("Drop a ZIP or CRX file here or select a file"), and its Select file
+  // opens the file chooser; before, the button opened the chooser itself. Whichever comes first is followed.
+  const select = page.getByRole('dialog', { name: 'Upload new package' }).getByRole('button', { name: 'Select file', exact: true })
+  const opened = await Promise.race([
+    chooser.then(() => 'chooser' as const, () => 'none' as const),
+    select.waitFor({ timeout: 30_000 }).then(() => 'dialog' as const, () => 'none' as const),
+  ])
+  if (opened === 'dialog') await press(select)
   await (await chooser).setFiles(zip)
+  // Done is the dialog closing once Google has taken the zip (it then moves to the Store listing); reloading before
+  // that leaves the dashboard's old version in place.
+  if (opened === 'dialog') await page.getByRole('dialog', { name: 'Upload new package' }).waitFor({ state: 'hidden', timeout: 180_000 })
   await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => undefined)
   await visit(page, address)
   await drawn(page)
