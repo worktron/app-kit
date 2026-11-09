@@ -38,6 +38,8 @@
  *   <udid>.json      the Simulator's name, checkout, shut-down time, the run's and the watcher's process ids, and whether
  *                    the run has seen it booted; written under another name and renamed into place
  *   made/<udid>.json a Simulator the run made for a linked worktree: its name and checkout, kept until it is deleted
+ *   idle/<udid>.json a Simulator booted some other way that the idle check times: its name, shut-down time and what
+ *                    last used it; a folder of its own, since older kits that share this folder never read it
  *   simulators.lock  held while places are counted and taken
  *   simulators.log   one line per decision, rotated to simulators.log.1 at 1 MB
  */
@@ -74,11 +76,8 @@ export const IDLE_EVERY_MS = 60_000;
 export type Held = {
   udid: string;
   name: string;
-  /**
-   * The checkout the run started in; the Simulator goes when it is gone. Null for one the kit's run did not boot, which
-   * the idle check times and which has no watcher.
-   */
-  checkout: string | null;
+  /** The checkout the run started in; the Simulator goes when it is gone. */
+  checkout: string;
   /** When the Simulator shuts down, in milliseconds since 1970. */
   until: number;
   /** The run that took the place; a place not yet booted counts only while it runs. */
@@ -89,8 +88,20 @@ export type Held = {
    * step's own restart too, so the watcher waits for its time instead of taking the shut-down as the agent's.
    */
   booted: boolean;
-  /** For one the idle check times: what it last saw using it, so the log has a line only when that changes. */
-  usedBy?: string | null;
+};
+
+/**
+ * A Simulator booted some other way, which the idle check times. It lives in idle/, a folder older versions of the kit,
+ * still installed in other apps and sharing this state folder, never read: a record beside theirs with no checkout would
+ * read to them as one whose checkout is gone.
+ */
+export type Idle = {
+  udid: string;
+  name: string;
+  /** When the idle check shuts it down, unless something uses it before then. */
+  until: number;
+  /** What the idle check last saw using it, so the log has a line only when that changes. */
+  usedBy: string | null;
 };
 
 /** A Simulator the run made for a linked worktree, which the kit deletes once its checkout is gone. */
@@ -164,6 +175,20 @@ export function readMade(folder: string, udid: string): Made | null {
 }
 
 const forgetMade = (folder: string, udid: string) => rmSync(madeFile(folder, udid), { force: true });
+
+const idleFile = (folder: string, udid: string) => join(folder, 'idle', `${udid}.json`);
+
+export function readIdle(folder: string, udid: string): Idle | null {
+  try {
+    return JSON.parse(readFileSync(idleFile(folder, udid), 'utf8')) as Idle;
+  } catch {
+    return null;
+  }
+}
+
+const writeIdle = (folder: string, idle: Idle) => writeJson(idleFile(folder, idle.udid), idle);
+const forgetIdle = (folder: string, udid: string) => rmSync(idleFile(folder, udid), { force: true });
+const allIdle = (folder: string): Idle[] => udidsIn(join(folder, 'idle')).flatMap((udid) => readIdle(folder, udid) ?? []);
 
 function log(lifetime: Lifetime, line: string): void {
   appendLog(join(lifetime.folder, 'simulators.log'), `${new Date((lifetime.now ?? Date.now)()).toISOString()} ${line}`);
@@ -301,9 +326,10 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
       await deleteGone(lifetime, run, listed, device.udid);
       const up = (udid: string) => listed.some((d) => d.udid === udid && d.state !== 'Shutdown');
       const mine = readHeld(lifetime.folder, device.udid);
-      if (up(device.udid) && (!mine || mine.checkout === null)) {
+      if (up(device.udid) && !mine) {
         // Its 10 minutes start again now, so the idle check never shuts it down between here and the app's start.
-        if (mine) writeHeld(lifetime.folder, { ...mine, until: Math.max(mine.until, now() + MINUTES * 60_000) });
+        const idle = readIdle(lifetime.folder, device.udid);
+        if (idle) writeIdle(lifetime.folder, { ...idle, until: Math.max(idle.until, now() + MINUTES * 60_000) });
         log(lifetime, `${label(device)}: was running already, booted some other way; used and left to app-kit's idle check`);
         return { borrowed: true };
       }
@@ -316,8 +342,8 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
       if (!up(device.udid) && holders.length >= AT_ONCE) {
         // One the idle check times goes at its first look past its time, so a run waits that much longer for it.
         const times = holders.map((h) => {
-          const theirs = readHeld(lifetime.folder, h.udid);
-          return theirs ? theirs.until + (theirs.checkout === null ? IDLE_EVERY_MS : 0) : null;
+          const idle = readIdle(lifetime.folder, h.udid);
+          return readHeld(lifetime.folder, h.udid)?.until ?? (idle ? idle.until + IDLE_EVERY_MS : null);
         });
         const named = holders.map((h, i) => `${label(h)} ${times[i] ? `until ${clock(times[i])}` : 'with no shut-down time, booted without app-kit'}`);
         const known = times.filter((t): t is number => t !== null);
@@ -357,22 +383,23 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
 
 /**
  * Shuts down every Simulator a run booted that is past its time, for a watcher that is gone; called holding the lock.
- * One the idle check times is its alone: only it knows whether something still uses it.
+ * Gives false when a shut-down ran past its time limit and the look stopped there: more would hold the lock past a
+ * run's minute of waiting.
  */
-async function shutDownPast(lifetime: Lifetime, run: Run, only?: string): Promise<void> {
+async function shutDownPast(lifetime: Lifetime, run: Run, only?: string): Promise<boolean> {
   const now = (lifetime.now ?? Date.now)();
   for (const held of allHeld(lifetime.folder)) {
-    if (held.checkout === null || held.until > now || (only && held.udid !== only)) continue;
+    if (held.until > now || (only && held.udid !== only)) continue;
     const down = await shutDown(run, held.udid, SHUTDOWN_LIMIT_MS);
     if (down !== true) {
       log(lifetime, `${label(held)}: past its time of ${clock(held.until)}, and simctl would not shut it down (${down.why}); trying again at the next run`);
-      // Past its time limit, more shut-downs would hold the lock past a run's minute of waiting.
-      if (down.timedOut) return;
+      if (down.timedOut) return false;
       continue;
     }
     forget(lifetime.folder, held.udid);
     log(lifetime, `${label(held)}: shut down, past its time of ${clock(held.until)} with no watcher to do it`);
   }
+  return true;
 }
 
 /** The run has seen its Simulator booted; from now on a shut-down is someone's own. */
@@ -386,31 +413,34 @@ export function setTime(lifetime: Lifetime, udid: string, minutes = MINUTES): He
   const held = readHeld(lifetime.folder, udid);
   if (!held) return null;
   const next: Held = { ...held, until: (lifetime.now ?? Date.now)() + Math.min(minutes, MOST_MINUTES) * 60_000 };
-  // A watcher that is gone, stopped by hand, is started again, so the new time is kept. One the idle check times has
-  // none: the check keeps its time, and a watcher naming it would only add a process.
-  if (next.checkout !== null && (!next.watcherPid || !alive(next.watcherPid))) {
-    next.watcherPid = (lifetime.startWatcher ?? startWatcher(lifetime.folder))(udid);
-  }
+  // A watcher that is gone, stopped by hand, is started again, so the new time is kept.
+  if (!next.watcherPid || !alive(next.watcherPid)) next.watcherPid = (lifetime.startWatcher ?? startWatcher(lifetime.folder))(udid);
   writeHeld(lifetime.folder, next);
   log(lifetime, `${label(next)}: shuts down at ${clock(next.until)}`);
   return next;
 }
 
 /**
- * `app-kit iphone-simulator keep`: sets the Simulator's time as `setTime` does, under the lock the idle check holds, and
- * for one booted a moment ago that the idle check has not seen yet, starts its record first. Gives null when the kit
- * holds no time for it and it is not booted.
+ * `app-kit iphone-simulator keep`, under the lock the idle check holds: a run's Simulator has its time set by `setTime`;
+ * one the idle check times, or one booted a moment ago that it has not seen yet, has its idle time set to `minutes`
+ * from now, at most 30, with no watcher, since the idle check keeps that time. Gives null when the kit holds no time for
+ * it and it is not booted.
  */
-export async function keep(lifetime: Lifetime, udid: string, minutes = MINUTES): Promise<Held | null> {
+export async function keep(lifetime: Lifetime, udid: string, minutes = MINUTES): Promise<Pick<Held, 'name' | 'until'> | null> {
   return locked(lifetime, async () => {
-    if (!readHeld(lifetime.folder, udid)) {
+    if (readHeld(lifetime.folder, udid)) return setTime(lifetime, udid, minutes);
+    let idle = readIdle(lifetime.folder, udid);
+    if (!idle) {
       const listed = await devices(lifetime.run ?? runCommand);
       const device = typeof listed === 'string' ? undefined : listed.find((d) => d.udid === udid && d.state === 'Booted');
       if (!device) return null;
-      writeHeld(lifetime.folder, idleRecord(lifetime, device, null));
+      idle = { udid, name: device.name, until: 0, usedBy: null };
       log(lifetime, `${label(device)}: booted without app-kit's run; timed by app-kit's idle check from now`);
     }
-    return setTime(lifetime, udid, minutes);
+    const next: Idle = { ...idle, until: (lifetime.now ?? Date.now)() + Math.min(minutes, MOST_MINUTES) * 60_000 };
+    writeIdle(lifetime.folder, next);
+    log(lifetime, `${label(next)}: shuts down at ${clock(next.until)} unless something uses it after then`);
+    return next;
   });
 }
 
@@ -421,8 +451,8 @@ const BOOTED_SHORTHAND = new Set(['xcrun', 'simctl', 'devicectl']);
 /** Xcode 27's Device Hub, either of its programs, and the Simulator app before it. */
 const DEVICE_HUB = ['/DeviceHub.app/Contents/MacOS/', '/Simulator.app/Contents/MacOS/Simulator'];
 
-/** A process: its id, its program's base name, and its whole command line. */
-export type Process = { pid: number; program: string; command: string };
+/** A process: its id, its program's path and base name, and its whole command line. */
+export type Process = { pid: number; path: string; program: string; command: string };
 
 /** Each line of a `ps -axww -o pid=,<column>=` listing, by process id. */
 function byPid(listing: string): Map<number, string> {
@@ -441,37 +471,28 @@ export function parseProcesses(programs: string, commands: string): Process[] {
   const lines = byPid(commands);
   return [...byPid(programs)].flatMap(([pid, path]) => {
     const command = lines.get(pid);
-    return command === undefined ? [] : [{ pid, program: path.slice(path.lastIndexOf('/') + 1), command }];
+    return command === undefined ? [] : [{ pid, path, program: path.slice(path.lastIndexOf('/') + 1), command }];
   });
 }
 
 /** What is using the Simulator, as the module's comment says, named with its process id; null when nothing is. */
 export function usedBy(processes: Process[], device: Pick<SimDevice, 'udid' | 'name'>): string | null {
-  const hub = processes.find((p) => DEVICE_HUB.some((path) => p.command.includes(path)));
+  // Device Hub by its own program's path, so a command line that only mentions it is not the app.
+  const hub = processes.find((p) => DEVICE_HUB.some((path) => p.path.includes(path)));
   if (hub) return `Device Hub (${hub.pid})`;
+  // A destination names a Simulator as `name=<name>` up to a comma, the next flag or the end, so `name=iPhone 17 Pro`
+  // is not a use of a Simulator named iPhone 17.
+  const named = new RegExp(`name=${device.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=,| -|$)`);
   const user = processes.find(
     (p) =>
       USERS.has(p.program) &&
       (p.command.includes(device.udid) ||
-        (device.name !== '' && p.command.includes(device.name)) ||
+        (device.name !== '' && named.test(p.command)) ||
         (BOOTED_SHORTHAND.has(p.program) && /(^|\s)booted(\s|$)/.test(p.command))),
   );
   return user ? `${user.program} (${user.pid})` : null;
 }
 
-/** A new record for a Simulator the idle check times, its 10 minutes from now. */
-function idleRecord(lifetime: Lifetime, device: Pick<SimDevice, 'udid' | 'name'>, user: string | null): Held {
-  return {
-    udid: device.udid,
-    name: device.name,
-    checkout: null,
-    until: (lifetime.now ?? Date.now)() + MINUTES * 60_000,
-    runPid: lifetime.pid ?? process.pid,
-    watcherPid: null,
-    booted: true,
-    usedBy: user,
-  };
-}
 
 /**
  * The idle check, `app-kit iphone-simulator shut-down-idle [<udid>]`, one look as the module's comment says: under the
@@ -483,18 +504,19 @@ export async function shutDownIdle(lifetime: Lifetime, only?: string): Promise<v
   const run = lifetime.run ?? runCommand;
   const now = lifetime.now ?? Date.now;
   await locked(lifetime, async () => {
-    await shutDownPast(lifetime, run, only);
+    if (!(await shutDownPast(lifetime, run, only))) return;
     const listed = await devices(run);
     if (typeof listed === 'string') {
       log(lifetime, `idle check: ${listed}; nothing shut down`);
       return;
     }
-    for (const held of allHeld(lifetime.folder)) {
-      if (held.checkout !== null || (only && held.udid !== only) || !isDown(listed, held.udid)) continue;
-      forget(lifetime.folder, held.udid);
-      log(lifetime, `${label(held)}: shut down or deleted by someone else; the idle check forgets it`);
+    for (const idle of allIdle(lifetime.folder)) {
+      if ((only && idle.udid !== only) || !isDown(listed, idle.udid)) continue;
+      forgetIdle(lifetime.folder, idle.udid);
+      log(lifetime, `${label(idle)}: shut down or deleted by someone else; the idle check forgets it`);
     }
-    const timed = listed.filter((d) => d.state === 'Booted' && (!only || d.udid === only) && (readHeld(lifetime.folder, d.udid)?.checkout ?? null) === null);
+    // A run's Simulator is its watcher's; the rest are this check's.
+    const timed = listed.filter((d) => d.state === 'Booted' && (!only || d.udid === only) && !readHeld(lifetime.folder, d.udid));
     if (!timed.length) return;
     // Programs and command lines are two columns of their own, since either can hold spaces.
     const programs = await run(['ps', '-axww', '-o', 'pid=,comm=']);
@@ -505,30 +527,30 @@ export async function shutDownIdle(lifetime: Lifetime, only?: string): Promise<v
     }
     const processes = parseProcesses(programs.out, commands.out);
     for (const device of timed) {
-      const held = readHeld(lifetime.folder, device.udid);
+      const held = readIdle(lifetime.folder, device.udid);
       const user = usedBy(processes, device);
       if (!held) {
-        const next = idleRecord(lifetime, device, user);
-        writeHeld(lifetime.folder, next);
+        const next: Idle = { udid: device.udid, name: device.name, until: now() + MINUTES * 60_000, usedBy: user };
+        writeIdle(lifetime.folder, next);
         log(lifetime, `${label(device)}: booted without app-kit's run${user ? `, in use by ${user}` : ''}; shuts down at ${clock(next.until)} unless something uses it`);
         continue;
       }
       if (user) {
         const until = Math.max(held.until, now() + MINUTES * 60_000);
-        writeHeld(lifetime.folder, { ...held, until, usedBy: user });
+        writeIdle(lifetime.folder, { ...held, until, usedBy: user });
         if (user !== held.usedBy) log(lifetime, `${label(held)}: in use by ${user}; shuts down no sooner than ${clock(until)}`);
         continue;
       }
       if (held.until > now()) {
         if (held.usedBy) {
-          writeHeld(lifetime.folder, { ...held, usedBy: null });
+          writeIdle(lifetime.folder, { ...held, usedBy: null });
           log(lifetime, `${label(held)}: no longer in use by ${held.usedBy}; shuts down at ${clock(held.until)} unless something uses it`);
         }
         continue;
       }
       const down = await shutDown(run, device.udid, SHUTDOWN_LIMIT_MS);
       if (down === true) {
-        forget(lifetime.folder, device.udid);
+        forgetIdle(lifetime.folder, device.udid);
         log(lifetime, `${label(held)}: shut down by the idle check, its time of ${clock(held.until)} came with nothing using it`);
         continue;
       }
@@ -545,8 +567,7 @@ export async function shutDownIdle(lifetime: Lifetime, only?: string): Promise<v
  */
 export async function release(lifetime: Lifetime, udid: string, why: string): Promise<true | string> {
   const held = readHeld(lifetime.folder, udid);
-  // One the idle check times was booted some other way: no run of the kit shuts it down.
-  if (!held || held.checkout === null) return true;
+  if (!held) return true;
   const down = await shutDown(lifetime.run ?? runCommand, udid);
   if (down !== true) {
     // The file stays, so its watcher tries again at its time.
@@ -562,7 +583,7 @@ export async function release(lifetime: Lifetime, udid: string, why: string): Pr
 /** The same, for a signal handler, which cannot wait on a promise. */
 export function releaseNow(folder: string, udid: string, why: string, spawnSync = Bun.spawnSync): void {
   const held = readHeld(folder, udid);
-  if (!held || held.checkout === null) return;
+  if (!held) return;
   const done = spawnSync(['xcrun', 'simctl', 'shutdown', udid], { stdout: 'ignore', stderr: 'pipe' });
   if (!done.success) {
     // Already shut down or not, the watcher settles it at its time: it reads the Simulator's state.
@@ -599,8 +620,6 @@ export async function watchSimulator(lifetime: Lifetime, udid: string): Promise<
     if (!held) return 'nothing to do';
     // A later run of the same checkout started a watcher of its own. Null is the moment before the run writes this one's.
     if (held.watcherPid !== null && held.watcherPid !== pid) return 'nothing to do';
-    // The run's record went and the idle check now times the Simulator.
-    if (held.checkout === null) return 'nothing to do';
     const gone = !existsSync(held.checkout);
     if (gone || now() >= held.until) {
       const down = await shutDown(run, udid);

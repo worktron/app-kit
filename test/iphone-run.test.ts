@@ -8,7 +8,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import { join } from 'node:path';
 import { colorWrittenIn, DEVICE_TYPE, pairedPhones, readApp, runIphone, TESTING_SECTION, type IphoneRunOptions } from '../tauri/iphone-run/index.ts';
 import { runCommand } from '../command-line/run.ts';
-import { clock, readHeld, readMade, recordMade } from '../tauri/iphone-simulator/lifetime.ts';
+import { clock, readHeld, readIdle, readMade, recordMade } from '../tauri/iphone-simulator/lifetime.ts';
 import { alive, stateFolder } from '../tauri/state.ts';
 import { exit, git, ok, repository, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
 
@@ -256,7 +256,8 @@ describe('iphone run sim', () => {
       `the Simulator shuts down at ${clock(NOW + 10 * 60_000)}, in 10 minutes, booted some other way, so app-kit's idle check shuts it down once nothing uses it: app-kit iphone-simulator keep ${SIMULATOR} moves it to 10 minutes from then, and xcrun simctl shutdown ${SIMULATOR} ends it when the check is done`,
     );
     expect(fine.calls.some((c) => c.startsWith('watcher'))).toBe(false);
-    expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).toMatchObject({ checkout: null, watcherPid: null, until: NOW + 10 * 60_000 });
+    expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).toBeNull();
+    expect(readIdle(stateFolder('simulators', {}, home), SIMULATOR)).toMatchObject({ until: NOW + 10 * 60_000 });
   });
 
   test("a listing simctl prints that is not JSON stops the run before the boot, with one line", async () => {
