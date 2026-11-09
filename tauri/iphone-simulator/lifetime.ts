@@ -301,6 +301,8 @@ export async function takePlace(lifetime: Lifetime, device: { udid: string; name
       const up = (udid: string) => listed.some((d) => d.udid === udid && d.state !== 'Shutdown');
       const mine = readHeld(lifetime.folder, device.udid);
       if (up(device.udid) && (!mine || mine.checkout === null)) {
+        // Its 10 minutes start again now, so the idle check never shuts it down between here and the app's start.
+        if (mine) writeHeld(lifetime.folder, { ...mine, until: Math.max(mine.until, now() + MINUTES * 60_000) });
         log(lifetime, `${label(device)}: was running already, booted some other way; used and left to app-kit's idle check`);
         return { borrowed: true };
       }
@@ -360,9 +362,11 @@ async function shutDownPast(lifetime: Lifetime, run: Run, only?: string): Promis
   const now = (lifetime.now ?? Date.now)();
   for (const held of allHeld(lifetime.folder)) {
     if (held.checkout === null || held.until > now || (only && held.udid !== only)) continue;
-    const down = await shutDown(run, held.udid);
+    const down = await shutDown(run, held.udid, SHUTDOWN_LIMIT_MS);
     if (down !== true) {
       log(lifetime, `${label(held)}: past its time of ${clock(held.until)}, and simctl would not shut it down (${down.why}); trying again at the next run`);
+      // Past its time limit, more shut-downs would hold the lock past a run's minute of waiting.
+      if (down.timedOut) return;
       continue;
     }
     forget(lifetime.folder, held.udid);

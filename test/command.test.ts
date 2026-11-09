@@ -55,7 +55,7 @@ test('keep for a Simulator app-kit holds no time for says so and exits 1', () =>
     });
     expect(done.exitCode).toBe(1);
     // A terminal's FORCE_COLOR can color the line; the words are what is checked.
-    expect(done.stderr.toString()).toContain('[iphone-simulator] app-kit holds no shut-down time for NO-SUCH-UDID: app-kit iphone run sim did not boot it, or it has shut down already');
+    expect(done.stderr.toString()).toContain('[iphone-simulator] NO-SUCH-UDID is not booted, and app-kit holds no shut-down time for it');
   } finally {
     rmSync(state, { recursive: true, force: true });
   }

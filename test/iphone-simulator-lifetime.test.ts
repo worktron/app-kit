@@ -497,6 +497,28 @@ describe('shutting down idle Simulators booted some other way', () => {
     expect(m.devices[HAND].booted).toBe(true);
   });
 
+  test('a run on a Simulator the idle check times past its time starts its 10 minutes again, so no look shuts it down before the app starts', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    m.setNow(T0 + 10 * MINUTE);
+    expect(await takePlace(m.lifetime, { udid: HAND, name: HAND_NAME, checkout })).toEqual({ borrowed: true });
+    m.setNow(T0 + 11 * MINUTE);
+    await shutDownIdle(m.lifetime);
+    expect(m.shutdowns()).toEqual([]);
+    expect(readHeld(folder, HAND)).toMatchObject({ until: T0 + 20 * MINUTE });
+  });
+
+  test("a run's shut-down of a Simulator past its time that runs over its limit stops the look", async () => {
+    const m = mac({ A: { name: 'App A', booted: true }, B: { name: 'App B', booted: true } });
+    hold({ udid: 'A', until: T0 - MINUTE });
+    hold({ udid: 'B', until: T0 - MINUTE });
+    m.simctl.shutdownTimesOut = true;
+    await shutDownIdle(m.lifetime);
+    expect(m.shutdowns()).toHaveLength(1);
+    expect(log()).toContain(`simctl would not shut it down (it took over ${SHUTDOWN_LIMIT_MS / 1000} seconds); trying again at the next run`);
+  });
+
   test("a run on a Simulator the idle check times uses it without taking it over, so its failure never shuts it down", async () => {
     const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
     m.simctl.processes = BUSY;
