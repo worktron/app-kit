@@ -1,0 +1,8 @@
+{
+  "service": "web.push.apple.com",
+  "kind": "a token signed with another key than the one it names",
+  "request": "Recorded 2026-11-09 from the kit's sender with a throwaway key pair and a made-up subscription. The Authorization header named another key than the one that signed the token.",
+  "status": 403,
+  "text": "{\"reason\":\"BadJwtToken\"}",
+  "outcome": "failed"
+}

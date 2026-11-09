@@ -1,0 +1,8 @@
+{
+  "service": "fcm.googleapis.com",
+  "kind": "a subscription Google does not know",
+  "request": "Recorded 2026-11-09 from the kit's sender with a throwaway key pair and a made-up subscription. The signed token was accepted: a broken one answers 403 (fcm-bad-token.json).",
+  "status": 410,
+  "text": "push subscription has unsubscribed or expired.\n",
+  "outcome": "gone"
+}

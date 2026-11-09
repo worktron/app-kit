@@ -1,0 +1,8 @@
+{
+  "service": "updates.push.services.mozilla.com",
+  "kind": "a subscription Mozilla does not know",
+  "request": "Recorded 2026-11-09 from the kit's sender with a throwaway key pair and a made-up subscription. Mozilla answers 404 before it reads the token, so this says nothing about the signature.",
+  "status": 404,
+  "text": "",
+  "outcome": "gone"
+}

@@ -3,13 +3,14 @@ import react from '@vitejs/plugin-react';
 import { join } from 'path';
 // By the import name, as an app's config takes it, so the build loads it from Node as an app's does.
 import { firstPaint } from 'app-kit/web/first-paint';
+import { pushWorker } from 'app-kit/web/push/vite';
 
 // A small app built on the kit with the stand-in sign-in, which the browser test runs built, as a deploy serves it; the
 // same app as a later deploy builds it (newer.html), with its own built entry; a page whose text follows the phone's
 // Text Size (text-size.html); the pieces an installed app adds (pieces.html); a page drawn after its fonts
 // (fonts.html); a page run as a Tauri app's, with the kit's Tauri page halves (tauri.html); and a settings page in the
 // kit's MUI themes (look.html); and an app's bar with the account menu (account-menu.html); and a page whose own wordmark is drawn in the
-// first frame's face, never a fallback (wordmark.html). Every page's first
+// first frame's face, never a fallback (wordmark.html); and a page that starts Web Push with the kit's worker (push.html). Every page's first
 // frame follows the system's light or dark setting.
 export default defineConfig({
   root: import.meta.dirname,
@@ -20,6 +21,8 @@ export default defineConfig({
       // Only wordmark.html names the family, so only it gets the face and the preload.
       font: { family: 'Figtree First Frame', file: 'figtree-latin-wght-normal.woff2' },
     }),
+    // The kit's notification worker at /push-worker.js, for push.html.
+    pushWorker(),
   ],
   build: {
     outDir: 'dist',
@@ -27,7 +30,7 @@ export default defineConfig({
     // The record of what Vite built, which serveBuiltPage reads to know which files a browser may keep.
     manifest: true,
     rolldownOptions: {
-      input: ['index.html', 'newer.html', 'text-size.html', 'pieces.html', 'fonts.html', 'tauri.html', 'look.html', 'account-menu.html', 'wordmark.html'].map((page) => join(import.meta.dirname, page)),
+      input: ['index.html', 'newer.html', 'text-size.html', 'pieces.html', 'fonts.html', 'tauri.html', 'look.html', 'account-menu.html', 'wordmark.html', 'push.html'].map((page) => join(import.meta.dirname, page)),
     },
   },
   // Any address is the app, as the app's own server answers them.

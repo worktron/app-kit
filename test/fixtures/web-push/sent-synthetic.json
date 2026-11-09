@@ -1,0 +1,9 @@
+{
+  "service": "fcm.googleapis.com",
+  "kind": "a subscription a browser made",
+  "synthetic": true,
+  "request": "Not recorded: no browser this machine runs without a window can subscribe to a real push service, so no real success answer was taken. 201 Created with an empty body is what RFC 8030 section 5 and Apple's documentation say a push service answers; it is written here, not recorded.",
+  "status": 201,
+  "text": "",
+  "outcome": "sent"
+}

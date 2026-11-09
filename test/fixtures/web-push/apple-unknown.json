@@ -1,0 +1,8 @@
+{
+  "service": "web.push.apple.com",
+  "kind": "a subscription Apple does not know",
+  "request": "Recorded 2026-11-09 from the kit's sender with a throwaway key pair and a made-up subscription. The signed token was accepted: a broken one answers BadJwtToken (apple-bad-token.json). Apple documents 410 for an expired subscription; this is what an address it never issued answers.",
+  "status": 400,
+  "text": "{\"reason\":\"BadDeviceToken\"}",
+  "outcome": "gone"
+}

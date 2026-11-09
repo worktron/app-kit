@@ -1,0 +1,16 @@
+{
+  // The notification worker runs in a service worker's global scope, which the page's types (the kit's tsconfig, with
+  // the DOM library) do not describe, and as a classic script its top-level names would be globals of the page's
+  // program. So it is checked on its own, under the WebWorker library; package.json's typecheck runs both.
+  "compilerOptions": {
+    "target": "ES2022",
+    "strict": true,
+    "noEmit": true,
+    "lib": ["ES2023", "WebWorker"],
+    "types": [],
+    "allowJs": true,
+    "checkJs": true,
+    "skipLibCheck": true
+  },
+  "files": ["worker.js"]
+}

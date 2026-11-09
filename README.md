@@ -4,7 +4,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 
 | Folder | Import names | What it holds |
 | --- | --- | --- |
-| `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, and the steps browser tests share. |
+| `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../push/server`, `.../push/vite`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, notifications for a web app on the Home Screen with their worker and the server's sending, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the Amazon requests never sent among them, the plain look's stylesheet for their pages, the native host, the test harness. |
 | `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
@@ -54,6 +54,7 @@ bun add github:worktron/app-kit#v0.57.1
 | Account menu | `AccountMenu` | A quiet button at the right end of the app's bar, the word Account or the person's initial in a circle, with a menu that says who is signed in (the name above the address when the provider knows it), the app's own items (a screen as a real link, or an act) and Sign out. It draws nothing outside the sign-in gate or with no provider. Optional: an app that wants Sign out elsewhere uses `useSignOut` and `usePerson`. See below. |
 | Provider interface | `SignInProvider`, `ProviderSession`, `Outcome` | What the gate takes from a sign-in provider. The adapters are in `authentication/`, below. |
 | The built page, from the server | `serveBuiltPage`, from `app-kit/web/server` | The app's server sends the folder Vite built: the index page for every address the app draws, asked for again on each load, the files Vite built kept for a year, a 404 for a missing file and a JSON 404 under `/api/`, never the page. See below. |
+| Notifications on the Home Screen | `webPushState`, `turnOnWebPush`, `turnOffWebPush`, `startWebPush`; `pushWorker` from `app-kit/web/push/vite`; `sendWebPush` from `app-kit/web/push/server` | Web Push for a web app on a phone's Home Screen, on an iPhone and on Android: whether this phone can have notifications, turning them on from a tap and off, a check-in with the server at every start, the worker that shows each one and opens its page on a tap, and the server's sending, which says which phones are gone. See below. |
 
 ### An app built on it
 
@@ -527,6 +528,160 @@ document.addEventListener('visibilitychange', () => document.visibilityState ===
 - A token that expired while the phone slept is not sent, and the session cookie holds the same expired token, so the server refuses it; the retry then waits for a fresh token, which works while the page is still open. A page already gone loses that request, and the console says a keepalive request went without a token.
 - The browser holds all keepalive requests in flight to 64 KB of body between them; over that it refuses the request, which reads as the server being unreachable.
 - A provider gives that token through `tokenNow()` on its session; the Clerk adapter and the stand-in have it.
+
+### Notifications on the Home Screen
+
+`webPushState`, `turnOnWebPush`, `turnOffWebPush` and `startWebPush` from `app-kit/web` for the page, `pushWorker` from `app-kit/web/push/vite` for the worker, and `sendWebPush` from `app-kit/web/push/server` for the server. Together they give Web Push to a web app on a phone's Home Screen, on an iPhone with iOS 16.4 or later and on Android. The server sends through each browser's own push service, Google's for Chrome, Apple's for Safari and Mozilla's for Firefox, with no account at any of them. A Tauri app's iPhone build has the kit's iPhone notifications instead, and in its window this part says `unsupported`.
+
+#### The key pair
+
+Each app has one key pair, made once and kept: a new one stops every phone's subscription, and each phone subscribes again at its next start. Make it with:
+
+```sh
+bun -e "const { makeWebPushKeys } = await import('app-kit/web/push/server'); const k = makeWebPushKeys(); console.log('WEB_PUSH_PUBLIC_KEY=' + k.publicKey + '\nWEB_PUSH_PRIVATE_KEY=' + k.privateKey)"
+```
+
+Keep both in 1Password and set them on the server, with `WEB_PUSH_CONTACT`, a `mailto:` or `https:` address the push services can reach the app's owner at. Apple refuses one at localhost, and the server half refuses it too. With any of the three missing, the server sends nothing.
+
+#### The worker
+
+The Vite plugin serves the kit's worker at `/push-worker.js`, from the dev server and in the build:
+
+```ts
+import { pushWorker } from 'app-kit/web/push/vite';
+
+export default defineConfig({ plugins: [react(), pushWorker()] });
+```
+
+The worker shows each push as a notification and opens its page on a tap: it brings forward a window of the app it controls and moves it there, or opens one. It never calls `skipWaiting` or `clients.claim`, so a new version takes over at the next launch and never under an open page. It has no fetch handler, so it never answers for the page, and the new-deploy line and the crash reload work as they do without it. `serveBuiltPage` sends it with `no-cache`.
+
+An app with a service worker of its own keeps it. It takes the kit's in with `importScripts('/push-worker.js')`, and with vite-plugin-pwa that is workbox's `importScripts: ['push-worker.js']`. It then passes `ownWorker: true` to the page's calls, which take the app's worker. Without that option they register the kit's, which would replace the app's.
+
+#### The page
+
+```ts
+import { request, startWebPush, turnOffWebPush, turnOnWebPush, webPushState, type WebPushOptions } from 'app-kit/web';
+
+const push: WebPushOptions = {
+  publicKey: async () => (await request<{ key: string }>('/api/push/key')).key,
+  register: (subscription) => request('/api/push/subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
+};
+
+startWebPush(push); // after sign-in, at every start
+
+// In Settings, straight from the switch's click handler:
+const state = await turnOnWebPush(push);
+// and to turn them off, and before signing out:
+await turnOffWebPush({ forget: (endpoint) => request('/api/push/subscriptions/forget', { method: 'POST', body: JSON.stringify({ endpoint }) }) });
+```
+
+`webPushState()` asks the person nothing and says what Settings shows:
+
+| State | What it means | What Settings shows |
+| --- | --- | --- |
+| `needs-home-screen` | An iPhone or iPad browser tab. Web Push there is only for an app opened from the Home Screen. | The steps below. |
+| `off` | It can be turned on. | The switch, off. |
+| `on` | This phone has a subscription. | The switch, on. |
+| `denied` | The person said no. Only the phone's settings can change it. | Where in the phone's settings to allow it. |
+| `unsupported` | This browser has no Web Push, or this is a Tauri app's window. | Nothing. |
+
+`turnOnWebPush` asks for permission first, with nothing awaited before it, so call it straight from the tap: iOS asks the person only while a tap is fresh, and without one it answers no without asking. It then subscribes with the app's public key and gives the server the subscription. It returns the state it ends in, and throws when the browser or the server fails, for the app to say so.
+
+`startWebPush` registers the worker, and when notifications are on it gives the server this phone's subscription again. That lets the server keep when it last heard from each phone. It subscribes afresh when Safari dropped the subscription while permission stayed on (Safari tells nobody), or when the app's key changed. When the server answers 409, the subscription belongs to another account: someone signed out without turning notifications off. The page then drops that subscription and gives a fresh one, once. A start asks the person nothing and never throws.
+
+`turnOffWebPush` unsubscribes and has the server forget the phone, and a start then leaves it off until the person turns it on again. Call it before signing out too, so the next person on the phone never gets the last one's notifications.
+
+#### Getting onto the Home Screen on an iPhone
+
+An iPhone has no install prompt, and Safari gives Web Push only to a site opened from the Home Screen, so Settings in a Safari tab (`needs-home-screen`) says how to put it there. Following Apple's iPhone guide for iOS 26 and later:
+
+1. Tap the Page Menu button (the three dots), then Share. With the Bottom or Top tab layout, tap the Share button instead.
+2. Scroll down the list and tap Add to Home Screen. If it is not there, tap Edit Actions at the bottom and add it.
+3. Leave Open as Web App on, and tap Add.
+4. Open the app from its new icon on the Home Screen, sign in there, and turn notifications on in Settings.
+
+The app on the Home Screen keeps its own cookies apart from Safari's, so the person signs in again there. Only then, from a tap on the switch, does the app ask for permission. The app needs a manifest with `display: standalone`, as `rules/mobile-apps.md` lists.
+
+On Android, Chrome takes back notification permission from sites people rarely visit, but not from installed web apps, so an Android person installs the app from Chrome's menu (Install app, or Add to Home screen) before turning notifications on.
+
+#### The subscriptions table
+
+The server keeps one row per phone, under the person it belongs to. Its endpoint, the address the push service gave the phone, is unique. A phone's subscription is refreshed only by the person whose row it is, so nobody who learns another person's endpoint can move that phone's notifications to their own account. `test/web-push-table.test.ts` runs the two blocks below against Postgres.
+
+```ts
+// The subscriptions table, in the app's Drizzle schema.
+import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const webPushSubscriptions = pgTable('web_push_subscriptions', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+});
+```
+
+```ts
+// Keeping a phone's subscription for the person signed in, and forgetting it.
+import { and, eq, sql } from 'drizzle-orm';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { WebPushSubscription } from 'app-kit/web/push/server';
+import { webPushSubscriptions } from './schema';
+
+type Database = PgDatabase<PgQueryResultHKT>;
+
+/** False when the endpoint is another account's: the route answers 409, and the page subscribes afresh. */
+export async function keepWebPushSubscription(db: Database, userId: string, subscription: WebPushSubscription): Promise<boolean> {
+  const { endpoint, keys } = subscription;
+  const [row] = await db
+    .insert(webPushSubscriptions)
+    .values({ userId, endpoint, p256dh: keys.p256dh, auth: keys.auth })
+    .onConflictDoUpdate({
+      target: webPushSubscriptions.endpoint,
+      set: { p256dh: keys.p256dh, auth: keys.auth, seenAt: sql`now()` },
+      // Only the person whose row it is refreshes it; anyone else gets no row back.
+      setWhere: sql`${webPushSubscriptions.userId} = ${userId}`,
+    })
+    .returning({ id: webPushSubscriptions.id });
+  return row !== undefined;
+}
+
+/** Forgets a phone, only the caller's own. */
+export async function forgetWebPushSubscription(db: Database, userId: string, endpoint: string): Promise<void> {
+  await db.delete(webPushSubscriptions).where(and(eq(webPushSubscriptions.endpoint, endpoint), eq(webPushSubscriptions.userId, userId)));
+}
+```
+
+The routes read the person from the session, never from the body. They check the body's shape: an `https:` endpoint and both keys. They answer `/api/push/key` with `webPushConfig()?.publicKey`, a kept subscription with 204, and one `keepWebPushSubscription` refused with 409.
+
+A success from a push service is not proof a phone shows anything: Apple's has been seen answering one for phones that will never show a notification. So `seenAt` is the app's own record of whether a phone still has the app. A good start is to show "last checked in" beside each phone in Settings, and to forget a phone not seen in 60 days. The kit removes nothing by age.
+
+#### Sending
+
+```ts
+import { sendWebPush } from 'app-kit/web/push/server';
+
+const rows = await db.select().from(webPushSubscriptions).where(eq(webPushSubscriptions.userId, parentId));
+const result = await sendWebPush(
+  rows.map((row) => ({ endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } })),
+  { title: 'Sam asked for more time', body: '30 minutes of Minecraft', url: '/requests/7', tag: 'requests' },
+  { origin: 'https://app.example.com', ttlSeconds: 4 * 60 * 60, icon: '/icon-192.png' },
+);
+for (const endpoint of result.gone) await db.delete(webPushSubscriptions).where(eq(webPushSubscriptions.endpoint, endpoint));
+```
+
+The payload has the iPhone notifications' fields in their alert form, so one message goes to both kinds of phone: `title`, `body`, `url` (the page a tap opens, on the app's own site; anything else opens its root), `tag` (a newer one with the same tag replaces the older, and still sounds), `quiet` and `badge` (the number on the app's icon; 0 clears it). A badge alone is for the iPhone app only. Every web push must show something, since Safari removes a subscription after three that show nothing, so TypeScript refuses a web payload with no title.
+
+It goes in Apple's declarative form, which Safari on iOS 18.4 and later shows with no code running, so it can never count as one that showed nothing. Everywhere else the kit's worker reads the same message and shows it, always inside the push's own lifetime. A send is marked high urgency, so a phone saving power still gets it now; a quiet one is normal. Each push service's signed token is kept for an hour, as Apple asks.
+
+`result` is `{ sent, gone, failed }`. `gone` holds the endpoints a push service says will never work again (404, 410, and Apple's 400 BadDeviceToken), for the app to delete. Anything else is a failure, logged with the service's answer and the endpoint cut short. A failure includes Apple's 403 VapidPkHashMismatch, a key that is not the one the phone subscribed with: fixing the key brings those phones back, so they are not removed. A send that has not been answered in 15 seconds counts as failed. A message over 3,993 bytes, which push services refuse, throws, and so does a `ttlSeconds` under 1.
+
+#### What it cannot do
+
+- `quiet` keeps a notification silent on Android only. Safari on an iPhone has no silent notifications.
+- With the app already open in the background on an iPhone, a tap on a notification can bring the app forward without opening the notification's page (WebKit bug 282935, still open on iOS 27). A tap with the app closed opens its page.
+- Safari never says when it drops a subscription, and no browser sends the server a new one by itself. The check-in at each start is how the server learns, so a phone that never opens the app is never heard from again.
 
 ## extension/: the extension kit
 
