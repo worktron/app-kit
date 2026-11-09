@@ -87,3 +87,7 @@ I build it on this branch, run the gates and the branch review, and come back wi
   - icons: `https://c.1password.com/richicons/images/login/120/<host>.png` answers 404 for worktron.com and getter.worktron.com, and mail.google.com's icon differs from google.com's.
 - Clerk's domain change: https://clerk.com/docs/guides/development/deployment/changing-domains (read 2026-11-07).
 
+
+## The apps round, Mac release and TestFlight upload tests give git an identity
+
+Approved by the owner on 2026-11-09 ("fix the test then land"). The second landing of the work above stopped on the apps round's test, whose `git clone` waited out 5 seconds at load 80: with no identity, git made one up from the machine's network name. This meets the backlog's test-git-identity ticket on this branch: the three tests that run git give it the TestFlight watcher's identity, the apps and Mac release tests put git itself first on the path, and a test in each file holds it. Release: none.
