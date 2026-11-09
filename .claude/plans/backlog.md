@@ -546,3 +546,10 @@ Done when: a fixture Swift app built with it finds a newer release on a test fee
 Do not touch: the Tauri updater.
 Needs: nothing.
 Touches: swift/mac-app, command-line (mac release).
+
+## menu-row-slots · The menu bar theme's compact row takes the rest of a Mac menu item's slots
+Written by: app-kit/row-icons
+
+Goal: v0.55.2 gave the compact row (CompactRow) an icon on the left, and a dot and a ⌘ key on the right, so Fleet could draw the menu its owner chose. Next to Apple's menu items (NSMenuItem) the row still lacks five slots: greyed out when it cannot be used, a checkmark for the chosen item (Beeline writes "In effect" as a word instead), a second line in smaller secondary text (NSMenuItem.subtitle, macOS 14.4), indentation, and alternates that swap in while Option is held. The owner asked on 2026-11-09 how inflexible the row is beside Apple's, and chose to add only the key then. Each slot is built when an app first needs it, with the row's fixed order kept (icon, words, count, time, trailing word, dot, key, arrow) and a row without the slot drawing exactly as before. Found by the row-icons thread, 2026-11-09.
+
+Done when: each slot an app asks for is an optional CompactRow parameter in Apple's order, drawn in the plain and console looks, held by snapshot pixel tests and, for the greyed row, by a test that the arrow keys pass over it and a click does nothing, with swift/menu-bar/e2e/same-renders.sh showing every existing sample unchanged against main.
