@@ -178,6 +178,16 @@ public final class MenuBarPanel: NSPanel {
         super.sendEvent(event)
     }
 
+    /// How many keys reached the end of the panel's chain with nothing in it taking them, and were dropped.
+    private(set) var quietKeys = 0
+
+    /// A key nothing in the panel took ends here with no sound, as in a menu: AppKit's own end plays the alert sound for
+    /// it. A view with the keyboard, as a text field, has had the key before it gets here. Anything else goes on as usual.
+    public override func noResponder(for eventSelector: Selector) {
+        guard eventSelector == #selector(NSResponder.keyDown(with:)) else { return super.noResponder(for: eventSelector) }
+        quietKeys += 1
+    }
+
     func handle(key event: NSEvent) -> Bool {
         let characters = event.charactersIgnoringModifiers ?? ""
         if event.modifierFlags.contains(.command) {

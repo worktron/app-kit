@@ -229,7 +229,9 @@ import Testing
         #expect(steps == [1, -1])
         #expect(!window.pointer.travelled, "a key press darkens what the pointer lit")
         // A modifier held is the system's or a text field's, not the column's.
+        #expect(window.quietKeys == 0)
         window.sendEvent(key(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), code: 125, flags: [.numericPad, .function, .command]))
+        #expect(window.quietKeys == 1, "a key nothing takes ends quietly, never in the alert sound")
         // A control with the keyboard keeps its arrows: a text field, a slider.
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
         let slider = NSSlider(value: 5, minValue: 0, maxValue: 10, target: nil, action: nil)
@@ -237,6 +239,12 @@ import Testing
             window.contentView?.addSubview(control)
             #expect(window.makeFirstResponder(control))
             window.sendEvent(key(String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), code: 125))
+            if control === field {
+                // And its typing.
+                window.sendEvent(key("a", code: 0, flags: []))
+                #expect(field.string == "a")
+                #expect(window.quietKeys == 1, "the field took its keys")
+            }
         }
         // The column heard neither; whether the slider moves is AppKit's, in a window never made key.
         #expect(steps == [1, -1])

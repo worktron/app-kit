@@ -181,8 +181,24 @@ import Testing
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.sendEvent(key("o", code: 31, command: true))
         panel.sendEvent(key("q", code: 12, command: true))
+        #expect(panel.quietKeys == 0)
         panel.sendEvent(key("x", code: 7, command: true))
         #expect(acted == ["open", "quit"])
+        #expect(panel.quietKeys == 1, "⌘ with a letter nothing has ends quietly, never in the alert sound")
+    }
+
+    @Test func aTextFieldWithTheKeyboardGetsItsKeys() {
+        let panel = panel()
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        panel.contentView?.addSubview(field)
+        #expect(panel.makeFirstResponder(field))
+        panel.sendEvent(key("a", code: 0))
+        #expect(field.string == "a")
+        #expect(panel.quietKeys == 0, "the field took the key, so the panel's end never saw it")
+        panel.makeFirstResponder(nil)
+        panel.sendEvent(key("z", code: 6))
+        #expect(field.string == "a")
+        #expect(panel.quietKeys == 1, "with no field, a letter the panel does not use ends quietly")
     }
 
     @Test func aSidePagesKeyRunsOnlyWhileItsPageIsOpen() throws {

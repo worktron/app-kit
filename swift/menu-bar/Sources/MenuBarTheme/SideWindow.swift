@@ -82,6 +82,17 @@ public final class AppWindow: NSWindow {
         super.sendEvent(event)
     }
 
+    /// How many keys reached the end of the window's chain with nothing in it taking them, and were dropped.
+    private(set) var quietKeys = 0
+
+    /// A key nothing in the window took ends here with no sound, where AppKit's own end plays the alert sound for it. A
+    /// view with the keyboard, as a text field, has had the key before it gets here. Anything else goes on as usual. An app
+    /// that gives the window a window controller moves the chain's end to that controller, and the sound comes back.
+    public override func noResponder(for eventSelector: Selector) {
+        guard eventSelector == #selector(NSResponder.keyDown(with:)) else { return super.noResponder(for: eventSelector) }
+        quietKeys += 1
+    }
+
     /// The up and down arrows, to `arrows`, while no control has the keyboard (the window or its content view holds it,
     /// as when a click on a side row leaves it), so a text field, a slider or a list keeps its own arrows, and while no
     /// modifier other than the arrow keys' own is held.
