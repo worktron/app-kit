@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.54.0
+
+Urgency: rides along
+
+- an app with a demo Google account for its verification video can use app-kit google demo-reset
+
 ## v0.53.0
 
 Urgency: next round
