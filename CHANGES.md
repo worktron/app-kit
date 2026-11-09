@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.56.1
+
+Urgency: rides along
+
+- a work's title and reading text can take bookTitle and readingText from app-kit/web, in the book face FONTS.book from app-kit/look
+
 ## v0.56.0
 
 Urgency: rides along
