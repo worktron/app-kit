@@ -66,8 +66,10 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
 swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift package an app builds from the kit bun
                  installed: Sources/MenuBarTheme (the two looks, plain and console, and their tokens, the bundled JetBrains
                  Mono in Fonts/ for the console look, the pieces, the panel and the snapshot, and in the plain look a
-                 window's pieces, Window.swift, and the switch, the menu and the field, Controls.swift), Sources/menu-bar-snapshots
-                 (the Studies screens drawn in either look, and compared in the console look), Tests/, and
+                 window's pieces, Window.swift, the switch, the menu and the field, Controls.swift, and one window with a
+                 side column, SideWindow.swift: the window that remembers its place, the column's rows and a row's button),
+                 Sources/menu-bar-snapshots (the Studies screens drawn in either look, and compared in the console look, and
+                 WindowCheck.swift, the real window made off screen in each case a saved place can leave it), Tests/, and
                  e2e/ (the mockups, the comparison with a headless Chromium, the bare swiftc build, and
                  same-renders.sh, the check that every sample draws byte for byte as on a given commit)
                  window-recording/, the program that makes a display nobody sees and records one window on it

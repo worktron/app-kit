@@ -10,9 +10,10 @@ import SwiftUI
 struct LabelText: View {
     let text: String
     let lineHeight: CGFloat
+    var tone: Tone = .secondary
 
     var body: some View {
-        Text(text).console(PlainMetrics.label, weight: PlainMetrics.labelWeight, tone: .secondary, lineHeight: lineHeight)
+        Text(text).console(PlainMetrics.label, weight: PlainMetrics.labelWeight, tone: tone, lineHeight: lineHeight)
     }
 }
 

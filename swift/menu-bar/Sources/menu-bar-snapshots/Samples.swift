@@ -245,7 +245,40 @@ let windowSamples: [Sample] = [
             BuildLine("Beeline 1.0.0, 873623f")
         })
     },
+    Sample(name: "window-side-column", width: 760, mockup: nil, window: true) { sideColumnWindow() },
 ]
+
+/// One window with a side column, from the Fleet Window Studies page's A and the Buddy System Window Studies page's D: the
+/// chosen thing filled, one that needs the person with its dot, one that is away dimmed, and its page beside it.
+@MainActor
+private func sideColumnWindow() -> AnyView {
+    AnyView(SideColumn {
+        SideRow("Everything", selected: false) {}
+        SideDivider()
+        SideRow("Disk", under: "41 GB free", icon: RowIcon(Image(systemName: "internaldrive")), dot: .error, selected: true) {}
+        SideRow("Memory", under: "12 of 16 GB in use", icon: RowIcon(Image(systemName: "memorychip")), selected: false) {}
+        SideRow("Network", under: "Away since 9:40am", icon: RowIcon(Image(systemName: "network"), tone: .muted), dimmed: true,
+                selected: false) {}
+    } page: {
+        WindowPage {
+            PageTitle("Disk", subtitle: "Checked 2m ago")
+            SectionLabel("Issues 2", tone: .error)
+            Lines {
+                WindowRow("The disk is nearly full", detail: "41 GB free of 994 GB. Downloads holds 120 GB.", tone: .error) {
+                    WindowButton("Show Downloads", filled: true) {}
+                }
+                WindowRow("Backups have not run for 3 days", detail: "The backup disk was last seen on Friday.", tone: .error) {
+                    WindowButton("Open settings") {}
+                }
+            }
+            SectionLabel("Clean up")
+            Lines {
+                WindowRow("Caches", detail: "Nothing to clean up just now.") { WindowButton("Clean up", enabled: false) {} }
+            }
+        }
+        .padding(.top, 18)
+    })
+}
 
 /// A menu with its choice fixed, for a picture.
 private struct StaticMenu: View {

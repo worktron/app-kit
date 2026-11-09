@@ -1620,8 +1620,8 @@ WindowPage {
 | --- | --- |
 | `WindowPage(content:)` | The window's content on the paper, 24 points in from each side, 20 above and 24 below. |
 | `PageTitle(_:subtitle:)` | A page's title at 17 in semibold, and what the page is for under it in secondary. |
-| `SectionLabel(_:first:)` | A section's label, 12 at semibold in secondary, the panel's `PanelSectionLabel` text, 24 below what is above it and 8 above what it labels; the page's `first` sits 4 from the top. |
-| `Lines(content:)`, `WindowRow(_:detail:strong:below:trailing:)` | Rows between hairlines: the name (in semibold when `strong`, for a thing's name rather than a setting's), a detail in secondary, what goes under them (a field), and on the right a status word, an action, a switch or a menu. |
+| `SectionLabel(_:first:tone:)` | A section's label, 12 at semibold in secondary, the panel's `PanelSectionLabel` text, 24 below what is above it and 8 above what it labels; the page's `first` sits 4 from the top. A label that says something is wrong takes a `tone`, as `SectionLabel("Issues 2", tone: .error)` while any is open. |
+| `Lines(content:)`, `WindowRow(_:detail:strong:tone:detailTone:below:trailing:)` | Rows between hairlines: the name (in semibold when `strong`, for a thing's name rather than a setting's, in a `tone` for a problem's, red for that), a detail in secondary unless `detailTone` says otherwise, what goes under them (a field), and on the right a status word, an action, a switch, a menu or a `WindowButton`. |
 | `StatusWord(_:_:)` | A status in a colored word, in a `Tone`. |
 | `ActionWord(_:main:removes:action:)` | An action as a word in the accent, `main` in semibold for the page's main one, `removes` in the error color, which means removal and failure only. |
 | `ActionBar(leading:trailing:)`, `FootNote(_:)`, `BuildLine(_:)` | The page's foot: what is said there and its main action; a line of explanation in secondary; and the build, as About shows it. |
@@ -1630,7 +1630,38 @@ WindowPage {
 | `HairlineField(_:text:)` | A text field in a hairline box with 4 point corners, its text at 12. SwiftUI takes no custom text field style, so it is a view of its own. |
 | `windowSnapshot(width:scale:appearance:look:content:)` | A window's page drawn to a PNG with nothing on the screen, as tall as it lays out, in the appearance and look given, as `snapshot` does for the panel. |
 
-`menu-bar-snapshots render` draws the Studies page's three window screens after the panel's (`window-setup`, `window-profiles`, `window-general`). `test/look-swift.test.ts` reads `Tokens.swift` and `Look.swift` and holds every color and size to the tokens file, `look/index.ts`, so the Swift side cannot drift from the web's and the extension's.
+`menu-bar-snapshots render` draws the Studies page's three window screens after the panel's (`window-setup`, `window-profiles`, `window-general`), and a window with a side column (`window-side-column`). `test/look-swift.test.ts` reads `Tokens.swift` and `Look.swift` and holds every color and size to the tokens file, `look/index.ts`, so the Swift side cannot drift from the web's and the extension's.
+
+#### One window with a side column
+
+An app whose things each have a page, as Fleet's Macs and Buddy System's buddies do, shows them in one window: its things down a side column, the chosen one's page beside it, from the Fleet Window Studies page's A and the Buddy System Window Studies page's D.
+
+```swift
+let window = AppWindow(size: CGSize(width: 880, height: 640), minimum: CGSize(width: 720, height: 480), name: "MyApp.main",
+                       title: "My App", arrows: { model.moveSelection($0) }) {
+    SideColumn {
+        SideRow("Everything", selected: model.chosen == nil) { model.chosen = nil }
+        SideDivider()
+        ForEach(model.things) { thing in
+            SideRow(thing.name, under: thing.summary, icon: RowIcon(Image(systemName: thing.symbol)), dot: thing.needsYou ? .error : nil,
+                    dimmed: thing.away, selected: model.chosen == thing.id) { model.chosen = thing.id }
+        }
+    } page: {
+        ScrollView { ThingPage(thing: model.chosenThing).padding(.top, 18) }
+    }
+}
+log.note("window", "opened \(window.opening)")
+```
+
+| Piece | What it does |
+| --- | --- |
+| `AppWindow(size:minimum:maximum:name:title:arrows:content:)` | The window, titled, closable and resizable, its title bar see-through and the window draggable by its empty background. It opens at `size`, centered, the first time, and after that where and as large as the person left it, saved by macOS under `name`, while that place is at least `minimum` and wholly on one display, the Dock's strip included; anything else, a display that has gone or a place larger than every display, opens at `size` again. It never measures its content: a page longer than the window scrolls. `opening` says which, for the app's log: "at 880×640 (saved place)", "(default, nothing saved)", "(default, the saved place did not fit a display)", or "(default, another window has this name)" when a window still open holds the name. `arrows` hears -1 and +1 for the up and down keys while no text field has the keyboard, whether or not the Mac's Keyboard navigation is on, so the app moves its column's selection as a Mac sidebar does. It puts a `PanelState` in its content's environment, for `CopyBox` and the other pieces that copy. |
+| `SideColumn(rows:page:)`, `SideDivider()` | The column, 240 wide on the raised surface with a hairline on its right and 38 points at its top for the window's own buttons, and the page beside it in the rest of the width; both are as tall as the taller, so a page in a `ScrollView` fills the window. The divider is the line under its first row. |
+| `SideRow(_:under:icon:dot:dimmed:selected:action:)` | A thing in the column: its `RowIcon` in a 28 point column, its name in semibold and a line under it in secondary, a `RowDot` on the right when it needs the person, the selected one filled in the highlight, and a `dimmed` one, as a thing that is away, a step quieter. A `Button`, so VoiceOver reads it, with "needs you" for the dot, and says which is selected. |
+| `WindowButton(_:filled:enabled:action:)` | A row's button, 28 tall: `filled` in the text color for the one step the window waits on, outlined otherwise, and outlined in muted when not `enabled`. A `Button`, which VoiceOver reaches, and Tab once the Mac's Keyboard navigation is on, as every Mac button. |
+| `\.pointerTravelled` | Whether the pointer has travelled 16 points since it last rested, in an `AppWindow`: the side rows and buttons light under the pointer only then, every key press darkens them, and the window leaving the front starts it again, the rule the panel keeps. An app's own row that lights on hover reads it with `@Environment(\.pointerTravelled)`. |
+
+`menu-bar-snapshots window-check` makes the window for real, never shown, with nothing saved, a saved place that fits, one equal to the default, one larger than every display, and a second window under a name in use, and exits 1 unless each opens as it should; a theme test runs it. A named window's place is saved in the running program's own preferences, which a scratch home folder (`CFFIXED_USER_HOME`) does not move, so the check runs only as its own program and clears its preferences when it ends. VoiceOver's reading of the side rows and buttons needs a window on the screen, so no test reads it: the tests hold that they are buttons and what each says.
 
 ### Mac app
 

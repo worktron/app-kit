@@ -621,10 +621,12 @@ import Testing
 
     @Test func onlyTheSelectableLinesReadThePointer() throws {
         // The pointer reaches the panel only through PointerIntent: the lines report where it is (`onHover`, in
-        // `Selectable`), the panel feeds it moves, and nothing else watches the pointer to light or open a line.
+        // `Selectable`), the panel feeds it moves, and nothing else watches the pointer to light or open a line. A window's
+        // pieces read it the same way: the window feeds its moves in, and the side row and the row button each report
+        // whether it is over them.
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/MenuBarTheme")
-        let allowed = ["PanelState.swift": 1, "Panel.swift": 1]
+        let allowed = ["PanelState.swift": 1, "Panel.swift": 1, "SideWindow.swift": 3]
         var found: [String: Int] = [:]
         for file in try FileManager.default.contentsOfDirectory(atPath: sources.path) where file.hasSuffix(".swift") {
             let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)

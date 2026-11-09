@@ -11,7 +11,13 @@ import MenuBarTheme
 //                                                          asked, against the mockup's render and its rectangles
 //                                                          (<mockups>/<screen>.png and .json), and writes the two side by
 //                                                          side to <out>/<screen>.png; <theme> is a render in that look
-// Exit codes: 0 all drawn or all within the limits; 1 a screen failed, with why; 2 wrong usage.
+// menu-bar-snapshots window-check                          makes the theme's AppWindow, never shown, with nothing saved, a
+//                                                          saved place that fits, one equal to the default, one larger than
+//                                                          every display, and a second window under a name in use; one line a
+//                                                          case, and exit 1 unless each opens as it should and no saved place
+//                                                          is left in this program's own preferences
+// Exit codes: 0 all drawn, all within the limits or every window case right; 1 a screen or a case failed, with why; 2 wrong
+// usage.
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(Data("menu-bar-snapshots: \(message)\n".utf8))
@@ -56,7 +62,9 @@ MainActor.assumeIsolated {
             } catch { fail("\(sample.name): \(error)") }
         }
         if failed { exit(1) }
+    case ("window-check", 1):
+        exit(windowCheck() ? 0 : 1)
     default:
-        fail("usage: menu-bar-snapshots render <folder> [dark|light] [plain|console] | compare <mockups> <theme> <out> [console|plain]", code: 2)
+        fail("usage: menu-bar-snapshots render <folder> [dark|light] [plain|console] | compare <mockups> <theme> <out> [console|plain] | window-check", code: 2)
     }
 }

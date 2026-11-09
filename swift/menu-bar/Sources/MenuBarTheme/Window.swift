@@ -49,18 +49,21 @@ public struct PageTitle: View {
 }
 
 /// A section's label in secondary, 24 points below what is above it and 8 above what it labels. The page's first one,
-/// `first`, sits 4 points from the top.
+/// `first`, sits 4 points from the top. A label that says something is wrong, as "Issues 2" while any is open, takes a
+/// `tone`, red for that.
 public struct SectionLabel: View {
     let text: String
     let first: Bool
+    let tone: Tone
 
-    public init(_ text: String, first: Bool = false) {
+    public init(_ text: String, first: Bool = false, tone: Tone = .secondary) {
         self.text = text
         self.first = first
+        self.tone = tone
     }
 
     public var body: some View {
-        LabelText(text: text, lineHeight: PlainMetrics.lineHeight)
+        LabelText(text: text, lineHeight: PlainMetrics.lineHeight, tone: tone)
             .padding(.top, first ? 4 : PlainMetrics.sectionGap)
             .padding(.bottom, PlainMetrics.labelGap)
     }
@@ -87,19 +90,24 @@ public struct Lines<Content: View>: View {
 
 /// A row of a window: its name, a line of detail under it in secondary, what goes under them (a text field), and on
 /// the right a status word, an action, a switch or a menu. At least 48 points tall with 10 above and below, its hairline
-/// below it. A thing's name, as a profile's, is `strong`; a setting's is not.
+/// below it. A thing's name, as a profile's, is `strong`; a setting's is not. A problem's name takes a `tone`, red for
+/// that, and its detail a `detailTone`, secondary unless asked; a row's button on the right is a `WindowButton`.
 public struct WindowRow<Below: View, Trailing: View>: View {
     let name: String
     let detail: String?
     let strong: Bool
+    let tone: Tone?
+    let detailTone: Tone
     let below: Below
     let trailing: Trailing
 
-    public init(_ name: String, detail: String? = nil, strong: Bool = false, @ViewBuilder below: () -> Below,
-                @ViewBuilder trailing: () -> Trailing) {
+    public init(_ name: String, detail: String? = nil, strong: Bool = false, tone: Tone? = nil, detailTone: Tone = .secondary,
+                @ViewBuilder below: () -> Below, @ViewBuilder trailing: () -> Trailing) {
         self.name = name
         self.detail = detail
         self.strong = strong
+        self.tone = tone
+        self.detailTone = detailTone
         self.below = below()
         self.trailing = trailing()
     }
@@ -108,8 +116,8 @@ public struct WindowRow<Below: View, Trailing: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).plain(PlainMetrics.body, weight: strong ? PlainMetrics.strongWeight : .regular).lineLimit(1).truncationMode(.tail)
-                    if let detail { Text(detail).plain(PlainMetrics.small, tone: .secondary).fixedSize(horizontal: false, vertical: true) }
+                    Text(name).plain(PlainMetrics.body, weight: strong ? PlainMetrics.strongWeight : .regular, tone: tone).lineLimit(1).truncationMode(.tail)
+                    if let detail { Text(detail).plain(PlainMetrics.small, tone: detailTone).fixedSize(horizontal: false, vertical: true) }
                     below
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -123,8 +131,9 @@ public struct WindowRow<Below: View, Trailing: View>: View {
 }
 
 extension WindowRow where Below == EmptyView {
-    public init(_ name: String, detail: String? = nil, strong: Bool = false, @ViewBuilder trailing: () -> Trailing) {
-        self.init(name, detail: detail, strong: strong, below: { EmptyView() }, trailing: trailing)
+    public init(_ name: String, detail: String? = nil, strong: Bool = false, tone: Tone? = nil, detailTone: Tone = .secondary,
+                @ViewBuilder trailing: () -> Trailing) {
+        self.init(name, detail: detail, strong: strong, tone: tone, detailTone: detailTone, below: { EmptyView() }, trailing: trailing)
     }
 }
 
