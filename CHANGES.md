@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.59.0
+
+Urgency: next round
+
+- on the sign-in screen, mark the email field autocomplete="username" (keeping type="email") and the code field autocomplete="one-time-code" with inputMode="numeric"; signInByCode fails until both are set, and an app whose tests sign in through a step of their own checks the two markers there. The README's Password managers section has the icon request to send 1Password.
+
 ## v0.58.2
 
 Urgency: rides along
