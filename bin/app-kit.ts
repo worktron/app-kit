@@ -95,8 +95,13 @@ const USAGE = `app-kit <part> <command>
                               iPhone, first adding the phone to the team's development
                               profile when none holds it; <udid> picks the phone
   iphone-simulator keep <udid> [<minutes>]
-                              move the shut-down time of a Simulator iphone run sim booted
-                              to <minutes> from now, 10 by default and 30 at most
+                              move the shut-down time of a booted Simulator to <minutes>
+                              from now, 10 by default and 30 at most
+  iphone-simulator shut-down-idle [<udid>]
+                              one look of the idle check a background job runs each minute:
+                              a booted Simulator iphone run sim did not boot shuts down
+                              once 10 minutes pass with no program using it; <udid> looks
+                              at that one alone; each decision is a line in simulators.log
   iphone-simulator quiet <udid>
                               send the simulator <udid>'s sound to BlackHole: a booted
                               one restarts once when it plays elsewhere, a shut-down
@@ -298,25 +303,31 @@ async function iphone([command, target, udid, ...extra]: string[]): Promise<bool
 }
 
 async function iphoneSimulator([command, udid, ...extra]: string[]): Promise<boolean> {
+  // The idle check a background job runs each minute, over every Simulator or only <udid>.
+  if (command === 'shut-down-idle' && extra.length === 0 && !udid?.startsWith('-')) {
+    const { stateFolder } = await import('../tauri/state.ts')
+    await (await import('../tauri/iphone-simulator/lifetime.ts')).shutDownIdle({ folder: stateFolder('simulators') }, udid)
+    return true
+  }
   if (!udid || udid.startsWith('-')) return false
   const keep = command === 'keep' && extra.length <= 1 && (extra.length === 0 || (Number.isInteger(Number(extra[0])) && Number(extra[0]) >= 1))
   // The watcher `iphone run sim` starts for a Simulator it boots, in a session of its own; not a command for people.
   const watch = command === 'watch' && (extra.length === 0 || (extra.length === 2 && extra[0] === '--every' && Number(extra[1]) > 0))
   if (keep || watch) {
     const { stateFolder } = await import('../tauri/state.ts')
-    const { clock, MINUTES, MOST_MINUTES, setTime, watchSimulator } = await import('../tauri/iphone-simulator/lifetime.ts')
+    const lifetime = await import('../tauri/iphone-simulator/lifetime.ts')
     const folder = stateFolder('simulators')
     if (watch) {
-      await watchSimulator({ folder, watchEveryMs: extra.length ? Number(extra[1]) : undefined }, udid)
+      await lifetime.watchSimulator({ folder, watchEveryMs: extra.length ? Number(extra[1]) : undefined }, udid)
       return true
     }
-    const minutes = extra.length ? Number(extra[0]) : MINUTES
-    const held = setTime({ folder }, udid, minutes)
+    const minutes = extra.length ? Number(extra[0]) : lifetime.MINUTES
+    const held = await lifetime.keep({ folder }, udid, minutes)
     if (!held) {
-      console.error(`[iphone-simulator] app-kit holds no shut-down time for ${udid}: app-kit iphone run sim did not boot it, or it has shut down already`)
+      console.error(`[iphone-simulator] ${udid} is not booted, and app-kit holds no shut-down time for it`)
       process.exit(1)
     }
-    console.log(`[iphone-simulator] "${held.name}" (${udid}) shuts down at ${clock(held.until)}, in ${Math.min(minutes, MOST_MINUTES)} minutes`)
+    console.log(`[iphone-simulator] "${held.name}" (${udid}) shuts down at ${lifetime.clock(held.until)}, in ${Math.min(minutes, lifetime.MOST_MINUTES)} minutes`)
     return true
   }
   if (command !== 'quiet' || extra.length) return false

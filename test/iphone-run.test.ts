@@ -243,7 +243,7 @@ describe('iphone run sim', () => {
     expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).not.toBeNull();
   });
 
-  test('a Simulator already running, booted some other way, is used with no shut-down time and left running when the run fails', async () => {
+  test("a Simulator already running, booted some other way, is used, left running when the run fails, and given to the idle check's 10 minutes when the app starts", async () => {
     const stand = apple({ booted: [SIMULATOR], launch: 1 });
     const { code, calls } = await runIn(app, stand, { target: 'sim' });
     expect(code).toBe(1);
@@ -252,7 +252,11 @@ describe('iphone run sim', () => {
 
     const fine = await runIn(app, apple({ booted: [SIMULATOR] }), { target: 'sim' });
     expect(fine.code).toBe(0);
-    expect(fine.printed).toContain(`the Simulator was running before this run, booted some other way, so app-kit gives it no shut-down time: xcrun simctl shutdown ${SIMULATOR} when the check is done`);
+    expect(fine.printed).toContain(
+      `the Simulator shuts down at ${clock(NOW + 10 * 60_000)}, in 10 minutes, booted some other way, so app-kit's idle check shuts it down once nothing uses it: app-kit iphone-simulator keep ${SIMULATOR} moves it to 10 minutes from then, and xcrun simctl shutdown ${SIMULATOR} ends it when the check is done`,
+    );
+    expect(fine.calls.some((c) => c.startsWith('watcher'))).toBe(false);
+    expect(readHeld(stateFolder('simulators', {}, home), SIMULATOR)).toMatchObject({ checkout: null, watcherPid: null, until: NOW + 10 * 60_000 });
   });
 
   test("a listing simctl prints that is not JSON stops the run before the boot, with one line", async () => {

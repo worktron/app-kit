@@ -56,7 +56,8 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  iphone-run/, `app-kit iphone run sim|phone`, which builds an app and starts it on a Simulator or a paired iPhone, and points an agent at the README's section on tapping and looking at it;
                  iphone-simulator/, the step `app-kit iphone-simulator quiet` runs, which sends a simulator's sound to BlackHole (index.ts),
                  and how long a Simulator `iphone run sim` boots stays up and how many run at once, with its watcher and
-                 `app-kit iphone-simulator keep` (lifetime.ts);
+                 `app-kit iphone-simulator keep`, and the idle check `app-kit iphone-simulator shut-down-idle`, which shuts
+                 down a Simulator booted any other way once nothing uses it (lifetime.ts);
                  testflight/, `app-kit testflight upload` (upload.ts) and `app-kit testflight watch` (watch.ts), with the
                  App Store Connect calls, the key and the distribution certificate read from 1Password (key.ts, whose
                  item readers the Mac release uses too), the signing

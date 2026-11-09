@@ -32,7 +32,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
-import { claimMade, clock, type Lifetime, markBooted, MINUTES, recordMade, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
+import { claimMade, clock, keep, type Lifetime, markBooted, MINUTES, recordMade, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
 import { stateFolder } from '../state.ts';
 import { lastLine } from '../testflight/key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
@@ -283,13 +283,21 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
     const launched = await run(['xcrun', 'simctl', 'launch', udid, app.bundleId], { cwd, env });
     if (launched.code !== 0) return failed(`installed ${basename(bundle)}, but it did not open: ${lastLine(launched.out)}`);
     print(`running in the Simulator ${udid}`);
-    // The time counts from the app's start, not the place's.
-    const timed = held ? setTime(lifetime, udid) : null;
+    // The time counts from the app's start, not the place's. One booted some other way is the idle check's, which the
+    // app's start gives its 10 minutes as keep does; the run never shuts it down.
+    let timed;
+    try {
+      timed = held ? setTime(lifetime, udid) : await keep(lifetime, udid);
+    } catch (error) {
+      timed = null;
+      say(`could not set the Simulator's shut-down time: ${error instanceof Error ? error.message : String(error)}`);
+    }
     holding.current = null;
     if (timed) {
-      print(`the Simulator shuts down at ${clock(timed.until)}, in ${MINUTES} minutes: app-kit iphone-simulator keep ${udid} moves it to ${MINUTES} minutes from then, and xcrun simctl shutdown ${udid} ends it when the check is done`);
+      const whose = held ? '' : ', booted some other way, so app-kit\'s idle check shuts it down once nothing uses it';
+      print(`the Simulator shuts down at ${clock(timed.until)}, in ${MINUTES} minutes${whose}: app-kit iphone-simulator keep ${udid} moves it to ${MINUTES} minutes from then, and xcrun simctl shutdown ${udid} ends it when the check is done`);
     } else {
-      print(`the Simulator was running before this run, booted some other way, so app-kit gives it no shut-down time: xcrun simctl shutdown ${udid} when the check is done`);
+      print(`the Simulator was running before this run, booted some other way, and app-kit has no shut-down time for it: xcrun simctl shutdown ${udid} when the check is done`);
     }
     print(`screenshot: xcrun simctl io ${udid} screenshot <file.png>`);
     print(`to test it yourself, with no window: "${TESTING_SECTION}" in app-kit's README (node_modules/app-kit/README.md)`);

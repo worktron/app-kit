@@ -1,11 +1,30 @@
 // How long a Simulator the kit boots stays up, and how many run at once: places taken, waited for and refused, a place
 // whose run died, the watcher's shut-down at its time, when its checkout is gone, and its standing down when someone
-// else shut the Simulator, `keep`, and the deleting of a Simulator the kit made once its worktree is gone. Against a stand-in for simctl, which boots and shuts down as told, and a fake
+// else shut the Simulator, `keep`, the deleting of a Simulator the kit made once its worktree is gone, and the idle check
+// that shuts down a Simulator booted some other way once nothing uses it. Against a stand-in for simctl, which boots and shuts down as told, and a fake
 // clock that each wait moves on, so nothing here waits on time.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { claimMade, DELETE_LIMIT_MS, type Held, type Lifetime, readHeld, readMade, recordMade, release, setTime, takePlace, watchSimulator } from '../tauri/iphone-simulator/lifetime.ts';
+import {
+  claimMade,
+  clock,
+  DELETE_LIMIT_MS,
+  type Held,
+  keep,
+  type Lifetime,
+  parseProcesses,
+  readHeld,
+  readMade,
+  recordMade,
+  release,
+  setTime,
+  SHUTDOWN_LIMIT_MS,
+  shutDownIdle,
+  takePlace,
+  usedBy,
+  watchSimulator,
+} from '../tauri/iphone-simulator/lifetime.ts';
 import { ok, scratch, standInRunner } from './testflight-stand-in.ts';
 
 const T0 = Date.UTC(2026, 10, 2, 14, 0);
@@ -31,8 +50,11 @@ function mac(devices: Record<string, { name: string; booted?: boolean }>, onSlee
   const sleeps: number[] = [];
   const printed: string[] = [];
   const watchers: string[] = [];
-  /** simctl's answers to change mid-test: a listing that fails, and deletes it refuses or that run past their time. */
-  const simctl = { listFails: false, deleteRefusals: 0, deleteTimesOut: false };
+  /**
+   * simctl's answers to change mid-test: a listing that fails, deletes it refuses or that run past their time, and
+   * shut-downs past theirs; and the Mac's processes as `ps -axww -o pid=,command=` prints them, or null when ps fails.
+   */
+  const simctl = { listFails: false, deleteRefusals: 0, deleteTimesOut: false, shutdownTimesOut: false, processes: '' as string | null };
   const runner = standInRunner((command, options) => {
     const line = command.join(' ');
     if (line === 'xcrun simctl list devices -j' && simctl.listFails) return { code: 1, out: 'CoreSimulatorService connection became invalid', stdout: '', stderr: '', timedOut: false };
@@ -40,7 +62,9 @@ function mac(devices: Record<string, { name: string; booted?: boolean }>, onSlee
       const listed = Object.entries(devices).map(([udid, d]) => ({ udid, name: d.name, state: d.booted ? 'Booted' : 'Shutdown' }));
       return ok(JSON.stringify({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-27-0': listed } }));
     }
+    if (line === 'ps -axww -o pid=,command=') return simctl.processes === null ? { code: 1, out: 'ps: not permitted', stdout: '', stderr: '', timedOut: false } : ok(simctl.processes);
     if (line.startsWith('xcrun simctl shutdown ')) {
+      if (simctl.shutdownTimesOut) return { code: -1, out: '', stdout: '', stderr: '', timedOut: true };
       if (refuse-- > 0) return { code: 1, out: 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to shutdown device in current state: Booting', stdout: '', stderr: '', timedOut: false };
       const device = devices[command[3]];
       if (device) device.booted = false;
@@ -373,5 +397,178 @@ describe("deleting a worktree's Simulator", () => {
     await takePlace(m.lifetime, { ...MINE, checkout });
     expect(m.deletes()).toEqual([]);
     expect(log()).toContain(`now used from ${checkout} too, so kept from now on and never deleted by app-kit`);
+  });
+});
+
+describe('shutting down idle Simulators booted some other way', () => {
+  const log = () => readFileSync(join(folder, 'simulators.log'), 'utf8');
+  const lines = () => log().trim().split('\n').map((line) => line.slice(line.indexOf(' ') + 1));
+  const HAND = 'AAAAAAAA-0000-0000-0000-00000000B001';
+  const HAND_NAME = 'Metamax (photos)';
+  // Lines shaped as this Mac's `ps -axww -o pid=,command=` prints them: right-aligned ids, full program paths.
+  const BUSY = '    1 /sbin/launchd\n  316 /usr/libexec/PerfPowerServices\n87339 /Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/XPCServices/com.apple.CoreSimulator.CoreSimulatorService.xpc/Contents/MacOS/com.apple.CoreSimulator.CoreSimulatorService\n';
+  const xcodebuildTest = (destination: string) => `${BUSY}41207 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme Sample -destination ${destination} -only-testing:SampleTests/SampleTests/testOne\n`;
+  /** Each look the background job takes, a minute apart, until `minutes` have passed. */
+  async function looks(m: ReturnType<typeof mac>, minutes: number, between: (minute: number) => void = () => {}) {
+    for (let minute = 1; minute <= minutes; minute++) {
+      m.setNow(T0 + minute * MINUTE);
+      between(minute);
+      await shutDownIdle(m.lifetime);
+    }
+  }
+
+  test('a Simulator booted with simctl boot and used by nothing is shut down once 10 minutes pass, with a line for each decision', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    expect(readHeld(folder, HAND)).toMatchObject({ checkout: null, watcherPid: null, until: T0 + 10 * MINUTE });
+    await looks(m, 9);
+    expect(m.shutdowns()).toEqual([]);
+    await looks(m, 10);
+    expect(m.shutdowns()).toEqual([`xcrun simctl shutdown ${HAND}`]);
+    expect(m.devices[HAND].booted).toBe(false);
+    expect(readHeld(folder, HAND)).toBeNull();
+    expect(m.watchers).toEqual([]);
+    expect(lines()).toEqual([
+      `"${HAND_NAME}" (${HAND}): booted without app-kit's run; shuts down at ${clock(T0 + 10 * MINUTE)} unless something uses it`,
+      `"${HAND_NAME}" (${HAND}): shut down by the idle check, its time of ${clock(T0 + 10 * MINUTE)} came with nothing using it`,
+    ]);
+  });
+
+  test('a Simulator an xcodebuild test run names by id or by name stays up while the run lasts and shuts down 10 minutes after it ends', async () => {
+    for (const destination of [`id=${HAND}`, `'platform=iOS Simulator,name=${HAND_NAME}'`]) {
+      const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+      // The test run lasts 25 minutes, then nothing uses the Simulator.
+      await looks(m, 40, (minute) => (m.simctl.processes = minute <= 25 ? xcodebuildTest(destination) : BUSY));
+      expect(m.shutdowns()).toEqual([`xcrun simctl shutdown ${HAND}`]);
+      expect(lines()).toEqual([
+        `"${HAND_NAME}" (${HAND}): booted without app-kit's run, in use by xcodebuild (41207); shuts down at ${clock(T0 + 11 * MINUTE)} unless something uses it`,
+        `"${HAND_NAME}" (${HAND}): no longer in use by xcodebuild (41207); shuts down at ${clock(T0 + 35 * MINUTE)} unless something uses it`,
+        `"${HAND_NAME}" (${HAND}): shut down by the idle check, its time of ${clock(T0 + 35 * MINUTE)} came with nothing using it`,
+      ]);
+      place.done();
+      place = scratch('simulator-lifetime-');
+      folder = join(place.folder, 'simulators');
+    }
+  });
+
+  test("simctl's booted shorthand counts as using every booted Simulator", () => {
+    const listing = parseProcesses(`${BUSY}52001 /Applications/Xcode.app/Contents/Developer/usr/bin/simctl spawn booted log stream --level debug\n`);
+    expect(usedBy(listing, { udid: HAND, name: HAND_NAME })).toBe('simctl (52001)');
+    expect(usedBy(listing, { udid: 'OTHER', name: 'Getter' })).toBe('simctl (52001)');
+  });
+
+  test("a shell loop, a grep or the kit's own watcher naming the Simulator does not count as use", () => {
+    const listing = parseProcesses(
+      `${BUSY}60001 /bin/zsh -c while true; do bun bin/app-kit.ts iphone-simulator shut-down-idle ${HAND}; sleep 60; done\n` +
+        `60002 grep ${HAND}\n` +
+        `60003 /opt/homebrew/bin/bun /kit/bin/app-kit.ts iphone-simulator watch ${HAND}\n` +
+        `60004 /var/devices/CoreSimulator/Devices/${HAND}/data/Containers/Bundle/Application/X/Sample.app/Sample\n`,
+    );
+    expect(usedBy(listing, { udid: HAND, name: HAND_NAME })).toBeNull();
+    expect(usedBy(parseProcesses(`70001 /opt/homebrew/bin/axe tap --udid ${HAND} -x 10 -y 20\n`), { udid: HAND, name: HAND_NAME })).toBe('axe (70001)');
+  });
+
+  test('Device Hub open keeps every Simulator up, logged once, and its 10 minutes count from its closing', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true }, OTHER: { name: 'Getter', booted: true } });
+    const hub = `${BUSY}88001 /Applications/Xcode.app/Contents/Applications/DeviceHub.app/Contents/MacOS/DeviceHub\n`;
+    await looks(m, 50, (minute) => (m.simctl.processes = minute <= 30 ? hub : BUSY));
+    expect(m.shutdowns().sort()).toEqual([`xcrun simctl shutdown ${HAND}`, 'xcrun simctl shutdown OTHER']);
+    expect(lines().filter((line) => line.includes('Device Hub (88001)'))).toHaveLength(4);
+    expect(lines().filter((line) => line.includes('shut down by the idle check')).every((line) => line.includes(clock(T0 + 40 * MINUTE)))).toBe(true);
+    expect(usedBy(parseProcesses('5 /Applications/Xcode-26.app/Contents/Developer/Applications/Simulator.app/Contents/MacOS/Simulator\n'), { udid: HAND, name: HAND_NAME })).toBe('Device Hub (5)');
+  });
+
+  test("a Simulator the kit's run booted is left to its watcher", async () => {
+    const m = mac({ MINE: { name: MINE.name, booted: true } });
+    hold({ udid: 'MINE', until: T0 + 30 * MINUTE });
+    await looks(m, 20);
+    expect(m.shutdowns()).toEqual([]);
+    expect(readHeld(folder, 'MINE')).toMatchObject({ checkout, until: T0 + 30 * MINUTE });
+  });
+
+  test("a run's look for Simulators past their time leaves the idle check's alone, though their time has passed", async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true }, MINE: { name: MINE.name } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    m.setNow(T0 + 30 * MINUTE);
+    await takePlace(m.lifetime, { ...MINE, checkout });
+    expect(m.shutdowns()).toEqual([]);
+    expect(m.devices[HAND].booted).toBe(true);
+  });
+
+  test("a run on a Simulator the idle check times uses it without taking it over, so its failure never shuts it down", async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    expect(await takePlace(m.lifetime, { udid: HAND, name: HAND_NAME, checkout })).toEqual({ borrowed: true });
+    expect(await release(m.lifetime, HAND, 'its run failed')).toBe(true);
+    expect(m.shutdowns()).toEqual([]);
+    expect(m.watchers).toEqual([]);
+    expect(readHeld(folder, HAND)).toMatchObject({ checkout: null });
+  });
+
+  test("keep moves an idle-check Simulator's time and starts no watcher; on one booted a moment ago it writes the record first", async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true }, DOWN: { name: 'Getter' } });
+    m.simctl.processes = BUSY;
+    expect(await keep(m.lifetime, HAND, 25)).toMatchObject({ checkout: null, until: T0 + 25 * MINUTE, watcherPid: null });
+    await looks(m, 24);
+    expect(m.shutdowns()).toEqual([]);
+    await looks(m, 25);
+    expect(m.shutdowns()).toEqual([`xcrun simctl shutdown ${HAND}`]);
+    expect(m.watchers).toEqual([]);
+    expect(await keep(m.lifetime, 'DOWN')).toBeNull();
+    expect(lines()[0]).toBe(`"${HAND_NAME}" (${HAND}): booted without app-kit's run; timed by app-kit's idle check from now`);
+  });
+
+  test('a shut-down that runs over its time limit stops the look and keeps the record for the next', async () => {
+    const m = mac({ A: { name: 'Getter (a)', booted: true }, B: { name: 'Getter (b)', booted: true } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    m.simctl.shutdownTimesOut = true;
+    m.setNow(T0 + 11 * MINUTE);
+    await shutDownIdle(m.lifetime);
+    expect(m.shutdowns()).toEqual(['xcrun simctl shutdown A']);
+    expect(readHeld(folder, 'A')).not.toBeNull();
+    expect(log()).toContain(`simctl would not shut it down (it took over ${SHUTDOWN_LIMIT_MS / 1000} seconds); trying again at the next look`);
+    m.simctl.shutdownTimesOut = false;
+    m.setNow(T0 + 12 * MINUTE);
+    await shutDownIdle(m.lifetime);
+    expect(m.devices.A.booted).toBe(false);
+    expect(m.devices.B.booted).toBe(false);
+  });
+
+  test('ps failing shuts nothing down, and says so', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+    m.simctl.processes = null;
+    await looks(m, 20);
+    expect(m.shutdowns()).toEqual([]);
+    expect(log()).toContain("idle check: could not list the Mac's processes (ps: not permitted); nothing shut down");
+  });
+
+  test('a Simulator someone else shut down is forgotten, and one booted again later starts a new 10 minutes', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true } });
+    m.simctl.processes = BUSY;
+    await shutDownIdle(m.lifetime);
+    m.devices[HAND].booted = false;
+    await looks(m, 3);
+    expect(readHeld(folder, HAND)).toBeNull();
+    m.devices[HAND].booted = true;
+    await looks(m, 4);
+    // The looks start again at minute 1, which finds it booted anew.
+    expect(readHeld(folder, HAND)).toMatchObject({ until: T0 + 11 * MINUTE });
+    expect(log()).toContain('shut down or deleted by someone else; the idle check forgets it');
+  });
+
+  test('shut-down-idle <udid> looks at that Simulator only', async () => {
+    const m = mac({ [HAND]: { name: HAND_NAME, booted: true }, OTHER: { name: 'Getter', booted: true } });
+    m.simctl.processes = BUSY;
+    for (let minute = 0; minute <= 15; minute++) {
+      m.setNow(T0 + minute * MINUTE);
+      await shutDownIdle(m.lifetime, HAND);
+    }
+    expect(m.shutdowns()).toEqual([`xcrun simctl shutdown ${HAND}`]);
+    expect(readHeld(folder, 'OTHER')).toBeNull();
+    expect(m.devices.OTHER.booted).toBe(true);
   });
 });
