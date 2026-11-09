@@ -104,7 +104,28 @@ let samples: [Sample] = [
            mockup: nil, sideWidth: 380) { beelineList() },
     Sample(name: "beeline-slate", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
            mockup: nil, sideWidth: 380, look: .plain(background: slate)) { beelineList() },
+    // The Fleet Window Studies page's F with L's marks: a row per machine, its icon (muted when offline), its name, and a
+    // red dot when it needs the person, then the app's own rows with their keys. The machines are stand-ins.
+    Sample(name: "machines-icons", width: 300, selected: ["machine", "alpha"], mockup: nil) { machinesWithIcons() },
 ]
+
+@MainActor
+private func machinesWithIcons() -> AnyView {
+    AnyView(VStack(spacing: 0) {
+        CompactList {
+            CompactRow("alpha", icon: RowIcon(Image(systemName: "macstudio")), dot: .error, opens: false, id: ["machine", "alpha"]) {}
+            CompactRow("bravo", icon: RowIcon(Image(systemName: "macmini")), dot: .error, opens: false, id: ["machine", "bravo"]) {}
+            CompactRow(Words("charlie-2", .muted), icon: RowIcon(Image(systemName: "laptopcomputer"), tone: .muted), trailing: "offline",
+                       dot: .error, opens: false, id: ["machine", "charlie-2"]) {}
+            CompactRow("delta", icon: RowIcon(Image(systemName: "laptopcomputer")), opens: false, id: ["machine", "delta"]) {}
+        }
+        CompactList(closing: true) {
+            CompactRow("Open the window", key: "o", opens: false, id: "open") {}
+            CompactRow("Settings…", key: ",", opens: false, id: "settings") {}
+            CompactRow("Quit", key: "q", opens: false, id: "quit") {}
+        }
+    })
+}
 
 @MainActor
 private func beelineList() -> AnyView {

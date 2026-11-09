@@ -68,7 +68,8 @@ swift/           Mac apps built in Swift: menu-bar/, the menu bar theme, a Swift
                  Mono in Fonts/ for the console look, the pieces, the panel and the snapshot, and in the plain look a
                  window's pieces, Window.swift, and the switch, the menu and the field, Controls.swift), Sources/menu-bar-snapshots
                  (the Studies screens drawn in either look, and compared in the console look), Tests/, and
-                 e2e/ (the mockups, the comparison with a headless Chromium, and the bare swiftc build)
+                 e2e/ (the mockups, the comparison with a headless Chromium, the bare swiftc build, and
+                 same-renders.sh, the check that every sample draws byte for byte as on a given commit)
                  window-recording/, the program that makes a display nobody sees and records one window on it
                  (ScreenCaptureKit), built by Swift's package manager only, by command-line/window-recording.ts;
                  mac-app/, what every Swift Mac app writes for itself, a Swift package built the same way: Sources/MacApp

@@ -168,6 +168,57 @@ import Testing
         #expect(acted == ["settings", "quit"])
     }
 
+    @Test func commandAndACompactRowsKeyRunIt() {
+        var acted: [String] = []
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            CompactList {
+                CompactRow("alpha", icon: RowIcon(Image(systemName: "laptopcomputer")), dot: .error, opens: false, id: "alpha") { acted.append("alpha") }
+                CompactRow("Open the window", key: "O", opens: false, id: "open") { acted.append("open") }
+            }
+            Footer([FooterItem("settings", key: ",") { acted.append("settings") }], trailing: [FooterItem("quit", key: "q") { acted.append("quit") }])
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.sendEvent(key("o", code: 31, command: true))
+        panel.sendEvent(key("q", code: 12, command: true))
+        panel.sendEvent(key("x", code: 7, command: true))
+        #expect(acted == ["open", "quit"])
+    }
+
+    @Test func aSidePagesKeyRunsOnlyWhileItsPageIsOpen() throws {
+        var acted: [String] = []
+        let panel = MenuBarPanel(width: 400, state: PanelState(pasteboard: .withUniqueName())) {
+            Row(Words("bravo"), trailing: "mini", id: "bravo", page: {
+                CompactList { CompactRow("Restart bravo", key: "r", opens: false, id: ["bravo", "restart"]) { acted.append("restart") } }
+            })
+            Footer([FooterItem("settings", key: ",") { acted.append("settings") }])
+        }
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let restart = key("r", code: 15, command: true)
+        panel.sendEvent(restart)
+        #expect(acted.isEmpty, "the page is not open yet")
+        panel.sendEvent(key(Self.down, code: 125))
+        panel.sendEvent(key(Self.right, code: 124))
+        #expect(panel.state.sidePage == AnyHashable("bravo"))
+        try #require(panel.sidePanel).contentView?.layoutSubtreeIfNeeded()
+        panel.sendEvent(restart)
+        #expect(acted == ["restart"])
+        panel.sendEvent(key(Self.left, code: 123))
+        #expect(panel.state.sidePage == nil)
+        panel.sendEvent(restart)
+        #expect(acted == ["restart"], "Left closed the page, and its key with it")
+        panel.sendEvent(key(Self.right, code: 124))
+        try #require(panel.sidePanel).contentView?.layoutSubtreeIfNeeded()
+        panel.close()
+        panel.open(below: Self.icon, in: Self.screen)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.sendEvent(restart)
+        #expect(acted == ["restart"], "closing the panel closed the page, and its key with it")
+        panel.sendEvent(key(",", code: 43, command: true))
+        #expect(acted == ["restart", "settings"])
+    }
+
     @Test func closingForgetsTheSelectionAndTheCopy() {
         let panel = panel()
         panel.sendEvent(key(Self.down, code: 125))

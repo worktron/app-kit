@@ -88,34 +88,46 @@ public struct ProblemRow: View {
 /// in a column of its own when there is a time so the rows line up (a link's profile), and as wide as it is otherwise
 /// ("In effect"). The mark on the right says a click opens something; `opens` false leaves it off a row whose click acts in
 /// place. Selected, its fill sits 6 points in from the panel's sides with 3 point corners. Given a `page`, the row opens it
-/// beside the list, as `Row`'s does.
+/// beside the list, as `Row`'s does. As a Mac menu's items, it may take an `icon` on the left, in a 32 point column 8
+/// before its words, a `dot` on the right after its trailing word, and a ⌘ `key` after that, which runs its action while
+/// the panel is open, as a footer item's does; the arrow stays last, so arrows line up down a list. A row without them
+/// keeps no room for them.
 public struct CompactRow: View {
     let text: Words
+    let icon: RowIcon?
     let count: String
     let time: String
     let trailing: String
+    let dot: Tone?
+    let key: Character?
     let opens: Bool
     let id: AnyHashable
     let action: () -> Void
     var page: (@MainActor () -> AnyView)?
 
-    public init(_ text: Words, count: String = "", time: String = "", trailing: String = "", opens: Bool = true, id: AnyHashable,
-                action: @escaping () -> Void) {
+    public init(_ text: Words, icon: RowIcon? = nil, count: String = "", time: String = "", trailing: String = "", dot: Tone? = nil,
+                key: Character? = nil, opens: Bool = true, id: AnyHashable, action: @escaping () -> Void) {
         self.text = text
+        self.icon = icon
         self.count = count
         self.time = time
         self.trailing = trailing
+        self.dot = dot
+        self.key = key
         self.opens = opens
         self.id = id
         self.action = action
     }
 
-    /// The row whose `page` opens beside the list.
-    @MainActor public init<Page: View>(_ text: Words, count: String = "", time: String = "", trailing: String = "", id: AnyHashable,
-                                       @ViewBuilder page: @escaping @MainActor () -> Page) {
-        self.init(text, count: count, time: time, trailing: trailing, id: id) {}
+    /// The row whose `page` opens beside the list. It takes no key, since what it does is open its page.
+    @MainActor public init<Page: View>(_ text: Words, icon: RowIcon? = nil, count: String = "", time: String = "", trailing: String = "",
+                                       dot: Tone? = nil, id: AnyHashable, @ViewBuilder page: @escaping @MainActor () -> Page) {
+        self.init(text, icon: icon, count: count, time: time, trailing: trailing, dot: dot, id: id) {}
         self.page = { AnyView(page()) }
     }
+
+    /// The icon's column, at the row's left.
+    static let iconColumn: CGFloat = 32
 
     public var body: some View {
         line
@@ -123,9 +135,24 @@ public struct CompactRow: View {
                 Color.clear.preference(key: SidePages.self, value: page.map { [SidePage(id: id, content: $0(), row: geometry.frame(in: .global))] } ?? [])
             })
             .modifier(Selectable(id: id, action: action, opensSide: page != nil, corner: Metrics.cornerInside, fillInset: PlainMetrics.fillInset))
+            .preference(key: Shortcuts.self, value: key.map { [Shortcut(key: Character($0.lowercased()), action: action)] } ?? [])
     }
 
-    private var line: some View {
+    /// The words and what follows them, with the icon before them when there is one. The icon sits centered on the row
+    /// beside the words' own line, never on their baseline, where each symbol's height would move the words a point or two.
+    @ViewBuilder private var line: some View {
+        if let icon {
+            HStack(alignment: .center, spacing: 8) {
+                icon.frame(width: Self.iconColumn, height: PlainMetrics.rowCompact)
+                words(leading: 0)
+            }
+            .padding(.leading, Metrics.inset)
+        } else {
+            words(leading: Metrics.inset)
+        }
+    }
+
+    private func words(leading: CGFloat) -> some View {
         let lineHeight = Look.app.lineHeight
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -145,9 +172,11 @@ public struct CompactRow: View {
                     word.frame(width: Metrics.trailingColumn, alignment: .leading)
                 }
             }
+            if let dot { RowDot(dot) }
+            if let key { Text("⌘\(String(key).uppercased())").console(Metrics.small, tone: .muted, lineHeight: lineHeight).fixedSize() }
             if opens { RowArrow().frame(width: 6) }
         }
-        .padding(.horizontal, Metrics.inset)
+        .padding(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: Metrics.inset))
         .frame(height: PlainMetrics.rowCompact)
     }
 }
@@ -169,5 +198,44 @@ public struct CompactList<Rows: View>: View {
             rows
         }
         .padding(.bottom, closing ? 10 : 4)
+    }
+}
+
+/// An icon for a row: any image, an Apple symbol (`Image(systemName: "laptopcomputer")`), one from the app's assets or
+/// one it drew, scaled to fit 28 points wide and 18 tall, from the Fleet Window Studies page's menu. A one-color image, as
+/// a symbol or a template image is, draws in `tone`; a full-color one keeps its colors. A symbol draws hierarchically,
+/// as the page drew the laptop's screen, filled faintly in its tone, set here so no symbol's own default decides it. A
+/// symbol name the Mac does not have draws nothing. A compact row places it in its column; a row of an app's own, as a
+/// window's side column, places it as it likes.
+public struct RowIcon: View {
+    let image: Image
+    let tone: Tone
+
+    public init(_ image: Image, tone: Tone = .text) {
+        self.image = image
+        self.tone = tone
+    }
+
+    static let width: CGFloat = 28
+    static let height: CGFloat = 18
+
+    public var body: some View {
+        image.resizable().symbolRenderingMode(.hierarchical).scaledToFit()
+            .foregroundStyle(tone.palette.color)
+            .frame(maxWidth: Self.width, maxHeight: Self.height)
+    }
+}
+
+/// A dot that says a row needs the person, in `tone`, red for that: 8 points across, with 3 points of room each side. A
+/// compact row draws it on its right; a row of an app's own places it as it likes.
+public struct RowDot: View {
+    let tone: Tone
+
+    public init(_ tone: Tone = .error) { self.tone = tone }
+
+    static let size: CGFloat = 8
+
+    public var body: some View {
+        Circle().fill(tone.palette.color).frame(width: Self.size, height: Self.size).padding(.horizontal, 3)
     }
 }

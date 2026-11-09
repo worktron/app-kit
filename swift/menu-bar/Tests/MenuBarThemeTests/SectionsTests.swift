@@ -45,6 +45,9 @@ import Testing
         #expect(abs(try height { ProblemRow("Profile 6 is open without Beeline", detail: "Links there are unknown to Beeline.", fix: "Set it up…") {} }
             - (2 + 18.2 + 2 + 16.8 + 4)) <= 0.5)
         #expect(try height { CompactRow("budget.example.com", time: "1:11 PM", trailing: "Personal", id: "a") {} } == 30)
+        #expect(try height {
+            CompactRow("alpha", icon: RowIcon(Image(systemName: "desktopcomputer")), trailing: "offline", dot: .error, key: "o", id: "a") {}
+        } == 30)
         #expect(try height { CompactList { CompactRow("Personal", opens: false, id: "a") {} } } == 34)
         #expect(try height { CompactList(closing: true) { CompactRow("Change it in Settings…", opens: false, id: "a") {} } } == 8 + 1 + 4 + 30 + 10)
         #expect(try height { Footer([FooterItem("Settings…", key: ",") {}], lineAbove: true) } == 36)
@@ -212,5 +215,119 @@ import Testing
         }
         #expect(!drawn(20))
         #expect(drawn(200))
+    }
+
+    // A compact row's icon, dot and key, from the Fleet Window Studies page's F with L's marks. In the plain look a row's
+    // words start 20 points in, so its icon's column runs from 20 to 52 and its words from 60, and its right side ends 20
+    // points in from the panel's 398 point inside.
+
+    static let dark = NSAppearance(named: .darkAqua)!
+
+    /// `content` drawn 400 wide in the plain look, light or dark, nothing selected.
+    func draw(light: Bool, @ViewBuilder _ content: () -> some View) throws -> NSBitmapImageRep {
+        try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: light ? Self.light : Self.dark, look: .plain(),
+                                                         state: PanelState(pasteboard: .withUniqueName()), content)))
+    }
+
+    func pick(_ palette: Palette, light: Bool) -> UInt32 {
+        light ? palette.plain(accent: Look.defaultAccent).light : palette.plain(accent: Look.defaultAccent).dark
+    }
+
+    /// The points, in steps of a pixel, inside `x` and `y` whose color is within `within` of `hex` in red, green and blue.
+    func points(_ rep: NSBitmapImageRep, near hex: UInt32, within: Int = 24, x: ClosedRange<CGFloat>, y: ClosedRange<CGFloat> = 0...30)
+        -> [(x: CGFloat, y: CGFloat)] {
+        stride(from: y.lowerBound, through: y.upperBound, by: 0.5).flatMap { py in
+            stride(from: x.lowerBound, through: x.upperBound, by: 0.5).compactMap { px in
+                let found = color(rep, px, py)
+                let near = [16, 8, 0].allSatisfy { abs(Int((found >> $0) & 0xff) - Int((hex >> $0) & 0xff)) <= within }
+                return near ? (px, py) : nil
+            }
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func aCompactRowsIconSitsInItsColumnInItsTone(light: Bool) throws {
+        let rep = try draw(light: light) {
+            CompactRow("delta", icon: RowIcon(Image(systemName: "laptopcomputer"), tone: .error), opens: false, id: "a") {}
+        }
+        let drawn = points(rep, near: pick(.error, light: light), within: 8, x: 0...398)
+        #expect(drawn.count > 40)
+        #expect(drawn.allSatisfy { (20...52).contains($0.x) && (6...24).contains($0.y) })
+        // Fitted to the 28 by 18 points an icon takes, centered in its column and on the row.
+        let xs = drawn.map(\.x), ys = drawn.map(\.y)
+        #expect(try #require(xs.max()) - #require(xs.min()) <= RowIcon.width)
+        #expect(try #require(ys.max()) - #require(ys.min()) <= RowIcon.height)
+        #expect(abs((try #require(xs.max()) + #require(xs.min())) / 2 - 36) <= 1)
+        #expect(abs((try #require(ys.max()) + #require(ys.min())) / 2 - 15) <= 1)
+    }
+
+    @Test func anIconOfAnySizeFitsItsColumnAndOnlyAOneColorOneTakesTheTone() throws {
+        let drawing = { (template: Bool) in
+            let image = NSImage(size: NSSize(width: 200, height: 100), flipped: false) { rect in
+                NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1).setFill()
+                rect.fill()
+                return true
+            }
+            image.isTemplate = template
+            return Image(nsImage: image)
+        }
+        let template = try draw(light: true) { CompactRow("delta", icon: RowIcon(drawing(true), tone: .error), opens: false, id: "a") {} }
+        let drawn = points(template, near: plain(.error), within: 8, x: 0...398)
+        // Two to one, so 28 wide and 14 tall, in the tone.
+        #expect(abs(try #require(drawn.map(\.x).max()) - #require(drawn.map(\.x).min()) - (RowIcon.width - 0.5)) <= 1)
+        #expect(abs(try #require(drawn.map(\.y).max()) - #require(drawn.map(\.y).min()) - (RowIcon.width / 2 - 0.5)) <= 1)
+        let colored = try draw(light: true) { CompactRow("delta", icon: RowIcon(drawing(false), tone: .error), opens: false, id: "a") {} }
+        #expect(points(colored, near: plain(.error), within: 8, x: 0...398).isEmpty)
+        #expect(points(colored, near: 0x0000ff, within: 8, x: 20...52).count > 100)
+    }
+
+    @Test func aCompactRowsWordsSitAtOneHeightWhateverItsIcon() throws {
+        /// The top and bottom of the words' ink, from 60 points in, where no icon reaches.
+        func words(_ icon: RowIcon?) throws -> (CGFloat, CGFloat) {
+            let ink = points(try draw(light: true) { CompactRow("delta", icon: icon, opens: false, id: "a") {} },
+                             near: plain(.text), within: 60, x: 60...140)
+            return (try #require(ink.map(\.y).min()), try #require(ink.map(\.y).max()))
+        }
+        // With no icon the words start at 20, so their own first 40 points are what reach past 60; the same text with
+        // an icon starts at 60. Its height is what is compared.
+        let bare = points(try draw(light: true) { CompactRow("delta", opens: false, id: "a") {} }, near: plain(.text), within: 60, x: 20...100)
+        let expected = (try #require(bare.map(\.y).min()), try #require(bare.map(\.y).max()))
+        for name in ["laptopcomputer", "desktopcomputer", "macmini", "questionmark.square.dashed", "no.such.symbol"] {
+            let found = try words(RowIcon(Image(systemName: name)))
+            #expect(found == expected, "\(name)")
+        }
+    }
+
+    @Test func aSymbolTheMacLacksLeavesItsColumnEmpty() throws {
+        let rep = try draw(light: true) { CompactRow("delta", icon: RowIcon(Image(systemName: "no.such.symbol")), opens: false, id: "a") {} }
+        // From 4 in, past the panel's rounded corner, to the words' start.
+        #expect(points(rep, near: plain(.bg), within: 0, x: 4...56, y: 2...28).count == 105 * 53)
+        #expect(!points(rep, near: plain(.text), within: 60, x: 60...140).isEmpty)
+    }
+
+    @Test(arguments: [true, false])
+    func aCompactRowsDotIsItsToneAtItsRight(light: Bool) throws {
+        let rep = try draw(light: light) { CompactRow("alpha", dot: .ok, opens: false, id: "a") {} }
+        // 8 across, 3 in from the row's right side at 378, sitting on the words' baseline as a lowercase letter does:
+        // from 12 to 20, its middle a point below the row's.
+        #expect(color(rep, 371, 16) == pick(.ok, light: light))
+        #expect(color(rep, 371, 13) == pick(.ok, light: light))
+        #expect(color(rep, 371, 19) == pick(.ok, light: light))
+        #expect(color(rep, 371, 11) == pick(.bg, light: light))
+        #expect(color(rep, 371, 21) == pick(.bg, light: light))
+        #expect(color(rep, 376, 15) == pick(.bg, light: light))
+        #expect(color(rep, 365, 15) == pick(.bg, light: light))
+        // After the word on the right, and before the arrow, which stays last.
+        let both = try draw(light: light) { CompactRow("charlie-2", trailing: "offline", dot: .error, id: "a") {} }
+        let dot = points(both, near: pick(.error, light: light), within: 8, x: 200...398)
+        #expect(try #require(dot.map(\.x).max()) < 378 - 6 - 12)
+    }
+
+    @Test func aCompactRowsKeyIsMutedAtItsRight() throws {
+        let rep = try draw(light: true) { CompactRow("Quit", key: "q", opens: false, id: "quit") {} }
+        let key = points(rep, near: plain(.muted), within: 16, x: 200...398)
+        #expect(key.count > 20)
+        #expect(try #require(key.map(\.x).max()) <= 378)
+        #expect(try #require(key.map(\.x).min()) > 378 - 30)
     }
 }

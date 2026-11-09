@@ -106,6 +106,7 @@ public final class PanelState {
     public func openSide(_ id: AnyHashable, selectingFirst: Bool = false) {
         if sidePage != id {
             side.lines = []
+            side.shortcuts = []
             sidePage = id
         }
         sideChanged?(selectingFirst)
@@ -116,13 +117,15 @@ public final class PanelState {
         if side.lines.contains(where: { $0.id == selected }) { selected = row }
         sidePage = nil
         side.lines = []
+        side.shortcuts = []
         sideChanged?(false)
     }
 
-    /// Runs the footer action whose shortcut is ⌘ and `key`. False when none has it.
+    /// Runs the action whose shortcut is ⌘ and `key`, a footer item's or a row's: the list's first, then those of the side
+    /// page open beside it, whose keys go when it closes. False when none has it.
     @discardableResult
     public func shortcut(_ key: Character) -> Bool {
-        guard let found = list.shortcuts.first(where: { $0.key == key }) else { return false }
+        guard let found = (list.shortcuts + side.shortcuts).first(where: { $0.key == key }) else { return false }
         found.action()
         return true
     }
@@ -135,6 +138,7 @@ public final class PanelState {
         pointerOver = nil
         sidePage = nil
         side.lines = []
+        side.shortcuts = []
         closes += 1
     }
 }
@@ -143,7 +147,7 @@ public final class PanelState {
 @MainActor
 @Observable
 final class Surface {
-    /// The lines the arrow keys move through, and the footer's shortcuts, in the order the panel shows them. Handed
+    /// The lines the arrow keys move through, and the ⌘ shortcuts of its footer and rows, in the order the panel shows them. Handed
     /// over on every update and read only on a key, so no view redraws for them.
     @ObservationIgnored var lines: [SelectableLine] = []
     @ObservationIgnored var shortcuts: [Shortcut] = []

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The panel under a menu bar icon, which behaves as a menu does: Escape and a click outside close it, the arrow keys
-/// and Return work, ⌘ and a footer item's key run it, and it takes the keys without making the app active, so the app
+/// and Return work, ⌘ and a footer item's or a row's key run it, and it takes the keys without making the app active, so the app
 /// the person was in stays in front. A row with a page opens it in a side panel beside it, as a submenu. It never
 /// shows a Dock icon (the app's Info.plist sets LSUIElement).
 @MainActor
