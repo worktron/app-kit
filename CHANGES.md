@@ -2,6 +2,13 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.55.0
+
+Urgency: rides along
+
+- An extension's first Web Store release goes Unlisted: on an item never published, app-kit extension dashboard fill now stops before saving anything unless store-listing.md's Visibility line says Unlisted; make it "- Visibility: Unlisted, to invited testers."
+- An extension's first Web Store release goes Unlisted: on an item never published, app-kit extension dashboard fill now stops before saving anything unless store-listing.md's Visibility line says Unlisted; make it "- Visibility: Unlisted, to invited testers."
+
 ## v0.54.0
 
 Urgency: rides along
