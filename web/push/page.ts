@@ -145,7 +145,14 @@ export async function turnOnWebPush(options: WebPushOptions): Promise<WebPushSta
   write(local, TURNED_OFF_KEY, null);
   const registration = await workerRegistration(options.ownWorker);
   const publicKey = await keyOf(options.publicKey);
-  await checkIn(options, registration, await currentSubscription(registration, publicKey), publicKey);
+  try {
+    await checkIn(options, registration, await currentSubscription(registration, publicKey), publicKey);
+  } catch (error) {
+    // A subscription the server never took would read as on while nothing can reach it, so it goes, and the switch
+    // reads off for the person to try again.
+    await (await registration.pushManager.getSubscription())?.unsubscribe();
+    throw error;
+  }
   console.log(`${LOG_PREFIX} turned on for this phone`);
   return 'on';
 }

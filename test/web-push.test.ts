@@ -197,7 +197,7 @@ test('a start before permission registers the worker and nothing else', async ()
   expect(browser.calls).toEqual([`register ${WORKER_ADDRESS}`]);
 });
 
-test("a subscription another account holds is dropped and a fresh one given, once; any other refusal stays the app's", async () => {
+test("a subscription another account holds is dropped and a fresh one given, once; any other refusal stays the app's and leaves it off", async () => {
   let refusals = 0;
   const s = server(() => (refusals++ === 0 ? new ApiError('taken', 409, null) : null));
   expect(await turnOnWebPush({ publicKey: KEY, register: s.register })).toBe('on');
@@ -213,6 +213,9 @@ test("a subscription another account holds is dropped and a fresh one given, onc
   browser.subscription = null;
   const failing = server(() => new ApiError('down', 500, null));
   await expect(turnOnWebPush({ publicKey: KEY, register: failing.register })).rejects.toThrow('down');
+  // The subscription the server refused is gone, so the switch never reads on while nothing can reach the phone.
+  expect(browser.calls.at(-1)).toBe('unsubscribe https://fcm.googleapis.com/fcm/send/phone-3');
+  expect(await webPushState()).toBe('off');
   // A start never throws.
   await startWebPush({ publicKey: KEY, register: failing.register });
 });
