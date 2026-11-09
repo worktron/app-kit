@@ -578,3 +578,10 @@ Goal: an app on the plain look draws its captions at the look's 12 pixel small s
 Today, on main at 1f40e69: `plainOptions` in web/theme.ts sizes body1, body2, h6, subtitle1, overline and button from `PLAIN_SIZES` (look/index.ts), but not caption. So a caption gets MUI's own, 0.75rem at its 14 pixel base, which the look's 13 pixel body scales down to 11.1 pixels, under the look's 12 pixel floor for small text. Lifeform found it on Home's shelf captions on 2026-11-09 and works around it in client/src/theme.ts (`typography: { caption: { fontSize: '0.75rem' } }`).
 
 Done when: the plain look sets `caption: { fontSize: rem(PLAIN_SIZES.small), lineHeight: PLAIN_SIZES.lineHeight }`, a browser test on the look fixture (web/e2e/fixture/look.tsx) reads a caption at 12 pixels, and Lifeform drops its own caption size once it takes the release.
+
+## web-push-sent-recording · A real success answer from a push service for Web Push's "sent" fixture
+Written by: app-kit/web-push
+
+Goal: test/fixtures/web-push/sent-synthetic.json is the one push service answer not recorded from a real service: the 201 a push service gives a message it took is written from RFC 8030, since no windowless browser could make a real subscription (Chromium drops a subscribe in its incognito contexts, and no Playwright Firefox was installed). Every gone and failed answer beside it was recorded from Google, Apple and Mozilla on 2026-11-09 with throwaway keys.
+
+Done when: the sent fixture is a recorded answer from a real subscription (Playwright's Firefox, whose Mozilla endpoint needs no account, or a real device), its headers and body as the service sent them with ids replaced, the synthetic one is gone, and test/web-push-server.test.ts reads the recording.
