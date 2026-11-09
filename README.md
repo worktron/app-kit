@@ -1097,6 +1097,8 @@ The page's four reading commands, through `macMessages()` (the plugin's other tw
 
 The setup page is the app's, in words like these: what the app reads and where the texts go; then "Open System Settings" (`openFullDiskAccess`), "Turn on the switch beside the app, or add it with the + button", and once the person comes back still denied, "Reopen" (`reopen`). Check `status()` again whenever the window comes back into view.
 
+The person chooses how far back the app reads when they turn reading on, from `HOW_FAR_BACK`: the last 2 weeks, the last 3 months, the last year, or everything, with `HOW_FAR_BACK_DEFAULT_DAYS` (the last 3 months) picked to start. Messages Service's window offers the same choices. `readFromFor(days, now)` turns the choice into the first day read, `readFrom`, which the app keeps beside its mark; it throws for a number that is not one of the choices. Both are in the page's entry and the server's.
+
 `catchUp` reads from the app's mark to the end, batch by batch, and hands each batch to the app's upload; the app runs it on its own clock (once a minute, beside its other polls) for each place its texts go:
 
 ```ts
@@ -1105,13 +1107,12 @@ import { catchUp, macMessages } from 'app-kit/tauri/apple-messages';
 const messages = macMessages();
 const { uploaded, toEnd } = await catchUp({
   mark: { readMark, readFrom }, // the server's mark (null before the first upload), and the first day read
-  now: Date.now(),
   read: messages.since,
   upload: (batch) => request('/api/messages', { method: 'POST', body: JSON.stringify(batch) }),
 });
 ```
 
-Each batch is `{ texts, scannedTo, reset }`. The server stores the texts keyed by `guid`, so a repeat stores nothing twice, and keeps `scannedTo` as the mark for the next read. `scannedTo` counts rows the reader skipped (reactions, rows older than `readFrom`), so a batch of only reactions still moves it. `reset` is true when Messages rebuilt its database below the mark: the read starts again from `FIRST_READ_DAYS` (14) back, and the mark moves back to `scannedTo`. Rows count only in the Mac's own database, so the app keeps which Mac a mark belongs to, and refuses another Mac's upload, under the same lock it stores with. A first read goes back from `readFrom`, which the app sets when the person turns reading on (14 days before then, in argon), and every later read keeps to it, so an old text Messages syncs in late stays out.
+Each batch is `{ texts, scannedTo, reset }`. The server stores the texts keyed by `guid`, so a repeat stores nothing twice, and keeps `scannedTo` as the mark for the next read. `scannedTo` counts rows the reader skipped (reactions, rows older than `readFrom`), so a batch of only reactions still moves it. `reset` is true when Messages rebuilt its database below the mark: the read starts again from `readFrom`, so nothing the person chose is left out, and the mark moves back to `scannedTo`. Rows count only in the Mac's own database, so the app keeps which Mac a mark belongs to, and refuses another Mac's upload, under the same lock it stores with. A first read starts at `readFrom`, and every later read keeps to it, so an old text Messages syncs in late from before it stays out.
 
 The server checks each upload against the limits the plugin cuts to, so a batch the plugin read is never refused: `MAX_TEXT_UNITS` (20,000), `MAX_FIELD_UNITS` (300, for a chat's id and name and a person's handle and name), `MAX_PARTICIPANTS` (100), `MAX_GUID_UNITS` (200), `MAX_SERVICE_UNITS` (40) and `BATCH_SIZE` (500), each counted as JavaScript counts a string's length:
 

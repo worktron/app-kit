@@ -14,6 +14,8 @@ export {
   CONNECT_CODE_MS,
   FULL_DISK_ACCESS_PANE,
   HOLD_READS,
+  HOW_FAR_BACK,
+  HOW_FAR_BACK_DEFAULT_DAYS,
   LOG_PREFIX,
   MAX_FIELD_UNITS,
   MAX_GUID_UNITS,
@@ -27,6 +29,7 @@ export {
   SERVICE_LATEST_JSON,
   SERVICE_OPEN_PATHS,
   SERVICE_SCHEME,
+  readFromFor,
 } from './names';
 
 /** A person in a chat: their phone number or email as Messages has it, and their name from Contacts if they are on a card. */
@@ -90,13 +93,13 @@ export function macMessages(invoke: Invoke = tauriInvoke) {
   };
 }
 
-/** A first read goes back this far, and a database Messages rebuilt is read again from this far back. */
-export const FIRST_READ_DAYS = 14;
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** Batches per catch-up: 40 × 500 texts is plenty for 14 days, and the rest waits for the next round. */
+/** Batches per catch-up: 40 × 500 texts a round, and the rest waits for the next. */
 export const MAX_BATCHES = 40;
 
-/** Where an upload stands: the app's stored mark (null before the first upload), and the first day it reads. */
+/**
+ * Where an upload stands: the app's stored mark (null before the first upload), and the first day it reads, which the
+ * app sets from the person's choice of how far back when they turn reading on (HOW_FAR_BACK, readFromFor).
+ */
 export type CatchUpMark = { readMark: number | null; readFrom: number };
 
 /** One batch for the app's server: the texts, the new mark, and whether the mark moved back for a rebuilt database. */
@@ -106,14 +109,13 @@ export type MessagesUpload = { texts: MacText[]; scannedTo: number; reset: boole
  * One destination's catch-up: read after the mark and upload, batch by batch, until the reader has scanned to the end
  * or MAX_BATCHES. The first read (no mark yet) starts at the first text sent since `readFrom`. Every read leaves out
  * texts sent before `readFrom`, including old ones Messages syncs in later with higher rows. A read whose database ends
- * below the mark (Messages rebuilt it) starts again FIRST_READ_DAYS back, or at `readFrom` if that is later, and its
+ * below the mark (Messages rebuilt it) starts again at `readFrom`, so nothing the person chose is left out, and its
  * upload says `reset`; the app keys texts by guid, so nothing is stored twice. A failed read or upload rejects, and the
  * app's mark stays where its server holds it. `toEnd` is false while a row Messages is still writing holds the read
  * below the end.
  */
 export async function catchUp(deps: {
   mark: CatchUpMark;
-  now: number;
   read: (afterRowid: number | null, sinceMs: number) => Promise<MacBatch>;
   upload: (upload: MessagesUpload) => Promise<unknown>;
 }): Promise<{ uploaded: number; batches: number; toEnd: boolean }> {
@@ -124,8 +126,8 @@ export async function catchUp(deps: {
     let batch = await deps.read(after, sinceMs);
     let reset = false;
     if (after !== null && batch.maxRowid < after) {
-      console.log(`[apple-messages] the Messages database ends at ${batch.maxRowid}, below ${after}: reading ${FIRST_READ_DAYS} days again`);
-      batch = await deps.read(null, Math.max(sinceMs, deps.now - FIRST_READ_DAYS * DAY_MS));
+      console.log(`[apple-messages] the Messages database ends at ${batch.maxRowid}, below ${after}: reading again from ${new Date(sinceMs).toISOString()}`);
+      batch = await deps.read(null, sinceMs);
       reset = true;
     }
     const moved = after === null || batch.scannedTo > after || reset;

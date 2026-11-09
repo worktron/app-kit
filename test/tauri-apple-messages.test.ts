@@ -10,9 +10,10 @@ import { join } from 'path';
 import {
   BATCH_SIZE,
   COMMANDS,
-  FIRST_READ_DAYS,
   FULL_DISK_ACCESS_PANE,
   HOLD_READS,
+  HOW_FAR_BACK,
+  HOW_FAR_BACK_DEFAULT_DAYS,
   LOG_PREFIX,
   MAX_BATCHES,
   MAX_FIELD_UNITS,
@@ -27,6 +28,7 @@ import {
   connectLink,
   macMessages,
   messagesService,
+  readFromFor,
 } from '../tauri/apple-messages';
 import * as server from '../tauri/apple-messages/server';
 import { checkTexts, messagesServiceRoutes } from '../tauri/apple-messages/server';
@@ -123,8 +125,8 @@ test("the page's commands call the plugin by its names, with the arguments the R
 
 const NOW = Date.UTC(2026, 10, 2, 12);
 const DAY = 24 * 60 * 60 * 1000;
-/** Reading turned on three days ago: it reads from 14 days before that. */
-const READ_FROM = NOW - (3 + FIRST_READ_DAYS) * DAY;
+/** Reading turned on today with the last 3 months chosen. */
+const READ_FROM = NOW - 90 * DAY;
 const text = (rowid: number): MacText => ({
   guid: `g${rowid}`,
   rowid,
@@ -153,13 +155,38 @@ function mac(max: number, size = 2) {
   return { asked, read };
 }
 
+describe('how far back', () => {
+  test("the choices are the plugin's, which Messages Service's window offers", () => {
+    const service = read('src/service.rs');
+    const rust = [...service.matchAll(/\("([^"]+)", (?:Some\((\d+)\)|None)\)/g)].map((m) => ({ label: m[1], days: m[2] === undefined ? null : Number(m[2]) }));
+    expect(rust).toEqual(HOW_FAR_BACK.map((c) => ({ label: c.label, days: c.days })));
+    expect(numberConstant(service, 'HOW_FAR_BACK_DEFAULT_DAYS')).toBe(HOW_FAR_BACK_DEFAULT_DAYS);
+  });
+
+  test('the default is one of the choices, and short of every text', () => {
+    expect(HOW_FAR_BACK.some((c) => c.days === HOW_FAR_BACK_DEFAULT_DAYS)).toBe(true);
+    expect(HOW_FAR_BACK_DEFAULT_DAYS).not.toBeNull();
+  });
+
+  test('each choice reads from that many days before it was made, everything from the start, and nothing else is taken', () => {
+    expect(readFromFor(14, NOW)).toBe(NOW - 14 * DAY);
+    expect(readFromFor(HOW_FAR_BACK_DEFAULT_DAYS, NOW)).toBe(NOW - 90 * DAY);
+    expect(readFromFor(null, NOW)).toBe(0);
+    expect(() => readFromFor(30, NOW)).toThrow('not one of');
+  });
+
+  test("the server's entry has the same choices, so a server can set the first day itself", () => {
+    expect(server.HOW_FAR_BACK).toBe(HOW_FAR_BACK);
+    expect(server.readFromFor).toBe(readFromFor);
+  });
+});
+
 describe('catching up', () => {
   test('the first upload reads from the first day asked, batch by batch, to the end', async () => {
     const m = mac(5);
     const uploads: Array<{ scannedTo: number; reset: boolean; n: number }> = [];
     const r = await catchUp({
       mark: { readMark: null, readFrom: READ_FROM },
-      now: NOW,
       read: m.read,
       upload: async (b) => void uploads.push({ scannedTo: b.scannedTo, reset: b.reset, n: b.texts.length }),
     });
@@ -175,22 +202,22 @@ describe('catching up', () => {
   test('after a mark, every text since the first day is read, however long the Mac was away', async () => {
     const m = mac(5, 2);
     const yearAgo = NOW - 365 * DAY;
-    await catchUp({ mark: { readMark: 1, readFrom: yearAgo }, now: NOW, read: m.read, upload: async () => {} });
+    await catchUp({ mark: { readMark: 1, readFrom: yearAgo }, read: m.read, upload: async () => {} });
     expect(m.asked).toEqual([[1, yearAgo], [3, yearAgo]]);
   });
 
   test('a catch-up stops at its batch limit, and the next keeps to the same first day', async () => {
     const m = mac(2 * (MAX_BATCHES + 5), 2);
-    const first = await catchUp({ mark: { readMark: null, readFrom: READ_FROM }, now: NOW, read: m.read, upload: async () => {} });
+    const first = await catchUp({ mark: { readMark: null, readFrom: READ_FROM }, read: m.read, upload: async () => {} });
     expect(first).toMatchObject({ batches: MAX_BATCHES, toEnd: false });
-    await catchUp({ mark: { readMark: 2 * MAX_BATCHES, readFrom: READ_FROM }, now: NOW, read: m.read, upload: async () => {} });
+    await catchUp({ mark: { readMark: 2 * MAX_BATCHES, readFrom: READ_FROM }, read: m.read, upload: async () => {} });
     expect(new Set(m.asked.map((a) => a[1]))).toEqual(new Set([READ_FROM]));
   });
 
   test('nothing new uploads nothing', async () => {
     const m = mac(5);
     const uploads: unknown[] = [];
-    const r = await catchUp({ mark: { readMark: 5, readFrom: READ_FROM }, now: NOW, read: m.read, upload: async (b) => void uploads.push(b) });
+    const r = await catchUp({ mark: { readMark: 5, readFrom: READ_FROM }, read: m.read, upload: async (b) => void uploads.push(b) });
     expect(uploads).toEqual([]);
     expect(r).toEqual({ uploaded: 0, batches: 0, toEnd: true });
   });
@@ -198,33 +225,32 @@ describe('catching up', () => {
   test('a batch of only skipped rows still moves the mark', async () => {
     const read = async (after: number | null): Promise<MacBatch> => ({ texts: [], scannedTo: (after ?? 0) + 3, maxRowid: 8, contactsRead: true });
     const uploads: number[] = [];
-    await catchUp({ mark: { readMark: 5, readFrom: READ_FROM }, now: NOW, read, upload: async (b) => void uploads.push(b.scannedTo) });
+    await catchUp({ mark: { readMark: 5, readFrom: READ_FROM }, read, upload: async (b) => void uploads.push(b.scannedTo) });
     expect(uploads).toEqual([8]);
   });
 
   test('a read held below a text Messages is still writing has not reached the end', async () => {
     const read = async (after: number | null): Promise<MacBatch> => ({ texts: [], scannedTo: after ?? 0, maxRowid: 5, contactsRead: true });
-    const held = await catchUp({ mark: { readMark: 3, readFrom: READ_FROM }, now: NOW, read, upload: async () => {} });
+    const held = await catchUp({ mark: { readMark: 3, readFrom: READ_FROM }, read, upload: async () => {} });
     expect(held.toEnd).toBe(false);
   });
 
-  test('a database rebuilt below the mark is read again from 14 days back, as a reset', async () => {
+  test('a database rebuilt below the mark is read again from the first day the person chose, as a reset', async () => {
     const m = mac(3, 10);
     const uploads: Array<{ scannedTo: number; reset: boolean }> = [];
     await catchUp({
       mark: { readMark: 900, readFrom: READ_FROM },
-      now: NOW,
       read: m.read,
       upload: async (b) => void uploads.push({ scannedTo: b.scannedTo, reset: b.reset }),
     });
-    expect(m.asked).toEqual([[900, READ_FROM], [null, NOW - FIRST_READ_DAYS * DAY]]);
+    expect(m.asked).toEqual([[900, READ_FROM], [null, READ_FROM]]);
     expect(uploads).toEqual([{ scannedTo: 3, reset: true }]);
   });
 
   test('a failed upload stops the catch-up, leaving the mark where the server holds it', async () => {
     const m = mac(5);
     await expect(
-      catchUp({ mark: { readMark: 0, readFrom: READ_FROM }, now: NOW, read: m.read, upload: async () => { throw new Error('offline'); } }),
+      catchUp({ mark: { readMark: 0, readFrom: READ_FROM }, read: m.read, upload: async () => { throw new Error('offline'); } }),
     ).rejects.toThrow('offline');
     expect(m.asked).toHaveLength(1);
   });

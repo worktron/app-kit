@@ -25,6 +25,29 @@ pub const SERVICE_LATEST_JSON: &str = "https://github.com/worktron/messages-serv
 /// The release's platform key in that manifest.
 pub const SERVICE_PLATFORM: &str = "darwin-aarch64";
 
+/// How far back the person lets an app read, which the service's window offers when they connect one: each choice's
+/// label and its days, None for every text. The page's HOW_FAR_BACK (../../names.ts) is the same list, held equal by
+/// app-kit's test/tauri-apple-messages.test.ts.
+pub const HOW_FAR_BACK: &[(&str, Option<i64>)] = &[
+    ("The last 2 weeks", Some(14)),
+    ("The last 3 months", Some(90)),
+    ("The last year", Some(365)),
+    ("Everything", None),
+];
+/// The choice picked to start.
+pub const HOW_FAR_BACK_DEFAULT_DAYS: i64 = 90;
+
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// The first day read, in Unix milliseconds, for a choice of how far back made at `now_ms`: 0 for every text. A number
+/// of days that is not one of HOW_FAR_BACK's is refused, so no app reads further back than the person was offered.
+pub fn read_from_for(days: Option<i64>, now_ms: i64) -> Result<i64, String> {
+    if !HOW_FAR_BACK.iter().any(|(_, d)| *d == days) {
+        return Err(format!("{days:?} is not one of the choices of how far back"));
+    }
+    Ok(days.map_or(0, |d| now_ms - d * DAY_MS))
+}
+
 /// What an install did.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -368,6 +391,16 @@ mod tests {
         );
         assert!(requirement("abcde12345").is_err());
         assert!(requirement("ABCDE\" or true").is_err(), "nothing can be written into the requirement");
+    }
+
+    #[test]
+    fn each_choice_of_how_far_back_starts_that_many_days_before_it_was_made() {
+        let now = 1_800_000_000_000;
+        assert_eq!(read_from_for(Some(14), now), Ok(now - 14 * DAY_MS));
+        assert_eq!(read_from_for(Some(HOW_FAR_BACK_DEFAULT_DAYS), now), Ok(now - 90 * DAY_MS));
+        assert_eq!(read_from_for(None, now), Ok(0));
+        assert!(read_from_for(Some(30), now).is_err(), "a number of days the person was not offered");
+        assert!(HOW_FAR_BACK.iter().any(|(_, d)| *d == Some(HOW_FAR_BACK_DEFAULT_DAYS)));
     }
 
     #[test]

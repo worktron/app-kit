@@ -1,5 +1,5 @@
 /*
- * The names and limits the Apple Messages page half shares with the plugin's Rust (plugin/) and with an app's server.
+ * The names, limits and choices the Apple Messages page half shares with the plugin's Rust (plugin/) and with an app's server.
  * test/tauri-apple-messages.test.ts reads the plugin's sources and holds each to these, so a change on one side fails a
  * test rather than every upload. The page comes from the app's server and the plugin from the installed build, so a
  * command's name stays as it is.
@@ -38,6 +38,32 @@ export const MAX_GUID_UNITS = 200;
 export const MAX_SERVICE_UNITS = 40;
 /** Texts per `since` call, so per upload. */
 export const BATCH_SIZE = 500;
+
+/**
+ * How far back the person lets an app read, chosen when they turn reading on or connect it to Messages Service: each
+ * choice's label as the person sees it, and its days (null for every text). The service's window and an app's own
+ * setup page offer these and no others, with HOW_FAR_BACK_DEFAULT_DAYS picked to start. The plugin's Rust keeps the
+ * same list for the service (plugin/src/service.rs), held equal by test/tauri-apple-messages.test.ts.
+ */
+export const HOW_FAR_BACK = [
+  { label: 'The last 2 weeks', days: 14 },
+  { label: 'The last 3 months', days: 90 },
+  { label: 'The last year', days: 365 },
+  { label: 'Everything', days: null },
+] as const;
+export const HOW_FAR_BACK_DEFAULT_DAYS = 90;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The first day read for a choice of how far back, one of HOW_FAR_BACK's `days` (null for everything), counted from
+ * `now`, when the person made the choice: 0 reads every text. A number that is not one of the choices throws, so an app
+ * never reads further back than the person was offered. The page and the server both export it.
+ */
+export function readFromFor(days: number | null, now: number): number {
+  if (!HOW_FAR_BACK.some((choice) => choice.days === days)) throw new Error(`${days} is not one of HOW_FAR_BACK's choices`);
+  return days === null ? 0 : now - days * DAY_MS;
+}
 
 /** How many reads a row seen before its chat link is held back before it is skipped with a log line. */
 export const HOLD_READS = 20;

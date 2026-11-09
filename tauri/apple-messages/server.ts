@@ -32,6 +32,8 @@ import {
 export {
   BATCH_SIZE,
   CONNECT_CODE_MS,
+  HOW_FAR_BACK,
+  HOW_FAR_BACK_DEFAULT_DAYS,
   MAX_FIELD_UNITS,
   MAX_GUID_UNITS,
   MAX_PARTICIPANTS,
@@ -39,6 +41,7 @@ export {
   MAX_TEXT_UNITS,
   MESSAGES_SERVICE_ROUTES,
   SERVICE_OPEN_PATHS,
+  readFromFor,
 } from './names';
 export type { MacPerson, MacText, MessagesUpload } from './index';
 
