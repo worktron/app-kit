@@ -467,6 +467,7 @@ describe('shutting down idle Simulators booted some other way', () => {
     );
     expect(usedBy(listing, { udid: HAND, name: HAND_NAME })).toBeNull();
     expect(usedBy(parseProcesses(`70001 /opt/homebrew/bin/axe tap --udid ${HAND} -x 10 -y 20\n`), { udid: HAND, name: HAND_NAME })).toBe('axe (70001)');
+    expect(usedBy(parseProcesses(`70002 /Applications/Xcode 26.app/Contents/Developer/usr/bin/xcodebuild test -destination id=${HAND}\n`), { udid: HAND, name: HAND_NAME })).toBe('xcodebuild (70002)');
   });
 
   test('Device Hub open keeps every Simulator up, logged once, and its 10 minutes count from its closing', async () => {

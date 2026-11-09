@@ -423,13 +423,17 @@ const DEVICE_HUB = ['/DeviceHub.app/Contents/MacOS/', '/Simulator.app/Contents/M
 /** One line of `ps -axww -o pid=,command=`: the process id, its program's base name, and its whole command line. */
 export type Process = { pid: number; program: string; command: string };
 
+/** One of the programs that count, at the head of a command line, its path free to hold spaces (`/Applications/Xcode 26.app/...`). */
+const USER_AT_HEAD = new RegExp(`^(?:[^ ].*?/)?(${[...USERS].join('|')})(?: |$)`);
+
 export function parseProcesses(listing: string): Process[] {
   return listing.split('\n').flatMap((line) => {
     const found = line.match(/^\s*(\d+)\s+(\S.*)$/);
     if (!found) return [];
     const command = found[2];
     const path = command.split(' ')[0];
-    return [{ pid: Number(found[1]), program: path.slice(path.lastIndexOf('/') + 1), command }];
+    const program = command.match(USER_AT_HEAD)?.[1] ?? path.slice(path.lastIndexOf('/') + 1);
+    return [{ pid: Number(found[1]), program, command }];
   });
 }
 
