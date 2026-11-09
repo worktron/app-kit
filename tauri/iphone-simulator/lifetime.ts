@@ -14,7 +14,8 @@
  * the kit's shut-down times, and fails at once naming them when no holder has one. The count and the place are taken
  * under one lock, so two runs never take the last place together.
  *
- * A Simulator booted any other way (`xcrun simctl boot`, an `xcodebuild test` run, a project's own script) is timed by
+ * A Simulator booted any other way (`xcrun simctl boot`, a project's own script; Xcode 27's `xcodebuild test` shuts down
+ * one it booted itself, and leaves one already booted as it was) is timed by
  * `app-kit iphone-simulator shut-down-idle`, which a background job runs once a minute: it gives each one 10 minutes,
  * counted again from every look that finds a program using it, and shuts it down once they pass with nothing using it.
  * A program using it is a running xcodebuild, xcrun, simctl, devicectl, axe or idb whose arguments name its udid, its
