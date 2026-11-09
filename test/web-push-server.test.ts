@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { createDecipheriv, createECDH, createPublicKey, hkdfSync, verify } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { withoutPage } from './dom';
 import {
   encryptFor,
+  fetchPost,
   isPushService,
   makeWebPushKeys,
   outcomeOf,
@@ -278,4 +280,26 @@ test("only a browser's push service is sent to, so a caller's own address never 
   expect(result).toEqual({ sent: 1, gone: [], failed: 1 });
   expect(d.asked.map((r) => r.endpoint)).toEqual(['https://fcm.googleapis.com/fcm/send/abc123']);
   expect(logged.join('\n')).toContain("not a browser's push service");
+});
+
+test('the real POST refuses a redirect, so an endpoint checked is the only address the server sends to', async () => {
+  // Bun's own fetch, as on a server: the simulated page's fetch stands in for it while the page is there.
+  const restorePage = await withoutPage();
+  const reached: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const path = new URL(req.url).pathname;
+      reached.push(path);
+      return path === '/push' ? new Response(null, { status: 307, headers: { location: '/elsewhere' } }) : new Response('reached');
+    },
+  });
+  try {
+    const request = { endpoint: `http://localhost:${server.port}/push`, headers: {}, body: new Uint8Array(new ArrayBuffer(1)) };
+    await expect(fetchPost(request, new AbortController().signal)).rejects.toThrow();
+    expect(reached).toEqual(['/push']);
+  } finally {
+    await server.stop(true);
+    restorePage();
+  }
 });
