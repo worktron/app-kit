@@ -585,3 +585,10 @@ Written by: app-kit/web-push
 Goal: test/fixtures/web-push/sent-synthetic.json is the one push service answer not recorded from a real service: the 201 a push service gives a message it took is written from RFC 8030, since no windowless browser could make a real subscription (Chromium drops a subscribe in its incognito contexts, and no Playwright Firefox was installed). Every gone and failed answer beside it was recorded from Google, Apple and Mozilla on 2026-11-09 with throwaway keys.
 
 Done when: the sent fixture is a recorded answer from a real subscription (Playwright's Firefox, whose Mozilla endpoint needs no account, or a real device), its headers and body as the service sent them with ids replaced, the synthetic one is gone, and test/web-push-server.test.ts reads the recording.
+
+## home-screen-steps · A piece that shows an iPhone person how to add the app to the Home Screen
+Written by: app-kit/web-push
+
+Goal: an iPhone or iPad browser tab gets Web Push only once the app is on the Home Screen and opened from there, and startWebPush's state says `needs-home-screen` for it. The README's "Notifications on the Home Screen" lists the steps, following Apple's iPhone guide for iOS 26 (the Page Menu or Share button by tab layout, Add to Home Screen, Open as Web App, open from the icon and sign in again), and leaves each app to draw them, so every app on the kit would write the same screen.
+
+Done when: app-kit/web holds a quiet in-place piece that shows those steps for the layout the phone uses, shown only while the state is `needs-home-screen`, in the kit's looks, with a browser test at a phone's size, and the README points to it instead of asking apps to draw their own.
