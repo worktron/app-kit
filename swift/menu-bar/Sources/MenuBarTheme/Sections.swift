@@ -18,7 +18,8 @@ struct LabelText: View {
 }
 
 /// A section's label in a panel: 24 points below what is above it and 8 above what it labels, at the panel's sides. The
-/// panel's `first`, under the header, sits 14 below it. In a row's side page in the plain look, the 24 points hold a line
+/// panel's `first`, under the header, sits 14 below it, and with no header 24 below the panel's edge, the panel's 10 of
+/// room and the 14. In a row's side page in the plain look, the 24 points hold a line
 /// across the page, 8 below the group above, from the Plain Panel Studies page's A, since a side page's groups are short
 /// and run together on room alone; never above the page's first. The arrow keys pass over it, since it does nothing.
 public struct PanelSectionLabel: View {
@@ -183,7 +184,8 @@ public struct CompactRow: View {
 }
 
 /// Compact rows as one list, with 4 points below the last. A `closing` list, a page's last actions, sits under a line
-/// across the panel, 8 below what is above it and 4 above its rows, with 10 below them.
+/// across the panel, 8 below what is above it and 4 above its rows, with the panel's edge room below them, 10, before the
+/// footer.
 public struct CompactList<Rows: View>: View {
     let closing: Bool
     let rows: Rows
@@ -198,7 +200,7 @@ public struct CompactList<Rows: View>: View {
             if closing { Palette.border.color.frame(height: Metrics.line).padding(.top, 8).padding(.bottom, 4) }
             rows
         }
-        .padding(.bottom, closing ? 10 : 4)
+        .padding(.bottom, closing ? Metrics.panelEdge : 4)
     }
 }
 

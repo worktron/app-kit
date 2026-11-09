@@ -19,10 +19,12 @@ import Testing
     /// A role's plain light value, the color the snapshots below draw in.
     func plain(_ palette: Palette) -> UInt32 { palette.plain(accent: Look.defaultAccent).light }
 
+    /// `content` drawn alone, without the room a panel keeps at its top and bottom, so a piece is measured from its own top.
     func draw(selecting id: AnyHashable? = nil, @ViewBuilder _ content: () -> some View) throws -> NSBitmapImageRep {
         let state = PanelState(pasteboard: .withUniqueName())
         state.selected = id
-        return try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .plain(), state: state, content)))
+        return try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .plain(), state: state,
+                                                                edgeRoom: false, content)))
     }
 
     /// How tall `content` draws, without the panel's border above and below.
@@ -113,6 +115,68 @@ import Testing
         let footer = { (line: Bool) in Footer([FooterItem("Settings…", key: ",") {}], trailing: [FooterItem("Quit", key: "q") {}], lineAbove: line) }
         #expect(color(try draw { footer(true) }, 200, 0) == plain(.border))
         #expect(color(try draw { footer(false) }, 200, 0) == plain(.bg))
+    }
+
+    /// The machines-icons sample, Fleet's menu, drawn as the panel draws it, with `id` selected.
+    func fleetMenu(selecting id: AnyHashable) throws -> NSBitmapImageRep {
+        let sample = try #require(samples.first { $0.name == "machines-icons" })
+        let state = PanelState(pasteboard: .withUniqueName())
+        state.selected = id
+        return try #require(NSBitmapImageRep(data: try snapshot(width: sample.width, appearance: Self.light, look: .plain(), state: state) {
+            sample.content()
+        }))
+    }
+
+    /// The first and last point, in steps of a pixel down the middle, inside the panel's border, drawn in `hex`.
+    func span(_ rep: NSBitmapImageRep, of hex: UInt32, x: CGFloat) -> (first: CGFloat, last: CGFloat)? {
+        let ys = stride(from: CGFloat(0), to: CGFloat(rep.pixelsHigh) / 2 - 2, by: 0.5).filter { color(rep, x, $0) == hex }
+        return ys.first.flatMap { first in ys.last.map { (first, $0) } }
+    }
+
+    @Test func aPanelThatStartsWithRowsHasTheRoomAboveThemThatItHasBelowItsLastRow() throws {
+        // Fleet's menu opens on its machines, with no header: the first row's fill starts 10 points below the panel's
+        // top edge, the room the panel keeps there.
+        let first = try #require(span(try fleetMenu(selecting: ["machine", "alpha"]), of: plain(.hover), x: 150))
+        #expect(first.first == Metrics.panelEdge)
+        #expect(first.last == Metrics.panelEdge + PlainMetrics.rowCompact - 0.5)
+        // The last row's fill ends the same 10 points above the footer's line, which sits on the bottom edge.
+        let menu = try fleetMenu(selecting: "dashboard")
+        let last = try #require(span(menu, of: plain(.hover), x: 150))
+        let inside = CGFloat(menu.pixelsHigh) / 2 - 2
+        let footerLine = inside - Metrics.footer
+        #expect(color(menu, 150, footerLine) == plain(.border))
+        #expect(footerLine - (last.last + 0.5) == first.first)
+    }
+
+    @Test func aFirstLabelWithNoHeaderSitsTwentyFourBelowTheEdgeAndUnderAHeaderStaysWhereItWas() throws {
+        let state = { PanelState(pasteboard: .withUniqueName()) }
+        let ink = { (rep: NSBitmapImageRep) in
+            stride(from: CGFloat(0), to: 80, by: 0.5).first { y in
+                stride(from: CGFloat(20), to: 200, by: 0.5).contains { self.color(rep, $0, y) != self.plain(.bg) }
+            }
+        }
+        let alone = try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .plain(), state: state()) {
+            PanelSectionLabel("Needs you", first: true)
+            CompactList { CompactRow("alpha", opens: false, id: "a") {} }
+        }))
+        let unroomed = try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .plain(), state: state(),
+                                                                         edgeRoom: false) {
+            PanelSectionLabel("Needs you", first: true)
+            CompactList { CompactRow("alpha", opens: false, id: "a") {} }
+        }))
+        // The label's 14 of room, then the panel's 10 above it.
+        let label = try #require(ink(unroomed))
+        #expect(label >= 14)
+        #expect(try #require(ink(alone)) == label + Metrics.panelEdge)
+        // Drawn to the nearest pixel, as the label's 16.8 point line rounds.
+        #expect(abs(CGFloat(alone.pixelsHigh) / 2 - 2 - (14 + 16.8 + 8 + 30 + 4 + 2 * Metrics.panelEdge)) <= 0.5)
+        // Under a header, the header takes the panel's top room, and the label stays 14 below it.
+        let headed = try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: Self.light, look: .plain(), state: state()) {
+            Header("Beeline")
+            PanelSectionLabel("Needs you", first: true)
+        }))
+        #expect(color(headed, 200, 0) == plain(.surface))
+        #expect(abs(CGFloat(headed.pixelsHigh) / 2 - 2 - (Metrics.header + 14 + 16.8 + 8 + Metrics.panelEdge)) <= 0.5)
     }
 
     @Test func aSectionLabelIsSecondaryInThePanelAndInAWindow() throws {
@@ -223,10 +287,10 @@ import Testing
 
     static let dark = NSAppearance(named: .darkAqua)!
 
-    /// `content` drawn 400 wide in the plain look, light or dark, nothing selected.
+    /// `content` drawn alone 400 wide in the plain look, light or dark, nothing selected, without the panel's edge room.
     func draw(light: Bool, @ViewBuilder _ content: () -> some View) throws -> NSBitmapImageRep {
         try #require(NSBitmapImageRep(data: try snapshot(width: 400, appearance: light ? Self.light : Self.dark, look: .plain(),
-                                                         state: PanelState(pasteboard: .withUniqueName()), content)))
+                                                         state: PanelState(pasteboard: .withUniqueName()), edgeRoom: false, content)))
     }
 
     func pick(_ palette: Palette, light: Bool) -> UInt32 {

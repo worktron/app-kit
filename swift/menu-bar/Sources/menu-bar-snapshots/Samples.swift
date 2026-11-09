@@ -22,6 +22,8 @@ struct Sample {
     var sideWidth: CGFloat?
     /// The look it is always drawn in, whatever look a render asks for: an app's own colors; nil for the render's.
     var look: Look?
+    /// A side page's content drawn as a page of its own, without the room a list keeps at its top and bottom.
+    var sidePageAlone = false
     let content: () -> AnyView
 }
 
@@ -97,7 +99,7 @@ let samples: [Sample] = [
     // The Beeline Menu Studies page's D, its list in sections, and E, a link's side page, in the plain look, with the page's
     // text; e2e/beeline-mockups.html draws them with the page's own markup.
     Sample(name: "beeline-d", width: 480, mockup: .plain()) { beelineList() },
-    Sample(name: "beeline-e", width: 480, mockup: .plain()) { beelinePage() },
+    Sample(name: "beeline-e", width: 480, mockup: .plain(), sidePageAlone: true) { beelinePage() },
     // Beeline's menu with a link's side page open, the page 380 points wide beside the 480 point list, as the Plain Panel
     // Studies page's A draws it: in the render's look, and in the page's Slate, a paper and highlight an app might set.
     Sample(name: "beeline-d-selected", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
@@ -105,7 +107,8 @@ let samples: [Sample] = [
     Sample(name: "beeline-slate", width: 480, selected: ["link", "k3Ra9vTq2LmXw8Hd"], sidePage: ["link", "k3Ra9vTq2LmXw8Hd"],
            mockup: nil, sideWidth: 380, look: .plain(background: slate)) { beelineList() },
     // The Fleet Window Studies page's F with L's marks: a row per machine, its icon (muted when offline), its name, and a
-    // red dot when it needs the person, then the app's own rows with their keys. The machines are stand-ins.
+    // red dot when it needs the person, then the app's own rows with their keys and the footer, as Fleet's menu draws
+    // them, its first row in the room the panel keeps at its top. The machines are stand-ins.
     Sample(name: "machines-icons", width: 300, selected: ["machine", "alpha"], mockup: nil) { machinesWithIcons() },
 ]
 
@@ -121,9 +124,9 @@ private func machinesWithIcons() -> AnyView {
         }
         CompactList(closing: true) {
             CompactRow("Open the window", key: "o", opens: false, id: "open") {}
-            CompactRow("Settings…", key: ",", opens: false, id: "settings") {}
-            CompactRow("Quit", key: "q", opens: false, id: "quit") {}
+            CompactRow("Open the dashboard", opens: false, id: "dashboard") {}
         }
+        Footer([FooterItem("Settings…", key: ",") {}, FooterItem("About") {}], trailing: [FooterItem("Quit", key: "q") {}], lineAbove: true)
     })
 }
 
@@ -313,5 +316,6 @@ func render(_ sample: Sample, appearance: NSAppearance = NSAppearance(named: .da
     if let sidePage = sample.sidePage { state.openSide(sidePage) }
     let look = sample.look ?? Look.app
     if sample.window { return try windowSnapshot(width: sample.width, appearance: appearance, look: look) { sample.content() } }
-    return try snapshot(width: sample.width, sideWidth: sample.sideWidth, appearance: appearance, look: look, state: state) { sample.content() }
+    return try snapshot(width: sample.width, sideWidth: sample.sideWidth, appearance: appearance, look: look, state: state,
+                        edgeRoom: !sample.sidePageAlone) { sample.content() }
 }

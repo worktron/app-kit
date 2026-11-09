@@ -18,16 +18,19 @@ public enum SnapshotError: Error, CustomStringConvertible {
 /// contents where SwiftUI's ImageRenderer leaves them blank. It draws in `appearance`, dark unless asked, never the
 /// machine's own setting, so a render is the same at any hour, and in `look`, the app's unless asked, which it sets for
 /// the draw and puts back after. With a side page open in `state`, the page is drawn beside the panel, its first line
-/// level with its row, as the side panel shows it, `sideWidth` points wide, the list's width unless given. Throws, in the console look, when the bundled font is not loaded.
+/// level with its row, as the side panel shows it, `sideWidth` points wide, the list's width unless given. With
+/// `edgeRoom` false, the content is drawn without the room the panel keeps at its top and bottom, as a piece alone or a
+/// side page's content drawn as a page of its own. Throws, in the console look, when the bundled font is not loaded.
 @MainActor
 public func snapshot<Content: View>(width: CGFloat, sideWidth: CGFloat? = nil, scale: CGFloat = 2, appearance: NSAppearance = NSAppearance(named: .darkAqua)!,
-                                    look: Look = Look.app, state: PanelState? = nil, @ViewBuilder _ content: () -> Content) throws -> Data {
+                                    look: Look = Look.app, state: PanelState? = nil, edgeRoom: Bool = true,
+                                    @ViewBuilder _ content: () -> Content) throws -> Data {
     let state = state ?? PanelState()
     let before = Look.app
     Look.app = look
     defer { Look.app = before }
     if look == .console, !Typeface.register() { throw SnapshotError.font(Typeface.problem ?? "unknown") }
-    let list = try draw(PanelRoot(width: width, state: state, surface: state.list, content: content()), width: width, scale: scale,
+    let list = try draw(PanelRoot(width: width, state: state, surface: state.list, content: content(), edgeRoom: edgeRoom), width: width, scale: scale,
                         appearance: appearance, surface: state.list)
     guard let page = state.sidePages.first(where: { $0.id == state.sidePage }) else { return try png(list) }
     guard let list = list.cgImage, let side = try draw(PanelRoot(width: sideWidth ?? width, state: state, surface: state.side, content: SideContent(state: state)), width: sideWidth ?? width,

@@ -54,12 +54,14 @@ struct Lined<Content: View>: View {
 }
 
 /// The panel's top line: an optional back mark, the title in bold, its status in words, and a note on the right.
-/// With `back`, the whole line takes the click.
+/// With `back`, the whole line takes the click. It draws out into the room the panel keeps at its top, so it sits on the
+/// edge; it is always the panel's first line.
 public struct Header: View {
     let title: String
     let status: Words?
     let note: String
     let back: (() -> Void)?
+    @Environment(\.panelEdge) private var edge
 
     public init(_ title: String, status: Words? = nil, note: String = "", back: (() -> Void)? = nil) {
         self.title = title
@@ -80,11 +82,14 @@ public struct Header: View {
         .padding(.horizontal, Metrics.inset)
         .frame(maxHeight: .infinity)
         .background(Palette.surface.color))
-        if let back {
-            line.contentShape(Rectangle()).onTapGesture(perform: back)
-        } else {
-            line
+        Group {
+            if let back {
+                line.contentShape(Rectangle()).onTapGesture(perform: back)
+            } else {
+                line
+            }
         }
+        .padding(.top, -edge)
     }
 
     /// The title's size: a popup's title in the plain look, the body's in the console look.
@@ -341,10 +346,12 @@ public struct FooterItem {
 
 /// The panel's last line: its actions on the left and the last ones (Quit) on the right. With `lineAbove`, it draws the
 /// 1 point border along its top, inside its height, for when what is above it has no line of its own, as compact rows.
+/// It draws out into the room the panel keeps at its bottom, so it sits on the edge; it is always the panel's last line.
 public struct Footer: View {
     let leading: [FooterItem]
     let trailing: [FooterItem]
     let lineAbove: Bool
+    @Environment(\.panelEdge) private var edge
 
     public init(_ leading: [FooterItem], trailing: [FooterItem] = [], lineAbove: Bool = false) {
         self.leading = leading
@@ -364,6 +371,7 @@ public struct Footer: View {
         .preference(key: Shortcuts.self, value: (leading + trailing).compactMap { item in
             item.key.map { Shortcut(key: Character($0.lowercased()), action: item.action) }
         })
+        .padding(.bottom, -edge)
     }
 }
 

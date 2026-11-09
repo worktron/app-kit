@@ -258,6 +258,19 @@ struct InSidePage: EnvironmentKey {
     static let defaultValue = false
 }
 
+/// The room the panel a view is drawn in keeps at its top and bottom: `Metrics.panelEdge` in a menu bar panel's list, and
+/// none in a side page, a window or anywhere else, so the header and footer that draw out into it move only there.
+struct PanelEdge: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var panelEdge: CGFloat {
+        get { self[PanelEdge.self] }
+        set { self[PanelEdge.self] = newValue }
+    }
+}
+
 /// A row's mark that a click on it opens something. In console it is on every such row and brightens while its row is
 /// selected; in plain it shows on the selected row only, so a list of links carries one mark rather than one a row, and
 /// its column stays, so nothing moves as the selection does.

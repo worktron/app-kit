@@ -14,10 +14,10 @@ import Testing
         Typeface.register()
     }
 
-    /// How tall `view` draws in a snapshot at scale 2, without the panel's border above and below. A hosting view's
-    /// own fitting size, outside a window, rounds to whole points.
+    /// How tall `view` draws alone in a snapshot at scale 2, without the panel's border above and below or the room it
+    /// keeps at its top and bottom. A hosting view's own fitting size, outside a window, rounds to whole points.
     func height(_ view: some View) throws -> CGFloat {
-        let rep = try #require(NSBitmapImageRep(data: try snapshot(width: 400) { view }))
+        let rep = try #require(NSBitmapImageRep(data: try snapshot(width: 400, edgeRoom: false) { view }))
         return CGFloat(rep.pixelsHigh) / 2 - 2
     }
 

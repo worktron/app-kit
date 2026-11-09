@@ -311,8 +311,13 @@ struct PanelRoot<Content: View>: View {
     /// The list's surface or the side page's: where this panel's lines and height go.
     let surface: Surface
     let content: Content
+    /// Whether the list keeps its room at the top and bottom edges; false only for a snapshot of a piece alone.
+    var edgeRoom = true
     /// The top of the content, scrolled back to as the panel closes: a type of its own, so no line's id is the same.
     struct Top: Hashable {}
+
+    /// The room at the top and bottom: the list's, never a side page's, whose first line sits level with its row.
+    var edge: CGFloat { edgeRoom && surface === state.list ? Metrics.panelEdge : 0 }
 
     var body: some View {
         PanelFrame(width: width) {
@@ -320,7 +325,11 @@ struct PanelRoot<Content: View>: View {
                 ScrollView(.vertical) {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: 0).id(Top())
-                        content
+                        // The app's pieces in a stack of the kit's own, so pieces passed side by side get no spacing
+                        // between them, inside the room the header and footer draw out into.
+                        VStack(spacing: 0) { content }
+                            .padding(.vertical, edge)
+                            .environment(\.panelEdge, edge)
                     }
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
                             surface.contentHeight = height

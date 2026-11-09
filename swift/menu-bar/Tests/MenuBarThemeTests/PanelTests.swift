@@ -261,9 +261,9 @@ import Testing
             links.shown = ["github.com/acme/widgets/pull/12", "docs.example.com/document/d/1AbCdEf/edit"]
         }
         panel.open(below: Self.icon, in: Self.screen)
-        // Called while still closed, and the panel was sized for the two rows it read.
+        // Called while still closed, and the panel was sized for the two rows it read, with its room at the top and bottom.
         #expect(opened == [false])
-        let twoRows: CGFloat = 2 * 44 + 2
+        let twoRows: CGFloat = 2 * 44 + 2 + 2 * Metrics.panelEdge
         #expect(panel.frame.height == twoRows)
         // A second open while open, as by a second session, leaves the content alone.
         panel.open(below: Self.icon, in: Self.screen)
