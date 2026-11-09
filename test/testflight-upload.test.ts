@@ -39,7 +39,7 @@ import {
   XCODE_PROJECT_WITH_SHARE,
   type Apple,
 } from './testflight-apple-stand-in.ts';
-import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
+import { appStoreConnect, CERTIFICATE, CERTIFICATE_RECORD, commit, git, GIT_IDENTITY_ENV, KEY, profileContent, scratch, TOKEN } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen or more times, so it is held to the fifteen seconds a test may take, not Bun's five.
 setDefaultTimeout(15_000);
@@ -69,7 +69,6 @@ async function runUpload(stand: ReturnType<typeof apple>, overrides: Partial<Upl
     cwd: app,
     tokenOnly: false,
     run: stand.run,
-    env: { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome },
     home: place.folder,
     appStoreConnect: asc.options,
     now: () => clock,
@@ -80,12 +79,23 @@ async function runUpload(stand: ReturnType<typeof apple>, overrides: Partial<Upl
     fail: (line) => printed.push(`! ${line}`),
     output: () => {},
     ...overrides,
+    // An identity for the upload's git, under a home folder with none (testflight-stand-in.ts says why); its git only
+    // reads, so the path stays as each test pins it.
+    env: { ...GIT_IDENTITY_ENV, ...(overrides.env ?? { PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome }) },
   });
   return { code, printed };
 }
 
 const count = () => git(app, 'rev-list', '--count', 'HEAD');
 const short = () => git(app, 'rev-parse', '--short=7', 'HEAD');
+
+test("the upload's git in these tests has an identity, so it never looks up the machine's name", async () => {
+  const stand = apple();
+  expect((await runUpload(stand)).code).toBe(0);
+  const gits = stand.calls.filter((call) => call.command[0] === 'git');
+  expect(gits.length).toBeGreaterThan(0);
+  for (const call of gits) expect(call.options.env?.GIT_COMMITTER_EMAIL).toBe('app@example.com');
+});
 
 test('a clean commit of main is built, checked, uploaded, and waited on until Apple has processed it', async () => {
   const stand = apple();

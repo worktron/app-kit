@@ -9,8 +9,11 @@ import { changesSince, compareVersions, kitTickets, readApp, tagsOnGitHub } from
 /** A ticket an app's backlog holds that names the kit. */
 const UPDATE_TICKET = 'kit-update';
 import { CHANGES_HEADING } from '../scripts/land.ts';
+import { GIT_IDENTITY_ENV, pathWithGitItself } from './testflight-stand-in.ts';
 
-const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+// git itself first, and an identity to write refs as, since with no global settings a clone or commit makes one up
+// from the machine's network name, which waited out 5 seconds on a busy Mac (testflight-stand-in.ts says why each).
+const env = { ...process.env, PATH: pathWithGitItself(process.env.PATH), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_IDENTITY_ENV };
 let root: string;
 
 const git = (cwd: string, ...args: string[]) => {
@@ -27,6 +30,12 @@ beforeAll(() => {
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+test("these tests' git has an identity, so writing a ref never looks up the machine's name", () => {
+  // Outside any repository, so only the environment can give one.
+  const ident = Bun.spawnSync(['git', 'var', 'GIT_COMMITTER_IDENT'], { cwd: '/', env, stdout: 'pipe', stderr: 'pipe' });
+  expect(ident.stdout.toString()).toStartWith('app <app@example.com> ');
+});
 
 test('versions compare as numbers, so 0.10 comes after 0.9', () => {
   expect(['v0.10.0', 'v0.9.1', 'v0.9.0'].sort(compareVersions)).toEqual(['v0.9.0', 'v0.9.1', 'v0.10.0']);

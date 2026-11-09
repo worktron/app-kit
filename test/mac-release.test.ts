@@ -25,7 +25,7 @@ import {
   tauriConfig,
   type MacWorld,
 } from './mac-release-stand-in.ts';
-import { commit, exit, git, ok, scratch } from './testflight-stand-in.ts';
+import { commit, exit, git, GIT_IDENTITY_ENV, ok, pathWithGitItself, scratch } from './testflight-stand-in.ts';
 
 // Each test runs real git a dozen times, so it is held to the fifteen seconds a test may take, not Bun's five.
 setDefaultTimeout(15_000);
@@ -42,6 +42,12 @@ afterEach(() => {
 
 const DATE = new Date('2026-11-05T12:00:00.000Z');
 
+/**
+ * The shell a release runs from in these tests, with git itself first on its path and an identity for git to write refs
+ * as: the release fetches, which writes a ref, under a home folder with none (testflight-stand-in.ts says why each).
+ */
+const releaseEnv = (shell: Record<string, string>) => ({ ...shell, ...GIT_IDENTITY_ENV, PATH: pathWithGitItself(shell.PATH) });
+
 async function runRelease(app: string, world: MacWorld = {}, overrides: Partial<ReleaseOptions> = {}) {
   const stand = macRunner(app, world);
   const printed: string[] = [];
@@ -49,7 +55,7 @@ async function runRelease(app: string, world: MacWorld = {}, overrides: Partial<
   const code = await release({
     cwd: app,
     run: stand.run,
-    env: { PATH: '/usr/bin:/bin', HOME: place.folder, APPLE_SIGNING_IDENTITY: 'Another Identity', CARGO_TARGET_DIR: '/elsewhere/target', GH_TOKEN: 'a gh token' },
+    env: releaseEnv({ PATH: '/usr/bin:/bin', HOME: place.folder, APPLE_SIGNING_IDENTITY: 'Another Identity', CARGO_TARGET_DIR: '/elsewhere/target', GH_TOKEN: 'a gh token' }),
     arch: 'arm64',
     now: () => DATE,
     print: (line) => printed.push(line),
@@ -59,6 +65,14 @@ async function runRelease(app: string, world: MacWorld = {}, overrides: Partial<
   });
   return { code, printed, failed, ...stand };
 }
+
+test("the release's git in these tests has an identity and is git itself, so its fetch never looks up the machine's name", () => {
+  const env = releaseEnv({ PATH: '/usr/bin:/bin', HOME: place.folder });
+  const ident = Bun.spawnSync(['git', 'var', 'GIT_COMMITTER_IDENT'], { cwd: '/', env, stdout: 'pipe', stderr: 'pipe' });
+  expect(ident.stdout.toString()).toStartWith('app <app@example.com> ');
+  const xcode = process.platform === 'darwin' && Bun.spawnSync(['xcode-select', '-p'], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
+  if (xcode) expect(Bun.which('git', { PATH: env.PATH })).not.toBe('/usr/bin/git');
+});
 
 test('a landed app is built with the key in its environment alone and published as the next release', async () => {
   const { checkout, app } = macApp(place.folder);
@@ -388,7 +402,7 @@ test('a fingerprint identity is found once though listed twice, in either case, 
 test('Apple sign-in and certificate settings in the shell never reach the build', async () => {
   const { app } = macApp(place.folder);
   const shell = { APPLE_ID: 'someone@example.com', APPLE_PASSWORD: 'p', APPLE_TEAM_ID: 'TEAM000001', APPLE_CERTIFICATE: 'c', APPLE_CERTIFICATE_PASSWORD: 'p', APPLE_API_KEY: 'k' };
-  const result = await runRelease(app, {}, { env: { PATH: '/usr/bin:/bin', HOME: place.folder, ...shell } });
+  const result = await runRelease(app, {}, { env: releaseEnv({ PATH: '/usr/bin:/bin', HOME: place.folder, ...shell }) });
   expect(result.code).toBe(0);
   const env = result.named('tauri build')[0]!.options.env ?? {};
   for (const name of Object.keys(shell)) expect(env[name]).toBeUndefined();
