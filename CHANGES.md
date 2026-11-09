@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.58.0
+
+Urgency: next round
+
+- an app run from a phone's Home Screen can take Web Push (see the README's "Notifications on the Home Screen"); Lighthouse is the first, and argon-watcher can move from its own copy
+
 ## v0.57.0
 
 Urgency: rides along
