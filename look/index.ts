@@ -2,7 +2,8 @@
 // colors and sizes from here, and test/look-swift.test.ts holds the Swift package's copy equal to this file.
 //
 // Plain is the system typeface on warm paper with the app's one accent, for people who never open a terminal, from the
-// Plain Look Studies page's option C. Console is JetBrains Mono on near-black, the console family's colors, for the
+// Plain Look Studies page's option C, with a book face an app may set a work's own title and reading text in, from the
+// Lifeform Work Page Studies page (https://share.worktron.com/xUf9VSTRBkCd7SR8?v=2). Console is JetBrains Mono on near-black, the console family's colors, for the
 // agent tools. An app picks one look, and in plain may set its accent, and its paper with its highlight; the text tones
 // stay the kit's, and the kit refuses an app's colors when any of them reads under 4.5 to 1 (`unreadable`).
 
@@ -167,10 +168,16 @@ export function colorsOf(look: Look): { light: Colors; dark: Colors } {
   return look.name === 'console' ? CONSOLE : plainColors(look);
 }
 
-/** The typeface each look draws text in, as a CSS font-family; plain's `code` is for a command to copy. */
+/**
+ * The typeface each look draws text in, as a CSS font-family; plain's `code` is for a command to copy, and `book` for a
+ * work's own words: its title and its reading text, never a control or a label. The book face is the Work Page Studies
+ * page's, nothing downloaded: Iowan Old Style from Modern Font Stacks' old-style stack, which Apple installs on the Mac
+ * and the iPhone, then Charter from its transitional stack, then Georgia, which Windows draws, then the device's serif.
+ */
 export const FONTS = {
   plain: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif',
   code: 'ui-monospace, "SF Mono", Menlo, monospace',
+  book: '"Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif',
   console: '"JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace',
 } as const;
 
@@ -214,6 +221,24 @@ export const PLAIN_SIZES = {
   switchWidth: 28,
   switchHeight: 16,
   switchKnob: 10,
+} as const;
+
+/**
+ * The book face's sizes in the plain look, in pixels on the web, the Work Page Studies page's: a work's title at 36
+ * regular, its letters half a percent of the size tighter, and reading text at 17 at a line height of 1.6, at most 62
+ * of the face's zeros wide (`ch`), which holds about 78 characters of English in Iowan Old Style. Kept apart from
+ * `PLAIN_SIZES`, which the menu bar theme's Swift copy holds, since no Mac menu bar app draws a work's text.
+ */
+export const BOOK_SIZES = {
+  title: 36,
+  titleWeight: 400,
+  titleLineHeight: 1.12,
+  /** In em. */
+  titleLetterSpacing: -0.005,
+  reading: 17,
+  readingLineHeight: 1.6,
+  /** In ch, the width of the face's zero. */
+  readingWidth: 62,
 } as const;
 
 /** The console look's sizes: the menu bar panel's, and the console web apps' MUI body1 and body2. */

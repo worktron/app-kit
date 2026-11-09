@@ -6,7 +6,7 @@
  * passed after would never get its light, dark and contrast colors worked out.
  */
 import { createTheme, type CssVarsTheme, type Theme, type ThemeOptions } from '@mui/material/styles';
-import { CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Colors, type Look, type PlainChoices, type Role } from '../look';
+import { BOOK_SIZES, CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Colors, type Look, type PlainChoices, type Role } from '../look';
 import { rem } from './fields';
 
 type Options = Record<string, unknown>;
@@ -48,6 +48,29 @@ const LOOK_KEY = 'look';
 export const colorVariables = Object.fromEntries(
   (Object.keys(CONSOLE.dark) as Role[]).map((role) => [role, `var(--mui-palette-${LOOK_KEY}-${role})`]),
 ) as Record<Role, string>;
+
+/**
+ * A work's own title in the book face, 36 regular, as an `sx` or `styled()` style: `<Typography component="h1"
+ * sx={bookTitle}>`. Plain objects rather than Typography variants, so no app's types promise a variant its theme lacks.
+ */
+export const bookTitle = {
+  fontFamily: FONTS.book,
+  fontSize: rem(BOOK_SIZES.title),
+  fontWeight: BOOK_SIZES.titleWeight,
+  lineHeight: BOOK_SIZES.titleLineHeight,
+  letterSpacing: `${BOOK_SIZES.titleLetterSpacing}em`,
+} as const;
+
+/**
+ * A work's reading text in the book face, its About, its story or a script: 17 at a line height of 1.6, at most 62 of
+ * the face's zeros wide, about 78 characters a line. `sx={[readingText, { mt: 2 }]}` adds to it.
+ */
+export const readingText = {
+  fontFamily: FONTS.book,
+  fontSize: rem(BOOK_SIZES.reading),
+  lineHeight: BOOK_SIZES.readingLineHeight,
+  maxWidth: `${BOOK_SIZES.readingWidth}ch`,
+} as const;
 
 function palette(colors: Colors) {
   return {

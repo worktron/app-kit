@@ -6,7 +6,7 @@ export { savedCopies, useSavedCopy, useSaveAfterDraw, useScreenData, thisBuild, 
 export { chooseTextSize, followTextSize, TEXT_SIZES, useTextScale, useTextSize, type TextSize, type TextSizeState } from './text-size';
 export { FIELD_FONT_SIZE, fieldsNeverZoom, rem } from './fields';
 export { waitForFonts, FONT_WAIT_MS } from './fonts';
-export { colorVariables, lookTheme } from './theme';
+export { bookTitle, colorVariables, lookTheme, readingText } from './theme';
 export { TextSizeSetting } from './TextSizeSetting';
 export { isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
 export { PullToRefresh, PULL_DISTANCE, type PullToRefreshProps } from './PullToRefresh';

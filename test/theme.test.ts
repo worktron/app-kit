@@ -3,7 +3,8 @@
 import { expect, test } from 'bun:test';
 import { colorsOf, CONSOLE, DEFAULT_ACCENT, FONTS, plainColors, type Role } from '../look';
 import { fieldsNeverZoom, FIELD_FONT_SIZE } from '../web/fields';
-import { colorVariables, lookTheme } from '../web/theme';
+import type { SxProps, Theme } from '@mui/material/styles';
+import { bookTitle, colorVariables, lookTheme, readingText } from '../web/theme';
 
 test('the plain theme computes its palette from the tokens, light and dark, with the accent as primary', () => {
   const theme = lookTheme();
@@ -52,6 +53,16 @@ test('the plain theme draws in the system typeface at 13, and its section label 
   expect(theme.typography.body1.fontSize).toBe('0.8125rem');
   expect(theme.typography.overline).toMatchObject({ fontSize: '0.75rem', fontWeight: 600, textTransform: 'none' });
   expect(theme.typography.h6).toMatchObject({ fontSize: '1.0625rem', fontWeight: 600 });
+});
+
+test("the book face's title is 36 regular and its reading text 17 at 1.6, the Studies page's width, both in rem", () => {
+  expect(FONTS.book).toStartWith('"Iowan Old Style", Charter,');
+  expect(bookTitle).toEqual({ fontFamily: FONTS.book, fontSize: '2.25rem', fontWeight: 400, lineHeight: 1.12, letterSpacing: '-0.005em' });
+  expect(readingText).toEqual({ fontFamily: FONTS.book, fontSize: '1.0625rem', lineHeight: 1.6, maxWidth: '62ch' });
+  // Both go on `sx` as they are, which the typecheck holds; the exports themselves stay unannotated, since `SxProps`
+  // takes arrays and functions too, which `styled()` refuses.
+  const onSx: SxProps<Theme>[] = [bookTitle, readingText];
+  expect(onSx).toHaveLength(2);
 });
 
 test("the app's own options merge into the kit's before MUI computes the theme", () => {
