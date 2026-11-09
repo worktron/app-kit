@@ -545,3 +545,14 @@ Goal: test/apps.test.ts "an app is read as it landed on origin: the oldest tag i
 Done when: the test's outcome no longer depends on how fast git runs, a reproduction that slows its git commands past 5 seconds fails on the old test and passes on the new, and test/apps.test.ts passes in several parallel runs.
 
 Touches: test/apps.test.ts.
+
+## swift-updater · Swift Mac apps update themselves from a signed release feed
+Written by: buddy-system/suite-app
+
+Project: app-kit.
+Source: buddy-system's suite-app thread, 2026-11-09. buddy-system's accepted plan (.claude/plans/buddies-collaborate.md, "Not this plan") deferred Buddy System's updates until app-kit has a Swift updater, so it is built once here rather than in each app; the desktop app rule asks for Sparkle in Swift apps.
+Goal: what `app-kit mac release` gives a Tauri app, for a Swift menu bar app: one release command that builds, signs with the Developer ID certificate, the hardened runtime and a secure timestamp, notarizes, staples and publishes a signed feed, and a piece in swift/mac-app (on Sparkle) that checks when the app comes forward, at most hourly, offers Update and restart, and gives the menu's Check for Updates… with its result shown in place. The update signing key lives in 1Password, as `app-kit mac key` does for Tauri.
+Done when: a fixture Swift app built with it finds a newer release on a test feed and installs it; the key is in no program's arguments and no file.
+Do not touch: the Tauri updater.
+Needs: nothing.
+Touches: swift/mac-app, command-line (mac release).
