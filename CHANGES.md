@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.55.2
+
+Urgency: rides along
+
+- a menu bar app may give a CompactRow an icon on the left with RowIcon, and a dot and a ⌘ key on the right, and place RowIcon and RowDot in its own rows; nothing to change
+
 ## v0.55.0
 
 Urgency: rides along
