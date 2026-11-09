@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.56.2
+
+Urgency: next round
+
+- An app whose own tests start Playwright's full Chromium (launchPersistentContext with the chromium channel, as extension tests do) spreads withoutDockIcon(chromium) from app-kit/testing/playwright-dock into its launch options; apps on the extension harness or openInBrowser change nothing.
+
 ## v0.56.1
 
 Urgency: rides along
