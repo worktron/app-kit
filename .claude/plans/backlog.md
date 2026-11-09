@@ -575,3 +575,12 @@ Do not touch: metamax's afterPull contract (exit 0 quiet, last line a notice).
 Needs: a choice between metamax's afterPull hook and a launch agent of the app's own as the trigger; Perf Buddy uses the first, Beeline the second.
 Touches: app-kit (new), beeline `scripts/follow-main.sh`, perf-buddy `packages/collector/scripts/after-pull.ts` and `menubar-install.ts`.
 Source: perf-buddy runs-what-landed thread, idea for later the owner asked to ticket on 2026-11-09.
+
+## plain-look-caption · The plain look sizes captions at its 12 pixel small size
+Written by: lifeform/home-first-screen
+
+Goal: an app on the plain look draws its captions at the look's 12 pixel small size, without sizing them itself.
+
+Today, on main at 1f40e69: `plainOptions` in web/theme.ts sizes body1, body2, h6, subtitle1, overline and button from `PLAIN_SIZES` (look/index.ts), but not caption. So a caption gets MUI's own, 0.75rem at its 14 pixel base, which the look's 13 pixel body scales down to 11.1 pixels, under the look's 12 pixel floor for small text. Lifeform found it on Home's shelf captions on 2026-11-09 and works around it in client/src/theme.ts (`typography: { caption: { fontSize: '0.75rem' } }`).
+
+Done when: the plain look sets `caption: { fontSize: rem(PLAIN_SIZES.small), lineHeight: PLAIN_SIZES.lineHeight }`, a browser test on the look fixture (web/e2e/fixture/look.tsx) reads a caption at 12 pixels, and Lifeform drops its own caption size once it takes the release.
