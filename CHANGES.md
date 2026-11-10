@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.61.0
+
+Urgency: next round
+
+- an app with a privacy, terms or about page writes them after vite build with writePublicPages from app-kit/web/public-pages, and passes publicPages: true to serveBuiltPage.
+
 ## v0.60.0
 
 Urgency: now
