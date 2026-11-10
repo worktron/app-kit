@@ -104,7 +104,155 @@ const ONE_TAP: Feature = {
   },
 }
 
-export const FEATURES: Feature[] = [ONE_TAP]
+/** Whether code the app ships matches the pattern. */
+const ships = (app: Landed, pattern: string, also: string[] = []) => app.grep(pattern, [...SHIPPED, ...also]).length > 0
+const has = (yes: boolean): Verdict => (yes ? 'has' : 'lacks')
+const importing = (name: string) => `from[[:space:]]*['"]${name}['"]`
+
+// The kit's sign-in check for a server, or Clerk's own pieces used on it by hand. An app whose server sets up Clerk and
+// decides for itself whether sign-in is on, as Getter's and Sightline's DEV_BYPASS_AUTH switch does, can come up open
+// on Railway when a setting is missing; the kit's check refuses to start there.
+const HOSTED_SIGN_IN: Feature = {
+  feature: 'hosted sign-in decided by the kit',
+  readme: 'Sign-in when hosted',
+  names: ['app-kit/authentication/clerk/server', 'app-kit/authentication/server-sign-in', 'clerkServerSignIn', 'serverSignIn'],
+  appliesTo: (app) =>
+    ships(app, importing('(@clerk/(hono|backend|express|fastify)(/[a-z]+)?|@hono/clerk-auth|app-kit/authentication/clerk/server)')),
+  present: async (app) => has(ships(app, '(clerkServerSignIn|serverSignIn)\\(')),
+}
+
+// The tracked Railway settings an app deploys with: railway.json or railway.toml, or a script of its own that sets
+// them through Railway's API, as Sightline's scripts/railway-settings.ts does.
+const RAILWAY = [':(glob)**/railway.json', ':(glob)**/railway.toml']
+const onRailway = (app: Landed) => app.tracked.some((path) => /(^|\/)railway\.(json|toml)$/.test(path) || /(^|\/)scripts\/[^/]*railway[^/]*$/i.test(path))
+
+// The kit's clean stop runs only when Railway waits for it, and Railway kills the server at once unless the draining
+// time is set; a 0 or null is the same as none. It is set in railway.json, by a settings script, or as the service's
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS variable in Railway itself, which only the app's own words say, as Urge Surfer's
+// server.ts and README do.
+const DRAINING: Feature = {
+  feature: "Railway's draining time set for the kit's clean stop",
+  readme: 'Starting the server',
+  names: ['app-kit/server/start', 'listen', 'drainingSeconds'],
+  appliesTo: (app) => {
+    const callers = new Set(app.grep('(^|[^.[:alnum:]_])listen\\(', SHIPPED))
+    return onRailway(app) && app.grep(importing('app-kit/server/start'), SHIPPED).some((path) => callers.has(path))
+  },
+  present: async (app) =>
+    has(ships(app, '(drainingSeconds"?|RAILWAY_DEPLOYMENT_DRAINING_SECONDS)[[:space:]]*[:=][[:space:]]*[\'"]?[1-9]', [...RAILWAY, ':(glob)*.md'])),
+}
+
+// A server built on Hono: its app made with appServer has the request log, the refusal of writes other websites send,
+// the health route and errors as JSON, where one made with new Hono() for itself has what it wrote. A router an app
+// mounts on its appServer is a new Hono() too, which is why the check is for appServer anywhere, not for no new Hono().
+const APP_SERVER: Feature = {
+  feature: "server started with the kit's appServer",
+  readme: 'Starting the server',
+  names: ['app-kit/server/start', 'appServer'],
+  appliesTo: (app) => ships(app, 'new Hono[<(]'),
+  present: async (app) => has(ships(app, 'appServer\\(')),
+}
+
+const BUILD_MANIFEST: Feature = {
+  feature: "Vite's build manifest for serveBuiltPage",
+  readme: 'A page open across a deploy',
+  names: ['app-kit/web/server', 'serveBuiltPage'],
+  appliesTo: (app) => ships(app, 'serveBuiltPage\\('),
+  present: async (app) =>
+    has(app.tracked.some((path) => /(^|\/)vite\.config\.[cm]?[jt]s$/.test(path) && /manifest\s*:\s*true/.test(app.show(path)))),
+}
+
+// The start-up file keeps each test process's temporary files out of the system folder. A preload of the app's own,
+// as Friends and Family, Neighbors and Metamax have, is a copy of it written before the kit had one.
+const TEST_START_UP: Feature = {
+  feature: "the kit's test start-up file",
+  readme: 'The test start-up file',
+  names: ['app-kit/testing/start-up'],
+  appliesTo: (app) => app.grep(importing('bun:test'), [':(glob)**/*', ':(exclude,glob)**/node_modules/**']).length > 0,
+  present: async (app) =>
+    has(app.tracked.some((path) => /(^|\/)bunfig\.toml$/.test(path) && app.show(path).includes('app-kit/testing/start-up'))),
+}
+
+// An app whose schema is Drizzle's Postgres one; an app on SQLite is not asked.
+const OPEN_DB: Feature = {
+  feature: "Postgres opened with the kit's openDb",
+  readme: 'The Postgres database',
+  names: ['app-kit/server/postgres', 'openDb'],
+  appliesTo: (app) => ships(app, importing('drizzle-orm/pg-core')),
+  present: async (app) => has(ships(app, importing('app-kit/server/postgres'))),
+}
+
+/** Each opening tag of `name` in the text, from its `<` to its own `>`, reading past a `>` inside braces. */
+function openingTags(text: string, name: string): string[] {
+  const tags: string[] = []
+  for (let at = text.indexOf(`<${name}`); at >= 0; at = text.indexOf(`<${name}`, at + 1)) {
+    if (/[\w.]/.test(text[at + name.length + 1] ?? '')) continue
+    let depth = 0
+    let end = at
+    for (; end < text.length; end++) {
+      if (text[end] === '{') depth++
+      else if (text[end] === '}') depth--
+      else if (text[end] === '>' && depth === 0) break
+    }
+    tags.push(text.slice(at, end + 1))
+  }
+  return tags
+}
+
+// With the sign-in gate, the error boundary draws the gate's placeholder while it asks whether a newer build is out,
+// so a crash during a deploy shows one steady screen; given none, the crash screen shows first. One boundary with it
+// is enough: a boundary around one part of a page needs none.
+const BOUNDARY_PLACEHOLDER: Feature = {
+  feature: "the error boundary's placeholder",
+  readme: 'A page open across a deploy',
+  names: ['ErrorBoundary', 'SignInGate', 'placeholder'],
+  appliesTo: (app) => ships(app, '<SignInGate([[:space:]]|>|$)') && ships(app, '<ErrorBoundary([[:space:]]|>|$)'),
+  present: async (app) =>
+    has(
+      app
+        .grep('<ErrorBoundary([[:space:]]|>|$)', SHIPPED)
+        .some((path) => openingTags(app.show(path), 'ErrorBoundary').some((tag) => /\splaceholder=/.test(tag))),
+    ),
+}
+
+// Calls Google's APIs with a grant the app holds: Gmail, Calendar, Drive, Docs, Sheets, Tasks, People and the token
+// endpoint. A key-only API (Books) and Google's fonts are not, and a scope's address (www.googleapis.com/auth/…) is a
+// name, not a call. Only the server's code: the reader is for an app's server, and an extension's is left out.
+const GOOGLE_ANSWERS: Feature = {
+  feature: "Google's answers read by the kit",
+  readme: 'What a refusal from Google means',
+  names: ['app-kit/server/google', 'readGoogleResponse'],
+  appliesTo: (app) =>
+    app.grep('https://((gmail|oauth2|people|drive|docs|sheets|tasks)\\.googleapis\\.com|www\\.googleapis\\.com/(calendar|gmail|drive|tasks|oauth2))', [
+      ...SHIPPED,
+      ':(exclude,glob)**/extension/**',
+      ':(exclude,glob)**/chrome-extension/**',
+    ]).length > 0,
+  present: async (app) => has(ships(app, importing('app-kit/server/google'))),
+}
+
+// An iPhone app on MUI: a field under 16 pixels makes the iPhone zoom into it as it takes focus. A field set to 16
+// pixels by hand stops the zoom but no longer grows with Text Size, which fieldsNeverZoom's max(16px, 1rem) does.
+const FIELDS_NEVER_ZOOM: Feature = {
+  feature: 'fields that never zoom on the iPhone',
+  readme: 'Text size',
+  names: ['fieldsNeverZoom', 'FIELD_FONT_SIZE'],
+  appliesTo: (app) => app.tracked.some((path) => path.includes('/gen/apple/')) && ships(app, importing('@mui/material(/[A-Za-z]+)?')),
+  present: async (app) => has(ships(app, '(fieldsNeverZoom|FIELD_FONT_SIZE)')),
+}
+
+export const FEATURES: Feature[] = [
+  ONE_TAP,
+  HOSTED_SIGN_IN,
+  DRAINING,
+  APP_SERVER,
+  BUILD_MANIFEST,
+  TEST_START_UP,
+  OPEN_DB,
+  BOUNDARY_PLACEHOLDER,
+  GOOGLE_ANSWERS,
+  FIELDS_NEVER_ZOOM,
+]
 
 /** An app's files at `ref` in the checkout `dir`, through git. */
 export function landedAt(dir: string, ref: string): Landed {
