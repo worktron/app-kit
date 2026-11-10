@@ -106,6 +106,14 @@ test("Apple's copy unread says unknown, never lacking or had", async () => {
   expect(refused).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple answered 503 for ${SITE}'s association file`] });
 });
 
+test("an entitlement naming the site in developer mode, or Apple's copy listing no apps, is not one-tap", async () => {
+  const files = { 'src/main.tsx': PAGE, 'src-tauri/tauri.conf.json': CONF, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': ENTITLEMENTS.replace(SITE, `${SITE}?mode=developer`) };
+  expect((await featuresOf(app('developer-mode', files), appleAnswering({ [SITE]: FOUND }))).lacks).toEqual([ONE_TAP]);
+  const plain = { ...files, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': ENTITLEMENTS };
+  const malformed = await featuresOf(app('malformed', plain), appleAnswering({ [SITE]: { status: 200, body: '{"webcredentials":{"apps":"ABCDE12345.com.example.app"}}' } }));
+  expect(malformed).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple's copy of ${SITE}'s association file lists no webcredentials apps`] });
+});
+
 test('an iPhone app laid out as Urge Surfer, taking no iPhone sign-in, is not asked for one-tap', async () => {
   const urgeSurfer = app('urge-surfer', { 'src/main.tsx': "import { followTextSize } from 'app-kit/web';\n", 'src-tauri/tauri.conf.json': CONF, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': '<plist/>\n' });
   expect(await featuresOf(urgeSurfer, appleAnswering({}))).toEqual({ lacks: [], unknown: [] });

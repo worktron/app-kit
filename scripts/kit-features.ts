@@ -57,7 +57,9 @@ const ONE_TAP: Feature = {
     const builds = app.tracked
       .filter((path) => path.endsWith('.entitlements') && path.includes('/gen/apple/'))
       .flatMap((path) => {
-        const host = app.show(path).match(/webcredentials:([a-z0-9.-]+)/i)?.[1]
+        // A site with ?mode=developer is skipped: the README's step 4 says the build names it without, since iOS reads
+        // the site's file from Apple's servers only for a site named plainly.
+        const host = app.show(path).match(/webcredentials:([a-z0-9.-]+)(?![a-z0-9.?-])/i)?.[1]
         const conf = `${path.slice(0, path.indexOf('/gen/apple/'))}/tauri.conf.json`
         const identifier = (() => {
           try {
@@ -76,12 +78,13 @@ const ONE_TAP: Feature = {
       if (answer.status !== 200) return { unknown: `Apple answered ${answer.status} for ${host}'s association file` }
       const apps = (() => {
         try {
-          return (JSON.parse(answer.body) as { webcredentials?: { apps?: string[] } }).webcredentials?.apps ?? []
+          return (JSON.parse(answer.body) as { webcredentials?: { apps?: unknown } }).webcredentials?.apps
         } catch {
-          return []
+          return undefined
         }
       })()
-      if (apps.some((entry) => entry.endsWith(`.${identifier}`))) return 'has'
+      if (!Array.isArray(apps)) return { unknown: `Apple's copy of ${host}'s association file lists no webcredentials apps` }
+      if (apps.some((entry) => typeof entry === 'string' && entry.endsWith(`.${identifier}`))) return 'has'
     }
     return 'lacks'
   },
