@@ -106,12 +106,15 @@ test("Apple's copy unread says unknown, never lacking or had", async () => {
   expect(refused).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple answered 503 for ${SITE}'s association file`] });
 });
 
-test("an entitlement naming the site in developer mode, or Apple's copy listing no apps, is not one-tap", async () => {
+test("an entitlement naming the site in developer mode, or a site file with no webcredentials, is not one-tap; an apps entry that is no list is unknown", async () => {
   const files = { 'src/main.tsx': PAGE, 'src-tauri/tauri.conf.json': CONF, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': ENTITLEMENTS.replace(SITE, `${SITE}?mode=developer`) };
   expect((await featuresOf(app('developer-mode', files), appleAnswering({ [SITE]: FOUND }))).lacks).toEqual([ONE_TAP]);
   const plain = { ...files, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': ENTITLEMENTS };
   const malformed = await featuresOf(app('malformed', plain), appleAnswering({ [SITE]: { status: 200, body: '{"webcredentials":{"apps":"ABCDE12345.com.example.app"}}' } }));
-  expect(malformed).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple's copy of ${SITE}'s association file lists no webcredentials apps`] });
+  expect(malformed).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple's copy of ${SITE}'s association file could not be read as a list of webcredentials apps`] });
+  // A site whose file serves only links into the app is set up for something else: a gap, not an unread answer.
+  const linksOnly = await featuresOf(app('links-only', plain), appleAnswering({ [SITE]: { status: 200, body: '{"applinks":{"details":[]}}' } }));
+  expect(linksOnly).toEqual({ lacks: [ONE_TAP], unknown: [] });
 });
 
 test('an iPhone app laid out as Urge Surfer, taking no iPhone sign-in, is not asked for one-tap', async () => {

@@ -71,21 +71,35 @@ const ONE_TAP: Feature = {
         return host && identifier ? [{ host, identifier }] : []
       })
     if (!builds.length) return 'lacks'
+    // Every build is asked, so one site Apple did not answer for never hides another that names the app.
+    let unread: string | undefined
     for (const { host, identifier } of builds) {
       const answer = await apple(host)
-      if ('failed' in answer) return { unknown: `Apple's copy of ${host}'s association file could not be read: ${answer.failed}` }
+      if ('failed' in answer) {
+        unread ??= `Apple's copy of ${host}'s association file could not be read: ${answer.failed}`
+        continue
+      }
       if (answer.status === 404) continue
-      if (answer.status !== 200) return { unknown: `Apple answered ${answer.status} for ${host}'s association file` }
+      if (answer.status !== 200) {
+        unread ??= `Apple answered ${answer.status} for ${host}'s association file`
+        continue
+      }
+      // A file with no webcredentials apps is a site set up for something else, which is a gap; a body that is not
+      // JSON, or an apps entry that is not a list, is an answer this cannot read.
       const apps = (() => {
         try {
-          return (JSON.parse(answer.body) as { webcredentials?: { apps?: unknown } }).webcredentials?.apps
+          return { read: (JSON.parse(answer.body) as { webcredentials?: { apps?: unknown } }).webcredentials?.apps ?? [] }
         } catch {
-          return undefined
+          return { read: undefined }
         }
-      })()
-      if (!Array.isArray(apps)) return { unknown: `Apple's copy of ${host}'s association file lists no webcredentials apps` }
+      })().read
+      if (!Array.isArray(apps)) {
+        unread ??= `Apple's copy of ${host}'s association file could not be read as a list of webcredentials apps`
+        continue
+      }
       if (apps.some((entry) => typeof entry === 'string' && entry.endsWith(`.${identifier}`))) return 'has'
     }
+    if (unread) return { unknown: unread }
     return 'lacks'
   },
 }
