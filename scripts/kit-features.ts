@@ -85,10 +85,11 @@ const ONE_TAP: Feature = {
         continue
       }
       // A file with no webcredentials apps is a site set up for something else, which is a gap; a body that is not
-      // JSON, or an apps entry that is not a list, is an answer this cannot read.
+      // JSON, or an apps entry that is there and not a list (null included), is an answer this cannot read.
       const apps = (() => {
         try {
-          return { read: (JSON.parse(answer.body) as { webcredentials?: { apps?: unknown } }).webcredentials?.apps ?? [] }
+          const credentials = (JSON.parse(answer.body) as { webcredentials?: { apps?: unknown } }).webcredentials
+          return { read: credentials && 'apps' in credentials ? credentials.apps : [] }
         } catch {
           return { read: undefined }
         }

@@ -104,6 +104,12 @@ test("Apple's copy unread says unknown, never lacking or had", async () => {
   expect(unread.unknown).toEqual([`${ONE_TAP}: Apple's copy of ${SITE}'s association file could not be read: no answer recorded for ${SITE}`]);
   const refused = await featuresOf(app('refused', files), appleAnswering({ [SITE]: { status: 503, body: '' } }));
   expect(refused).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple answered 503 for ${SITE}'s association file`] });
+  // Two builds: the first site unread never hides a second that names the app, and unread beside 404 stays unknown.
+  const SECOND = 'second.example.com';
+  const two = { ...files, 'src-tauri/gen/apple/second_iOS/second_iOS.entitlements': ENTITLEMENTS.replace(SITE, SECOND) };
+  expect(await featuresOf(app('unread-then-found', two), appleAnswering({ [SECOND]: FOUND }))).toEqual({ lacks: [], unknown: [] });
+  const unreadThenMissing = await featuresOf(app('unread-then-missing', two), appleAnswering({ [SECOND]: NOT_FOUND }));
+  expect(unreadThenMissing).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple's copy of ${SITE}'s association file could not be read: no answer recorded for ${SITE}`] });
 });
 
 test("an entitlement naming the site in developer mode, or a site file with no webcredentials, is not one-tap; an apps entry that is no list is unknown", async () => {
@@ -112,6 +118,8 @@ test("an entitlement naming the site in developer mode, or a site file with no w
   const plain = { ...files, 'src-tauri/gen/apple/app_iOS/app_iOS.entitlements': ENTITLEMENTS };
   const malformed = await featuresOf(app('malformed', plain), appleAnswering({ [SITE]: { status: 200, body: '{"webcredentials":{"apps":"ABCDE12345.com.example.app"}}' } }));
   expect(malformed).toEqual({ lacks: [], unknown: [`${ONE_TAP}: Apple's copy of ${SITE}'s association file could not be read as a list of webcredentials apps`] });
+  const nullApps = await featuresOf(app('null-apps', plain), appleAnswering({ [SITE]: { status: 200, body: '{"webcredentials":{"apps":null}}' } }));
+  expect(nullApps.unknown).toEqual([`${ONE_TAP}: Apple's copy of ${SITE}'s association file could not be read as a list of webcredentials apps`]);
   // A site whose file serves only links into the app is set up for something else: a gap, not an unread answer.
   const linksOnly = await featuresOf(app('links-only', plain), appleAnswering({ [SITE]: { status: 200, body: '{"applinks":{"details":[]}}' } }));
   expect(linksOnly).toEqual({ lacks: [ONE_TAP], unknown: [] });
