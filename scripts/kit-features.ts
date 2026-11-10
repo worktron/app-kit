@@ -122,25 +122,43 @@ const HOSTED_SIGN_IN: Feature = {
   present: async (app) => has(ships(app, '(clerkServerSignIn|serverSignIn)\\(')),
 }
 
-// The tracked Railway settings an app deploys with: railway.json or railway.toml, or a script of its own that sets
-// them through Railway's API, as Sightline's scripts/railway-settings.ts does.
-const RAILWAY = [':(glob)**/railway.json', ':(glob)**/railway.toml']
-const onRailway = (app: Landed) => app.tracked.some((path) => /(^|\/)railway\.(json|toml)$/.test(path) || /(^|\/)scripts\/[^/]*railway[^/]*$/i.test(path))
+// The tracked Railway settings an app deploys with: Railway's settings file, .railway/railway.ts, which Railway's command
+// line applies to the project (a deploy never reads it), railway.json or railway.toml, which Railway reads on each deploy
+// only until 2026-12-01, or a script of its own that sets them through Railway's API, as Sightline's
+// scripts/railway-settings.ts does.
+const SETTINGS_FILE = /(^|\/)\.railway\/railway\.ts$/
+const OLD_FILE = /(^|\/)railway\.(json|toml)$/
+const onRailway = (app: Landed) =>
+  app.tracked.some((path) => SETTINGS_FILE.test(path) || OLD_FILE.test(path) || /(^|\/)scripts\/[^/]*railway[^/]*$/i.test(path))
 
 // The kit's clean stop runs only when Railway waits for it, and Railway kills the server at once unless the draining
-// time is set; a 0 or null is the same as none. It is set in railway.json, by a settings script, or as the service's
-// RAILWAY_DEPLOYMENT_DRAINING_SECONDS variable in Railway itself, which only the app's own words say, as Urge Surfer's
-// server.ts and README do.
+// time is set; a 0 is the same as none. Railway's settings file has no draining option, so it is the service's
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS variable, set in that file's env, by a settings script, or in Railway itself,
+// which only the app's own words say, as Urge Surfer's server.ts and README do. railway.json's drainingSeconds is not
+// counted: Railway stops reading the file on 2026-12-01. The settings file is searched on its own, since SHIPPED leaves
+// out dot-folders and git applies an exclusion after every path it is given.
+const DRAINING_VARIABLE = 'RAILWAY_DEPLOYMENT_DRAINING_SECONDS[\'"]?[[:space:]]*[:=][[:space:]]*[\'"]?[1-9]'
 const DRAINING: Feature = {
   feature: "Railway's draining time set for the kit's clean stop",
   readme: 'Starting the server',
-  names: ['app-kit/server/start', 'listen', 'drainingSeconds'],
+  names: ['app-kit/server/start', 'listen', 'RAILWAY_DEPLOYMENT_DRAINING_SECONDS'],
   appliesTo: (app) => {
     const callers = new Set(app.grep('(^|[^.[:alnum:]_])listen\\(', SHIPPED))
     return onRailway(app) && app.grep(importing('app-kit/server/start'), SHIPPED).some((path) => callers.has(path))
   },
   present: async (app) =>
-    has(ships(app, '(drainingSeconds"?|RAILWAY_DEPLOYMENT_DRAINING_SECONDS)[[:space:]]*[:=][[:space:]]*[\'"]?[1-9]', [...RAILWAY, ':(glob)*.md'])),
+    has(ships(app, DRAINING_VARIABLE, [':(glob)*.md']) || app.grep(DRAINING_VARIABLE, [':(glob)**/.railway/railway.ts']).length > 0),
+}
+
+// An app deploying from railway.json or railway.toml loses those settings when Railway stops reading them on
+// 2026-12-01: its start and pre-deploy commands, its health check. It has moved them once Railway's settings file is
+// tracked and no old file is; whether the file was applied to Railway no search can see, which the README's steps say.
+const RAILWAY_SETTINGS: Feature = {
+  feature: "Railway's settings in .railway/railway.ts",
+  readme: "Railway's settings",
+  names: ['defineRailway'],
+  appliesTo: (app) => app.tracked.some((path) => SETTINGS_FILE.test(path) || OLD_FILE.test(path)),
+  present: async (app) => has(app.tracked.some((path) => SETTINGS_FILE.test(path)) && !app.tracked.some((path) => OLD_FILE.test(path))),
 }
 
 // A server built on Hono: its app made with appServer has the request log, the refusal of writes other websites send,
@@ -246,6 +264,7 @@ export const FEATURES: Feature[] = [
   ONE_TAP,
   HOSTED_SIGN_IN,
   DRAINING,
+  RAILWAY_SETTINGS,
   APP_SERVER,
   BUILD_MANIFEST,
   TEST_START_UP,

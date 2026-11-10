@@ -1,4 +1,4 @@
-// The nine entries of scripts/kit-features.ts after one-tap sign-in (test/kit-features.test.ts), each read from made-up
+// The entries of scripts/kit-features.ts after one-tap sign-in (test/kit-features.test.ts), each read from made-up
 // apps on both sides of it and one it does not apply to, laid out as the kit's apps are and committed to scratch
 // repositories under node_modules/.cache, as test/apps.test.ts makes them. None of them asks Apple's servers.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -51,17 +51,36 @@ test('a server with Clerk on it has the kit decide hosted sign-in, as Friends an
   expect(await verdict(HOSTED, { 'server/app.test.ts': "import { clerkMiddleware } from '@clerk/hono';\n", 'client/src/main.tsx': "import { ClerkProvider } from '@clerk/react';\n" })).toBe('not asked');
 });
 
-test("a server on the kit's listen and on Railway sets the draining time, in railway.json or as Railway's variable", async () => {
+test("a server on the kit's listen and on Railway sets the draining time as Railway's variable, never in railway.json", async () => {
   const DRAINING = "Railway's draining time set for the kit's clean stop";
   const server = { 'server/index.ts': "import { listen } from 'app-kit/server/start';\nlisten(app, { onStop: () => db.close() });\n" };
-  expect(await verdict(DRAINING, { ...server, 'railway.json': '{ "deploy": { "healthcheckPath": "/api/health", "drainingSeconds": 10 } }\n' })).toBe('has');
-  expect(await verdict(DRAINING, { ...server, 'railway.toml': '[deploy]\ndrainingSeconds = 10\n' })).toBe('has');
+  const settings = (env: string) => `import { defineRailway, project, service } from 'railway/iac';\nexport default defineRailway(() => project('app', { resources: [service('web', { healthcheck: '/api/health', env: { ${env} } })] }));\n`;
+  expect(await verdict(DRAINING, { ...server, '.railway/railway.ts': settings("RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10'") })).toBe('has');
+  expect(await verdict(DRAINING, { ...server, 'apps/cloud/.railway/railway.ts': settings('"RAILWAY_DEPLOYMENT_DRAINING_SECONDS": "10"') })).toBe('has');
   expect(await verdict(DRAINING, { ...server, 'railway.json': '{}\n', 'README.md': 'Railway waits for the clean stop: RAILWAY_DEPLOYMENT_DRAINING_SECONDS=10.\n' })).toBe('has');
-  expect(await verdict(DRAINING, { ...server, 'railway.json': '{ "deploy": { "drainingSeconds": null } }\n' })).toBe('lacks');
-  expect(await verdict(DRAINING, { ...server, 'railway.json': '{ "deploy": { "drainingSeconds": 0 } }\n' })).toBe('lacks');
+  expect(await verdict(DRAINING, { ...server, 'scripts/railway-settings.ts': "await setVariable({ RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10' });\n" })).toBe('has');
+  // Railway stops reading railway.json and railway.toml on 2026-12-01, so a draining time there is none.
+  expect(await verdict(DRAINING, { ...server, 'railway.json': '{ "deploy": { "healthcheckPath": "/api/health", "drainingSeconds": 10 } }\n' })).toBe('lacks');
+  expect(await verdict(DRAINING, { ...server, 'railway.toml': '[deploy]\ndrainingSeconds = 10\n' })).toBe('lacks');
+  expect(await verdict(DRAINING, { ...server, '.railway/railway.ts': settings("RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '0'") })).toBe('lacks');
+  expect(await verdict(DRAINING, { ...server, '.railway/railway.ts': settings("NODE_ENV: 'production'") })).toBe('lacks');
   // On this machine only, with no Railway settings, nothing waits for it.
   expect(await verdict(DRAINING, server)).toBe('not asked');
   expect(await verdict(DRAINING, { 'server/index.ts': "import { appServer } from 'app-kit/server/start';\nBun.serve({ fetch: app.fetch });\n", 'railway.json': '{}\n' })).toBe('not asked');
+});
+
+test("an app on railway.json or railway.toml moves its settings to Railway's settings file before Railway stops reading them", async () => {
+  const SETTINGS = "Railway's settings in .railway/railway.ts";
+  const file = "import { defineRailway, project, service } from 'railway/iac';\nexport default defineRailway(() => project('app', { resources: [service('web')] }));\n";
+  expect(await verdict(SETTINGS, { 'railway.json': '{ "deploy": { "preDeployCommand": "bun run db:migrate" } }\n' })).toBe('lacks');
+  expect(await verdict(SETTINGS, { 'railway.toml': '[build]\nbuildCommand = "bun run build"\n' })).toBe('lacks');
+  expect(await verdict(SETTINGS, { 'apps/cloud/railway.json': '{}\n' })).toBe('lacks');
+  // Half moved: the new file written beside the old one, which Railway still reads until the cutoff.
+  expect(await verdict(SETTINGS, { 'railway.json': '{}\n', '.railway/railway.ts': file })).toBe('lacks');
+  expect(await verdict(SETTINGS, { '.railway/railway.ts': file })).toBe('has');
+  // Settings set through Railway's API by a script of the app's own, as Sightline's are, or no Railway at all.
+  expect(await verdict(SETTINGS, { 'scripts/railway-settings.ts': 'await setSettings();\n' })).toBe('not asked');
+  expect(await verdict(SETTINGS, { 'server/index.ts': 'export {};\n' })).toBe('not asked');
 });
 
 test('a Hono server starts from appServer, its routers made with new Hono() or not', async () => {

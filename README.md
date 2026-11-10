@@ -2192,10 +2192,16 @@ app.get('*', (c) => page(c.req.raw));
 listen(app, { onStop: () => db.close() });
 ```
 
-and in `railway.json`, so Railway waits for the clean stop instead of killing the server at once:
+and in Railway's settings file, `.railway/railway.ts`, so Railway checks the health route after a deploy and waits for the clean stop instead of killing the server at once ("Railway's settings" below):
 
-```json
-{ "deploy": { "healthcheckPath": "/api/health", "drainingSeconds": 10 } }
+```ts
+import { defineRailway, project, service } from 'railway/iac';
+
+export default defineRailway(() =>
+  project('argon-watcher', {
+    resources: [service('web', { healthcheck: '/api/health', env: { RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10' } })],
+  }),
+);
 ```
 
 - **Writes other websites send.** A page on any site the person has open can send a write to any server, one on this machine included, and a browser's cross-origin rules stop the page reading the answer, never the write. So a request that can change something (any method but GET, HEAD and OPTIONS, and a websocket's opening) is refused `403 { error: 'This server takes no writes sent from another website.' }`, with a log line naming the site, unless the browser says the app's own page sent it (`Sec-Fetch-Site: same-origin`, or `none` for an address typed or an extension's request) or it carries neither `Sec-Fetch-Site` nor `Origin`, as a script, a webhook or curl does: every browser names one on a cross-site write. The body's type is not looked at, so an app's own `cors()` cannot open a write to another site. A site whose pages must call the server, such as the same app on another Mac, is named in `otherSites` (`appServer({ service, otherSites: ['http://192.168.1.20:5900'] })`): its writes pass, its page may send the person's cookies with them, and its cross-origin questions are answered, which no other site's are. The page served through Vite's proxy in development is the app's own page. `otherSiteCheck()` is exported alone too, for an app not built on `appServer`. A server running open on this machine (`serverSignIn` with no settings) also refuses a request sent to any name but `localhost`, `*.localhost`, a `127.` address and `[::1]`: a page whose own name is pointed at 127.0.0.1 is the same site as the server to the browser, and only the name it used gives it away. A proxy on this machine in front of an open server, such as Caddy, serves it under a `*.localhost` name for the same reason.
@@ -2203,9 +2209,20 @@ and in `railway.json`, so Railway waits for the clean stop instead of killing th
 - **The request log** prints one line per request once it is answered, `GET /api/items?[redacted] 200 12ms`, with any query replaced whole. Hono's own logger prints the query as it came, and on an OAuth callback that is a live sign-in code in the hosted log. `requestLog()` is exported alone too, for an app not built on `appServer`.
 - **Errors.** An `HTTPException` a route or middleware throws goes out as it was made, so the agent keys' 401 keeps its `{ error: 'unauthorized' }` and a check its WWW-Authenticate header. Any other error is logged with its stack and answered `500 { error: 'Something went wrong on the server.' }`, never the error's own message, which could carry what the person should not see. An address under `/api/` that no route takes is `404 { error: 'Not found' }`.
 - **Listening.** `listen` hands Bun.serve every option it is given as it is (`hostname`, `websocket`, `maxRequestBodySize`, `idleTimeout`), takes `PORT` when no port is given, then 3000, and logs the address once. A websocket route uses Hono's `upgradeWebSocket` and passes Hono's `websocket` from `hono/bun` to `listen`.
-- **Stopping.** On SIGTERM, which Railway sends before a deploy replaces the server, or SIGINT, it stops taking requests and gives open ones `graceMs` (5 seconds unless given) to finish. Then it closes what is still open, since a live-update stream never ends by itself and Bun waits for every connection, with websockets told 1001, going away. It runs `onStop` (a database's `close()`, a repeating job's stop) and exits. Railway sends SIGKILL at once unless `drainingSeconds` is set, so set it longer than the grace.
+- **Stopping.** On SIGTERM, which Railway sends before a deploy replaces the server, or SIGINT, it stops taking requests and gives open ones `graceMs` (5 seconds unless given) to finish. Then it closes what is still open, since a live-update stream never ends by itself and Bun waits for every connection, with websockets told 1001, going away. It runs `onStop` (a database's `close()`, a repeating job's stop) and exits. Railway sends SIGKILL at once unless the service's `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` variable is set, so set it longer than the grace.
 
 Needs `hono` 4.12 or later.
+
+#### Railway's settings
+
+Railway stops reading `railway.json` and `railway.toml` on 2026-12-01. Until then it reads them on each deploy and uses their values for that deploy only, never writing them into the service's settings, so a service still deploying from one loses its start command, its pre-deploy command (a database migration), its health check and its draining time on that date. They move to `.railway/railway.ts`, which Railway's command line reads and applies to the project when asked; a deploy never reads it, so a change to it takes effect only once it is applied. The file imports `railway/iac`, so the app adds Railway's package, `railway`, as a dev dependency. The commands are in Railway's command line 5.71.0 and later (4.42 has no `config`). The move, in the checkout linked to the app's Railway project:
+
+1. `railway config migrate` shows the file it would write from every `railway.json` and `railway.toml` in the repository, and `railway config migrate --apply` writes it, on disk only: the services keep reading the old file until the cutover in step 4. `railway config pull` is not the way: it writes what Railway holds, and Railway never held the old file's values.
+2. Read the file against the old one. It has no field for the builder, the Dockerfile's path or the restart rule, which stay as the service's settings hold them, and none for `drainingSeconds`, which becomes `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` in the service's `env`, as above.
+3. Commit the file, and the old file's deletion, but push the deletion only after step 4: until then Railway reads the old file on every deploy.
+4. `railway config migrate cutover`, on the owner's yes, switches the services off the old file. It names each service it switches and warns of the redeploys that follow, and saves the old setting, which `railway config migrate undo` puts back; `railway config migrate status` then shows no service still reading it.
+5. `railway config plan` lists what applying would change in Railway, and is right when it lists only the settings moved from the old file; a plan that removes a variable is wrong. `railway config apply`, on the owner's yes, since it changes the production service. Run both straight after the cutover, since until the apply the services run without the settings the old file gave them.
+6. Push, then read the next deploy's log for the pre-deploy command and the health check.
 
 ### A job on a clock
 

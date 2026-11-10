@@ -593,13 +593,6 @@ Goal: an iPhone or iPad browser tab gets Web Push only once the app is on the Ho
 
 Done when: app-kit/web holds a quiet in-place piece that shows those steps for the layout the phone uses, shown only while the state is `needs-home-screen`, in the kit's looks, with a browser test at a phone's size, and the README points to it instead of asking apps to draw their own.
 
-## railway-config-cutoff · Apps on Railway keep their health check and clean stop after railway.json stops being read on 2026-12-01
-Written by: app-kit/app-clients
-
-Goal: README.md's server-start section tells every app on Railway to put `{ "deploy": { "healthcheckPath": "/api/health", "drainingSeconds": 10 } }` in railway.json, so Railway checks the kit's health route before a deploy goes live and waits for `listen`'s clean stop instead of killing the server at once. Railway has deprecated that file (config as code): existing railway.json and railway.toml files keep working only until a hard cutoff on 2026-12-01, new services cannot opt in, and Railway points to its infrastructure as code file, .railway/railway.ts (https://docs.railway.com/reference/config-as-code). After the cutoff an app that followed the README loses its deploy health check and gets SIGKILL on every redeploy, cutting open requests. urge-surfer's v0.48.0 upgrade also found Railway's command line tool 4.42.1 `railway environment edit --service-config web deploy.healthcheckPath /api/health` answer "No changes to apply" and change nothing, while Railway's API serviceInstanceUpdate set it. Read Railway's migration guide, rewrite the README's lines for its new configuration, and list every app on the kit with a railway.json (getter, timescale, urge-surfer, finances and others) so the next apps round moves each one before the cutoff. Found by the app-clients thread from urge-surfer's upgrade, 2026-11-07.
-
-Done when: README.md's server-start section shows the health check path and the draining time in Railway's current configuration, checked against Railway's docs on the day it lands; CHANGES.md says, marked next round, that every app with a railway.json moves those two settings before 2026-12-01; and one app's deploy log shows "Healthcheck succeeded" and the old deployment's "SIGTERM: stopping" line under the new configuration.
-
 ## gates-own-browsers · The gates install the Playwright browsers they use, so another project's install cannot delete them mid-landing
 Written by: app-kit/quiet-ignored-keys
 

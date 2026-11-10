@@ -117,7 +117,8 @@ export type ListenOptions<WebSocketData> = Omit<Bun.Serve.HostnamePortServeOptio
  * Serves the app with Bun.serve, handing it every option given as it is (hostname, websocket, maxRequestBodySize,
  * idleTimeout), and logs the address once. On SIGTERM or SIGINT it stops taking requests, gives open ones the grace to
  * finish, closes what is still open (a live-update stream never ends by itself, and Bun's stop() waits for every
- * connection), runs onStop and exits. Railway sends SIGKILL at once unless the service sets `deploy.drainingSeconds`.
+ * connection), runs onStop and exits. Railway sends SIGKILL at once unless the service's RAILWAY_DEPLOYMENT_DRAINING_SECONDS
+ * variable is set (README, Starting the server).
  */
 export function listen<WebSocketData = undefined>(
   app: { fetch: (request: Request, server: Bun.Server<WebSocketData>) => Response | Promise<Response> },
