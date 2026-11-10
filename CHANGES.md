@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.60.0
+
+Urgency: now
+
+- An app on Railway moves every setting in railway.json or railway.toml into Railway before 2026-12-01, when Railway stops reading them, with Railway's command line 5.71.0 or later: railway config migrate --apply writes .railway/railway.ts, the draining time goes in the service's env as RAILWAY_DEPLOYMENT_DRAINING_SECONDS, railway config migrate cutover then railway config plan and apply on the owner's yes, then push the old file's deletion and check a deploy (README, "Railway's settings").
+
 ## v0.59.0
 
 Urgency: next round
