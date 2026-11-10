@@ -17,87 +17,47 @@
  *   <app>/record.json      the main commit last judged, the last failure (commit, step, time), and when to judge an
  *                          unmoved main again because the newest build nears its expiry
  */
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
-import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
+import { runCommand, type Run } from '../../command-line/run.ts';
 import { UPLOADING } from './upload.ts';
-import { appendLog, lock, stateFolder } from '../state.ts';
+import { appendLog, stateFolder } from '../state.ts';
+import {
+  appAddress,
+  appKind,
+  appName,
+  buildLog,
+  checkOutMain,
+  cloneGit,
+  countsAsApp,
+  fetchMain,
+  minutes,
+  passOverApps,
+  readRecord,
+  retryDue,
+  saveRecord,
+  watcherChildEnv,
+  type AppKind,
+  type Env,
+  type Failure,
+  type MainRecord,
+} from '../watch-main.ts';
 
-type Env = Record<string, string | undefined>;
+export { appAddress, appKind, appName, countsAsApp, retryDue, RETRY_MS, type AppKind, type Failure } from '../watch-main.ts';
 
 /** How long each step may run before it is stopped with everything it started, in milliseconds. */
 export type Limits = { fetch: number; install: number; build: number; upload: number };
 export const LIMITS: Limits = { fetch: 2 * 60_000, install: 10 * 60_000, build: 60 * 60_000, upload: 45 * 60_000 };
-/** How long a failure other than a compile failure waits before the same commit is tried again. */
-export const RETRY_MS = 60 * 60 * 1000;
 /** How long before Apple expires the newest build a fresh one goes up: on day 75 of its 90. */
 export const RENEW_BEFORE_EXPIRY_MS = 15 * 24 * 60 * 60 * 1000;
-const BUILD_LOGS_KEPT = 10;
-
-export type Failure = { commit: string; step: string; time: string; held?: boolean };
 /**
  * `expiryCheckAt` is when an unmoved main is judged again, as the newest build enters its last days; null when nothing
  * would change, and absent in a record written before it existed, which is judged once.
  */
-export type AppRecord = { judgedHead: string | null; failure: Failure | null; fetchFailingSince?: string | null; expiryCheckAt?: string | null };
+export type AppRecord = MainRecord & { expiryCheckAt?: string | null };
 
-
-/** An app's name from its git address: https://github.com/worktron/argon-watcher.git, or its SSH form, is argon-watcher. */
-export function appName(url: string): string {
-  return (url.replace(/#.*$/, '').replace(/\/+$/, '').split(/[/:]/).pop() ?? url).replace(/\.git$/, '');
-}
-
-/**
- * An app's entry in the watcher's list: its git address, then `#<folder>` when its Tauri project is in a subfolder,
- * as Timescale's `desktop/` is; the folder is '' at the repository's root. GitHub's names hold no `#`. The folder goes to
- * git clean as a pattern, so only plain path characters are taken; anything else is why the entry is refused.
- */
-export function appAddress(entry: string): { url: string; folder: string } | string {
-  const at = entry.lastIndexOf('#');
-  if (at < 0) return { url: entry, folder: '' };
-  const folder = entry.slice(at + 1).replace(/\/+$/, '');
-  const plain = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(folder) && !folder.split('/').some((part) => part === '.' || part === '..');
-  if (!plain) return `the folder "${entry.slice(at + 1)}" after # is not a folder inside the repository, named in letters, digits, ., _, - and /`;
-  return { url: entry.slice(0, at), folder };
-}
-
-/** Whether the commit judged last should be built again: it failed for a reason other than its own code, an hour ago. */
-export function retryDue(record: AppRecord, head: string, nowMs: number): boolean {
-  const failure = record.failure;
-  if (!failure || failure.commit !== head || failure.held) return false;
-  return nowMs - Date.parse(failure.time) >= RETRY_MS;
-}
-
-/**
- * Which files make up the iPhone app, from the app's Tauri setup. An iPhone shell that loads a website (frontendDist an
- * address) is only its Tauri folder and its package and lock files, which carry the kit's native code; the website
- * reaches phones when it deploys. One that packs its pages is every file but documentation, plans and tests.
- */
-export type AppKind = 'loads-a-website' | 'packs-its-pages';
-
-export function appKind(tauriConfig: string): AppKind {
-  try {
-    const dist = (JSON.parse(tauriConfig) as { build?: { frontendDist?: unknown } }).build?.frontendDist;
-    return typeof dist === 'string' && /^https?:\/\//.test(dist) ? 'loads-a-website' : 'packs-its-pages';
-  } catch {
-    return 'packs-its-pages';
-  }
-}
-
-/** Whether a changed file, named from the repository's root, is part of the app whose Tauri project is in `folder`. */
-export function countsAsApp(path: string, kind: AppKind, folder = ''): boolean {
-  if (folder) {
-    if (!path.startsWith(`${folder}/`)) return false;
-    path = path.slice(folder.length + 1);
-  }
-  if (kind === 'loads-a-website') return path.startsWith('src-tauri/') || path === 'package.json' || path === 'bun.lock';
-  const parts = path.split('/');
-  const name = parts[parts.length - 1];
-  if (name.endsWith('.md') || name.includes('.test.')) return false;
-  return !parts.slice(0, -1).some((folder) => ['.claude', 'docs', 'test', 'tests', 'e2e'].includes(folder));
-}
 
 export type Head = { commit: string; count: number };
 export type Decision = { upload: boolean; reason: string };
@@ -177,51 +137,18 @@ export type WatchOptions = {
 
 /** One pass over every app; gives how many of them had a step fail in it, each failure logged. */
 export async function watch(options: WatchOptions): Promise<number> {
-  const env = options.env ?? process.env;
-  const state = stateFolder('testflight', env, options.home);
-  const lockFile = join(state, 'testflight.lock');
-  // Another pass is building; it has written its own lines.
-  if (!lock(lockFile)) return 0;
-  // Stopped itself (launchd unloading its job), it stops the programs it started, each in a process group of its own,
-  // so no upload goes on building in a clone the next pass checks out; the upload puts its own things back.
-  const onSignal = () => {
-    stopRunning('SIGTERM');
-    rmSync(lockFile, { force: true });
-    process.exit(1);
-  };
-  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
-  let failures = 0;
-  try {
-    // Each app has one clone and one record, by its repository's name, so a repository is watched once, at one folder.
-    const watched = new Set<string>();
-    for (const url of options.urls) {
-      try {
-        if (watched.has(appName(url))) throw new Error(`${url} is a repository an earlier entry already watches; each is watched at one folder`);
-        watched.add(appName(url));
-        if (await watchApp(url, state, options)) failures++;
-      } catch (error) {
-        // Nothing an app does stops the pass over the others.
-        log(state, `${new Date((options.now ?? Date.now)()).toISOString()} ${appName(url)}: failed: ${error instanceof Error ? error.message : String(error)}`);
-        failures++;
-      }
-    }
-  } finally {
-    for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
-    rmSync(lockFile, { force: true });
-  }
-  return failures;
+  const state = stateFolder('testflight', options.env ?? process.env, options.home);
+  return passOverApps({
+    urls: options.urls,
+    lockFile: join(state, 'testflight.lock'),
+    logFile: join(state, 'testflight.log'),
+    now: options.now ?? Date.now,
+    app: (url) => watchApp(url, state, options),
+  });
 }
 
 function log(state: string, line: string) {
   appendLog(join(state, 'testflight.log'), line);
-}
-
-function readRecord(file: string): AppRecord {
-  try {
-    return { judgedHead: null, failure: null, ...(JSON.parse(readFileSync(file, 'utf8')) as Partial<AppRecord>) };
-  } catch {
-    return { judgedHead: null, failure: null };
-  }
 }
 
 /** One app's pass; gives true when a step failed. */
@@ -234,8 +161,8 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const checkout = join(folder, 'checkout');
   const recordFile = join(folder, 'record.json');
   mkdirSync(folder, { recursive: true });
-  const record = readRecord(recordFile);
-  const save = (next: AppRecord) => writeFileSync(recordFile, `${JSON.stringify(next, null, 2)}\n`);
+  const record: AppRecord = readRecord<AppRecord>(recordFile, { judgedHead: null, failure: null });
+  const save = (next: AppRecord) => saveRecord(recordFile, next);
   const line = (message: string) => log(state, `${new Date(now()).toISOString()} ${name}: ${message}`);
   const address = appAddress(url);
   if (typeof address === 'string') {
@@ -245,34 +172,11 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   // The app's Tauri project and its packages: the clone's root, or the folder its entry names.
   const appFolder = join(checkout, address.folder);
   const tauriConfigName = join(address.folder, 'src-tauri/tauri.conf.json');
-  const minutes = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${ms / 1000} seconds`);
 
-  // No terminal to prompt on: a fetch that needs a password fails instead of waiting. The 1Password token is never in
-  // the environment of what it runs; the upload reads it for its own `op` call.
-  const childEnv: Env = { ...(options.env ?? process.env), GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=10' };
-  delete childEnv.OP_SERVICE_ACCOUNT_TOKEN;
-  const git = async (args: string[], timeoutMs?: number) => {
-    const done = await run(['git', ...args], { cwd: existsSync(checkout) ? checkout : folder, env: childEnv, timeoutMs });
-    return { ok: done.code === 0, out: done.out.trim(), timedOut: done.timedOut };
-  };
-
-  // A fetch is cheap, so a failing one is tried every pass, with a line when it starts failing and one when it works.
-  const fetched = existsSync(join(checkout, '.git'))
-    ? await git(['fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main'], limits.fetch)
-    : await git(['clone', '--quiet', '--no-checkout', address.url, checkout], limits.install);
-  if (!fetched.ok) {
-    if (!record.fetchFailingSince) {
-      const why = fetched.timedOut ? 'it did not finish in time and was stopped' : lastLine(fetched.out);
-      line(`failed: fetching main: ${why}; trying every pass, with a line when it works`);
-      save({ ...record, fetchFailingSince: new Date(now()).toISOString() });
-    }
-    return true;
-  }
-  if (record.fetchFailingSince) {
-    line(`fetching main works again (failing since ${record.fetchFailingSince})`);
-    record.fetchFailingSince = null;
-    save(record);
-  }
+  // The 1Password token is never in the environment of what it runs; the upload reads it for its own `op` call.
+  const childEnv: Env = watcherChildEnv(options.env ?? process.env);
+  const git = cloneGit(run, checkout, folder, childEnv);
+  if (!(await fetchMain({ git, checkout, url: address.url, record, save, line, now, fetchMs: limits.fetch, cloneMs: limits.install }))) return true;
 
   const head = (await git(['rev-parse', 'refs/remotes/origin/main'])).out;
   const expiryDue = record.expiryCheckAt === undefined || (record.expiryCheckAt !== null && now() >= Date.parse(record.expiryCheckAt));
@@ -291,22 +195,12 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   };
   const retry = 'trying again in an hour';
 
-  // A build log is written only for a pass that builds, or whose install failed, so skipped landings never push the
-  // logs of real builds out. Each try starts its own, keeping the try before, so retries at one commit never grow it.
-  const buildLog = join(folder, `build-${count}.log`);
-  const logName = `build-${count}.log`;
-  const startBuildLog = (installOutput: string) => {
-    if (existsSync(buildLog)) renameSync(buildLog, `${buildLog}.1`);
-    writeFileSync(buildLog, `== ${new Date(now()).toISOString()} ${at}\n${installOutput}`);
-    pruneBuildLogs(folder);
-  };
-  const toBuildLog = (chunk: string) => appendFileSync(buildLog, chunk);
+  const buildOutput = buildLog(folder, count);
+  const logName = buildOutput.name;
+  const startBuildLog = (installOutput: string) => buildOutput.start(`${new Date(now()).toISOString()} ${at}`, installOutput);
+  const toBuildLog = (chunk: string) => buildOutput.append(chunk);
 
-  // Main's exact commit, with nothing left from another commit's build but the installed packages and Rust's build.
-  // git clean runs at the clone's root, where a pattern with a slash is read from the root and `node_modules` matches
-  // at any depth.
-  const checkedOut = await git(['checkout', '--quiet', '--force', '--detach', head]);
-  const cleaned = checkedOut.ok ? await git(['clean', '-ffdxq', '-e', 'node_modules', '-e', join(address.folder, 'src-tauri/target')]) : checkedOut;
+  const cleaned = await checkOutMain(git, head, address.folder);
   if (!cleaned.ok) return failed('checkout', `failed: checking out ${at}: ${lastLine(cleaned.out)}; ${retry}`);
   if (!existsSync(appFolder)) return failed('checkout', `held: ${at} has no folder ${address.folder}; held until main moves`, true);
 
@@ -391,12 +285,3 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   return failed('upload', `failed: the upload of ${at} exited ${uploaded.code}: ${said}; ${retry} (${logName})`);
 }
 
-/** Keeps the newest builds' logs, by build number, each with its try before. */
-function pruneBuildLogs(folder: string) {
-  const logs = readdirSync(folder)
-    .map((name) => ({ name, number: Number(name.match(/^build-(\d+)\.log(?:\.1)?$/)?.[1]) }))
-    .filter((log) => Number.isInteger(log.number))
-    .sort((a, b) => b.number - a.number);
-  const kept = new Set([...new Set(logs.map((log) => log.number))].slice(0, BUILD_LOGS_KEPT));
-  for (const old of logs.filter((log) => !kept.has(log.number))) rmSync(join(folder, old.name), { force: true });
-}

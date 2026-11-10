@@ -108,14 +108,22 @@ const USAGE = `app-kit <part> <command>
                               one has the setting saved for its next boot; prints
                               one line, and exits 0 even when BlackHole is missing,
                               1 only when the simulator did not boot again
-  mac release                 from a Tauri app's folder, at landed code: build its Mac app
+  mac release [--token-only]  from a Tauri app's folder, at landed code: build its Mac app
                               signed by the identity tauri.conf.json names, sign the update
-                              with the key in 1Password (Touch ID), and publish it as the
-                              next release in the public GitHub repository its updater
-                              asks, which every installed copy then offers as an update
+                              with the key in 1Password's TestFlight vault, and publish it
+                              as the next release in the public GitHub repository its
+                              updater asks, which every installed copy then offers as an
+                              update; --token-only reads the keys only through the
+                              keychain's 1Password token, never the signed-in op
+  mac watch [--gh-user <login>] <git url>[#<folder>]...
+                              one pass: for each app whose main moved and changed its Mac
+                              app since its last release, release main's commit from a
+                              clone of its own; gh publishes as <login>; one line per
+                              decision in ~/.local/state/app-kit/mac-release/mac-release.log;
+                              exits 1 when a step failed for any app
   mac key <owner>/<repository>
                               make the key that signs the app's updates, once, keep it in
-                              1Password's Personal vault, and print the plugins.updater
+                              1Password's TestFlight vault, and print the plugins.updater
                               block for tauri.conf.json, with <owner>/<repository> the
                               releases' public repository; refuses when the key exists
   testflight upload [--token-only]
@@ -145,7 +153,7 @@ const USAGE = `app-kit <part> <command>
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
-files that differ, or testflight upload's app did not compile; 4 status found no
+files that differ, or testflight upload's or mac release's app did not compile; 4 status found no
 host answering.`
 
 
@@ -275,7 +283,15 @@ async function icons([command, ...args]: string[]): Promise<boolean> {
 
 async function mac([command, ...args]: string[]): Promise<boolean> {
   let code: number
-  if (command === 'release' && args.length === 0) code = await (await import('../tauri/mac-release/release.ts')).release({ cwd: process.cwd() })
+  if (command === 'release' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
+    code = await (await import('../tauri/mac-release/release.ts')).release({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
+  } else if (command === 'watch') {
+    const ghUser = args[0] === '--gh-user' ? args[1] : undefined
+    const urls = ghUser === undefined ? args : args.slice(2)
+    if ((args[0] === '--gh-user' && (!ghUser || ghUser.startsWith('-'))) || urls.length === 0 || urls.some((url) => url.startsWith('-'))) return false
+    // Each failure is a line in the watcher's log; the exit code says a pass had one.
+    code = (await (await import('../tauri/mac-release/watch.ts')).watch({ urls, ghUser })) > 0 ? 1 : 0
+  }
   else if (command === 'key' && args.length === 1 && !args[0]!.startsWith('-')) code = await (await import('../tauri/mac-release/key.ts')).makeKey({ cwd: process.cwd(), repository: args[0]! })
   else return false
   if (code !== 0) process.exit(code)

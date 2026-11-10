@@ -36,7 +36,7 @@ function opCreates(template: string | undefined) {
   if (!answer) throw new Error(`op's answer to a ${category || 'missing'} category was never recorded`);
   return answer.code === 0 ? ok(answer.out) : exit(answer.code, answer.out);
 }
-const NOT_FOUND = exit(1, `[ERROR] 2026/11/05 12:00:00 "Example App update signing key" isn't an item in the "Personal" vault. Specify the item with its UUID, name, or domain.\n`);
+const notFoundIn = (vault: string) => exit(1, `[ERROR] 2026/11/05 12:00:00 "Example App update signing key" isn't an item in the "${vault}" vault. Specify the item with its UUID, name, or domain.\n`);
 
 let place: ReturnType<typeof scratch>;
 let app: string;
@@ -50,10 +50,11 @@ beforeEach(() => {
 
 afterEach(() => place.done());
 
-async function runKey(answers: { get?: ReturnType<typeof ok>; create?: ReturnType<typeof ok>; generated?: string } = {}) {
+async function runKey(answers: { get?: ReturnType<typeof ok>; personal?: ReturnType<typeof ok>; create?: ReturnType<typeof ok>; generated?: string } = {}) {
   const answer: Answer = (command, options) => {
     const words = command.join(' ');
-    if (words.startsWith('op item get')) return answers.get ?? NOT_FOUND;
+    if (words.startsWith('op item get') && words.includes('--vault Personal')) return answers.personal ?? notFoundIn('Personal');
+    if (words.startsWith('op item get')) return answers.get ?? notFoundIn('TestFlight');
     if (words.startsWith('op item create')) return answers.create ?? opCreates(options.input);
     if (words === 'bunx tauri signer generate --ci') return ok(answers.generated ?? GENERATED);
     return undefined;
@@ -70,7 +71,13 @@ test('the key goes to 1Password on standard input, and the block for tauri.conf.
   expect(result.failed).toEqual([]);
   expect(result.code).toBe(0);
   const [create] = result.named('op item create');
-  expect(create!.command).toEqual(['op', 'item', 'create', '--vault', 'Personal', '-']);
+  // The TestFlight vault, which the release reads through a read-only service account with nobody there; both vaults
+  // were looked in first.
+  expect(create!.command).toEqual(['op', 'item', 'create', '--vault', 'TestFlight', '-']);
+  expect(result.named('op item get').map((call) => call.command.join(' '))).toEqual([
+    'op item get Example App update signing key --vault TestFlight --format json',
+    'op item get Example App update signing key --vault Personal --format json',
+  ]);
   const item = JSON.parse(create!.options.input!) as { title: string; fields: { label: string; value: string; type: string }[] };
   expect(item.title).toBe('Example App update signing key');
   // An API Credential, which op takes with only these fields; a Password item it refuses for having no password.
@@ -94,12 +101,19 @@ test('the key goes to 1Password on standard input, and the block for tauri.conf.
   });
 });
 
-test('a key that exists is never replaced, and a failed look for it stops too', async () => {
+test('a key that exists in either vault is never replaced, and a failed look for it stops too', async () => {
   const existing = await runKey({ get: ok('{"title":"Example App update signing key"}') });
   expect(existing.code).toBe(1);
-  expect(existing.failed[0]).toStartWith(`1Password's Personal vault already holds "Example App update signing key"`);
+  expect(existing.failed[0]).toStartWith(`1Password's TestFlight vault already holds "Example App update signing key"`);
   expect(existing.named('tauri signer')).toEqual([]);
-  const locked = await runKey({ get: exit(1, '[ERROR] 2026/11/05 12:00:00 authorization timeout\n') });
+  // A key still in Personal is an app that has released: it is moved, never made again.
+  const personal = await runKey({ personal: ok('{"title":"Example App update signing key"}') });
+  expect(personal.code).toBe(1);
+  expect(personal.failed).toEqual([
+    `1Password's Personal vault already holds "Example App update signing key"; nothing made, since a new key would strand every installed copy; move it into the TestFlight vault instead: op item move "Example App update signing key" --current-vault Personal --destination-vault TestFlight`,
+  ]);
+  expect(personal.named('tauri signer')).toEqual([]);
+  const locked = await runKey({ personal: exit(1, '[ERROR] 2026/11/05 12:00:00 authorization timeout\n') });
   expect(locked.failed).toEqual([`op could not look for "Example App update signing key" in the vault "Personal": [ERROR] 2026/11/05 12:00:00 authorization timeout`]);
   expect(locked.named('op item create')).toEqual([]);
 });

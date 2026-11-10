@@ -4,7 +4,8 @@
  * gives once), and the team's distribution certificate, the item "TestFlight distribution certificate" with the fields
  * "certificate" (the .p12 file, base64) and "password" (the .p12's password).
  *
- * The Mac release reads the same App Store Connect key to notarize a Developer ID build (mac-release/release.ts).
+ * The Mac release reads the same App Store Connect key to notarize a Developer ID build, and each Mac app's update
+ * signing key, "<productName> update signing key", from the same vault (mac-release/release.ts).
  *
  * A background job cannot answer 1Password's Touch ID prompt, so it reads the item through a 1Password service account
  * that may read only that vault. The service account's token is kept in the Mac's login keychain, under the service
@@ -71,8 +72,11 @@ export function notFound(out: string): boolean {
   return /isn't an item in the "[^"]*" vault/.test(out);
 }
 
-/** Reads one item of the vault, through the token when the keychain holds one. */
-async function readItem(run: Run, env: Record<string, string | undefined>, options: { tokenOnly: boolean }, item: string) {
+/**
+ * Reads one item of the vault, through the token when the keychain holds one; with `tokenOnly`, a Mac without the token
+ * reads nothing. The Mac release reads its update key with it too.
+ */
+export async function readItem(run: Run, env: Record<string, string | undefined>, options: { tokenOnly: boolean }, item: string) {
   const token = await readToken(run);
   if (!token && options.tokenOnly) return { missing: 'token' as const };
   const opEnv = { ...env };

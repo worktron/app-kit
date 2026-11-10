@@ -112,6 +112,8 @@ export type MacWorld = {
   /** Runs during the build, as another thread would change the checkout. */
   duringBuild?: () => void;
   publish?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
+  /** The TestFlight vault's service account token the login keychain holds; none by default. */
+  token?: string;
 };
 
 export const releaseNotFound = exit(1, 'release not found\n');
@@ -143,8 +145,11 @@ export function macRunner(app: string, world: MacWorld = {}) {
       published.push({ command, files });
       return world.publish ? world.publish(command, options) : ok('https://github.com/example/example-releases/releases/tag/v0\n');
     }
-    // The TestFlight vault's token, which this Mac's keychain does not hold, so op is asked as the person.
-    if (program === '/usr/bin/security') return exit(44, 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.\n');
+    // The TestFlight vault's token, which this Mac's keychain holds only when the test says so; without it op is asked
+    // as the person.
+    if (program === '/usr/bin/security') {
+      return world.token ? ok(`${world.token}\n`) : exit(44, 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.\n');
+    }
     if (program === 'op' && words.startsWith('item get App Store Connect API')) return world.notaryItem ?? ok(notaryItemJson());
     if (program === 'op' && words.startsWith('item get')) return world.item ?? ok(keyItemJson());
     if (program === 'bun' && words === 'install --frozen-lockfile') return ok();

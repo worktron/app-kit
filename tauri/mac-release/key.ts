@@ -1,14 +1,16 @@
 /*
  * `app-kit mac key <owner>/<repository>`: makes the key that signs a Tauri app's updates, once, keeps it in 1Password as
- * "<app name> update signing key" in the Personal vault, and prints the public half with the plugins.updater block for
+ * "<app name> update signing key" in the TestFlight vault, which the Mac release reads through a read-only service
+ * account with nobody there, and prints the public half with the plugins.updater block for
  * the app's tauri.conf.json. The key has no password: Tauri's key maker takes one only on its command line, where any
  * program on the Mac can read it, and the key lives only in 1Password. It is never written to a file: the key maker
  * prints it, the runner keeps that output in memory, and 1Password takes the item as a template on standard input, so
  * no secret is in any program's arguments either.
  *
- * Exit codes: 0 made; 1 anything else, such as an item that already exists, which it never replaces.
+ * Exit codes: 0 made; 1 anything else, such as an item that already exists, in that vault or in Personal, where keys
+ * were kept before, which it never replaces.
  */
-import { keyItem, readNameAndVersion, VAULT } from './app.ts';
+import { keyItem, moveCommand, OLD_VAULT, readNameAndVersion, VAULT } from './app.ts';
 import { lastLine, notFound } from '../testflight/key.ts';
 import { runCommand, type Run } from '../../command-line/run.ts';
 import type { Env } from '../build-env.ts';
@@ -76,9 +78,15 @@ export async function makeKey(options: KeyOptions): Promise<0 | 1> {
   if (typeof app === 'string') return fail(app);
   const item = keyItem(app.productName);
 
-  const existing = await run(['op', 'item', 'get', item, '--vault', VAULT, '--format', 'json'], { env });
-  if (existing.code === 0) return fail(`1Password's ${VAULT} vault already holds "${item}"; nothing made, since a new key would strand every installed copy`);
-  if (!notFound(existing.out)) return fail(`op could not look for "${item}" in the vault "${VAULT}": ${lastLine(existing.out)}`);
+  // Both vaults, since a key still in Personal is an app that has released: a new key would strand its copies.
+  for (const vault of [VAULT, OLD_VAULT]) {
+    const existing = await run(['op', 'item', 'get', item, '--vault', vault, '--format', 'json'], { env });
+    if (existing.code === 0) {
+      const move = vault === OLD_VAULT ? `; move it into the ${VAULT} vault instead: ${moveCommand(item)}` : '';
+      return fail(`1Password's ${vault} vault already holds "${item}"; nothing made, since a new key would strand every installed copy${move}`);
+    }
+    if (!notFound(existing.out)) return fail(`op could not look for "${item}" in the vault "${vault}": ${lastLine(existing.out)}`);
+  }
 
   const generated = await run(['bunx', 'tauri', 'signer', 'generate', '--ci'], { cwd: options.cwd, env });
   const keys = generated.code === 0 ? generatedKeys(generated.stdout) : null;

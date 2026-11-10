@@ -7,8 +7,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The 1Password vault the update keys live in, so every release asks for the person's Touch ID. */
-export const VAULT = 'Personal';
+/**
+ * The 1Password vault the update keys live in: the TestFlight vault, which a read-only service account reads with no
+ * prompt (testflight/key.ts), so a release runs with nobody there. Keys made before it lived in Personal.
+ */
+export { VAULT } from '../testflight/key.ts';
+/** Where update keys were kept before, which no service account may read. */
+export const OLD_VAULT = 'Personal';
+
+/** The command that moves an app's update key from the Personal vault into the TestFlight vault. */
+export function moveCommand(item: string): string {
+  return `op item move "${item}" --current-vault Personal --destination-vault TestFlight`;
+}
 
 /** The 1Password item holding an app's update key, Timescale's name for its own. */
 export function keyItem(productName: string): string {

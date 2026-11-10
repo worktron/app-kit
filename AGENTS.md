@@ -42,8 +42,11 @@ tauri/           Mac and iPhone apps built with Tauri: window/, a window onto th
                  the app's releases (src/updates.rs), and the page half (index.ts), with the update line (lines.tsx),
                  and the names both share (names.ts);
                  mac-release/, `app-kit mac release` (release.ts), which publishes a Mac release the installed app
-                 updates itself to, notarized when a Developer ID signs it, `app-kit mac key` (key.ts), which makes the key that signs it, and what both read
-                 from the app (app.ts); sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
+                 updates itself to, notarized when a Developer ID signs it, `app-kit mac watch` (watch.ts), which releases an
+                 app after each landing that changes it, `app-kit mac key` (key.ts), which makes the key that signs it, and what they read
+                 from the app (app.ts); watch-main.ts, what the Mac release watcher and the TestFlight watcher share: the pass
+                 under a lock, the clone main is fetched into and checked out in, which files count as the app, the record and
+                 the build logs; sign-in/, desktop sign-in through the browser (app-kit/tauri/sign-in),
                  and its server routes (server.ts, app-kit/tauri/sign-in/server); iphone-notifications/, notifications through
                  Apple's push service: the page half (index.ts), the sending (server.ts), the names both share with the
                  plugin (names.ts), and plugin/, the Tauri plugin's Rust and Swift that an app's shell builds;

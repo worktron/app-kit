@@ -1,8 +1,10 @@
 /*
  * `app-kit mac release`: builds a Tauri app's Mac app from landed code, signed with the app's code signing identity,
- * signs its update with the app's update key from 1Password, and publishes it as the next numbered release in the
- * public GitHub repository the app's updater asks, where every installed copy finds it (tauri/window/plugin's
- * updates.rs). Run by a person from the app's Tauri folder: the key's read asks for Touch ID.
+ * signs its update with the app's update key from 1Password's TestFlight vault, and publishes it as the next numbered
+ * release in the public GitHub repository the app's updater asks, where every installed copy finds it
+ * (tauri/window/plugin's updates.rs). Run from the app's Tauri folder, by a person or by the Mac release watcher
+ * (watch.ts) with --token-only: the keys are read through the keychain's 1Password token when it holds one, and the
+ * signed-in op, which asks for Touch ID, only when it does not and the run is not token-only.
  *
  * What each check heads off:
  * - Only landed code is built: the folder must match origin/main, and HEAD be on main, so About never names a commit
@@ -30,20 +32,24 @@
  * The update key reaches only Tauri's build, through its environment, never a command line or a file. The App Store
  * Connect key is the one exception: Tauri reads it only from a file, so it is written readable by this user alone into
  * a folder of its own, named for this process, removed however the build ends; a release that notarizes also removes
- * such folders of releases no longer running, which a hard kill left. Exit codes: 0 published; 1 anything else.
+ * such folders of releases no longer running, which a hard kill left. Exit codes: 0 published; 3 the app did not
+ * compile; 1 anything else.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assetName, keyItem, latestJson, nextVersion, readConfig, releasesRepository, signedVersion, VAULT } from './app.ts';
-import { itemFields, lastLine, notFound, readKey } from '../testflight/key.ts';
+import { assetName, keyItem, latestJson, moveCommand, nextVersion, readConfig, releasesRepository, signedVersion, VAULT } from './app.ts';
+import { itemFields, KEYCHAIN_SERVICE, lastLine, notFound, readItem, readKey } from '../testflight/key.ts';
+import { compileFailed } from '../testflight/upload.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunResult } from '../../command-line/run.ts';
 
 export type ReleaseOptions = {
   /** The app's Tauri folder, the one holding src-tauri. */
   cwd: string;
+  /** Read the keys only through the keychain's 1Password token, never the signed-in op, as the Mac release watcher runs it. */
+  tokenOnly?: boolean;
   run?: Run;
   env?: Env;
   /** The processor this runs on, `process.arch` when left out: releases are for Apple silicon. */
@@ -119,7 +125,7 @@ export function removeLeftKeyFolders(folder = tmpdir()): void {
 }
 
 /** Releases, as the module's comment says. Stopped by a signal, it stops the build and removes its temporary folder. */
-export async function release(options: ReleaseOptions): Promise<0 | 1> {
+export async function release(options: ReleaseOptions): Promise<0 | 1 | 3> {
   const folders = new Set<string>();
   const remove = () => {
     for (const folder of folders) rmSync(folder, { recursive: true, force: true });
@@ -140,7 +146,7 @@ export async function release(options: ReleaseOptions): Promise<0 | 1> {
 }
 
 /** The steps; every folder made goes into `folders`, which `release` removes however the steps end. */
-async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Promise<0 | 1> {
+async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Promise<0 | 1 | 3> {
   const madeFolder = (prefix: string) => {
     const folder = mkdtempSync(join(tmpdir(), prefix));
     folders.add(folder);
@@ -234,9 +240,15 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   print(`releasing ${config.productName} ${version} from ${short} (last release: ${lastTag ?? 'none'}, tauri.conf.json: ${config.version})`);
 
   const item = keyItem(config.productName);
-  const read = await run(['op', 'item', 'get', item, '--vault', VAULT, '--format', 'json'], { env });
+  const tokenOnly = options.tokenOnly ?? false;
+  const read = await readItem(run, env, { tokenOnly }, item);
+  if ('missing' in read) return fail(`the login keychain has no "${KEYCHAIN_SERVICE}" item, the 1Password token a release with nobody there reads the keys through (app-kit's README, "TestFlight")`);
   if (read.code !== 0) {
-    if (notFound(read.out)) return fail(`1Password's ${VAULT} vault has no "${item}": make it once with app-kit mac key`);
+    if (notFound(read.out)) {
+      return fail(
+        `1Password's ${VAULT} vault has no "${item}". If it is still in the Personal vault, move it: ${moveCommand(item)}. Make a key with app-kit mac key only for an app that has never released, since a new key strands every installed copy`,
+      );
+    }
     return fail(`op could not read "${item}" in the vault "${VAULT}": ${lastLine(read.out)}`);
   }
   const key = itemFields(read.stdout, item, ['private key', 'public key', 'password']);
@@ -248,8 +260,8 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
 
   let notary: { keyId: string; issuerId: string; privateKey: string } | null = null;
   if (notarize) {
-    const read = await readKey(run, env, { tokenOnly: false });
-    if ('missing' in read) return fail('no App Store Connect key to notarize with');
+    const read = await readKey(run, env, { tokenOnly });
+    if ('missing' in read) return fail(`the login keychain has no "${KEYCHAIN_SERVICE}" item, the 1Password token the App Store Connect key that notarizes is read through`);
     if ('error' in read) return fail(`${read.error}; a Developer ID build is notarized with it`);
     notary = read.key;
   }
@@ -278,7 +290,10 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
       folders.delete(keyFolder);
     }
   }
-  if (built.code !== 0) return fail(`the build of ${version} failed: ${lastLine(built.out)}`);
+  if (built.code !== 0) {
+    say(`the build of ${version} ${compileFailed(built.out) ? 'did not compile' : 'failed'}: ${lastLine(built.out)}`);
+    return compileFailed(built.out) ? 3 : 1;
+  }
 
   const app = join(cwd, BUNDLE_FOLDER, `${config.productName}.app`);
   const archive = `${app}.tar.gz`;
@@ -339,7 +354,7 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   const title = `${config.productName} for Mac ${version}`;
   const assets = [join(folder, name), join(folder, `${name}.sig`), join(folder, 'latest.json')];
   const published = await run(
-    ['gh', 'release', 'create', `v${version}`, '--repo', repository, '--latest', '--title', title, '--notes', `${title}, built from ${short}.`, ...assets],
+    ['gh', 'release', 'create', `v${version}`, '--repo', repository, '--latest', '--title', title, '--notes', `${title}, built from ${short} (${before.head}).`, ...assets],
     { env },
   );
   if (published.code !== 0) {

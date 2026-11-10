@@ -236,8 +236,10 @@ test('a key that is not the config’s, a missing key, or a signature naming no 
   ]);
   expect(mismatch.named('tauri build')).toEqual([]);
 
-  const absent = await runRelease(app, { item: exit(1, `[ERROR] 2026/11/05 12:00:00 "Example App update signing key" isn't an item in the "Personal" vault. Specify the item with its UUID, name, or domain.\n`) });
-  expect(absent.failed).toEqual([`1Password's Personal vault has no "Example App update signing key": make it once with app-kit mac key`]);
+  const absent = await runRelease(app, { item: exit(1, `[ERROR] 2026/11/05 12:00:00 "Example App update signing key" isn't an item in the "TestFlight" vault. Specify the item with its UUID, name, or domain.\n`) });
+  expect(absent.failed).toEqual([
+    `1Password's TestFlight vault has no "Example App update signing key". If it is still in the Personal vault, move it: op item move "Example App update signing key" --current-vault Personal --destination-vault TestFlight. Make a key with app-kit mac key only for an app that has never released, since a new key strands every installed copy`,
+  ]);
 
   const unversioned = await runRelease(app, { signedVersion: null });
   expect(unversioned.failed[0]).toStartWith("the update's signature names version none, not 0.1.9");
@@ -337,7 +339,7 @@ test('a Developer ID archive whose app is not stapled, or that Gatekeeper does n
 test('the key’s file is removed when the build fails', async () => {
   const { app } = developerIdApp('app');
   const result = await runRelease(app, { ...DEVELOPER_ID, buildFails: true });
-  expect(result.code).toBe(1);
+  expect(result.code).toBe(3);
   expect(result.keyAtBuild).toHaveLength(1);
   expect(existsSync(result.keyAtBuild[0]!.path)).toBe(false);
 });
@@ -418,4 +420,40 @@ test('a self-signed app reads no App Store Connect key and runs no notarization 
   expect(result.named('spctl')).toEqual([]);
   expect(result.named('tar')).toEqual([]);
   expect(result.keyAtBuild).toEqual([]);
+});
+
+test('the update key is read from the TestFlight vault through the keychain token, and the notes name the full commit', async () => {
+  const { checkout, app } = macApp(place.folder);
+  const head = git(checkout, 'rev-parse', 'HEAD');
+  const result = await runRelease(app, { token: 'ops_stand-in-token' }, { tokenOnly: true });
+  expect(result.failed).toEqual([]);
+  expect(result.code).toBe(0);
+  const [read] = result.named('op item get');
+  expect(read!.command).toEqual(['op', 'item', 'get', 'Example App update signing key', '--vault', 'TestFlight', '--format', 'json']);
+  expect(read!.options.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe('ops_stand-in-token');
+  // The token reaches only op, never the build.
+  expect(result.named('tauri build')[0]!.options.env?.OP_SERVICE_ACCOUNT_TOKEN).toBeUndefined();
+  const create = result.published[0]!.command;
+  expect(create[create.indexOf('--notes') + 1]).toBe(`Example App for Mac 0.1.9, built from ${head.slice(0, 7)} (${head}).`);
+});
+
+test('a token-only release on a Mac without the token reads nothing and says what is missing', async () => {
+  const { app } = macApp(place.folder);
+  const result = await runRelease(app, {}, { tokenOnly: true });
+  expect(result.code).toBe(1);
+  expect(result.failed).toEqual([
+    `the login keychain has no "app-kit testflight" item, the 1Password token a release with nobody there reads the keys through (app-kit's README, "TestFlight")`,
+  ]);
+  expect(result.named('op')).toEqual([]);
+  expect(result.named('tauri build')).toEqual([]);
+});
+
+test('a build that compiled but failed, as a notarization can, exits 1 so the watcher tries again, not 3', async () => {
+  const { app } = macApp(place.folder);
+  const result = await runRelease(app, { build: () => exit(1, 'failed to notarize app: The operation timed out.\n') });
+  expect(result.code).toBe(1);
+  expect(result.failed).toEqual(['the build of 0.1.9 failed: failed to notarize app: The operation timed out.']);
+  const compile = await runRelease(app, { buildFails: true });
+  expect(compile.code).toBe(3);
+  expect(compile.failed).toEqual(['the build of 0.1.9 did not compile: error: could not compile `example`']);
 });
