@@ -260,6 +260,17 @@ const FIELDS_NEVER_ZOOM: Feature = {
   present: async (app) => has(ships(app, '(fieldsNeverZoom|FIELD_FONT_SIZE)')),
 }
 
+// A privacy policy or terms page drawn by the app reaches a reader that runs no JavaScript as the empty index page: the
+// Chrome Web Store's check of a privacy link refused Getter's for that. An app on the kit's web part with such an
+// address writes its public pages at build and has its server send them.
+const PUBLIC_PAGES: Feature = {
+  feature: 'public pages sent as finished HTML',
+  readme: 'Public pages as finished HTML',
+  names: ['app-kit/web/public-pages', 'writePublicPages', 'publicPages'],
+  appliesTo: (app) => ships(app, importing('app-kit/web(/[a-z-]+)?')) && ships(app, '[\'"`]/(privacy|terms)[\'"`/?#]'),
+  present: async (app) => has(ships(app, importing('app-kit/web/public-pages')) && ships(app, 'publicPages[[:space:]]*:[[:space:]]*true')),
+}
+
 export const FEATURES: Feature[] = [
   ONE_TAP,
   HOSTED_SIGN_IN,
@@ -272,6 +283,7 @@ export const FEATURES: Feature[] = [
   BOUNDARY_PLACEHOLDER,
   GOOGLE_ANSWERS,
   FIELDS_NEVER_ZOOM,
+  PUBLIC_PAGES,
 ]
 
 /** An app's files at `ref` in the checkout `dir`, through git. */

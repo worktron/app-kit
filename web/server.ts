@@ -7,6 +7,7 @@
  *
  * A plain `(Request) => Promise<Response>`, so a Hono server and a bare Bun.serve take it the same way. No React.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 const KEPT = 'public, max-age=31536000, immutable';
@@ -17,6 +18,11 @@ const ASKED_AGAIN = 'no-cache';
  * whatever its name looks like, so it is asked for again.
  */
 const MANIFEST = '.vite/manifest.json';
+/**
+ * The list of an app's public pages, which writePublicPages (public-pages.tsx) writes into the build beside each page's
+ * file: a JSON array of addresses, as `["/privacy"]`, each read from `<name>.html`.
+ */
+export const PUBLIC_PAGES_LIST = 'public-pages.json';
 
 interface ManifestEntry {
   file: string;
@@ -30,6 +36,13 @@ export interface BuiltPageOptions {
    * one no route took, and gets a JSON 404 rather than the page, which a caller expecting JSON could not read.
    */
   api?: string;
+  /**
+   * Whether the build holds public pages written by writePublicPages, sent at their addresses as finished HTML. The
+   * build's own list says which; a build without the list, or without a file on it, stops the server at once rather
+   * than send the empty index page there, which a reader that runs no JavaScript, as the Chrome Web Store's check of a
+   * privacy link, finds empty.
+   */
+  publicPages?: boolean;
 }
 
 /**
@@ -46,6 +59,7 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
   const api = options.api ?? '/api/';
   const index = join(root, 'index.html');
   let built: Promise<Set<string>> | undefined;
+  const publicPages = options.publicPages ? readPublicPages(root) : new Map<string, string>();
 
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -53,6 +67,8 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
     }
     const { pathname } = new URL(request.url);
     if (pathname.startsWith(api) || pathname === api.replace(/\/$/, '')) return Response.json({ error: 'Not found' }, { status: 404 });
+    const publicPage = publicPages.get(pathname.replace(/(.)\/$/, '$1'));
+    if (publicPage) return new Response(Bun.file(publicPage), { headers: { 'Cache-Control': ASKED_AGAIN, 'Content-Type': 'text/html; charset=utf-8' } });
 
     let path: string;
     try {
@@ -78,6 +94,25 @@ export function serveBuiltPage(folder: string, options: BuiltPageOptions = {}): 
       headers: { 'Cache-Control': ASKED_AGAIN, 'Content-Type': 'text/html; charset=utf-8' },
     });
   };
+}
+
+/** Each public page's address and its file, from the build's list, every file checked as the server starts. */
+function readPublicPages(root: string): Map<string, string> {
+  const at = join(root, PUBLIC_PAGES_LIST);
+  const fix = 'Run writePublicPages from app-kit/web/public-pages after vite build.';
+  if (!existsSync(at)) throw new Error(`app-kit serve: publicPages is set but ${at} is missing, so its pages would be sent empty. ${fix}`);
+  const addresses = JSON.parse(readFileSync(at, 'utf8')) as unknown;
+  if (!Array.isArray(addresses) || !addresses.every((address) => typeof address === 'string' && /^\/[a-z0-9][a-z0-9-]*$/.test(address))) {
+    throw new Error(`app-kit serve: ${at} is not a list of addresses, as ["/privacy"]. ${fix}`);
+  }
+  const pages = new Map<string, string>();
+  for (const address of addresses as string[]) {
+    const file = join(root, `${address.slice(1)}.html`);
+    if (!existsSync(file)) throw new Error(`app-kit serve: ${address} is a public page but ${file} is missing, so it would be sent empty. ${fix}`);
+    pages.set(address, file);
+  }
+  console.log(`[app-kit] serve: public pages sent as finished HTML: ${[...pages.keys()].join(', ')}`);
+  return pages;
 }
 
 /** The addresses of the files Vite built, from its manifest, read once, at the first file asked for. */

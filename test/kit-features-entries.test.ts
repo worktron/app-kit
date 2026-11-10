@@ -157,3 +157,23 @@ test('an iPhone app on MUI keeps its fields from zooming with the kit; a web app
   expect(await verdict(ZOOM, { 'src/theme.ts': "import { createTheme } from '@mui/material/styles';\n" })).toBe('not asked');
 });
 
+
+test('an app on the kit with a privacy or terms address writes them at build and has its server send them', async () => {
+  const PUBLIC = 'public pages sent as finished HTML';
+  const app = {
+    'client/src/main.tsx': "import { SignInGate } from 'app-kit/web';\nconst PUBLIC_PAGES = { '/privacy': Privacy, '/terms': Terms };\n",
+  };
+  const built = {
+    ...app,
+    'scripts/public-pages.tsx': "import { writePublicPages } from 'app-kit/web/public-pages';\nawait writePublicPages({ folder: 'dist', appName: 'shop', pages });\n",
+    'server/app.ts': "const page = serveBuiltPage('dist', { publicPages: true });\n",
+  };
+  expect(await verdict(PUBLIC, built)).toBe('has');
+  expect(await verdict(PUBLIC, app)).toBe('lacks');
+  // Written at build but never sent: the server still answers /privacy with the empty index page.
+  expect(await verdict(PUBLIC, { ...built, 'server/app.ts': "const page = serveBuiltPage('dist');\n" })).toBe('lacks');
+  expect(await verdict(PUBLIC, { 'client/src/Footer.tsx': "import { RowLink } from 'app-kit/web';\n<a href=\"/terms\">Terms</a>;\n", 'server/app.ts': 'serveBuiltPage(dist);\n' })).toBe('lacks');
+  // A privacy page in an app not on the kit's web part, or none at all.
+  expect(await verdict(PUBLIC, { 'src/App.tsx': "const routes = ['/privacy'];\n" })).toBe('not asked');
+  expect(await verdict(PUBLIC, { 'client/src/main.tsx': "import { SignInGate } from 'app-kit/web';\n" })).toBe('not asked');
+});

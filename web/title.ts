@@ -7,10 +7,18 @@ export function nameApp(name: string): void {
   appName = name;
 }
 
+/**
+ * The title for a screen's words and an app's name: "Inbox · argon-watcher", or either alone when the other is empty.
+ * The one format every title takes, the app's own (titleFor) and a finished public page's (public-pages.tsx).
+ */
+export function titleWith(words: string | null | undefined, name: string): string {
+  if (!words) return name;
+  return name ? `${words} · ${name}` : words;
+}
+
 /** The page title for a screen: its words, then the app's name, or the app's name alone for a screen with none. */
 export function titleFor(words: string | null | undefined): string {
-  if (!words) return appName;
-  return appName ? `${words} · ${appName}` : words;
+  return titleWith(words, appName);
 }
 
 /**

@@ -16,7 +16,8 @@ web/             web apps (app-kit/web): the MUI theme for each look (theme.ts, 
                  the notification worker (worker.js, a classic script checked by its own tsconfig.json under the
                  service worker's types), the Vite plugin that serves it (vite.js, app-kit/web/push/vite), the server's
                  sending (server.ts, app-kit/web/push/server), and the names they share (names.ts);
-                 server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses;
+                 server.ts, the server's sending of the built page (app-kit/web/server), which the fixture's server (e2e/serve.ts) uses,
+                 with an app's public pages, which public-pages.tsx writes at build as finished HTML (app-kit/web/public-pages);
                  playwright-webkit.js, Playwright's WebKit run from a copy macOS keeps out of the Dock (app-kit/web/playwright-webkit);
                  playwright-offline-audio.js, a test page's Web Audio on the browser's offline engine, so no speaker opens,
                  and Playwright's test with it on every context (app-kit/web/playwright-offline-audio);

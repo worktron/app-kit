@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { chooseTextSize, followTextSize, resetTextSize, TEXT_SIZES, useTextScale, useTextSize } from '../web/text-size';
+import { chooseTextSize, followTextSize, resetTextSize, TEXT_SIZES, textSizeScript, useTextScale, useTextSize } from '../web/text-size';
 import readings from './fixtures/text-size-readings.json';
 
 // Each place's answer, recorded: on a simulated iPhone's Safari at three Text Sizes, the scale being what the kit read
@@ -280,4 +280,33 @@ test('off an iPhone or iPad nothing is kept in the page to watch', () => {
   const before = document.querySelectorAll('[aria-hidden="true"]').length;
   followTextSize();
   expect(document.querySelectorAll('[aria-hidden="true"]').length).toBe(before);
+});
+
+// A public page carries none of the app's code, only this script (web/public-pages.tsx): it must land the root where
+// followTextSize does, for every recorded place, with and without a size chosen on this device.
+const runScript = () => new Function(textSizeScript())();
+
+test.each(readings as Place[])("a public page's script reads $where as followTextSize does", (place) => {
+  playPlace(place);
+  runScript();
+  const script = { scale: root().getPropertyValue('--text-scale'), size: root().fontSize };
+  document.documentElement.style.removeProperty('--text-scale');
+  document.documentElement.style.fontSize = '';
+  followTextSize();
+  expect(script).toEqual({ scale: root().getPropertyValue('--text-scale'), size: root().fontSize });
+  expect(Number(script.scale)).toBe(place.scale);
+});
+
+test("a public page's script takes the size chosen on this device, and skips one that is not a size", () => {
+  playPlace(iPhone(readings[0]!.where));
+  localStorage.setItem(CHOICE_KEY, '1.5');
+  runScript();
+  expect(root().getPropertyValue('--text-scale')).toBe('1.5');
+  expect(root().fontSize).toBe('24px');
+  document.documentElement.style.fontSize = '';
+  playPlace({ supports: false, touchPoints: 0, bodyPx: 13 });
+  localStorage.setItem(CHOICE_KEY, '1.3');
+  runScript();
+  expect(root().getPropertyValue('--text-scale')).toBe('1');
+  expect(root().fontSize).toBe('');
 });

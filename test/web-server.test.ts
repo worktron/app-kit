@@ -127,3 +127,46 @@ describe('serveBuiltPage', () => {
     expect((await get('/', { method: 'HEAD' })).status).toBe(200);
   });
 });
+
+describe('serveBuiltPage with publicPages', () => {
+  // As writePublicPages leaves the build (test/public-pages.test.ts holds what it writes).
+  beforeAll(async () => {
+    await writeFile(join(built, 'privacy.html'), '<!doctype html><title>Privacy policy · shop</title><p>The shop keeps none of your orders.</p>');
+    await writeFile(join(built, 'terms.html'), '<!doctype html><title>Terms · shop</title><p>Be kind.</p>');
+    await writeFile(join(built, 'public-pages.json'), '["/privacy","/terms"]\n');
+  });
+  const pages = (path: string, init?: RequestInit) => serveBuiltPage(built, { publicPages: true })(new Request(`http://localhost${path}`, init));
+
+  test('each public address gets its finished page, asked for again on each load, with or without a closing slash', async () => {
+    for (const path of ['/privacy', '/privacy/']) {
+      const answer = await pages(path);
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      expect(answer.headers.get('Cache-Control')).toBe('no-cache');
+      expect(await answer.text()).toContain('The shop keeps none of your orders.');
+    }
+    expect((await pages('/terms', { method: 'HEAD' })).status).toBe(200);
+  });
+
+  test('every other address still gets the index page', async () => {
+    expect(await (await pages('/orders/42')).text()).toBe('<!doctype html><title>shop</title>');
+  });
+
+  test('without publicPages a page file is never sent at its address', async () => {
+    expect(await (await get('/privacy')).text()).toBe('<!doctype html><title>shop</title>');
+  });
+
+  test('a build missing its list, or a page on it, stops the server as it starts rather than send the empty page', async () => {
+    const bare = await mkdtemp(join(tmpdir(), 'app-kit-built-'));
+    try {
+      await writeFile(join(bare, 'index.html'), '<!doctype html><title>shop</title>');
+      expect(() => serveBuiltPage(bare, { publicPages: true })).toThrow('public-pages.json is missing');
+      await writeFile(join(bare, 'public-pages.json'), '["/privacy"]');
+      expect(() => serveBuiltPage(bare, { publicPages: true })).toThrow('/privacy is a public page but');
+      await writeFile(join(bare, 'public-pages.json'), '{"pages": []}');
+      expect(() => serveBuiltPage(bare, { publicPages: true })).toThrow('not a list of addresses');
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
+  });
+});

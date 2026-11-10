@@ -7,7 +7,8 @@ import { serveBuiltPage } from '../server';
 const port = Number(process.env.E2E_PORT);
 if (!port) throw new Error('Run the browser tests through scripts/e2e.sh, which gives them their own port.');
 
-const page = serveBuiltPage(join(import.meta.dir, 'fixture', 'dist'));
+// With the public pages scripts/e2e.sh writes after the build, as /privacy.
+const page = serveBuiltPage(join(import.meta.dir, 'fixture', 'dist'), { publicPages: true });
 
 /**
  * What pieces.html sends as it is left, kept by the id in its address, for the test to read back. Recorded here rather

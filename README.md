@@ -168,6 +168,44 @@ app.get('*', (c) => page(c.req.raw)); // Hono; a bare Bun.serve passes it as its
 
 A missing file, any address with a file's extension, is a 404 rather than the page, so an old build asking for screen code a deploy removed gets an answer `reloadOnFailedLoad` reads, never HTML it would try to run. An address under `/api/` that no route took is a JSON 404, `{ "error": "Not found" }`; an app whose API is elsewhere passes `{ api: '/v1/' }`. Only GET and HEAD are answered, and an escaped `..` never leaves the folder. It is a plain `(Request) => Promise<Response>` with no React, so the server imports it without the web part's peers. The kit's own browser tests serve their fixture through it.
 
+### Public pages as finished HTML
+
+A privacy policy, terms or about page the app draws reaches a reader that runs no JavaScript as the empty index page: the Chrome Web Store's check of an extension's privacy link reads it that way and refuses the listing with "Privacy policy link is not reachable", and Google's sign-in verification reads the same. So an app writes those pages at build, from the same components it draws them with, and its server sends each at its address as finished HTML.
+
+`writePublicPages` from `app-kit/web/public-pages` runs from the app's own bun script after `vite build`. For each page it renders the component inside what the app wraps it in, its theme and `CssBaseline`, and writes `<name>.html` beside `index.html`: a copy of the built index page with the page's words in the app's element, its title in the app's format (`Privacy policy · shop`, as `titleFor` writes it), and none of the app's code. The head keeps the app's stylesheets and its own inline scripts, such as the first frame's colors. MUI's styles are written beside the words, both color schemes of a kit theme included, so dark mode follows the browser's setting with no script. One small script is added, which applies the text size the person chose on this device or the phone's Text Size, as `followTextSize` does at start. The font files named in `fonts` are asked for first in the head, so a first visit draws in them rather than in a fallback that swaps.
+
+```tsx
+// scripts/public-pages.tsx, run as "build": "vite build && bun scripts/public-pages.tsx"
+import { CssBaseline, ThemeProvider } from '@mui/material';
+import { writePublicPages } from 'app-kit/web/public-pages';
+import { theme } from '../client/src/theme';
+import { About, Privacy, Terms } from '../client/src/legal';
+
+await writePublicPages({
+  folder: 'dist',
+  appName: 'shop',
+  pages: [
+    { address: '/privacy', title: 'Privacy policy', page: <Privacy /> },
+    { address: '/terms', title: 'Terms', page: <Terms /> },
+    { address: '/about', title: 'About', page: <About /> },
+  ],
+  wrap: (page) => (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      {page}
+    </ThemeProvider>
+  ),
+  fonts: ['figtree-latin-wght-normal.woff2'],
+});
+
+// the server
+const page = serveBuiltPage('dist', { publicPages: true });
+```
+
+The build writes its list of pages, `public-pages.json`, which the server reads, so the list has one owner. With `publicPages: true` a build without that list, or without a page on it, stops the server as it starts, and the host keeps the deploy that is running, rather than send the empty page at that address again. Each page is sent with `no-cache`, at its address with or without a closing slash; every other address is the app, as before. The dev server still draws these pages through the app.
+
+These pages carry no app: links on them are plain page loads, and pull to refresh is not there. A component that reads the browser while it renders (the window's size, who is signed in, a router's location) throws at build, so the app wraps its pages in what they read, such as a router given the page's address. The build refuses a page that renders no words, and refuses to run inside a page, as under `bun test` with a simulated page preloaded, since MUI's styles would then go into that page and not into the file; a test of the build runs it in a process of its own. React must be the app's own copy, as it is when the kit is installed beside it; two copies fail with "Invalid hook call". A browser test of a public page turns JavaScript off (`test.use({ javaScriptEnabled: false })`) and its build runs the same script, or it tests the empty page.
+
 ### Saved copies of screens
 
 A screen that paints first from the last answer it saw keeps that answer in the browser's storage, and a copy the running page cannot draw would crash every load before the screen could ask the server again; a hard reload does not clear it. Two rules keep that from happening. A copy is saved only after its screen has drawn it, in an effect, which React runs only for a draw that did not throw, so an answer in a newer shape, as an open page gets while a deploy goes out or is rolled back, crashes that one draw and is never saved. And copies are kept per build of the page, named by its built entry, so a copy saved by another build is never read; the other builds' copies are deleted as the app's copies are made. The dev server has no built entry to tell one version of the code from the next, so there nothing is kept.

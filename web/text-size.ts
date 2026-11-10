@@ -182,3 +182,33 @@ export function resetTextSize(): void {
   document.documentElement.style.fontSize = appRootSize ?? document.documentElement.style.fontSize;
   appRootSize = null;
 }
+
+/**
+ * The text size for a page with none of the app's code, as a public page (public-pages.tsx): a script for the end of
+ * its head that does once what followTextSize does at start, from the same sizes, stored choice and probe, and watches
+ * nothing after. A reader that runs no JavaScript gets the page at its own size.
+ */
+export function textSizeScript(): string {
+  return [
+    '(function () {',
+    '  var html = document.documentElement;',
+    `  var sizes = ${JSON.stringify(TEXT_SIZES)};`,
+    '  var scale = null;',
+    `  try { var stored = Number(window.localStorage.getItem(${JSON.stringify(CHOICE_KEY)})); if (sizes.indexOf(stored) >= 0) scale = stored; } catch (e) {}`,
+    "  if (scale === null && window.CSS && CSS.supports('font', '-apple-system-body') && navigator.maxTouchPoints > 0) {",
+    "    var probe = document.createElement('span');",
+    "    probe.style.setProperty('font', '-apple-system-body', 'important');",
+    "    probe.style.position = 'fixed';",
+    "    probe.style.visibility = 'hidden';",
+    "    probe.textContent = 'x';",
+    '    html.appendChild(probe);',
+    '    var px = parseFloat(getComputedStyle(probe).fontSize);',
+    '    probe.remove();',
+    `    if (px >= ${SMALLEST_BODY_PX}) scale = Math.round((px / ${DEFAULT_BODY_PX}) * 100) / 100;`,
+    '  }',
+    '  if (scale === null) scale = 1;',
+    "  html.style.setProperty('--text-scale', String(scale));",
+    "  if (scale !== 1) html.style.fontSize = parseFloat(getComputedStyle(html).fontSize) * scale + 'px';",
+    '})();',
+  ].join('\n');
+}

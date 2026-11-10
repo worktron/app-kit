@@ -7,5 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 free_port() { bun -e 'const s = Bun.serve({ port: 0, fetch: () => new Response() }); process.stdout.write(String(s.port)); s.stop(true);'; }
 bunx vite build web/e2e/fixture --logLevel warn
+# Its public pages, as an app's build writes them after its own.
+bun web/e2e/fixture/public-pages.tsx
 export E2E_PORT=$(free_port)
 cd web/e2e && bunx playwright test --config playwright.config.ts "$@"
