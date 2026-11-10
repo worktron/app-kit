@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.62.0
+
+Urgency: next round
+
+- a Mac app on `app-kit mac release` moves its update signing key from the Personal vault into the TestFlight vault with `op item move "<productName> update signing key" --current-vault Personal --destination-vault TestFlight`, checks the copy's fields and public key, and keeps the original in Recently Deleted until a release from the new vault publishes (README, "Releasing after each landing").
+
 ## v0.61.0
 
 Urgency: next round
