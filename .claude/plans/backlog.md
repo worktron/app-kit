@@ -630,3 +630,11 @@ Written by: messages-service/messages-service
 
 Goal: for a menu bar icon, `app-kit icons render` copies `glyph.svg` into a Swift app's image set as a vector template image (README, icons). A Tauri menu bar app needs a PNG for `TrayIconBuilder` (at 2x, black on transparent, used as a template), which the kit does not draw, so Messages Service wrote its own `scripts/tray-icon.ts` and runs it after `app-kit icons render --tauri src-tauri`. With `--tauri`, the kit should draw `icons/tray.png` (and the 1x size if Tauri wants it) from `glyph.svg` when the app has one, so every Tauri menu bar app gets the same image from the same drawing.
 Done when: `app-kit icons render --tauri <dir>` with a `glyph.svg` writes the tray PNG at the size and colors a template image needs, held by a test, and the README's icons section names the file and where the shell loads it from.
+
+## kit-checks-from-practices · Practices' checklist checks that name app-kit pieces move into app-kit's feature list
+Written by: app-kit/google-auth-final-sign-in-button
+
+Goal: app-kit owns the checks of whether an app takes its pieces (`scripts/kit-features.ts`, read by `scripts/apps.ts` for the apps round), and practices' app checklist (`scripts/app-checklist.ts` in practices) keeps the checks that hold for any app. Today the checklist also checks app-kit pieces: `reloadOnFailedLoad`, `followTextSize`, `app-kit icons render` and `google('choose')`, with `firstPaint` and the kit's window plugin coming from practices' logo-and-checklist thread. Each becomes an entry in `scripts/kit-features.ts` with made-up apps on each side, and practices drops its check in the same move, so no fact has two checks. Wait for practices' logo-and-checklist thread to land first, since its plan rewrites the same checklist code.
+Done when: each of those checks is an entry in `scripts/kit-features.ts` with its test, practices' checklist no longer checks it, `bun scripts/apps.ts` over the projects reports the same apps lacking each as the checklist did before the move, and both have landed.
+Needs: practices' logo-and-checklist landed.
+Touches: scripts/kit-features.ts, test/kit-features.test.ts; practices scripts/app-checklist.ts and its tests.
