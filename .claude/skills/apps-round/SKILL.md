@@ -12,7 +12,10 @@ An app has something to take when any of these holds:
 
 - it lacks a release whose urgency is `now` or `next round` and whose Apps line concerns it;
 - the review finds code it writes for itself that a kit piece does;
-- it has an open backlog ticket naming app-kit.
+- it has an open backlog ticket naming app-kit;
+- it lacks a kit feature (scripts/kit-features.ts) that last round's record did not list it as lacking.
+
+A feature gap starts an upgrade once: after that it rides along in the app's next upgrade's brief and stays on the page, so a gap the owner declined never starts a thread again.
 
 Releases marked `rides along` start nothing; an upgrade started for another reason takes them too.
 
@@ -28,7 +31,7 @@ bun scripts/apps.ts "$WORKSPACE" > "$TMPDIR/apps.json"
 bun "$WORKSPACE/practices/scripts/app-checklist.ts" "$WORKSPACE" > "$TMPDIR/checklist.txt"
 ```
 
-`scripts/apps.ts` stops with an error when it cannot read the kit's tags or CHANGES.md from GitHub; fix that before going on, since a round on missing data reports apps as up to date. Per app it gives the tags its package.json files name (`installs`), whether each bun.lock installs that tag's commit (`locked.matchesTag`), how many releases it is `behind`, CHANGES.md's entries since its tag (`changes`, each with its `urgency` and lines), the most urgent of them (`urgency`), its open backlog `tickets` naming app-kit, and when its origin was `fetched`. The checklist exits 1 when it lists any gap; that is its normal answer. Keep the checklist lines whose project is an app in apps.json.
+`scripts/apps.ts` stops with an error when it cannot read the kit's tags or CHANGES.md from GitHub; fix that before going on, since a round on missing data reports apps as up to date. Per app it gives the tags its package.json files name (`installs`), whether each bun.lock installs that tag's commit (`locked.matchesTag`), how many releases it is `behind`, CHANGES.md's entries since its tag (`changes`, each with its `urgency` and lines), the most urgent of them (`urgency`), its open backlog `tickets` naming app-kit, the kit's features it should have and `lacks` (scripts/kit-features.ts, which says what each looks for), those whose answer could not be read (`unknown`, each with why, never read as lacking), and when its origin was `fetched`. The checklist exits 1 when it lists any gap; that is its normal answer. Keep the checklist lines whose project is an app in apps.json.
 
 `$MAIN/.apps-round/last.json` is the last round's apps.json, when there was one. Done when both files are read and each app's checklist lines are matched to it.
 
@@ -47,7 +50,7 @@ Start one `metamax:finder` subagent per app in one message. Give each the app's 
 
 ## 4. Plan the round
 
-List the apps that have something to take and, for each, the reason (the releases that concern it with their urgency, the copies, the tickets). Leave out an app that already has an upgrade thread, open or closed but not yet closed by the owner:
+List the apps that have something to take and, for each, the reason (the releases that concern it with their urgency, the copies, the tickets, the features it newly lacks). List apart the apps whose only reason is a feature gap, so the owner can put them all off with one answer, and name each `unknown` with its reason. Leave out an app that already has an upgrade thread, open or closed but not yet closed by the owner:
 
 ```sh
 bun "$METAMAX_HOME/scripts/threads.ts" --project <project> --asleep
@@ -72,6 +75,8 @@ app-kit's apps round started this thread, and follows it to its landing. Move <a
 - What each release since its tag asks (https://github.com/worktron/app-kit/blob/main/CHANGES.md), most urgent first: <version, urgency, lines, for each entry that concerns it>.
 - Code it writes for itself that a kit piece does: <path:line, what it does, the kit piece and its import name>.
 - Its open tickets naming app-kit: <id · title, each>.
+- Kit features it lacks (https://github.com/worktron/app-kit/blob/main/scripts/kit-features.ts says what each looks for): <each, with its README section>.
+- What practices' app checklist says it lacks: <each line>.
 - Its threads that touch app-kit, which this meets: <names, or none>.
 
 Each item is done, planned in the plan, or recorded in the landing as declined with why; a ticket marked as a security fix is declined only on the owner's word. On a conflict in a package.json's kit line or in bun.lock, take the higher tag and install again. Never edit the backlog on the branch, and leave alone a ticket a live thread is working on. After the landing, name the tickets the change completed and, on the owner's yes in this pane, drop them from main with `bun "$METAMAX_HOME/scripts/ticket-triage-act.ts" <project> --drop <id,id>`.
@@ -93,6 +98,6 @@ Wait on the wave as the spawn skill says, and report once per wave in this threa
 
 ## 7. Publish the page and keep the record
 
-Publish one page with the `share-page` skill, slug `app-kit-apps`, dated with this round, and give the owner the address `publish.ts` prints. One row per app, in one shape: the app, its tag and the newest, releases behind with their urgency, a lock that does not match its tag, what CHANGES.md asks of it since its tag, what the checklist says it lacks, the review's findings, its open app-kit tickets with any security fix marked, and its upgrade thread with its state. An app whose fetch failed says so in its row.
+Publish one page with the `share-page` skill, slug `app-kit-apps`, dated with this round, and give the owner the address `publish.ts` prints. One row per app, in one shape: the app, its tag and the newest, releases behind with their urgency, a lock that does not match its tag, what CHANGES.md asks of it since its tag, the kit features it lacks and those unknown with why, what the checklist says it lacks, the review's findings, its open app-kit tickets with any security fix marked, and its upgrade thread with its state. An app whose fetch failed says so in its row.
 
-Copy `$TMPDIR/apps.json` to `$MAIN/.apps-round/last.json`, declare the outcome (`finished`, with how many apps landed their upgrade and how many are left), and end with the closing recap.
+Copy `$TMPDIR/apps.json` to `$MAIN/.apps-round/last.json`, with one change: an app the round left out because an upgrade thread was already open keeps the `lacks` `last.json` had for it, so a gap found while that thread was open, which reached no brief, still counts as new next round. Then declare the outcome (`finished`, with how many apps landed their upgrade and how many are left), and end with the closing recap.

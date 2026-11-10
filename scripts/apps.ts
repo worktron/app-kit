@@ -2,7 +2,8 @@
 // The apps on the kit, for the apps round (.claude/skills/apps-round): each git checkout directly inside the folders
 // given whose landed package.json files install the kit from GitHub, with the tag it names, what its bun.lock installs,
 // how many releases it is behind, what CHANGES.md asks of it since its tag with each release's urgency, the most urgent
-// of those, and its open backlog tickets that name the kit. It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and
+// of those, its open backlog tickets that name the kit, and the kit's features it should have and lacks
+// (scripts/kit-features.ts). It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and
 // reads what landed there (origin/HEAD, else HEAD).
 //
 //   bun scripts/apps.ts <folder>... [--no-fetch]
@@ -13,6 +14,7 @@
 import { readdirSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { URGENCIES, type Urgency } from './land.ts'
+import { appleServers, featuresOf, landedAt, type AppleLookup } from './kit-features.ts'
 
 export type Ticket = { id: string; title: string }
 export type Change = { version: string; urgency: Urgency | null; lines: string[] }
@@ -31,6 +33,10 @@ export type App = {
   urgency: Urgency | null
   /** Open sections of its backlog that name app-kit. */
   tickets: Ticket[]
+  /** The kit's features it should have and lacks (scripts/kit-features.ts). */
+  lacks: string[]
+  /** The features whose answer could not be read, each with why: never read as lacking or as had. */
+  unknown: string[]
   /** When its origin was last fetched, or why it could not be. */
   fetched: string
 }
@@ -77,7 +83,7 @@ function git(dir: string, args: string[]): { ok: boolean; out: string } {
 }
 
 /** One checkout as it landed, or null when nothing it landed installs the kit. */
-export function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean): App | null {
+export async function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean, apple: AppleLookup = appleServers): Promise<App | null> {
   let fetched = 'not fetched'
   if (fetch) {
     const done = git(dir, ['fetch', '-q', 'origin'])
@@ -119,6 +125,7 @@ export function readApp(dir: string, kitTags: Map<string, string>, changes: stri
     changes: pending,
     urgency: levels.length ? URGENCIES[Math.max(...levels)] : null,
     tickets: kitTickets(backlog),
+    ...(await featuresOf(landedAt(dir, ref), apple)),
     fetched,
   }
 }
@@ -154,10 +161,9 @@ if (import.meta.main) {
   if (!shown.ok) throw new Error(`reading CHANGES.md on the kit's main: ${shown.out}`)
   const changes = shown.out
   const newest = [...kitTags.keys()].sort(compareVersions).pop() ?? null
-  const apps = folders
+  const dirs = folders
     .flatMap((folder) => readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(folder, entry.name)))
     .filter((dir) => existsSync(join(dir, '.git')) && resolve(dir) !== kit)
-    .map((dir) => readApp(dir, kitTags, changes, fetch))
-    .filter((app): app is App => app !== null)
+  const apps = (await Promise.all(dirs.map((dir) => readApp(dir, kitTags, changes, fetch)))).filter((app): app is App => app !== null)
   console.log(JSON.stringify({ newest, read: new Date().toISOString(), apps }, null, 2))
 }

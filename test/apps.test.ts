@@ -16,6 +16,11 @@ import { GIT_IDENTITY_ENV, pathWithGitItself } from './testflight-stand-in.ts';
 const env = { ...process.env, PATH: pathWithGitItself(process.env.PATH), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_IDENTITY_ENV };
 let root: string;
 
+/** Apple's servers, which an app taking no iPhone sign-in never asks. */
+const neverApple = async (host: string): Promise<never> => {
+  throw new Error(`asked Apple for ${host}`);
+};
+
 const git = (cwd: string, ...args: string[]) => {
   const p = Bun.spawnSync(['git', ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' });
   if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr}`);
@@ -58,7 +63,7 @@ test('the backlog sections that name app-kit, by id and title', () => {
   ]);
 });
 
-test('an app is read as it landed on origin: the oldest tag it names, the lock checked against the tag, its kit tickets, each field the round names', () => {
+test('an app is read as it landed on origin: the oldest tag it names, the lock checked against the tag, its kit tickets, each field the round names', async () => {
   const origin = join(root, 'origin.git');
   const seed = join(root, 'seed');
   const app = join(root, 'app');
@@ -86,7 +91,7 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     ['v0.9.1', 'bbbbbbb2222222222222222222222222222222222'],
     ['v0.10.0', 'ccccccc3333333333333333333333333333333333'],
   ]);
-  expect(readApp(app, tags, CHANGES, false)).toEqual({
+  expect(await readApp(app, tags, CHANGES, false, neverApple)).toEqual({
     project: 'app',
     // Each install is judged by the lock in its own folder, the root's newer lock not mistaken for the client's.
     installs: [
@@ -103,6 +108,9 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
     // The most urgent release it lacks, which puts it first in the round.
     urgency: 'now',
     tickets: [{ id: UPDATE_TICKET, title: 'Bring it up to the newest app-kit' }],
+    // It takes no piece a feature belongs to (test/kit-features.test.ts reads those).
+    lacks: [],
+    unknown: [],
     fetched: 'not fetched',
   });
   // The round's instructions name the reader's fields, so each one they name is one the reader gives, and each one the
@@ -110,24 +118,24 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
   const skill = readFileSync(join(import.meta.dir, '../.claude/skills/apps-round/SKILL.md'), 'utf8');
   const described = skill.slice(skill.indexOf('`scripts/apps.ts` stops'), skill.indexOf('The checklist exits'));
   const named = [...described.matchAll(/`([a-z][A-Za-z]*(?:\.[a-zA-Z]+)?)`/g)].map((match) => match[1]);
-  const read = readApp(app, tags, CHANGES, false)!;
+  const read = (await readApp(app, tags, CHANGES, false, neverApple))!;
   const keys = new Set([...Object.keys(read), ...Object.keys(read.installs[0]), ...Object.keys(read.installs[0].locked!), ...Object.keys(read.changes[0])]);
   for (const name of named) for (const part of name.split('.')) expect(keys).toContain(part);
   for (const key of Object.keys(read).filter((key) => key !== 'project')) expect(named.map((name) => name.split('.')[0])).toContain(key);
   expect(skill).toContain('bun scripts/apps.ts "$WORKSPACE"');
   expect(skill).not.toMatch(/updateTicketOpen|app-kit-update/);
   // A lock that names another commit than the tag is flagged.
-  expect(readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false)?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
+  expect((await readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false, neverApple))?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
 });
 
-test('a checkout that installs no kit is not an app', () => {
+test('a checkout that installs no kit is not an app', async () => {
   const plain = join(root, 'plain');
   mkdirSync(plain);
   git(plain, 'init', '-q', '-b', 'main');
   writeFileSync(join(plain, 'package.json'), '{}');
   git(plain, 'add', '-A');
   git(plain, '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'Plain');
-  expect(readApp(plain, new Map(), CHANGES, false)).toBeNull();
+  expect(await readApp(plain, new Map(), CHANGES, false, neverApple)).toBeNull();
 });
 
 test("the kit's tags unread from GitHub stop the round rather than read as none", () => {
