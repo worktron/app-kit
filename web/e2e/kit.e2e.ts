@@ -34,15 +34,17 @@ async function signOut(page: Page) {
 /**
  * Plays a deploy of the newer build: the index page names newer.html's entry from now on. With `cachedPage`, the page
  * itself still comes back as the older one, as from a cache that holds it, and only a look past every cache sees the
- * newer one.
+ * newer one. Both pages are read once, before the crash, and answered from here: the page gives the server only
+ * CRASH_CHECK_MS of real time to say which build it serves, and a request forwarded to the fixture's server inside that
+ * wait once took longer on a busy machine, so the page rightly gave up and the test failed.
  */
 async function deployNewer(page: Page, { cachedPage = false } = {}) {
+  const [olderPage, newerPage] = await Promise.all(['/index.html', '/newer.html'].map(async (path) => (await page.request.get(path)).text()));
   await page.route(
     (url) => url.pathname === '/',
-    async (route) => {
+    (route) => {
       const older = cachedPage && route.request().resourceType() === 'document';
-      const response = await route.fetch({ url: new URL(older ? '/index.html' : '/newer.html', route.request().url()).href });
-      await route.fulfill({ response });
+      return route.fulfill({ body: older ? olderPage : newerPage, contentType: 'text/html; charset=utf-8', headers: { 'Cache-Control': 'no-cache' } });
     },
   );
 }
