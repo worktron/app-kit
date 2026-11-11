@@ -1497,6 +1497,38 @@ await sendToApple(devices, { badge: 0 }, options); // clears the icon
 
 With no `title` and no `body` the push carries only the badge, with no alert and no sound, and with no `url` it leaves out the address too. TypeScript refuses a title without a body, `quiet` without an alert, and a payload with neither an alert nor a badge. It stays an `alert` push at priority 10, which is the push type Apple names for a badge, and it has no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`.
 
+#### Removing notifications handled elsewhere
+
+When the thing a notification is about gets handled somewhere else, such as answered on the Mac, the server can take the notification off the phone. It sends the list of tags whose notifications stay:
+
+```ts
+await sendToApple(devices, { keep: ['thread-4', 'thread-9'] }, options);
+```
+
+The plugin removes each delivered notification sent before the list whose tag is not on it. A notification's tag is its identifier on the phone (Apple's collapse id, the first 64 bytes of `tag`), so a notification sent with no tag is removed by any later list. An alert that stands for several things, such as a summary, names them in `covers` and stays while any of them is on the list:
+
+```ts
+await sendToApple(devices, { title: '3 threads waiting', body, tag: 'summary', covers: ['thread-4', 'thread-9', 'thread-12'] }, options);
+```
+
+Every alert and every list carries the time `sendToApple` sent it, and a list removes only notifications sent before it, since Apple can deliver pushes out of order and a late list must never remove a newer alert. A notification from before this version has no send time and counts as older.
+
+A list goes as Apple's silent update, a `background` push at priority 5 with only `content-available` in `aps`: no alert, badge, sound or collapse id, which Apple refuses on one. iOS starts the app in the background for it when it is not running, with no window or page, and the plugin handles it there. Apple delivers these when it chooses: it advises no more than two or three an hour, keeps only the newest one it holds for a phone, and never wakes an app the person swiped away. The iPhone Simulator never hands one to an app at all (its log says content-available pushes are supported only on a device), so the background half is checked on a phone; the page half and the removal rules work in the Simulator. So the page makes the same removal as soon as it knows what is still waiting, such as when it comes to the front:
+
+```ts
+import { keepIphoneNotifications } from 'app-kit/tauri/iphone-notifications';
+
+await keepIphoneNotifications(waitingIds, serverTimeOfThisList);
+```
+
+`before` is in milliseconds since 1970 on the server's clock, the time of the server's answer the list comes from, so it compares with the send times the server wrote. It resolves to how many it removed, and anywhere but an iPhone app it does nothing. Each decision logs a line starting `[iphone-notifications]`, such as `[iphone-notifications] keep list: removing thread-4`.
+
+The shell's Info.plist needs the background mode, or iOS never hands the app a list. With Tauri's generated project, in `src-tauri/gen/apple/project.yml` under the app target's `info: properties:`:
+
+```yaml
+UIBackgroundModes: [remote-notification]
+```
+
 ### iPhone sign-in
 
 `app-kit/tauri/iphone-sign-in` for the page, and a Tauri plugin for the shell, in `tauri/iphone-sign-in/plugin/`: Google refuses to sign in inside the app's web view, so an iPhone build runs desktop sign-in's browser page in Apple's sign-in sheet (`ASWebAuthenticationSession`) instead of the default browser. The sheet slides over the app, shares Safari's Google sign-in, and closes when that page opens the app's sign-in link, which it hands back to the page instead of to iOS: no switch to Safari, no "open this app?" question, and no page load. The server's routes and the browser page are desktop sign-in's, above. The plugin is the kit's copy of tauri-plugin-web-auth 1.0.0 (MIT), changed so the sheet shows: the original keeps no hold on the sheet and looks for a window the way scene-based apps have none, so iOS shows it in a window nobody sees. argon-watcher is the first app.

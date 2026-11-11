@@ -6,7 +6,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ADDRESS_KEY, COMMANDS, LOG_PREFIX, PLUGIN, TAPPED_EVENT } from '../tauri/iphone-notifications/names';
+import { ADDRESS_KEY, COMMANDS, COVERS_KEY, KEEP_KEY, LOG_PREFIX, PLUGIN, SENT_KEY, TAPPED_EVENT } from '../tauri/iphone-notifications/names';
 
 const plugin = join(import.meta.dir, '../tauri/iphone-notifications/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -70,4 +70,17 @@ test('the Swift takes the notification delegate when the plugin starts and again
   expect(load).toContain('takeNotificationDelegate(');
   const start = swift.match(/func initPlugin\(\) -> Plugin \{([\s\S]*?)\n\}/)![1];
   expect(start).toContain('takeNotificationDelegate(');
+});
+
+test('the Swift reads a keep list, a send time and the covered tags under the keys the server writes', () => {
+  expect(swift).toContain(`private let sentKey = "${SENT_KEY}"`);
+  expect(swift).toContain(`private let coversKey = "${COVERS_KEY}"`);
+  expect(swift).toContain(`private let keepKey = "${KEEP_KEY}"`);
+});
+
+test('the Swift answers background pushes from plugin start, before any window or token request', () => {
+  const start = swift.match(/func initPlugin\(\) -> Plugin \{([\s\S]*?)\n\}/)![1];
+  expect(start).toContain('setUpBackgroundPush(');
+  expect(swift).toContain('application:didReceiveRemoteNotification:fetchCompletionHandler:');
+  expect(swift).toContain('UIApplication.didFinishLaunchingNotification');
 });

@@ -153,7 +153,8 @@ impl Builder {
             .invoke_handler(tauri::generate_handler![
                 commands::request_permission,
                 commands::get_token,
-                commands::take_tapped_address
+                commands::take_tapped_address,
+                commands::keep_notifications
             ])
             .setup(move |app, api| {
                 #[cfg(target_os = "ios")]

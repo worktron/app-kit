@@ -12,6 +12,7 @@ export const COMMANDS = {
   requestPermission: 'request_permission',
   getToken: 'get_token',
   takeTappedAddress: 'take_tapped_address',
+  keepNotifications: 'keep_notifications',
 } as const;
 
 /**
@@ -22,6 +23,15 @@ export const TAPPED_EVENT = 'app-kit-notification-tapped';
 
 /** The key in Apple's payload, beside `aps`, that holds the page the notification is about. */
 export const ADDRESS_KEY = 'url';
+
+/** The key beside `aps` that holds when the server sent an alert or a keep list, in milliseconds since 1970. */
+export const SENT_KEY = 'sent';
+
+/** The key beside `aps` that holds the tags an alert stands for, such as a summary of several things. */
+export const COVERS_KEY = 'covers';
+
+/** The key beside `aps` that holds a silent push's list of the tags whose notifications stay. */
+export const KEEP_KEY = 'keep';
 
 /** What every log line of the page half and the plugin starts with. */
 export const LOG_PREFIX = '[iphone-notifications]';

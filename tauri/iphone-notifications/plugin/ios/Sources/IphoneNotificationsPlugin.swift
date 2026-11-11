@@ -1,7 +1,8 @@
 // app-kit's copy of tauri-plugin-mobile-push 0.1.4's Swift side. Changed from the original: the notification delegate is
 // set when the plugin starts, and set again once the window loads, so a tap that launches the app is not lost; and a tap
 // keeps the notification's page (its `url`) until the page takes it, with an event telling an open page to take it now;
-// and a passive notification shows no banner with the app in front.
+// and a passive notification shows no banner with the app in front; and a silent push's keep list, or the page, removes
+// delivered notifications handled elsewhere, even when iOS starts the app in the background with no window.
 
 import UIKit
 import WebKit
@@ -148,6 +149,152 @@ func takeTappedAddress(_ buffer: UnsafeMutablePointer<CChar>, _ bufferLen: Int32
     return Int32(bytes.count)
 }
 
+// MARK: - Removing notifications handled elsewhere
+
+/// The payload's keys beside `aps` (`SENT_KEY`, `COVERS_KEY` and `KEEP_KEY` in tauri/iphone-notifications/names.ts).
+private let sentKey = "sent"
+private let coversKey = "covers"
+private let keepKey = "keep"
+
+/// Apple takes 64 bytes of a collapse id, which iOS makes the notification's identifier, so a tag is read the same way.
+private func identifierOf(_ tag: String) -> String {
+    var bytes = 0
+    var cut = ""
+    for character in tag {
+        bytes += character.utf8.count
+        if bytes > 64 { break }
+        cut.append(character)
+    }
+    return cut
+}
+
+/// Remove each delivered notification sent before `before` (milliseconds since 1970) whose tag is not kept. A
+/// notification that covers several tags stays while any of them is kept, and one with no send time, sent before the
+/// plugin read one, counts as older. Calls `done` with how many it removed once iOS's list no longer holds them, since
+/// iOS removes them in its own time (Apple's DTS, forum thread 774856), or after five seconds.
+private func removeHandled(keep: [String], before: Double, from source: String, done: @escaping (Int) -> Void) {
+    let kept = Set(keep.map(identifierOf))
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { delivered in
+        var removing: [String] = []
+        for notification in delivered {
+            let id = notification.request.identifier
+            let info = notification.request.content.userInfo
+            if let sent = (info[sentKey] as? NSNumber)?.doubleValue, sent >= before {
+                NSLog("[iphone-notifications] %@: kept %@, sent after the list", source, id)
+                continue
+            }
+            let tags = (info[coversKey] as? [String])?.map(identifierOf) ?? [id]
+            if let waiting = tags.first(where: kept.contains) {
+                NSLog("[iphone-notifications] %@: kept %@, since %@ is on the list", source, id, waiting)
+                continue
+            }
+            removing.append(id)
+        }
+        guard !removing.isEmpty else {
+            NSLog("[iphone-notifications] %@: nothing to remove of %d delivered", source, delivered.count)
+            done(0)
+            return
+        }
+        center.removeDeliveredNotifications(withIdentifiers: removing)
+        NSLog("[iphone-notifications] %@: removing %@", source, removing.joined(separator: ", "))
+        waitUntilRemoved(Set(removing), until: Date().addingTimeInterval(5)) { left in
+            if left > 0 { NSLog("[iphone-notifications] %@: %d still listed after five seconds", source, left) }
+            done(removing.count)
+        }
+    }
+}
+
+private func waitUntilRemoved(_ ids: Set<String>, until deadline: Date, then: @escaping (Int) -> Void) {
+    UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+        let left = delivered.filter { ids.contains($0.request.identifier) }.count
+        if left == 0 || Date() >= deadline {
+            then(left)
+            return
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { waitUntilRemoved(ids, until: deadline, then: then) }
+    }
+}
+
+/// A push that reached the app: a keep list removes what it leaves out, and anything else is left to iOS.
+private func handleBackgroundPush(_ userInfo: [AnyHashable: Any], _ completion: @escaping (UIBackgroundFetchResult) -> Void) {
+    let state: String
+    switch UIApplication.shared.applicationState {
+    case .active: state = "in front"
+    case .inactive: state = "coming to the front"
+    default: state = "in the background"
+    }
+    guard let keep = userInfo[keepKey] as? [String] else {
+        NSLog("[iphone-notifications] a push with no keep list reached the app %@: nothing to remove", state)
+        completion(.noData)
+        return
+    }
+    guard let before = (userInfo[sentKey] as? NSNumber)?.doubleValue else {
+        NSLog("[iphone-notifications] a keep list with no send time: nothing removed, since a late one could remove a newer notification")
+        completion(.noData)
+        return
+    }
+    NSLog("[iphone-notifications] a keep list of %d reached the app %@", keep.count, state)
+    removeHandled(keep: keep, before: before, from: "keep list") { removed in
+        DispatchQueue.main.async { completion(removed > 0 ? .newData : .noData) }
+    }
+}
+
+/// Whether the app delegate answers background pushes yet.
+private var backgroundPushSetUp = false
+private var launchObserver: NSObjectProtocol?
+
+/// Give the Tao-generated app delegate class `application:didReceiveRemoteNotification:fetchCompletionHandler:`, which
+/// iOS calls for a silent push, even after starting the app in the background for it, when no window or page loads.
+/// It has to be there before launch finishes, so this runs when the plugin starts, or once launch finishes when the
+/// delegate is not set yet. Main thread only.
+private func setUpBackgroundPush(_ when: String) {
+    guard !backgroundPushSetUp else { return }
+    guard let delegate = UIApplication.shared.delegate else {
+        guard launchObserver == nil else { return }
+        NSLog("[iphone-notifications] %@: no app delegate yet, so background pushes are set up once launch finishes", when)
+        launchObserver = NotificationCenter.default.addObserver(forName: UIApplication.didFinishLaunchingNotification, object: nil, queue: .main) { _ in
+            setUpBackgroundPush("launch finished")
+        }
+        return
+    }
+    backgroundPushSetUp = true
+    if let observer = launchObserver {
+        NotificationCenter.default.removeObserver(observer)
+        launchObserver = nil
+    }
+    let cls: AnyClass = type(of: delegate)
+    let selector = sel_registerName("application:didReceiveRemoteNotification:fetchCompletionHandler:")
+    let block: @convention(block) (AnyObject, UIApplication, NSDictionary, @escaping @convention(block) (UInt) -> Void) -> Void = { _, _, userInfo, completion in
+        handleBackgroundPush(userInfo as? [AnyHashable: Any] ?? [:]) { result in completion(result.rawValue) }
+    }
+    if class_addMethod(cls, selector, imp_implementationWithBlock(block as Any), "v@:@@@?") {
+        NSLog("[iphone-notifications] %@: %@ now answers background pushes", when, NSStringFromClass(cls))
+    } else {
+        NSLog("[iphone-notifications] %@: %@ already answers background pushes, so keep lists are left to it", when, NSStringFromClass(cls))
+    }
+}
+
+/// Remove what the page says was handled: each delivered notification sent before `before` whose tag is not in
+/// `idsJson`, a JSON array of strings. Blocks, so never call it on the main thread. Returns how many it removed, -1
+/// when the list does not parse, -2 when iOS did not answer in ten seconds.
+@_cdecl("iphone_notifications_keep")
+func keepNotificationsDirect(_ idsJson: UnsafePointer<CChar>, _ before: Double) -> Int32 {
+    guard let data = String(cString: idsJson).data(using: .utf8),
+          let ids = (try? JSONSerialization.jsonObject(with: data)) as? [String] else {
+        NSLog("[iphone-notifications] the page's keep list did not parse")
+        return -1
+    }
+    let sem = DispatchSemaphore(value: 0)
+    var removed = 0
+    removeHandled(keep: ids, before: before, from: "page") { count in
+        removed = count
+        sem.signal()
+    }
+    if sem.wait(timeout: .now() + 10) == .timedOut { return -2 }
+    return Int32(removed)
+}
+
 /// Injects APNs callback methods into the Tao-generated dynamic AppDelegate class
 /// and makes sure this plugin is still the notification center's delegate.
 /// Must be called on the main thread.
@@ -193,6 +340,7 @@ private func setupApnsDelegateInternal() {
     }
 
     takeNotificationDelegate("first token request")
+    setUpBackgroundPush("first token request")
 
     apnsDelegateSetUp = true
 }
@@ -370,5 +518,10 @@ func initPlugin() -> Plugin {
     // didFinishLaunchingWithOptions completes). The notification center's delegate needs no AppDelegate, and must be
     // set before launch finishes for iOS to hand over a tap that launched the app.
     takeNotificationDelegate("plugin start")
+    if Thread.isMainThread {
+        setUpBackgroundPush("plugin start")
+    } else {
+        DispatchQueue.main.async { setUpBackgroundPush("plugin start") }
+    }
     return IphoneNotificationsPlugin()
 }

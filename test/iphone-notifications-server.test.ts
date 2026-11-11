@@ -196,3 +196,47 @@ test('with no push key configured nothing is sent', async () => {
   });
   expect(d.asked).toEqual([]);
 });
+
+test('a keep list is a silent update: content-available alone in aps, the list and when it was sent', () => {
+  expect(applePayload({ keep: ['thread-1', 'thread-2'] }, NOW)).toBe(`{"aps":{"content-available":1},"keep":["thread-1","thread-2"],"sent":${NOW}}`);
+  expect(JSON.parse(applePayload({ keep: [] }, NOW))).toEqual({ aps: { 'content-available': 1 }, keep: [], sent: NOW });
+});
+
+test('an alert carries when it was sent and the tags it covers; a badge alone carries neither', () => {
+  expect(JSON.parse(applePayload({ title: 't', body: 'b', url: '/digest', tag: 'summary', covers: ['thread-1', 'thread-2'] }, NOW))).toEqual({
+    aps: { alert: { title: 't', body: 'b' }, sound: 'default' },
+    url: '/digest',
+    sent: NOW,
+    covers: ['thread-1', 'thread-2'],
+  });
+  expect(applePayload({ badge: 2 }, NOW)).toBe('{"aps":{"badge":2}}');
+});
+
+test('a keep list goes as a background push at priority 5, with no collapse id, alert, badge or sound', async () => {
+  const d = deps(async () => ({ status: 200 }));
+  const result = await sendToApple([{ token: 'phone', environment: 'production' }], { keep: ['thread-1'] }, { topic: 'com.example.app', ttlSeconds: 3600 }, d);
+  expect(result).toEqual({ sent: 1, gone: [], failed: 0 });
+  const { headers, body } = d.asked[0];
+  expect(headers).toMatchObject({ 'apns-topic': 'com.example.app', 'apns-push-type': 'background', 'apns-priority': '5', 'apns-expiration': String(NOW / 1000 + 3600) });
+  expect(headers['apns-collapse-id']).toBeUndefined();
+  const aps = JSON.parse(body).aps;
+  expect(aps).toEqual({ 'content-available': 1 });
+});
+
+test('every alert sendToApple sends carries the time it was sent', async () => {
+  const d = deps(async () => ({ status: 200 }));
+  await sendToApple([{ token: 'phone', environment: 'production' }], { title: 't', body: 'b', tag: 'thread-1' }, { topic: 'com.example.app', ttlSeconds: 60 }, d);
+  expect(JSON.parse(d.asked[0].body).sent).toBe(NOW);
+  expect(d.asked[0].headers['apns-push-type']).toBe('alert');
+});
+
+test('a keep list takes nothing an alert has, and a badge alone takes no covers', () => {
+  // @ts-expect-error a keep list shows nothing
+  applePayload({ keep: ['a'], title: 't', body: 'b' });
+  // @ts-expect-error a keep list leaves the icon alone
+  applePayload({ keep: ['a'], badge: 1 });
+  // @ts-expect-error a keep list replaces nothing, so it has no tag
+  applePayload({ keep: ['a'], tag: 'x' });
+  // @ts-expect-error a badge alone is no notification, so it covers nothing
+  applePayload({ badge: 1, covers: ['a'] });
+});

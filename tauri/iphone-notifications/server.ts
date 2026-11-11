@@ -10,7 +10,7 @@
  */
 import { connect } from 'node:http2';
 import { appleToken } from '../apple-token';
-import { ADDRESS_KEY } from './names';
+import { ADDRESS_KEY, COVERS_KEY, KEEP_KEY, SENT_KEY } from './names';
 
 export type AppleEnvironment = 'development' | 'production';
 export type AppleDevice = { token: string; environment: AppleEnvironment };
@@ -23,6 +23,11 @@ type AppleAlert = {
   quiet?: boolean;
   /** The number on the app's icon; 0 clears it. The plugin never changes it, so the count is the server's. */
   badge?: number;
+  /**
+   * The tags this alert stands for, such as a summary of several things. A keep list removes it only once none of them
+   * is on the list; without it, the alert's own tag is what the list is read against.
+   */
+  covers?: string[];
 };
 
 /** Only the number on the app's icon: nothing shows and nothing plays. */
@@ -32,15 +37,42 @@ type AppleBadge = {
   quiet?: never;
   /** The number on the app's icon; 0 clears it. */
   badge: number;
+  covers?: never;
 };
 
-/** What the phone shows, and the page a tap opens: an alert, an alert with a badge, or a badge alone. */
-export type ApplePayload = (AppleAlert | AppleBadge) & {
-  /** The page a tap opens: a path, or an address on the app's site. Defaults to '/' on an alert. */
-  url?: string;
-  /** A newer notification with the same tag replaces the older one instead of stacking. */
-  tag?: string;
+/**
+ * A silent push that removes what was handled elsewhere: the plugin removes each delivered notification sent before
+ * this list whose tag is not on it. It shows nothing, sounds nothing and leaves the icon's number alone, and Apple
+ * delivers it when it chooses, keeping only the newest one it holds for a phone.
+ */
+export type AppleKeep = {
+  /** The tags whose notifications stay. An empty list removes every notification sent before it. */
+  keep: string[];
+  title?: never;
+  body?: never;
+  quiet?: never;
+  badge?: never;
+  covers?: never;
+  url?: never;
+  tag?: never;
 };
+
+/**
+ * What the phone shows, and the page a tap opens: an alert, an alert with a badge, or a badge alone; or a keep list,
+ * which shows nothing and removes what was handled elsewhere.
+ */
+export type ApplePayload =
+  | ((AppleAlert | AppleBadge) & {
+      /** The page a tap opens: a path, or an address on the app's site. Defaults to '/' on an alert. */
+      url?: string;
+      /**
+       * A newer notification with the same tag replaces the older one instead of stacking. It is the notification's
+       * identifier on the phone, so a keep list names notifications by it. Apple takes 64 bytes of it.
+       */
+      tag?: string;
+      keep?: never;
+    })
+  | AppleKeep;
 
 export const APPLE_HOSTS: Record<AppleEnvironment, string> = {
   development: 'api.sandbox.push.apple.com',
@@ -75,9 +107,15 @@ export function providerToken(config: AppleConfig, nowMs: number): string {
  * Apple's payload: the alert, and the page a tap opens as a path, query and fragment. The page opens only a page of
  * its own site, so the server's own address is left out, and a debug build whose page runs on a dev server opens the
  * same path there. A quiet alert is Apple's passive level with no sound. A badge alone has no alert and no sound, and
- * no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`.
+ * no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`. A keep
+ * list is that silent update: `content-available` alone in `aps`, beside the list.
+ *
+ * `sentAt`, in milliseconds, is when the server sent it, which `sendToApple` gives every alert and keep list. Apple can
+ * deliver pushes out of order, so the phone compares the two times and a late list never removes a newer alert.
  */
-export function applePayload(payload: ApplePayload): string {
+export function applePayload(payload: ApplePayload, sentAt?: number): string {
+  const sent = sentAt === undefined ? {} : { [SENT_KEY]: sentAt };
+  if (payload.keep !== undefined) return JSON.stringify({ aps: { 'content-available': 1 }, [KEEP_KEY]: payload.keep, ...sent });
   const aps: Record<string, unknown> = {};
   if (payload.title !== undefined) {
     aps.alert = { title: payload.title, body: payload.body };
@@ -87,7 +125,8 @@ export function applePayload(payload: ApplePayload): string {
   if (payload.badge !== undefined) aps.badge = payload.badge;
   if (payload.title === undefined && payload.url === undefined) return JSON.stringify({ aps });
   const url = new URL(payload.url ?? '/', 'https://app.example.com');
-  return JSON.stringify({ aps, [ADDRESS_KEY]: `${url.pathname}${url.search}${url.hash}` });
+  const covers = payload.covers === undefined ? {} : { [COVERS_KEY]: payload.covers };
+  return JSON.stringify({ aps, [ADDRESS_KEY]: `${url.pathname}${url.search}${url.hash}`, ...(payload.title === undefined ? {} : sent), ...covers });
 }
 
 /**
@@ -162,7 +201,8 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 /**
  * Send one payload to each device. `topic` is the iPhone app's bundle id: Apple delivers only to the app it names.
  * Never throws for a device's failure: it is logged, and a token Apple has retired comes back in `gone`. With no push
- * key configured it sends nothing.
+ * key configured it sends nothing. An alert goes as Apple's `alert` push at priority 10; a keep list as a `background`
+ * push at priority 5 with no collapse id, the only way Apple takes a push that wakes the app and shows nothing.
  */
 export async function sendToApple(
   devices: AppleDevice[],
@@ -173,15 +213,16 @@ export async function sendToApple(
   const result: AppleResult = { sent: 0, gone: [], failed: 0 };
   if (!deps.config || devices.length === 0) return result;
   const config = deps.config;
-  const body = applePayload(payload);
+  const keep = payload.keep !== undefined;
+  const body = applePayload(payload, deps.now());
 
   await Promise.all(
     devices.map(async (device) => {
       const headers: Record<string, string> = {
         authorization: `bearer ${providerToken(config, deps.now())}`,
         'apns-topic': opts.topic,
-        'apns-push-type': 'alert',
-        'apns-priority': '10',
+        'apns-push-type': keep ? 'background' : 'alert',
+        'apns-priority': keep ? '5' : '10',
         'apns-expiration': String(Math.floor(deps.now() / 1000) + opts.ttlSeconds),
       };
       if (payload.tag) headers['apns-collapse-id'] = payload.tag.slice(0, 64);

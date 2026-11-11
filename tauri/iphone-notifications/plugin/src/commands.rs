@@ -1,4 +1,4 @@
-// The page's three commands. Each calls the Swift side directly through a C function (IphoneNotificationsPlugin.swift),
+// The page's four commands. Each calls the Swift side directly through a C function (IphoneNotificationsPlugin.swift),
 // bypassing run_mobile_plugin, which the original plugin found hangs, and blocks on its own thread, never the main one.
 
 use tauri::{command, AppHandle, Runtime};
@@ -19,6 +19,11 @@ extern "C" {
     /// Take the page a tapped notification is about, once: a second call returns nothing until the next tap.
     /// Writes the address to the buffer. Returns its length, 0 when no tap is waiting, -1 when it did not fit.
     fn iphone_notifications_take_tapped_address(buffer: *mut i8, buffer_len: i32) -> i32;
+
+    /// Remove each delivered notification sent before `before` (milliseconds since 1970) whose tag is not in `ids_json`,
+    /// a JSON array of strings. Blocks until iOS's list no longer holds them, or a few seconds.
+    /// Returns how many it removed, -1 when the list does not parse, -2 when iOS did not answer in time.
+    fn iphone_notifications_keep(ids_json: *const std::ffi::c_char, before: f64) -> i32;
 }
 
 /// The longest tapped address the page is handed. A longer one is dropped by the Swift side, never cut short.
@@ -96,5 +101,32 @@ pub(crate) async fn take_tapped_address<R: Runtime>(_app: AppHandle<R>) -> Resul
     #[cfg(not(target_os = "ios"))]
     {
         Ok(None)
+    }
+}
+
+/// Remove the delivered notifications handled elsewhere: each sent before `before`, in milliseconds since 1970 on the
+/// server's clock, whose tag is not in `ids`. Returns how many it removed.
+#[command]
+pub(crate) async fn keep_notifications<R: Runtime>(_app: AppHandle<R>, ids: Vec<String>, before: f64) -> Result<u32> {
+    #[cfg(target_os = "ios")]
+    {
+        let json = serde_json::to_string(&ids).map_err(std::io::Error::other)?;
+        let json = std::ffi::CString::new(json).map_err(std::io::Error::other)?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(unsafe { iphone_notifications_keep(json.as_ptr(), before) });
+        });
+        match rx.recv() {
+            Ok(removed) if removed >= 0 => Ok(removed as u32),
+            Ok(-1) => Err(crate::Error::Io(std::io::Error::other("the list of tags to keep did not parse"))),
+            Ok(_) => Err(crate::Error::Io(std::io::Error::other("iOS did not list its delivered notifications in time"))),
+            Err(_) => Err(crate::Error::Io(std::io::Error::other("the removal thread stopped"))),
+        }
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (ids, before);
+        Ok(0)
     }
 }

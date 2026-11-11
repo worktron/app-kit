@@ -4,12 +4,13 @@
  * notification is about. The plugin keeps a tapped notification's page until the page takes it, so the page takes it
  * when it starts (a tap that launched the app), each time it comes back in front (a tap with the app in the background),
  * and when the plugin's event says a tap came in (a tap on a banner with the app in front). Only a page on the app's
- * own site opens. Anywhere but an iPhone app none of this runs.
+ * own site opens. `keepIphoneNotifications` removes the delivered notifications handled elsewhere. Anywhere but an
+ * iPhone app none of this runs.
  */
 import { isIphoneApp } from '../../web/installed-app';
 import { COMMANDS, LOG_PREFIX, PLUGIN, TAPPED_EVENT } from './names';
 
-export { ADDRESS_KEY, COMMANDS, LOG_PREFIX, PLUGIN, TAPPED_EVENT } from './names';
+export { ADDRESS_KEY, COMMANDS, COVERS_KEY, KEEP_KEY, LOG_PREFIX, PLUGIN, SENT_KEY, TAPPED_EVENT } from './names';
 
 /** Which of Apple's push services a device token belongs to. The plugin says: a debug build is development. */
 export type AppleEnvironment = 'development' | 'production';
@@ -111,5 +112,25 @@ async function registerIphone(invoke: Invoke, register: IphoneNotificationsOptio
   } catch (err) {
     // No push entitlement (an unsigned build) or no network: the app works without notifications.
     console.error(`${LOG_PREFIX} registration failed`, err);
+  }
+}
+
+/**
+ * Remove the notifications on this phone that were handled elsewhere: each delivered one the server sent before
+ * `before`, in milliseconds since 1970 on the server's clock, whose tag is not in `keep`. A notification that covers
+ * several tags stays while any of them is in `keep`. It is the same removal a keep list pushed by the server makes,
+ * for the page to make as soon as it knows what is still waiting, such as when it comes to the front. Resolves to how
+ * many it removed; anywhere but an iPhone app, or when the plugin fails, it removes nothing and resolves to 0.
+ */
+export async function keepIphoneNotifications(keep: string[], before: number, options: { invoke?: Invoke } = {}): Promise<number> {
+  if (!isIphoneApp()) return 0;
+  const invoke = options.invoke ?? tauriInvoke;
+  try {
+    const removed = (await invoke(plugin(COMMANDS.keepNotifications), { ids: keep, before })) as number;
+    console.log(`${LOG_PREFIX} removed ${removed} handled elsewhere, keeping ${keep.length}`);
+    return removed;
+  } catch (err) {
+    console.error(`${LOG_PREFIX} could not remove the notifications handled elsewhere`, err);
+    return 0;
   }
 }

@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["request_permission", "get_token", "take_tapped_address"];
+const COMMANDS: &[&str] = &["request_permission", "get_token", "take_tapped_address", "keep_notifications"];
 
 fn main() {
     println!("cargo:rerun-if-changed=ios/Sources/IphoneNotificationsPlugin.swift");

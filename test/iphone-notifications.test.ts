@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { startIphoneNotifications, tappedPage, type Invoke, type IphoneDevice } from '../tauri/iphone-notifications';
+import { keepIphoneNotifications, startIphoneNotifications, tappedPage, type Invoke, type IphoneDevice } from '../tauri/iphone-notifications';
 import { TAPPED_EVENT } from '../tauri/iphone-notifications/names';
 
 const ORIGIN = 'http://localhost:5173';
@@ -188,5 +188,34 @@ test('the Mac app and a browser make no plugin call', () => {
     stopOne();
     // Each call starts synchronously, so a call made would be here already.
     expect(p.calls).toEqual([]);
+  }
+});
+
+test('keeping notifications hands the plugin the tags and the time, and says how many went', async () => {
+  const asked: { command: string; args?: Record<string, unknown> }[] = [];
+  const invoke: Invoke = async (command, args) => {
+    asked.push({ command, args });
+    return 2;
+  };
+  expect(await keepIphoneNotifications(['thread-1'], 1_000, { invoke })).toBe(2);
+  expect(asked).toEqual([{ command: 'plugin:iphone-notifications|keep_notifications', args: { ids: ['thread-1'], before: 1_000 } }]);
+  expect(lines).toContain('[iphone-notifications] removed 2 handled elsewhere, keeping 1');
+});
+
+test('a plugin that fails to keep notifications leaves the page working', async () => {
+  const invoke: Invoke = async () => {
+    throw new Error('no plugin');
+  };
+  expect(await keepIphoneNotifications([], 1_000, { invoke })).toBe(0);
+  expect(lines.some((line) => line.includes('could not remove the notifications handled elsewhere'))).toBe(true);
+});
+
+test('off an iPhone app keeping notifications makes no plugin call', async () => {
+  for (const [agent, tauri] of [[MAC, true], [IPHONE, false]] as const) {
+    setAgent(agent);
+    if (!tauri) delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    const calls: string[] = [];
+    expect(await keepIphoneNotifications(['a'], 1, { invoke: async (command) => (calls.push(command), 1) })).toBe(0);
+    expect(calls).toEqual([]);
   }
 });
