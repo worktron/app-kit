@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.64.0
+
+Urgency: next round
+
+- to clear handled notifications, send applePayload({ keep }) through sendToApple when something is handled, pass covers on a summary alert, call keepIphoneNotifications(tags, sentAt) when the page learns what still waits, and add UIBackgroundModes remote-notification to project.yml; apps that do none of this see no change.
+
 ## v0.63.0
 
 Urgency: next round
