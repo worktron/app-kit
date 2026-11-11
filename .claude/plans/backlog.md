@@ -688,3 +688,10 @@ Written by: app-kit/start-page-release-paths
 Goal: README.md "Releases and updates" says what `app-kit mac release` does about this Mac's folder paths: the rules in CARGO_BUILD_RUSTFLAGS, CFLAGS and CXXFLAGS, the shell variables taken out, a folder with a space refused, the search of the archive and frontendDist, exit 4 and the watcher's hold. No test reads it, so a change to tauri/mac-release/build-paths.ts or release.ts can leave it wrong, as the landing verifier noted on 2026-11-11 (start-page-release-paths). The window section's shell and frontendDist line are already held (test/tauri-window.test.ts).
 
 Done when: a unit test holds the paragraph's variable names, its replacement words (~ and app) and its exit code to build-paths.ts's and release.ts's own constants, and fails when either side changes alone.
+
+## root-instructions-size · App-kit's root instruction file stays small as rules are added
+Written by: app-kit/shorter-instructions
+
+Goal: the root AGENTS.md goes with every request an app-kit thread makes. On 2026-11-11 (c836517) it went from 3,294 words to 1,059 by moving each folder's inventory and three folder-only rules into the folders' own AGENTS.md, which load only when a thread works there. Its rules grew from 1,011 to 1,131 words between 2026-11-09 and 2026-11-11, so the root passes a third of its old size (1,098) again within weeks. test/instruction-files.test.ts holds the folder pairing and keeps the inventory out of the root, but sets no size on purpose: a word limit set just above today's size would fail an unrelated branch that adds a rule. The user decides whether a limit is wanted and at what number, or whether a rule that applies only in one folder should be written in that folder's AGENTS.md from the start, and the test and this file's rules then say so.
+
+Done when: the user has chosen; if a limit, a unit test holds the root at it and names the folder files as where folder-only rules go, and fails on a root over it.
