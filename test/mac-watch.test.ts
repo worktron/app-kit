@@ -191,6 +191,23 @@ test('a release that did not compile is held until main moves', async () => {
   expect((await pass()).named('mac release')).toHaveLength(1);
 });
 
+test("a build that holds this Mac's folder paths is held until main moves, not built and notarized again every hour", async () => {
+  commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
+  // A made-up home folder, written in two parts, since no file here may name one (test/public.test.ts).
+  const path = ['/Users', 'someone/x.rs'].join('/');
+  releaseAnswer = () => exit(4, `[mac release] the build holds 1 path of this Mac's home folder, which a public release would publish: ${path} in Example App.app/Contents/MacOS/example\n`);
+  await pass();
+  const count = git(origin, 'rev-list', '--count', 'HEAD');
+  expect(logLines()[1]).toBe(
+    `${at(START)} held: ${short(head())} holds this Mac's folder paths: the build holds 1 path of this Mac's home folder, which a public release would publish: ${path} in Example App.app/Contents/MacOS/example; held until main moves (build-${count}.log)`,
+  );
+  clock += 2 * 60 * MINUTE;
+  expect((await pass()).named('mac release')).toEqual([]);
+  commit(origin, { 'src/app.ts': 'export const changed = false;\n' });
+  releaseAnswer = () => ok('[mac release] published Example App 0.1.4: https://example.com\n');
+  expect((await pass()).named('mac release')).toHaveLength(1);
+});
+
 test('any other failure is tried again after an hour, and not before', async () => {
   commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
   releaseAnswer = () => exit(1, '[mac release] gh could not publish v0.1.4 in example/example-releases: HTTP 502\n');

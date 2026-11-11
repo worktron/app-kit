@@ -40,9 +40,12 @@ extension/       browser extensions: worker/ (plain JavaScript Chrome loads, cop
 tauri/           Mac and iPhone apps built with Tauri: window/, a window onto the hosted site: plugin/, the Tauri plugin
                  an app's shell builds, with desktop sign-in's shell half, the Mac menu bar (src/menu.rs) and updates from
                  the app's releases (src/updates.rs), and the page half (index.ts), with the update line (lines.tsx),
-                 and the names both share (names.ts);
+                 and the names both share (names.ts), and start/, the start page the window opens on, which waits for
+                 the site and says when it cannot reach it (start/index.html, the only file there, since an app's
+                 frontendDist names the folder);
                  mac-release/, `app-kit mac release` (release.ts), which publishes a Mac release the installed app
-                 updates itself to, notarized when a Developer ID signs it, `app-kit mac watch` (watch.ts), which releases an
+                 updates itself to, notarized when a Developer ID signs it, with this Mac's folder paths rewritten
+                 out of the build and searched for in what goes up (build-paths.ts), `app-kit mac watch` (watch.ts), which releases an
                  app after each landing that changes it, `app-kit mac key` (key.ts), which makes the key that signs it, and what they read
                  from the app (app.ts); watch-main.ts, what the Mac release watcher and the TestFlight watcher share: the pass
                  under a lock, the clone main is fetched into and checked out in, which files count as the app, the record and

@@ -36,6 +36,8 @@ export type AppConfig = {
   pubkey: string;
   /** plugins.updater.endpoints[0], where the installed app asks for the newest release. */
   endpoint: string;
+  /** build.frontendDist when it is a folder, relative to src-tauri, else null: the page Tauri stores compressed in the program. */
+  frontendDist: string | null;
 };
 
 /** The app's name and version from tauri.conf.json, or why they cannot be read; the key command needs no more. */
@@ -73,7 +75,9 @@ export function readConfig(cwd: string): AppConfig | string {
   if (!pubkey || !endpoint) {
     return `${CONFIG} has no plugins.updater with a pubkey and an endpoint: add the block app-kit mac key printed (app-kit's README, "Releases and updates")`;
   }
-  return { productName, version, identity, pubkey, endpoint };
+  const dist = object(config.build).frontendDist;
+  const frontendDist = typeof dist === 'string' && !/^[a-z]+:\/\//i.test(dist) ? dist : null;
+  return { productName, version, identity, pubkey, endpoint, frontendDist };
 }
 
 /** The GitHub repository `owner/name` an endpoint names, or null for an address that is not a release's latest.json. */

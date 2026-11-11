@@ -1,5 +1,6 @@
 /*
- * The names the page shares with the window's Rust (plugin/src/mac.rs, menu.rs and updates.rs), which cannot import them.
+ * The names the page shares with the window's Rust (plugin/src/mac.rs, menu.rs, updates.rs and lib.rs), and the start
+ * page (start/index.html) shares with lib.rs, which cannot import them.
  * test/tauri-window.test.ts reads the Rust and holds each to these. The page comes from the app's server and the shell
  * from the installed build, so a rename would leave every build installed before it out of step: these stay as they are.
  */
@@ -31,3 +32,12 @@ export const MENU_EVENT = 'app-kit-menu';
 /** The items the page carries out: Settings… and Sign Out (plugin/src/menu.rs). */
 export const MENU_SETTINGS = 'settings';
 export const MENU_SIGN_OUT = 'sign-out';
+
+/**
+ * Where the window hands the kit's start page its settings before the page's script runs (Site::start_page_window):
+ * `{ address, health, name, background, text }`, the site's address, its health route's path, the app's name and its
+ * two colors.
+ */
+export const START_PAGE_SETTINGS = '__APP_KIT_START_PAGE__';
+/** The health route the start page asks by default, which every server on app-kit/server/start answers. */
+export const START_PAGE_HEALTH = '/api/health';

@@ -231,5 +231,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
     return failed('release', `failed: the release of ${short} did not finish in ${minutes(limits.release)} and was stopped, at: ${said}; ${retry} (${buildOutput.name})`);
   }
   if (released.code === 3) return failed('release', `held: ${short} did not compile: ${said}; held until main moves (${buildOutput.name})`, true);
+  // The same code builds to the same paths, so it is not built and notarized again every hour.
+  if (released.code === 4) return failed('release', `held: ${short} holds this Mac's folder paths: ${said}; held until main moves (${buildOutput.name})`, true);
   return failed('release', `failed: the release of ${short} exited ${released.code}: ${said}; ${retry} (${buildOutput.name})`);
 }

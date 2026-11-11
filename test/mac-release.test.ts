@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assetName, nextVersion, releasesRepository, signedVersion } from '../tauri/mac-release/app.ts';
 import { identityName, NOTARY_KEY_FOLDER, release, type ReleaseOptions } from '../tauri/mac-release/release.ts';
+import { USERS } from '../tauri/mac-release/build-paths.ts';
 import {
   DEVELOPER_ID_IDENTITIES,
   DEVELOPER_ID_NAME,
@@ -99,7 +100,7 @@ test('a landed app is built with the key in its environment alone and published 
   const [{ command, files }] = result.published as [(typeof result.published)[number]];
   expect(command.slice(0, 9)).toEqual(['gh', 'release', 'create', 'v0.1.9', '--repo', REPOSITORY, '--latest', '--title', 'Example App for Mac 0.1.9']);
   expect(Object.keys(files)).toEqual(['Example.App.app.tar.gz', 'Example.App.app.tar.gz.sig', 'latest.json']);
-  expect(files['Example.App.app.tar.gz']).toBe('the archive');
+  expect(files['Example.App.app.tar.gz']).toBe(readFileSync(join(app, 'src-tauri/target/release/bundle/macos/Example App.app.tar.gz'), 'utf8'));
   // latest.json is the shape the window plugin's own test serves to Tauri's updater.
   const fixture = readFileSync(join(import.meta.dir, 'fixtures/mac-release/latest.json'), 'utf8');
   const expected = fixture
@@ -418,7 +419,8 @@ test('a self-signed app reads no App Store Connect key and runs no notarization 
   expect(result.named('op')).toHaveLength(1);
   expect(result.named('stapler')).toEqual([]);
   expect(result.named('spctl')).toEqual([]);
-  expect(result.named('tar')).toEqual([]);
+  // The archive is still unpacked once, for the search for this Mac's folder paths.
+  expect(result.named('tar')).toHaveLength(1);
   expect(result.keyAtBuild).toEqual([]);
 });
 
@@ -456,4 +458,125 @@ test('a build that compiled but failed, as a notarization can, exits 1 so the wa
   const compile = await runRelease(app, { buildFails: true });
   expect(compile.code).toBe(3);
   expect(compile.failed).toEqual(['the build of 0.1.9 did not compile: error: could not compile `example`']);
+});
+
+// This Mac's folder paths: the build rewrites them and the release refuses a build that still holds one
+// (tauri/mac-release/build-paths.ts). The home folder in these tests is the test's own, outside the folder macOS keeps them in; a made-up one in it is
+// written from USERS, since no file here may name one (test/public.test.ts).
+
+const PROGRAM = 'MacOS/example';
+const SOMEONE = `${USERS}someone`;
+
+test("the build rewrites the home folder and then the checkout, in rules a name with a space cannot break, and the shell's Rust flags never reach it", async () => {
+  const { checkout, app } = macApp(place.folder, { folder: 'desktop' });
+  const shell = { PATH: '/usr/bin:/bin', HOME: place.folder, RUSTFLAGS: '-C debuginfo=2', CARGO_ENCODED_RUSTFLAGS: '-g', CARGO_BUILD_RUSTFLAGS: '-g', CFLAGS: '-O2' };
+  const result = await runRelease(app, {}, { env: releaseEnv(shell) });
+  expect(result.failed).toEqual([]);
+  expect(result.code).toBe(0);
+  const env = result.named('tauri build')[0]!.options.env ?? {};
+  const top = git(checkout, 'rev-parse', '--show-toplevel');
+  // The product name, Example App, has a space, and appears in no rule: Cargo splits this variable on spaces.
+  expect(env.CARGO_BUILD_RUSTFLAGS).toBe(`--remap-path-prefix=${place.folder}=~ --remap-path-prefix=${top}=app`);
+  expect(env.CFLAGS).toBe(`-O2 -ffile-prefix-map=${place.folder}=~ -ffile-prefix-map=${top}=app`);
+  expect(env.CXXFLAGS).toBe(`-ffile-prefix-map=${place.folder}=~ -ffile-prefix-map=${top}=app`);
+  expect(env.RUSTFLAGS).toBeUndefined();
+  expect(env.CARGO_ENCODED_RUSTFLAGS).toBeUndefined();
+  expect(result.printed).toContain("the update archive's app holds none of this Mac's folder paths");
+});
+
+test('a Cargo home outside the home folder is rewritten too, before the checkout', async () => {
+  const { checkout, app } = macApp(place.folder);
+  const cargoHome = join(place.folder, '..', 'cargo-home');
+  const result = await runRelease(app, {}, { env: releaseEnv({ PATH: '/usr/bin:/bin', HOME: place.folder, CARGO_HOME: cargoHome }) });
+  expect(result.code).toBe(0);
+  const top = git(checkout, 'rev-parse', '--show-toplevel');
+  expect(result.named('tauri build')[0]!.options.env?.CARGO_BUILD_RUSTFLAGS).toBe(
+    `--remap-path-prefix=${place.folder}=~ --remap-path-prefix=${cargoHome}=cargo --remap-path-prefix=${top}=app`,
+  );
+});
+
+test('a home folder with a space in its name is refused before anything is built, since its paths could not be rewritten', async () => {
+  const { app } = macApp(place.folder);
+  const result = await runRelease(app, {}, { env: releaseEnv({ PATH: '/usr/bin:/bin', HOME: `${USERS}some one` }) });
+  expect(result.code).toBe(1);
+  expect(result.failed).toEqual([
+    `the home folder ${USERS}some one has a space in its name, which Rust's path rewriting cannot take, so the release would publish it: release from a folder without one`,
+  ]);
+  expect(result.named('op')).toEqual([]);
+  expect(result.named('tauri build')).toEqual([]);
+});
+
+test("a program holding a path under /Users/ in Rust's packed messages is refused before anything is published, naming only the path", async () => {
+  const { app } = macApp(place.folder);
+  const program = 'called `Option::unwrap()` on a `None` valueassertion failed: x' + SOMEONE + '/.cargo/registry/src/index.crates.io-0000/tao-0.37.2/src/window.rsLocked shared state';
+  const result = await runRelease(app, { appFiles: { [PROGRAM]: program } });
+  expect(result.code).toBe(4);
+  expect(result.failed).toHaveLength(1);
+  expect(result.failed[0]).toStartWith(
+    `the build holds 1 path of this Mac's home folder, which a public release would publish: ${SOMEONE}/.cargo/registry/src/index.crates.io-0000/tao-0.37.2/src/window.rsLocked in Example App.app/Contents/MacOS/example. `,
+  );
+  expect(result.published).toEqual([]);
+  expect(result.named('gh release create')).toEqual([]);
+});
+
+test('paths between NUL bytes, as an object file entry in a symbol table, are found byte for byte, and at most five are named', async () => {
+  const { app } = macApp(place.folder);
+  const paths = Array.from({ length: 7 }, (_, n) => `${SOMEONE}/app/target/release/deps/part${n}.o`);
+  const program = Buffer.concat([Buffer.from([0xcf, 0xfa, 0xed, 0xfe]), ...paths.map((path) => Buffer.from(`\0${path}\0`))]);
+  const result = await runRelease(app, { appFiles: { [PROGRAM]: program } });
+  expect(result.code).toBe(4);
+  expect(result.failed[0]).toStartWith(
+    `the build holds 7 paths of this Mac's home folder, which a public release would publish: ${paths
+      .slice(0, 5)
+      .map((path) => `${path} in Example App.app/Contents/MacOS/example`)
+      .join('; ')}. `,
+  );
+});
+
+test('the home folder is found where it is not under /Users/, and in any file of the app', async () => {
+  const { app } = macApp(place.folder);
+  const result = await runRelease(app, { appFiles: { 'Resources/notes.txt': `built in ${place.folder}/Workspace/example` } });
+  expect(result.code).toBe(4);
+  expect(result.failed[0]).toStartWith(
+    `the build holds 1 path of this Mac's home folder, which a public release would publish: ${place.folder}/Workspace/example in Example App.app/Contents/Resources/notes.txt. `,
+  );
+});
+
+test('a checkout or Cargo home outside the home folder is searched for too, since a library can keep a path no rewrite reaches', async () => {
+  // The checkout is in the test's folder, and the home folder a made-up one beside it.
+  const { checkout, app } = macApp(place.folder);
+  const shell = (more: Record<string, string> = {}) => ({ env: releaseEnv({ PATH: '/usr/bin:/bin', HOME: join(place.folder, 'home'), ...more }) });
+  const top = git(checkout, 'rev-parse', '--show-toplevel');
+  const kept = await runRelease(app, { appFiles: { [PROGRAM]: `built in ${top}/src-tauri` } }, shell());
+  expect(kept.code).toBe(4);
+  expect(kept.failed[0]).toContain(`: ${top}/src-tauri in Example App.app/Contents/MacOS/example. `);
+  const cargoHome = join(place.folder, 'cargo-home');
+  const registry = await runRelease(app, { appFiles: { [PROGRAM]: `${cargoHome}/registry/src/x.rs` } }, shell({ CARGO_HOME: cargoHome }));
+  expect(registry.code).toBe(4);
+  expect(registry.failed[0]).toContain(`: ${cargoHome}/registry/src/x.rs in Example App.app/Contents/MacOS/example. `);
+});
+
+test('the bundled page folder, which Tauri compresses into the program, is searched as it is on disk', async () => {
+  const config = tauriConfig((config) => {
+    config.build = { frontendDist: '../dist' };
+  });
+  const { app } = macApp(place.folder, { config, files: { 'dist/index.html': `<script src="${SOMEONE}/app/src/main.ts"></script>` } });
+  const result = await runRelease(app);
+  expect(result.code).toBe(4);
+  expect(result.failed[0]).toStartWith(
+    `the build holds 1 path of this Mac's home folder, which a public release would publish: ${SOMEONE}/app/src/main.ts in frontendDist ../dist/index.html. `,
+  );
+  // A page served from an address is not a folder to search.
+  const served = macApp(join(place.folder, 'served'), { config: tauriConfig((config) => (config.build = { frontendDist: 'https://app.example.com' })) });
+  expect((await runRelease(served.app)).code).toBe(0);
+});
+
+test("a Developer ID build holding a path is refused before its notarization is checked, and the refusal names each cause the rewrite cannot reach", async () => {
+  const { app } = developerIdApp('app');
+  const result = await runRelease(app, { ...DEVELOPER_ID, appFiles: { [PROGRAM]: `${SOMEONE}/x.rs` } });
+  expect(result.code).toBe(4);
+  expect(result.named('stapler')).toEqual([]);
+  expect(result.failed[0]).toContain('target rustflags');
+  expect(result.failed[0]).toContain('[profile.release]');
+  expect(result.failed[0]).toContain('CARGO_MANIFEST_DIR');
 });

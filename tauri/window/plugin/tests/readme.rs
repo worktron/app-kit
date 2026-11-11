@@ -2,8 +2,8 @@
 // shell that does not build. test/tauri-window.test.ts holds the README's block to the lines below, up to the test.
 
 use tauri::window::Color;
-use tauri::{Manager, Runtime, WebviewUrl};
-use tauri_plugin_app_kit_window::{log_to_file, show_once_placed, Site};
+use tauri::{Manager, Runtime};
+use tauri_plugin_app_kit_window::{log_to_file, show_once_placed, Site, StartPage};
 #[cfg(target_os = "macos")]
 use tauri_plugin_app_kit_window::AppMenu;
 
@@ -36,13 +36,11 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     let builder = builder.menu(|app| AppMenu::new().settings().sign_out().commit(COMMIT).build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
-        app.add_capability(site.capability().permission("core:window:allow-start-dragging"))?;
-        let start = WebviewUrl::External(site.address().clone());
+        app.add_capability(site.capability())?;
         let window = site
-            .window(app, start)
+            .start_page_window(app, StartPage::new(Color(5, 5, 5, 255), Color(230, 230, 230, 255)))
             .title("Example")
             .inner_size(1280.0, 860.0)
-            .background_color(Color(5, 5, 5, 255))
             .build()?;
         show_once_placed(&window);
         Ok(())

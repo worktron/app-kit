@@ -28,21 +28,26 @@
  *   (testflight/key.ts), but only warns when it is not, and ignores a failed staple, so the archive about to go up is
  *   unpacked and must be stapled and called notarized by Gatekeeper before anything is published.
  * - Apple sign-in and certificate variables a shell may hold are taken out, since Tauri prefers them to the key.
+ * - The releases repository is public, so the build rewrites this Mac's folder paths out of the program, and the app in
+ *   the archive about to go up, with its bundled page, is searched for any left before anything is published
+ *   (build-paths.ts says what the rewrite reaches and what it cannot).
  *
  * The update key reaches only Tauri's build, through its environment, never a command line or a file. The App Store
  * Connect key is the one exception: Tauri reads it only from a file, so it is written readable by this user alone into
  * a folder of its own, named for this process, removed however the build ends; a release that notarizes also removes
  * such folders of releases no longer running, which a hard kill left. Exit codes: 0 published; 3 the app did not
- * compile; 1 anything else.
+ * compile; 4 the build holds this Mac's folder paths; 1 anything else. The watcher holds 3 and 4 until main moves,
+ * since building the same code again gives the same answer.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assetName, keyItem, latestJson, moveCommand, nextVersion, readConfig, releasesRepository, signedVersion, VAULT } from './app.ts';
 import { itemFields, KEYCHAIN_SERVICE, lastLine, notFound, readItem, readKey } from '../testflight/key.ts';
 import { compileFailed } from '../testflight/upload.ts';
 import { buildEnv, type Env } from '../build-env.ts';
+import { foundPathsMessage, pathRewriteEnv, searchForPaths, unrewritable } from './build-paths.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunResult } from '../../command-line/run.ts';
 
 export type ReleaseOptions = {
@@ -125,7 +130,7 @@ export function removeLeftKeyFolders(folder = tmpdir()): void {
 }
 
 /** Releases, as the module's comment says. Stopped by a signal, it stops the build and removes its temporary folder. */
-export async function release(options: ReleaseOptions): Promise<0 | 1 | 3> {
+export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4> {
   const folders = new Set<string>();
   const remove = () => {
     for (const folder of folders) rmSync(folder, { recursive: true, force: true });
@@ -146,7 +151,7 @@ export async function release(options: ReleaseOptions): Promise<0 | 1 | 3> {
 }
 
 /** The steps; every folder made goes into `folders`, which `release` removes however the steps end. */
-async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Promise<0 | 1 | 3> {
+async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Promise<0 | 1 | 3 | 4> {
   const madeFolder = (prefix: string) => {
     const folder = mkdtempSync(join(tmpdir(), prefix));
     folders.add(folder);
@@ -169,6 +174,8 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   // Tauri notarizes with an Apple ID before the App Store Connect key, and imports a certificate given here in place of
   // the keychain's.
   for (const name of ['APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID', 'APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD']) delete env[name];
+  // Cargo uses the first of these it finds and then ignores build.rustflags, where the path rewriting goes.
+  for (const name of ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS']) delete env[name];
   const git = async (...args: string[]) => {
     const done = await run(['git', ...args], { cwd, env });
     return { code: done.code, out: done.out.trim() };
@@ -197,6 +204,10 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   const before = await landed();
   if (before.problem) return fail(before.problem);
   const short = before.head.slice(0, 7);
+  const home = env.HOME || homedir();
+  const buildFolders = { home, checkout: (await git('rev-parse', '--show-toplevel')).out, cargoHome: env.CARGO_HOME };
+  const cannot = unrewritable(buildFolders);
+  if (cannot) return fail(`${cannot}, so the release would publish it: release from a folder without one`);
 
   const config = readConfig(cwd);
   if (typeof config === 'string') return fail(config);
@@ -271,7 +282,13 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
 
   print(`building ${config.productName} ${version}, signed by "${config.identity}"${notarize ? ', and notarized' : ''}`);
   const overrides = JSON.stringify({ version, bundle: { createUpdaterArtifacts: true } });
-  const buildEnvironment: Env = { ...env, TAURI_SIGNING_PRIVATE_KEY: key['private key'], TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password ?? '', APP_COMMIT: short };
+  const buildEnvironment: Env = {
+    ...env,
+    ...pathRewriteEnv(env, buildFolders),
+    TAURI_SIGNING_PRIVATE_KEY: key['private key'],
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password ?? '',
+    APP_COMMIT: short,
+  };
   let keyFolder: string | null = null;
   if (notary) {
     removeLeftKeyFolders();
@@ -329,13 +346,22 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   const name = assetName(config.productName);
   copyFileSync(archive, join(folder, name));
   writeFileSync(join(folder, `${name}.sig`), signature);
+  // What is checked is the copy that goes up, unpacked, so a build that replaced the archive meanwhile is caught too.
+  const unpacked = join(folder, 'unpacked');
+  mkdirSync(unpacked);
+  const untarred = await run(['tar', '-xzf', join(folder, name), '-C', unpacked], { env });
+  const inside = join(unpacked, `${config.productName}.app`);
+  if (untarred.code !== 0 || !existsSync(inside)) return fail(`the update archive holds no ${config.productName}.app: ${lastLine(untarred.out)}`);
+  const searched = [{ folder: inside, label: `${config.productName}.app` }];
+  const page = config.frontendDist === null ? null : join(cwd, 'src-tauri', config.frontendDist);
+  if (page && existsSync(page)) searched.push({ folder: page, label: `frontendDist ${config.frontendDist}` });
+  const search = searchForPaths(searched, [buildFolders.home, buildFolders.checkout, buildFolders.cargoHome]);
+  if (search.count > 0) {
+    say(foundPathsMessage(search));
+    return 4;
+  }
+  print(`the update archive's app holds none of this Mac's folder paths`);
   if (notarize) {
-    // What is checked is the copy that goes up, unpacked, so a build that replaced the archive meanwhile is caught too.
-    const unpacked = join(folder, 'unpacked');
-    mkdirSync(unpacked);
-    const untarred = await run(['tar', '-xzf', join(folder, name), '-C', unpacked], { env });
-    const inside = join(unpacked, `${config.productName}.app`);
-    if (untarred.code !== 0 || !existsSync(inside)) return fail(`the update archive holds no ${config.productName}.app: ${lastLine(untarred.out)}`);
     const stapled = await run(['xcrun', 'stapler', 'validate', inside], { env });
     if (stapled.code !== 0) {
       return fail(`the app in the update archive has no notarization ticket stapled to it, so it was not notarized or its staple failed: ${lastLine(stapled.out)}`);
@@ -345,9 +371,9 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
     if (assessed.code !== 0 || !assessed.out.includes(NOTARIZED)) {
       return fail(`Gatekeeper does not call the app in the update archive notarized: ${lastLine(assessed.out)}`);
     }
-    rmSync(unpacked, { recursive: true, force: true });
     print(`the update archive's app is notarized and stapled`);
   }
+  rmSync(unpacked, { recursive: true, force: true });
   const url = `https://github.com/${repository}/releases/download/v${version}/${name}`;
   writeFileSync(join(folder, 'latest.json'), latestJson({ version, date: (options.now ?? (() => new Date()))(), signature, url }));
   // gh makes a draft, uploads to it and only then publishes it as the latest, so no installed copy sees half a release.

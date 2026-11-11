@@ -53,8 +53,9 @@ export function tauriConfig(change: (config: Record<string, any>) => void = () =
 }
 
 /** An origin, and a checkout of it with the app at `folder` inside (the root by default), on main and up to date. */
-export function macApp(place: string, options: { config?: string; folder?: string } = {}) {
+export function macApp(place: string, options: { config?: string; folder?: string; files?: Record<string, string> } = {}) {
   const seed = repository(join(place, 'seed'), {
+    ...options.files,
     [join(options.folder ?? '', 'src-tauri/tauri.conf.json')]: options.config ?? tauriConfig(),
     [join(options.folder ?? '', 'package.json')]: '{"name":"example"}',
     'README.md': 'the app\n',
@@ -109,6 +110,8 @@ export type MacWorld = {
   /** Answers for Tauri's build in place of the stand-in's own. */
   build?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
   buildFails?: boolean;
+  /** Files the build puts in the app beside its Info.plist, by their path under Contents: a program holding a path, say. */
+  appFiles?: Record<string, string | Uint8Array>;
   /** Runs during the build, as another thread would change the checkout. */
   duringBuild?: () => void;
   publish?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
@@ -165,13 +168,13 @@ export function macRunner(app: string, world: MacWorld = {}) {
       const bundle = join(app, 'src-tauri/target/release/bundle/macos');
       mkdirSync(join(bundle, 'Example App.app/Contents'), { recursive: true });
       writeFileSync(join(bundle, 'Example App.app/Contents/Info.plist'), '<plist/>');
-      if (keyPath) {
-        // A notarized build's archive is a real one, which the release unpacks to check the app in it.
-        const tar = Bun.spawnSync(['tar', '-czf', join(bundle, 'Example App.app.tar.gz'), '-C', bundle, 'Example App.app']);
-        if (tar.exitCode !== 0) throw new Error(`tar: ${tar.stderr.toString()}`);
-      } else {
-        writeFileSync(join(bundle, 'Example App.app.tar.gz'), 'the archive');
+      for (const [path, bytes] of Object.entries(world.appFiles ?? {})) {
+        mkdirSync(dirname(join(bundle, 'Example App.app/Contents', path)), { recursive: true });
+        writeFileSync(join(bundle, 'Example App.app/Contents', path), bytes);
       }
+      // The archive is a real one, which the release unpacks to search, and for a notarized build to check, the app in it.
+      const tar = Bun.spawnSync(['tar', '-czf', join(bundle, 'Example App.app.tar.gz'), '-C', bundle, 'Example App.app']);
+      if (tar.exitCode !== 0) throw new Error(`tar: ${tar.stderr.toString()}`);
       writeFileSync(join(bundle, 'Example App.app.tar.gz.sig'), signatureFile(world.signedVersion === undefined ? version : world.signedVersion));
       return ok('Finished 1 updater bundle\n');
     }

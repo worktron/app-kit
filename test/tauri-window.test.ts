@@ -6,7 +6,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import {
   DESKTOP_SIGN_IN_EVENT,
@@ -36,6 +36,7 @@ import {
   useWindowFullScreen,
   useWindowMenu,
 } from '../tauri/window';
+import { START_PAGE_HEALTH, START_PAGE_SETTINGS } from '../tauri/window/names';
 
 const plugin = join(import.meta.dir, '../tauri/window/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -84,6 +85,28 @@ test("the Mac menu hands the page Settings and Sign Out under the names its hook
   expect(constant(rust, 'MENU_EVENT')).toBe(MENU_EVENT);
   expect(constant(rust, 'SETTINGS')).toBe(MENU_SETTINGS);
   expect(constant(rust, 'SIGN_OUT')).toBe(MENU_SIGN_OUT);
+});
+
+test('the window hands the start page its settings under the name the page reads, with the health route every kit server answers', () => {
+  const rust = read('src/lib.rs');
+  expect(constant(rust, 'START_PAGE_SETTINGS')).toBe(START_PAGE_SETTINGS);
+  expect(constant(rust, 'START_PAGE_HEALTH')).toBe(START_PAGE_HEALTH);
+  expect(constant(rust, 'START_PAGE')).toBe('index.html');
+  const startPage = readFileSync(join(import.meta.dir, '../tauri/window/start/index.html'), 'utf8');
+  expect(startPage).toContain(`window.${START_PAGE_SETTINGS};`);
+  for (const key of ['address', 'health', 'name', 'background', 'text']) {
+    expect(startPage).toContain(`settings.${key}`);
+    expect(rust).toContain(`"${key}": `);
+  }
+  expect(readFileSync(join(import.meta.dir, '../server/start/index.ts'), 'utf8')).toContain(`app.get('${START_PAGE_HEALTH}'`);
+});
+
+test("the README's frontendDist is the start page's folder in the kit bun installed, which holds the page alone", () => {
+  const readme = readFileSync(join(import.meta.dir, '../README.md'), 'utf8');
+  const dist = readme.match(/"frontendDist": "\.\.\/node_modules\/app-kit\/([^"]+)"/)![1]!;
+  expect(dist).toBe('tauri/window/start');
+  // Tauri bundles the whole folder into every app.
+  expect(readdirSync(join(import.meta.dir, '..', dist))).toEqual(['index.html']);
 });
 
 /** What the Mac window does to tell the page: sets the flag, then dispatches the event. */

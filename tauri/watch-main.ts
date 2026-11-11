@@ -48,16 +48,20 @@ export function retryDue(record: MainRecord, head: string, nowMs: number): boole
 }
 
 /**
- * Which files make up the app, from its Tauri setup. A shell that loads a website (frontendDist an address) is only its
- * Tauri folder and its package and lock files, which carry the kit's native code; the website reaches people when it
- * deploys. One that packs its pages is every file but documentation, plans and tests.
+ * Which files make up the app, from its Tauri setup. A shell that loads a website (frontendDist an address, or the
+ * kit's start page, which goes on to the site) is only its Tauri folder and its package and lock files, which carry the
+ * kit's native code and the start page; the website reaches people when it deploys. One that packs its pages is every
+ * file but documentation, plans and tests.
  */
 export type AppKind = 'loads-a-website' | 'packs-its-pages';
+
+/** The kit's start page's folder as an app's frontendDist names it, from wherever its node_modules is. */
+const KIT_START_PAGE = /(^|\/)node_modules\/app-kit\/tauri\/window\/start\/?$/;
 
 export function appKind(tauriConfig: string): AppKind {
   try {
     const dist = (JSON.parse(tauriConfig) as { build?: { frontendDist?: unknown } }).build?.frontendDist;
-    return typeof dist === 'string' && /^https?:\/\//.test(dist) ? 'loads-a-website' : 'packs-its-pages';
+    return typeof dist === 'string' && (/^https?:\/\//.test(dist) || KIT_START_PAGE.test(dist)) ? 'loads-a-website' : 'packs-its-pages';
   } catch {
     return 'packs-its-pages';
   }

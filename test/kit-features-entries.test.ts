@@ -177,3 +177,18 @@ test('an app on the kit with a privacy or terms address writes them at build and
   expect(await verdict(PUBLIC, { 'src/App.tsx': "const routes = ['/privacy'];\n" })).toBe('not asked');
   expect(await verdict(PUBLIC, { 'client/src/main.tsx': "import { SignInGate } from 'app-kit/web';\n" })).toBe('not asked');
 });
+
+test("a window onto the site opens on the kit's start page, not straight on the site, and a shell with its own bundled page is not asked", async () => {
+  const START = "the window opens on the kit's start page";
+  const cargo = { 'src-tauri/Cargo.toml': 'tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }\n' };
+  // Argon's and Getter's shells, before.
+  const direct = 'let window = site.window(app, WebviewUrl::External(site.address().clone())).build()?;\n';
+  expect(await verdict(START, { ...cargo, 'src-tauri/src/lib.rs': direct })).toBe('lacks');
+  expect(await verdict(START, { ...cargo, 'desktop/src-tauri/src/lib.rs': direct })).toBe('lacks');
+  const onStartPage = 'let window = site.start_page_window(app, StartPage::new(Color(10, 14, 31, 255), Color(224, 226, 235, 255))).build()?;\n';
+  expect(await verdict(START, { ...cargo, 'src-tauri/src/lib.rs': onStartPage })).toBe('has');
+  // Timescale's own start page.
+  expect(await verdict(START, { ...cargo, 'src-tauri/src/lib.rs': 'let window = site.window(app, WebviewUrl::App("index.html".into())).build()?;\n' })).toBe('not asked');
+  // A Tauri app not on the window plugin.
+  expect(await verdict(START, { 'src-tauri/Cargo.toml': 'tauri = "2"\n', 'src-tauri/src/lib.rs': direct })).toBe('not asked');
+});

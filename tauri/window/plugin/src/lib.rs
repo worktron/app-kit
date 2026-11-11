@@ -5,6 +5,8 @@
 //! - links: the site stays in the window, other sites go to the default browser, mail, phone and text links to their
 //!   apps, and anything else does nothing (links.rs);
 //! - the page's grant, named as local and remote, since a built app counts a page under frontendDist as local;
+//! - the kit's start page (../start/index.html), which the window opens on and which goes on to the site once it
+//!   answers, and otherwise says it cannot reach it (`Site::start_page_window`);
 //! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops;
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
@@ -33,6 +35,7 @@ use links::{link_decision, loggable, new_window_decision, Link};
 use tauri::ipc::CapabilityBuilder;
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
+use tauri::window::Color;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, Url, Webview, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
@@ -47,6 +50,38 @@ pub const MAIN: &str = "main";
 
 const MISSING_OPENER: &str = "app-kit's window sends links out through the opener plugin: register \
     tauri_plugin_opener::init() before tauri_plugin_app_kit_window (README.md, A window onto the hosted site)";
+
+/// Where the window hands the start page its settings, and the health route it asks by default (names.ts).
+const START_PAGE_SETTINGS: &str = "__APP_KIT_START_PAGE__";
+const START_PAGE_HEALTH: &str = "/api/health";
+/// The start page, the only file in the folder an app's frontendDist names.
+const START_PAGE: &str = "index.html";
+
+/// What the kit's start page shows in an app's own colors: its background, which is also the window's first frame, and
+/// its text. It asks the site's health route, `/api/health` unless `health` names another.
+#[derive(Clone, Debug)]
+pub struct StartPage {
+    background: Color,
+    text: Color,
+    health: String,
+}
+
+impl StartPage {
+    pub fn new(background: Color, text: Color) -> Self {
+        StartPage { background, text, health: START_PAGE_HEALTH.into() }
+    }
+
+    /// The path on the site that answers once it is up, for a server not on app-kit/server/start.
+    pub fn health(mut self, path: impl Into<String>) -> Self {
+        self.health = path.into();
+        self
+    }
+}
+
+/// A color as CSS writes it, without its alpha: the page is opaque.
+fn css(color: Color) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.0, color.1, color.2)
+}
 
 /// The app's hosted site, and what the window keeps of it.
 #[derive(Clone, Debug)]
@@ -123,6 +158,32 @@ impl Site {
         #[cfg(any(target_os = "ios", target_os = "android"))]
         let builder = builder.initialization_script(iphone::WINDOW_OPEN_SCRIPT);
         builder
+    }
+
+    /// The window, opening on the kit's start page, which goes on to the site as soon as it answers and otherwise says
+    /// it cannot reach it, with Try again, so a window with no connection is never blank. The app's tauri.conf.json
+    /// points `build.frontendDist` at the page's folder in the kit bun installed; the page uses no permission, so it
+    /// needs nothing granted beyond `capability`. Its words name the app by its productName. The window's first frame
+    /// is the page's background. The app adds its title and size, as for `window`, and builds it.
+    pub fn start_page_window<'a, R: Runtime, M: Manager<R>>(&self, manager: &'a M, page: StartPage) -> WebviewWindowBuilder<'a, R, M> {
+        let script = self.start_page_script(&manager.package_info().name, &page);
+        log::info!("the window opens on the start page, which goes on to {} once it answers", loggable(&self.address));
+        self.window(manager, WebviewUrl::App(START_PAGE.into())).background_color(page.background).initialization_script(script)
+    }
+
+    /// The script that hands the start page its settings before its own script runs. The window runs it on every page
+    /// it loads, so it sets them only off the site, which never sees them. Each value is JSON, so no name or address
+    /// can end the string it is in.
+    fn start_page_script(&self, name: &str, page: &StartPage) -> String {
+        let settings = serde_json::json!({
+            "address": self.address.as_str(),
+            "health": page.health,
+            "name": name,
+            "background": css(page.background),
+            "text": css(page.text),
+        });
+        let origin = serde_json::Value::from(self.address.origin().ascii_serialization());
+        format!("if (location.origin !== {origin}) window.{START_PAGE_SETTINGS} = {settings};")
     }
 
     /// The plugin, registered after the opener plugin, and on the Mac after the window-state plugin.
@@ -420,6 +481,42 @@ mod tests {
         assert_eq!(capability.windows, vec![MAIN.to_string()]);
         let permissions: Vec<&str> = capability.permissions.iter().map(|entry| entry.identifier().get()).collect();
         assert_eq!(permissions, ["opener:allow-open-url", "opener:allow-default-urls"]);
+    }
+
+    fn start_page() -> StartPage {
+        StartPage::new(Color(10, 14, 31, 255), Color(224, 226, 235, 255))
+    }
+
+    // The start page reads its settings off the window before its own script runs, and the hosted site never sees them.
+    #[test]
+    fn the_start_page_is_handed_the_site_the_name_and_the_colors_off_the_site_only() {
+        let site = Site::new("https://app.example.com/start".parse().unwrap());
+        assert_eq!(
+            site.start_page_script("Example", &start_page()),
+            r##"if (location.origin !== "https://app.example.com") window.__APP_KIT_START_PAGE__ = {"address":"https://app.example.com/start","background":"#0a0e1f","health":"/api/health","name":"Example","text":"#e0e2eb"};"##
+        );
+        let script = site.start_page_script("Example \"App\"\n", &start_page().health("/health"));
+        assert!(script.contains(r#""name":"Example \"App\"\n""#), "{script}");
+        assert!(script.contains(r#""health":"/health""#), "{script}");
+    }
+
+    #[test]
+    fn the_start_page_reads_its_settings_where_the_window_puts_them() {
+        let page = include_str!("../../start/index.html");
+        assert!(page.contains(&format!("window.{START_PAGE_SETTINGS};")), "the page reads window.{START_PAGE_SETTINGS}");
+    }
+
+    #[test]
+    fn a_start_page_window_opens_on_a_bundled_page_not_the_site() {
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_opener::init())
+            .plugin(site().plugin())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let window = site().start_page_window(&app, start_page()).build().unwrap();
+        // Tauri's test runtime reports a bundled page by the app's own origin alone, never its path: the window is on
+        // the bundled page, not the site.
+        assert_eq!(window.url().unwrap().as_str(), "tauri://localhost");
     }
 
     #[test]

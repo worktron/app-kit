@@ -271,6 +271,22 @@ const PUBLIC_PAGES: Feature = {
   present: async (app) => has(ships(app, importing('app-kit/web/public-pages')) && ships(app, 'publicPages[[:space:]]*:[[:space:]]*true')),
 }
 
+/** A shell's Rust, leaving out its dependencies and tests. */
+const SHELL_RUST = [':(glob)**/*.rs', ':(exclude,glob)**/node_modules/**', ':(exclude,glob)**/target/**', ':(exclude,glob)**/tests/**']
+const OPENS_THE_SITE = 'WebviewUrl::External'
+
+const START_PAGE: Feature = {
+  feature: "the window opens on the kit's start page",
+  readme: 'A window onto the hosted site',
+  names: ['tauri-plugin-app-kit-window', 'start_page_window', OPENS_THE_SITE],
+  // A window onto the site that opens straight on it is blank with no connection; a shell with a bundled page of its
+  // own, as Timescale's, metamax's phone app's and urge-surfer's, is not asked.
+  appliesTo: (app) =>
+    app.grep('tauri-plugin-app-kit-window', [':(glob)**/Cargo.toml', ':(exclude,glob)**/node_modules/**']).length > 0 &&
+    app.grep(`(${OPENS_THE_SITE}|start_page_window)`, SHELL_RUST).length > 0,
+  present: async (app) => has(app.grep(OPENS_THE_SITE, SHELL_RUST).length === 0),
+}
+
 export const FEATURES: Feature[] = [
   ONE_TAP,
   HOSTED_SIGN_IN,
@@ -284,6 +300,7 @@ export const FEATURES: Feature[] = [
   GOOGLE_ANSWERS,
   FIELDS_NEVER_ZOOM,
   PUBLIC_PAGES,
+  START_PAGE,
 ]
 
 /** An app's files at `ref` in the checkout `dir`, through git. */

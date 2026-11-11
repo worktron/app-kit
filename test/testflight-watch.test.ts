@@ -625,6 +625,15 @@ describe('what counts as the iPhone app', () => {
     for (const path of ['src/App.tsx', 'server/index.ts', 'index.html']) expect(countsAsApp(path, 'loads-a-website')).toBe(false);
   });
 
+  test("a shell on the kit's start page loads a website too: only the page is in the kit, and the site deploys", () => {
+    for (const frontendDist of ['../node_modules/app-kit/tauri/window/start', '../../node_modules/app-kit/tauri/window/start/']) {
+      expect(appKind(JSON.stringify({ build: { frontendDist } }))).toBe('loads-a-website');
+    }
+    // A start page of the app's own, as Timescale's, is the app's own code.
+    expect(appKind(JSON.stringify({ build: { frontendDist: '../start' } }))).toBe('packs-its-pages');
+    expect(appKind(JSON.stringify({ build: { frontendDist: '../node_modules/app-kit/tauri/window/start-copy' } }))).toBe('packs-its-pages');
+  });
+
   test('one that packs its pages is every file but documentation, plans and tests', () => {
     expect(appKind(PAST_THE_BREAK['src-tauri/tauri.conf.json'])).toBe('packs-its-pages');
     expect(appKind('not json')).toBe('packs-its-pages');

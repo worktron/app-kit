@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starting</title>
+    <!--
+      app-kit's start page, which a Mac or iPhone window onto a hosted site opens on (README.md, "A window onto the
+      hosted site"): it goes on to the site as soon as the site answers, and otherwise says it cannot reach it, with
+      Try again, and goes on by itself once it can. The window plugin hands it the site's address, the app's name and
+      its colors before this script runs (Site::start_page_window in plugin/src/lib.rs), under the name
+      START_PAGE_SETTINGS in names.ts. It uses no Tauri permission, so it needs nothing granted beyond the plugin's own
+      grant. An app's tauri.conf.json points frontendDist at this folder, which holds nothing else, since Tauri bundles
+      the whole folder.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--background);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: default;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        max-width: 360px;
+        padding: 0 16px;
+        text-align: center;
+      }
+      main[hidden] {
+        display: none;
+      }
+      p {
+        margin: 0 0 4px;
+      }
+      .secondary {
+        opacity: 0.7;
+      }
+      button {
+        margin-top: 16px;
+        padding: 4px 14px;
+        border: 1px solid color-mix(in srgb, var(--text) 70%, transparent);
+        border-radius: 6px;
+        background: none;
+        color: var(--text);
+        font: inherit;
+      }
+      @media (pointer: coarse) {
+        button {
+          min-height: 44px;
+          padding: 0 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="reaching" hidden>
+      <p class="secondary">Reaching <span class="host"></span></p>
+    </main>
+    <main id="offline" hidden>
+      <p><span id="name"></span> can't reach <span class="host"></span>.</p>
+      <p class="secondary">It keeps trying, and opens by itself once it answers.</p>
+      <button id="try-again" type="button">Try again</button>
+    </main>
+    <script>
+      const settings = window.__APP_KIT_START_PAGE__;
+      // How long a try waits for an answer, and how long before this page says what it is waiting for.
+      const GIVE_UP_MS = 15000;
+      const SAY_REACHING_MS = 2000;
+      // While it cannot reach the site, how often it tries again by itself, beside the device's own word that it is
+      // back online.
+      const TRY_AGAIN_MS = 30000;
+
+      const reaching = document.getElementById('reaching');
+      const offline = document.getElementById('offline');
+      const tryAgain = document.getElementById('try-again');
+
+      if (!settings) {
+        // Only a window that loaded this page without Site::start_page_window gets here.
+        console.error('[app-kit start page] the window handed this page no settings: open it with Site::start_page_window');
+      } else {
+        const address = new URL(settings.address);
+        const health = new URL(settings.health, address.origin);
+        document.title = settings.name;
+        document.getElementById('name').textContent = settings.name;
+        for (const host of document.querySelectorAll('.host')) host.textContent = address.host;
+        document.documentElement.style.setProperty('--background', settings.background);
+        document.documentElement.style.setProperty('--text', settings.text);
+
+        let trying = false;
+
+        // Whether the site answers. The answer itself is not readable from here and not needed: any answer means the
+        // network and the site are up, and only a failure to connect rejects.
+        async function answers() {
+          try {
+            await fetch(health, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(GIVE_UP_MS) });
+            return true;
+          } catch {
+            return false;
+          }
+        }
+
+        async function open() {
+          if (trying) return;
+          trying = true;
+          // Once the offline line shows, it stays put while a try runs; only the button says it is trying.
+          const sayReaching = offline.hidden ? setTimeout(() => (reaching.hidden = false), SAY_REACHING_MS) : null;
+          tryAgain.disabled = true;
+          tryAgain.textContent = 'Trying';
+          const reached = await answers();
+          clearTimeout(sayReaching);
+          trying = false;
+          tryAgain.disabled = false;
+          tryAgain.textContent = 'Try again';
+          if (reached) {
+            location.replace(address.href);
+            // A load that fails after all leaves this page in place, so it says so rather than stay blank.
+            setTimeout(() => {
+              reaching.hidden = true;
+              offline.hidden = false;
+            }, GIVE_UP_MS);
+            return;
+          }
+          reaching.hidden = true;
+          offline.hidden = false;
+        }
+
+        tryAgain.addEventListener('click', open);
+        addEventListener('online', open);
+        setInterval(() => {
+          if (!offline.hidden) open();
+        }, TRY_AGAIN_MS);
+        open();
+      }
+    </script>
+  </body>
+</html>
