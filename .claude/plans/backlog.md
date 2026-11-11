@@ -681,3 +681,10 @@ Written by: app-kit/start-page-release-paths
 Goal: app-kit's web/e2e/playwright.config.ts throws unless E2E_PORT is set, which only scripts/e2e.sh does (it builds the fixture and picks a free port). metamax's verify-branch.sh reruns an `e2e` Evidence line as a bare `bunx playwright test <file> -g <name>` in web/e2e, so every app-kit browser test it is asked to rerun stops before a test starts ("Run the browser tests through scripts/e2e.sh"), and the part it would prove reads "not checked". Seen on the start-page-release-paths landing, 2026-11-11, where the gates' own run passed all six start page tests. Either the kit lets the verifier call scripts/e2e.sh with its filter, or the verifier learns a project's own browser-test script; which one is the first thing to settle.
 
 Done when: an app-kit landing whose Evidence names `e2e web/e2e/<file> "<test>"` has that test rerun and judged by the verifier, held by a test of whichever side changes.
+
+## release-readme-test · A test holds the README's Mac release paragraph on build paths to the release's code
+Written by: app-kit/start-page-release-paths
+
+Goal: README.md "Releases and updates" says what `app-kit mac release` does about this Mac's folder paths: the rules in CARGO_BUILD_RUSTFLAGS, CFLAGS and CXXFLAGS, the shell variables taken out, a folder with a space refused, the search of the archive and frontendDist, exit 4 and the watcher's hold. No test reads it, so a change to tauri/mac-release/build-paths.ts or release.ts can leave it wrong, as the landing verifier noted on 2026-11-11 (start-page-release-paths). The window section's shell and frontendDist line are already held (test/tauri-window.test.ts).
+
+Done when: a unit test holds the paragraph's variable names, its replacement words (~ and app) and its exit code to build-paths.ts's and release.ts's own constants, and fails when either side changes alone.
