@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.63.0
+
+Urgency: next round
+
+- a Mac or iPhone shell on the window plugin that opens WebviewUrl::External opens its window with site.start_page_window(app, StartPage::new(background, text)) and sets build.frontendDist to "../node_modules/app-kit/tauri/window/start" (README, "A window onto the hosted site"); a Mac app on app-kit mac release needs nothing, and its next release rewrites the build's folder paths and refuses one that still holds the home folder (README, "Releases and updates").
+
 ## v0.62.0
 
 Urgency: next round
