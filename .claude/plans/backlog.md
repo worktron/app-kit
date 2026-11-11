@@ -644,3 +644,12 @@ Written by: metamax/cmd-k-visits-slow
 Goal: no project's Playwright tests draw on the CPU what the app draws on the GPU. Headless Chrome hands WebGL to SwiftShader, a GPU done on the CPU, unless launched with `--use-angle=metal`. In metamax (7bad9a1, 2026-11-10) that was 956 ms of a test's eight pane switches, against 80 ms on Metal, and 14.5% of the Chromium suite's CPU. Check which projects with Playwright configs draw WebGL or canvas in their tests (friends-and-family, assay, getter, move-buddy, argon-watcher, lifeform, nivo-plan-9, reminder-x, nivo, urge-surfer, posture, worktron). If several do, put the flag in app-kit's shared Playwright setup (web/playwright.js) so each project gets it by updating app-kit, with a test like metamax's e2e/test-browser.pw.ts that fails naming the renderer when a canvas draws in software. Metal compiles its shaders once per Mac (MTLCompilerService, about 5 cores for a minute or two), then reads them from the user's cache folder until Chrome or macOS changes. WebKit projects take no Chrome flags; metamax's browser-test-time thread checks whether headless WebKit draws in software.
 
 Done when: each project whose tests draw WebGL or canvas launches Chromium on Metal, shown by a renderer check that names Metal in its own browser tests, and a project with none is listed as having none.
+
+## email-code-errors · Emailed-code sign-in answers an error instead of throwing
+Written by: matter/matter-stack-upgrade
+
+Goal: an app's sign-in card never sticks when Clerk's request fails outright (no network, Clerk's script failed to load). Today `authentication/clerk/email-code.ts`'s send and check await Clerk's calls with no catch, so a rejected call throws out of `useSignIn().sendEmailCode` and `checkEmailCode`; an app that only reads the `{ ok, message }` answer leaves its buttons disabled until a reload. Google's start in `google.ts` already catches its own errors. Found while moving matter onto app-kit's Clerk sign-in (matter guards it in its own sign-in card, 2026-11-10).
+Done when: both functions answer `{ ok: false, message }` with words saying sign-in could not be reached when Clerk's call rejects, a unit test with a rejecting Clerk stand-in holds it, and the stand-in provider can be told to fail a step so apps can test their own card.
+Do not touch: what a successful or refused-code sign-in answers today.
+Needs: nothing.
+Touches: authentication/clerk/email-code.ts, authentication/stand-in/index.tsx, their tests.
