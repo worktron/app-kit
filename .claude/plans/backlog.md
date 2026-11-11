@@ -653,3 +653,10 @@ Done when: both functions answer `{ ok: false, message }` with words saying sign
 Do not touch: what a successful or refused-code sign-in answers today.
 Needs: nothing.
 Touches: authentication/clerk/email-code.ts, authentication/stand-in/index.tsx, their tests.
+
+## serve-newer-build-from-memory · The stand-in step that plays a newer deploy answers from a page it read once, so a slow test server cannot fail an app's test
+Written by: app-kit/public-pages-html
+
+Goal: serveNewerBuild in authentication/stand-in/playwright.js forwards every request of the index page to the app's test server (route.fetch at line 82) and rewrites its entry. A test that waits on what that answer brings within a time bound, as kit.e2e.ts "with a newer deploy waiting, a page that is hidden loads it by itself" does with expect.poll's five seconds, fails when the forwarded request stalls on a busy machine. That is the same stall that failed the crash-screen test during the public pages landing on 2026-11-10, which 3a8acc0 fixed in the kit's own deployNewer by reading the built pages once before the test acts and answering from memory. The step already reads the index page once up front (page.request.get('/')) to check it names a built entry; answering from that read removes the round trip. Apps import this step, so it is a patch release that apps' tests ride along on.
+
+Done when: serveNewerBuild answers the index page from its one read, with the renamed entry, and sends no request to the server per page load; the kit's tests that use it pass ten runs each, four at a time; a scratch hold of the old step's forwarded request until after the test's deadline fails the hidden-page test the way a stall would.
