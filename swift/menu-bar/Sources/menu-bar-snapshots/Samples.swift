@@ -249,6 +249,27 @@ let windowSamples: [Sample] = [
         })
     },
     Sample(name: "window-side-column", width: 760, mockup: nil, window: true) { sideColumnWindow() },
+    // Rows that open, from the Fleet Window Studies page's U with Y: each issue opens its page, and the one under the
+    // pointer is lit in the highlight out to the page's edges, its outlined button on the fill as the page drew it.
+    Sample(name: "window-rows-open", width: 520, mockup: nil, window: true) {
+        AnyView(WindowPage {
+            SectionLabel("Issues 2", first: true, tone: .error)
+            Lines {
+                WindowRow("The disk is nearly full", detail: "41 GB free of 994 GB. Downloads holds 120 GB.", tone: .error, open: {}) {
+                    WindowButton("Show Downloads", filled: true) {}
+                }
+                WindowRow("Backups have not run for 3 days", detail: "The backup disk was last seen on Friday.", tone: .error,
+                          lit: true, open: {}) {
+                    WindowButton("Open settings") {}
+                }
+            }
+            SectionLabel("Checked")
+            Lines {
+                WindowRow("Memory", detail: "12 of 16 GB in use.", open: {}) { StatusWord("Fine", .ok) }
+                WindowRow("Network", detail: "Every address answers.") { StatusWord("Fine", .ok) }
+            }
+        })
+    },
 ]
 
 /// One window with a side column, from the Fleet Window Studies page's A and the Buddy System Window Studies page's D: the

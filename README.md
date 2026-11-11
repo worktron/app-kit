@@ -1904,7 +1904,9 @@ WindowPage {
     }
     SectionLabel("Chrome profiles")
     Lines {
-        ForEach(profiles) { WindowRow($0.name, detail: $0.email, strong: true) { StatusWord("Connected", .ok) } }
+        ForEach(profiles) { profile in
+            WindowRow(profile.name, detail: profile.email, strong: true, open: { model.show(profile) }) { StatusWord("Connected", .ok) }
+        }
     }
     FootNote("Each profile lists the sites Beeline saw it signed in to.")
     BuildLine("Beeline \(version), \(commit)")
@@ -1916,7 +1918,8 @@ WindowPage {
 | `WindowPage(content:)` | The window's content on the paper, 24 points in from each side, 20 above and 24 below. |
 | `PageTitle(_:subtitle:)` | A page's title at 17 in semibold, and what the page is for under it in secondary. |
 | `SectionLabel(_:first:tone:)` | A section's label, 12 at semibold in secondary, the panel's `PanelSectionLabel` text, 24 below what is above it and 8 above what it labels; the page's `first` sits 4 from the top. A label that says something is wrong takes a `tone`, as `SectionLabel("Issues 2", tone: .error)` while any is open. |
-| `Lines(content:)`, `WindowRow(_:detail:strong:tone:detailTone:below:trailing:)` | Rows between hairlines: the name (in semibold when `strong`, for a thing's name rather than a setting's, in a `tone` for a problem's, red for that), a detail in secondary unless `detailTone` says otherwise, what goes under them (a field), and on the right a status word, an action, a switch, a menu or a `WindowButton`. |
+| `Lines(content:)`, `WindowRow(_:detail:strong:tone:detailTone:lit:open:below:trailing:)` | Rows between hairlines: the name (in semibold when `strong`, for a thing's name rather than a setting's, in a `tone` for a problem's, red for that), a detail in secondary unless `detailTone` says otherwise, what goes under them (a field), and on the right a status word, an action, a switch, a menu or a `WindowButton`. A row given `open`, as an issue whose page it opens, takes the click anywhere on it and lights in the highlight under a pointer that has travelled, or while `lit`, out to the page's edges, 24 points past its words on each side, from the Fleet Window Studies page's U with Y; a button in it keeps its own click, and VoiceOver reads it as a button named by its name and detail. |
+| `.opens(_:lit:_:)` | The same click and light for a row of an app's own layout, as one with a red edge or step lines under it: `.opens("8 minor issues") { model.show(minor) }`. A click anywhere on the view calls the action, and the view fills in the highlight, edge to edge of itself, so its own padding is the room round its words. VoiceOver reads it as a button named by the label, its own buttons inside it, and presses it with its default action. |
 | `StatusWord(_:_:)` | A status in a colored word, in a `Tone`. |
 | `ActionWord(_:main:removes:action:)` | An action as a word in the accent, `main` in semibold for the page's main one, `removes` in the error color, which means removal and failure only. |
 | `ActionBar(leading:trailing:)`, `FootNote(_:)`, `BuildLine(_:)` | The page's foot: what is said there and its main action; a line of explanation in secondary; and the build, as About shows it. |
@@ -1925,7 +1928,7 @@ WindowPage {
 | `HairlineField(_:text:)` | A text field in a hairline box with 4 point corners, its text at 12. SwiftUI takes no custom text field style, so it is a view of its own. |
 | `windowSnapshot(width:scale:appearance:look:content:)` | A window's page drawn to a PNG with nothing on the screen, as tall as it lays out, in the appearance and look given, as `snapshot` does for the panel. |
 
-`menu-bar-snapshots render` draws the Studies page's three window screens after the panel's (`window-setup`, `window-profiles`, `window-general`), and a window with a side column (`window-side-column`). `test/look-swift.test.ts` reads `Tokens.swift` and `Look.swift` and holds every color and size to the tokens file, `look/index.ts`, so the Swift side cannot drift from the web's and the extension's.
+`menu-bar-snapshots render` draws the Studies page's three window screens after the panel's (`window-setup`, `window-profiles`, `window-general`), a window with a side column (`window-side-column`), and rows that open, one of them lit (`window-rows-open`). `test/look-swift.test.ts` reads `Tokens.swift` and `Look.swift` and holds every color and size to the tokens file, `look/index.ts`, so the Swift side cannot drift from the web's and the extension's.
 
 #### One window with a side column
 

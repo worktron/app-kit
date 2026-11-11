@@ -91,28 +91,50 @@ public struct Lines<Content: View>: View {
 /// A row of a window: its name, a line of detail under it in secondary, what goes under them (a text field), and on
 /// the right a status word, an action, a switch or a menu. At least 48 points tall with 10 above and below, its hairline
 /// below it. A thing's name, as a profile's, is `strong`; a setting's is not. A problem's name takes a `tone`, red for
-/// that, and its detail a `detailTone`, secondary unless asked; a row's button on the right is a `WindowButton`.
+/// that, and its detail a `detailTone`, secondary unless asked; a row's button on the right is a `WindowButton`. A row
+/// that `open`s a thing, as an issue's page, takes the click anywhere on it and lights in the highlight under a pointer
+/// that has travelled, or while `lit`, as `opens` does, out to the page's edges, 24 points past its words on each side,
+/// as the Fleet Window Studies page's Y draws it; a button in it keeps its own click, and VoiceOver reads it as a button
+/// named by its name and detail.
 public struct WindowRow<Below: View, Trailing: View>: View {
     let name: String
     let detail: String?
     let strong: Bool
     let tone: Tone?
     let detailTone: Tone
+    let lit: Bool
+    let open: (() -> Void)?
     let below: Below
     let trailing: Trailing
 
     public init(_ name: String, detail: String? = nil, strong: Bool = false, tone: Tone? = nil, detailTone: Tone = .secondary,
-                @ViewBuilder below: () -> Below, @ViewBuilder trailing: () -> Trailing) {
+                lit: Bool = false, open: (() -> Void)? = nil, @ViewBuilder below: () -> Below, @ViewBuilder trailing: () -> Trailing) {
         self.name = name
         self.detail = detail
         self.strong = strong
         self.tone = tone
         self.detailTone = detailTone
+        self.lit = lit
+        self.open = open
         self.below = below()
         self.trailing = trailing()
     }
 
     public var body: some View {
+        if let open {
+            row.padding(.horizontal, PlainMetrics.sideWindow).opens(Self.spoken(name: name, detail: detail), lit: lit, open)
+                .padding(.horizontal, -PlainMetrics.sideWindow)
+        } else {
+            row
+        }
+    }
+
+    /// What VoiceOver reads for a row that opens: "Backups have not run for 3 days, The backup disk was last seen on Friday."
+    static func spoken(name: String, detail: String?) -> String {
+        ([name] + [detail].compactMap { $0 }).filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    private var row: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -132,8 +154,44 @@ public struct WindowRow<Below: View, Trailing: View>: View {
 
 extension WindowRow where Below == EmptyView {
     public init(_ name: String, detail: String? = nil, strong: Bool = false, tone: Tone? = nil, detailTone: Tone = .secondary,
-                @ViewBuilder trailing: () -> Trailing) {
-        self.init(name, detail: detail, strong: strong, tone: tone, detailTone: detailTone, below: { EmptyView() }, trailing: trailing)
+                lit: Bool = false, open: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
+        self.init(name, detail: detail, strong: strong, tone: tone, detailTone: detailTone, lit: lit, open: open, below: { EmptyView() },
+                  trailing: trailing)
+    }
+}
+
+extension View {
+    /// A row of an app's own that opens a thing, as an issue's page: a click anywhere on it calls `open`, and under a
+    /// pointer that has travelled (`\.pointerTravelled`), or while `lit`, as the row the keyboard is on, it fills in the
+    /// highlight, the side column's selected fill, edge to edge of the view, so the row's own padding is the room the
+    /// light leaves round its words. A button in it keeps its own click. VoiceOver reads it as a button named `label`, as
+    /// "8 minor issues", with its own buttons inside it, and opens it with its default action. `WindowRow(open:)` is the
+    /// kit's row with it, named by its name and detail.
+    public func opens(_ label: String, lit: Bool = false, _ open: @escaping () -> Void) -> some View {
+        modifier(Opens(label: label, lit: lit, open: open))
+    }
+}
+
+struct Opens: ViewModifier {
+    let label: String
+    let lit: Bool
+    let open: () -> Void
+    @State private var over = false
+    @Environment(\.pointerTravelled) private var travelled
+
+    /// Whether the row fills in the highlight: while asked, or under a pointer that has travelled.
+    static func lights(lit: Bool, over: Bool, travelled: Bool) -> Bool { lit || over && travelled }
+
+    func body(content: Content) -> some View {
+        content
+            .background(Self.lights(lit: lit, over: over, travelled: travelled) ? Palette.hover.color : .clear)
+            .contentShape(Rectangle())
+            .onHover { over = $0 }
+            .onTapGesture(perform: open)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, open)
     }
 }
 

@@ -127,6 +127,75 @@ import Testing
         #expect(rep.pixelsHigh == Int(PlainMetrics.rowWindow * 2))
     }
 
+    // ── rows that open ───────────────────────────────────────
+
+    @Test(arguments: [true, false])
+    func aRowThatOpensLightsInTheHighlightOutToThePagesEdges(light: Bool) throws {
+        let sample = try #require(windowSamples.first { $0.name == "window-rows-open" })
+        let png = try windowSnapshot(width: sample.width, appearance: light ? Self.light : Self.dark, look: .plain()) { sample.content() }
+        let rep = try #require(NSBitmapImageRep(data: png))
+        let hover = pick(.hover, light: light)
+        func color(_ x: Int, _ y: Int) -> UInt32 {
+            var pixel = [Int](repeating: 0, count: 4)
+            rep.getPixel(&pixel, atX: x, y: y)
+            return UInt32(pixel[0] << 16 | pixel[1] << 8 | pixel[2])
+        }
+        // The lit row's rows of pixels: those whose left edge, inside the page's 24 point side, is the highlight.
+        let litRows = (0..<rep.pixelsHigh).filter { color(4, $0) == hover }
+        // One row, 48 points tall at scale 2 less its hairline, and only one: the others that open are dark.
+        #expect(litRows.count >= Int(PlainMetrics.rowWindow - PlainMetrics.line) * 2 - 2, "\(litRows.count) rows of pixels lit")
+        // A row with a detail line is taller than the least, 58 points here; two rows would be twice that.
+        #expect(litRows.count <= 60 * 2, "\(litRows.count) rows of pixels lit")
+        #expect(litRows.last! - litRows.first! == litRows.count - 1, "the light is one band")
+        // Edge to edge of the page, both sides.
+        let middle = litRows[litRows.count / 2]
+        #expect(color(0, middle) == hover && color(rep.pixelsWide - 1, middle) == hover)
+        // Its outlined button sits on the fill, its edge still drawn: the cost of Y the Studies page showed.
+        #expect(try counts(png).count[pick(.borderHi, light: light), default: 0] > 300)
+    }
+
+    @Test func aRowLitWithNothingToOpenDrawsNoLight() throws {
+        let draw = { (open: (() -> Void)?) in
+            try self.counts(try windowSnapshot(width: 300, appearance: Self.dark, look: .plain()) {
+                WindowPage { Lines { WindowRow("Memory", lit: true, open: open) { StatusWord("Fine", .ok) } } }
+            }).count[self.pick(.hover, light: false), default: 0]
+        }
+        #expect(try draw(nil) == 0)
+        #expect(try draw({}) > 20_000, "300 points by 48 at scale 2")
+    }
+
+    @Test func aRowThatOpensLightsOnlyUnderAPointerThatHasTravelledOrWhenAsked() {
+        #expect(Opens.lights(lit: false, over: true, travelled: true))
+        #expect(!Opens.lights(lit: false, over: true, travelled: false), "a pointer at rest, or after a key press, lights nothing")
+        #expect(!Opens.lights(lit: false, over: false, travelled: true))
+        #expect(Opens.lights(lit: true, over: false, travelled: false), "the row the keyboard is on")
+    }
+
+    @Test func aRowThatOpensTakesTheClickOnAllOfItAndIsAButtonToVoiceOver() throws {
+        // SwiftUI hands a window's clicks and its VoiceOver elements to its views only once the window is on a screen, and
+        // nothing here opens one, so this holds how the row is built: the click is taken over the same rectangle the light
+        // fills, a button inside it keeps its own click (SwiftUI gives a view's own gesture first say, as Fleet's rows with
+        // buttons in them show), and VoiceOver reads it as a button it can press.
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/MenuBarTheme/Window.swift"), encoding: .utf8)
+        let body = try #require(source.components(separatedBy: "struct Opens: ViewModifier").last)
+        let order = [".background(", ".contentShape(Rectangle())", ".onHover", ".onTapGesture(perform: open)",
+                     ".accessibilityLabel(label)", ".accessibilityAddTraits(.isButton)", ".accessibilityAction(.default, open)"]
+        let places = try order.map { try #require(body.range(of: $0), "\($0) is missing").lowerBound }
+        #expect(places == places.sorted(), "the light, then the click over the same rectangle, then VoiceOver's button")
+        // WindowRow takes it on the row widened to the page's edges, so the click reaches as far as the light.
+        #expect(source.contains("row.padding(.horizontal, PlainMetrics.sideWindow).opens(Self.spoken(name: name, detail: detail), lit: lit, open)\n"
+            + "                .padding(.horizontal, -PlainMetrics.sideWindow)"))
+    }
+
+    @Test func aRowThatOpensSaysItsNameAndDetail() {
+        typealias Row = WindowRow<EmptyView, EmptyView>
+        #expect(Row.spoken(name: "Backups have not run for 3 days", detail: "The backup disk was last seen on Friday.")
+            == "Backups have not run for 3 days, The backup disk was last seen on Friday.")
+        #expect(Row.spoken(name: "Memory", detail: nil) == "Memory")
+        #expect(Row.spoken(name: "Memory", detail: "") == "Memory")
+    }
+
     // ── one window with a side column ─────────────────────────
 
     @Test(arguments: [true, false])
