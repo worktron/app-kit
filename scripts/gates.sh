@@ -36,6 +36,12 @@ bash swift/mac-app/e2e/swiftc-build.sh
 # builds it. Its tests make no display and record nothing, so they need no Screen Recording permission.
 (cd swift/window-recording && swift build -Xswiftc -warnings-as-errors && swift test -Xswiftc -warnings-as-errors)
 
+# The iPhone notifications plugin's removal rules, apart from iOS, built the bare swiftc way and run on the Mac.
+rules_test="$(mktemp -d)"
+swiftc -warnings-as-errors tauri/iphone-notifications/plugin/ios/Sources/HandledNotifications.swift tauri/iphone-notifications/plugin/ios/Tests/main.swift -o "$rules_test/rules"
+"$rules_test/rules"
+rm -rf "$rules_test"
+
 # The plugins' Rust and Swift. rustup puts cargo in ~/.cargo/bin, which a plain bash, as a landing runs this, has not
 # read into PATH. One build folder serves every app-kit checkout, so only the first landing builds all of Tauri; cargo
 # locks it, so two landings at once take turns.

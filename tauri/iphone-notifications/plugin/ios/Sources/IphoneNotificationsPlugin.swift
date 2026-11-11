@@ -157,21 +157,8 @@ private let coversKey = "covers"
 private let keepKey = "keep"
 
 /// Apple takes 64 bytes of a collapse id, which iOS makes the notification's identifier, so a tag is read the same way.
-private func identifierOf(_ tag: String) -> String {
-    var bytes = 0
-    var cut = ""
-    for character in tag {
-        bytes += character.utf8.count
-        if bytes > 64 { break }
-        cut.append(character)
-    }
-    return cut
-}
-
-/// Remove each delivered notification sent before `before` (milliseconds since 1970) whose tag is not kept. A
-/// notification that covers several tags stays while any of them is kept, and one with no send time, sent before the
-/// plugin read one, counts as older. Calls `done` with how many it removed once iOS's list no longer holds them, since
-/// iOS removes them in its own time (Apple's DTS, forum thread 774856), or after five seconds.
+/// Remove each delivered notification `keepDecision` does not keep. Calls `done` with how many it removed once iOS's list
+/// no longer holds them, since iOS removes them in its own time (Apple's DTS, forum thread 774856), or after five seconds.
 private func removeHandled(keep: [String], before: Double, from source: String, done: @escaping (Int) -> Void) {
     let kept = Set(keep.map(identifierOf))
     let center = UNUserNotificationCenter.current()
@@ -180,16 +167,17 @@ private func removeHandled(keep: [String], before: Double, from source: String, 
         for notification in delivered {
             let id = notification.request.identifier
             let info = notification.request.content.userInfo
-            if let sent = (info[sentKey] as? NSNumber)?.doubleValue, sent >= before {
-                NSLog("[iphone-notifications] %@: kept %@, sent after the list", source, id)
-                continue
+            let facts = DeliveredNotification(
+                id: id,
+                fromPush: notification.request.trigger is UNPushNotificationTrigger,
+                sent: (info[sentKey] as? NSNumber)?.doubleValue,
+                covers: info[coversKey] as? [String])
+            switch keepDecision(for: facts, kept: kept, before: before) {
+            case .remove: removing.append(id)
+            case .keepNotFromPush: NSLog("[iphone-notifications] %@: kept %@, made on the phone", source, id)
+            case .keepSentAfter: NSLog("[iphone-notifications] %@: kept %@, sent after the list", source, id)
+            case .keepOnList(let waiting): NSLog("[iphone-notifications] %@: kept %@, since %@ is on the list", source, id, waiting)
             }
-            let tags = (info[coversKey] as? [String])?.map(identifierOf) ?? [id]
-            if let waiting = tags.first(where: kept.contains) {
-                NSLog("[iphone-notifications] %@: kept %@, since %@ is on the list", source, id, waiting)
-                continue
-            }
-            removing.append(id)
         }
         guard !removing.isEmpty else {
             NSLog("[iphone-notifications] %@: nothing to remove of %d delivered", source, delivered.count)

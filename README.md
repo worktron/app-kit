@@ -1511,7 +1511,7 @@ The plugin removes each delivered notification sent before the list whose tag is
 await sendToApple(devices, { title: '3 threads waiting', body, tag: 'summary', covers: ['thread-4', 'thread-9', 'thread-12'] }, options);
 ```
 
-Every alert and every list carries the time `sendToApple` sent it, and a list removes only notifications sent before it, since Apple can deliver pushes out of order and a late list must never remove a newer alert. A notification from before this version has no send time and counts as older.
+Every alert and every list carries the time `sendToApple` sent it, and a list removes only notifications sent before it, since Apple can deliver pushes out of order and a late list must never remove a newer alert. A notification from before this version has no send time and counts as older. A list touches only notifications a push brought: one the app made on the phone, through Tauri's notification plugin, always stays.
 
 A list goes as Apple's silent update, a `background` push at priority 5 with only `content-available` in `aps`: no alert, badge, sound or collapse id, which Apple refuses on one. iOS starts the app in the background for it when it is not running, with no window or page, and the plugin handles it there. Apple delivers these when it chooses: it advises no more than two or three an hour, keeps only the newest one it holds for a phone, and never wakes an app the person swiped away. The iPhone Simulator never hands one to an app at all (its log says content-available pushes are supported only on a device), so the background half is checked on a phone; the page half and the removal rules work in the Simulator. So the page makes the same removal as soon as it knows what is still waiting, such as when it comes to the front:
 
