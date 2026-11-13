@@ -716,3 +716,12 @@ Written by: app-kit/store-dashboard
 Goal: when METAMAX_JOB_ID or AI_AGENT is set, `app-kit extension dashboard sign-in` refuses and prints `cd '<folder>' && bun run app-kit extension dashboard sign-in` for the owner to paste into their own terminal (extension/dashboard/command.ts). Pasted inside app-kit's own checkout that fails, because app-kit has no `app-kit` script of its own there; it needs `bun bin/app-kit.ts`. Found by the store-dashboard thread, 2026-11-13.
 
 Done when: the printed command runs the sign-in when pasted in an app that installed the kit and also in app-kit's own checkout, and extension/test/dashboard-sign-in.test.ts checks both.
+
+## collapse-id-bytes · iPhone notifications cut the collapse id by bytes, not characters
+Written by: app-kit/clear-handled-notifications
+
+Goal: a long notification tag with non-ASCII letters reaches the phone and matches the keep list the same way the plugin cuts it.
+
+`tauri/iphone-notifications/server.ts` sets `apns-collapse-id` to `payload.tag.slice(0, 64)`, which counts UTF-16 units. Apple refuses a collapse id over 64 bytes, and the plugin's `identifierOf` (`plugin/ios/Sources/HandledNotifications.swift`) cuts tags on a keep list at 64 UTF-8 bytes. So a tag with accented or other non-ASCII letters, longer than 64 bytes but at most 64 characters, is refused by Apple, or on a list it no longer matches the identifier the phone holds.
+
+Done when: the server cuts the tag at 64 UTF-8 bytes on a whole-character boundary, the same rule as `identifierOf`, and a unit test sends a 40-character "é" tag and checks the header is 64 bytes and equal to what the Swift cut gives.
