@@ -14,11 +14,6 @@ struct HeardResult {
     let paused: Bool
 }
 
-/// Lowercase letters and digits only, so "Hello," and "hello" read as the same words.
-private func bare(_ text: String) -> [Character] {
-    text.lowercased().filter { $0.isLetter || $0.isNumber }
-}
-
 private func joined(_ parts: String...) -> String {
     parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " ")
 }
@@ -28,47 +23,21 @@ private func joined(_ parts: String...) -> String {
 struct HeardWords {
     private(set) var settled = ""
     private(set) var hypothesis = ""
-    /// The last text settled, kept to cut it from the front of a result that repeats it.
-    private var lastSettled = ""
 
     var words: String { joined(settled, hypothesis) }
 
+    /// After a pause marker iOS starts a fresh transcript, so a later result never repeats settled words, and none are
+    /// cut from it: a cut of words matching the settled ones dropped real speech ("Okay." then "Okay, let's go.").
     mutating func take(_ result: HeardResult) {
-        let text = withoutRepeat(result.text)
+        let text = result.text
         if result.final || result.paused {
             // An empty final after a pause, which iOS 18 sends, keeps what was heard: it never erases words.
             let keeping = text.isEmpty ? hypothesis : text
-            if !keeping.isEmpty {
-                settled = joined(settled, keeping)
-                lastSettled = keeping
-            }
+            if !keeping.isEmpty { settled = joined(settled, keeping) }
             hypothesis = ""
         } else {
             hypothesis = text
         }
-    }
-
-    /// The text with the last settled text cut from its front, when it starts with those words. A pause that did not
-    /// reset the transcript would otherwise write them twice.
-    private func withoutRepeat(_ text: String) -> String {
-        let repeated = bare(lastSettled)
-        guard !repeated.isEmpty else { return text }
-        var index = text.startIndex
-        var matched = 0
-        while index < text.endIndex, matched < repeated.count {
-            let character = text[index]
-            if character.isLetter || character.isNumber {
-                guard Character(character.lowercased()) == repeated[matched] else { return text }
-                matched += 1
-            }
-            index = text.index(after: index)
-        }
-        guard matched == repeated.count else { return text }
-        // Whatever stands between the repeat and the next word goes with the repeat.
-        while index < text.endIndex, !(text[index].isLetter || text[index].isNumber) {
-            index = text.index(after: index)
-        }
-        return String(text[index...])
     }
 }
 

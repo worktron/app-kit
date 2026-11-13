@@ -39,11 +39,10 @@ check("a final settles the words", hear([partial("Done"), final("Done.")]), "Don
 check("an empty final after a pause erases nothing",
       hear([paused("Last words."), final("")]), "Last words.")
 check("an empty final keeps the hypothesis it has", hear([partial("Still here"), final("")]), "Still here")
-check("a result that repeats the settled words from the start writes them once",
-      hear([paused("Hello there."), partial("Hello there, how are"), partial("Hello there. How are you?")]),
-      "Hello there. How are you?")
-check("a result that only starts like the settled words is kept whole",
-      hear([paused("Hello."), partial("Help me")]), "Hello. Help me")
+check("a new sentence that starts with the settled words keeps them",
+      hear([paused("Okay."), partial("Okay, let's go.")]), "Okay. Okay, let's go.")
+check("a new word that starts with the settled word keeps every letter",
+      hear([paused("I."), partial("It works.")]), "I. It works.")
 check("two pauses in a row keep both in order",
       hear([paused("One."), paused("Two."), partial("three")]), "One. Two. three")
 
