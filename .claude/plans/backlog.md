@@ -702,3 +702,10 @@ Written by: app-kit/store-dashboard
 Goal: `app-kit extension dashboard sign-in` opens the dashboard's own Chrome profile for the owner and waits for that Chrome to quit (`open -W` in command-line/signed-in-chrome.ts). Closing the window leaves Chrome running on macOS, still holding the profile's lock, so the next headless `read` or `fill` cannot start until Chrome is quit by hand. This caught the owner twice on 2026-11-08 and 2026-11-09. The sign-in should end, and close that Chrome, once the developer dashboard has loaded signed in. Found by the store-dashboard thread, 2026-11-13.
 
 Done when: after the owner signs in and the dashboard loads, the sign-in command closes its Chrome by itself and exits 0, and a `read` started right after runs without any manual quit. A test with a stand-in Chrome shows the command ends on the dashboard's address rather than on the process exiting.
+
+## dashboard-verify-its-you · The Store dashboard's commands say when Google asks "Verify it's you", instead of "not signed in"
+Written by: app-kit/store-dashboard
+
+Goal: about every 17 hours Google puts its "Verify it's you" check in front of the developer dashboard, while the profile's sign-in cookies are still good until 2027. `read` and `fill` report that as "The dashboard profile is not signed in to Google", so the owner is told to sign in again when Google wants re-verification. Why Google asks this often is not known. Both cases end in the owner's own sign-in run, but the message should name the right one. Found by the store-dashboard thread, 2026-11-13.
+
+Done when: when headless Chrome lands on Google's re-verification page, `read` and `fill` say that Google wants the owner to verify it is them, with the command to run, and the not-signed-in message appears only for a real sign-in page. Tests read recorded copies of both pages.
