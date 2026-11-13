@@ -725,3 +725,10 @@ Goal: a long notification tag with non-ASCII letters reaches the phone and match
 `tauri/iphone-notifications/server.ts` sets `apns-collapse-id` to `payload.tag.slice(0, 64)`, which counts UTF-16 units. Apple refuses a collapse id over 64 bytes, and the plugin's `identifierOf` (`plugin/ios/Sources/HandledNotifications.swift`) cuts tags on a keep list at 64 UTF-8 bytes. So a tag with accented or other non-ASCII letters, longer than 64 bytes but at most 64 characters, is refused by Apple, or on a list it no longer matches the identifier the phone holds.
 
 Done when: the server cuts the tag at 64 UTF-8 bytes on a whole-character boundary, the same rule as `identifierOf`, and a unit test sends a 40-character "é" tag and checks the header is 64 bytes and equal to what the Swift cut gives.
+
+## buddy-system-rows-open · Buddy System's window rows that open a buddy's page take WindowRow's open:
+Written by: app-kit/window-rows-open
+
+Goal: app-kit v0.65.0 gave the menu bar theme's WindowRow an `open:` action and a public `.opens(_:lit:_:)` modifier: a click anywhere on the row, the page's 24 point sides included, opens it, a button inside keeps its own click, and under a pointer that has travelled the row fills in the highlight out to the window's edges, read by VoiceOver as a button. Buddy System's rows that open a buddy's page still handle the click and hover themselves, so they light and click differently from Fleet's once Fleet adopts the piece. This is Buddy System's change on app-kit, not app-kit's, and goes to a thread in buddy-system once it is on v0.65.0 or later. Noticed by window-rows-open, 2026-11-13.
+
+Done when: each Buddy System window row that opens a page uses WindowRow's `open:` or `.opens`, its own hover fill and tap on those rows are gone, and a snapshot of the window shows a lit row filling edge to edge.
