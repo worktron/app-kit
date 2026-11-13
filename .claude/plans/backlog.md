@@ -732,3 +732,10 @@ Written by: app-kit/window-rows-open
 Goal: app-kit v0.65.0 gave the menu bar theme's WindowRow an `open:` action and a public `.opens(_:lit:_:)` modifier: a click anywhere on the row, the page's 24 point sides included, opens it, a button inside keeps its own click, and under a pointer that has travelled the row fills in the highlight out to the window's edges, read by VoiceOver as a button. Buddy System's rows that open a buddy's page still handle the click and hover themselves, so they light and click differently from Fleet's once Fleet adopts the piece. This is Buddy System's change on app-kit, not app-kit's, and goes to a thread in buddy-system once it is on v0.65.0 or later. Noticed by window-rows-open, 2026-11-13.
 
 Done when: each Buddy System window row that opens a page uses WindowRow's `open:` or `.opens`, its own hover fill and tap on those rows are gone, and a snapshot of the window shows a lit row filling edge to edge.
+
+## row-open-field-click · A text field inside a window row that opens keeps its own click
+Written by: app-kit/window-rows-open
+
+Goal: WindowRow's `open:` and `.opens` (v0.65.0) take a click anywhere on the row with `.contentShape(Rectangle())` and `.onTapGesture`; a Button inside keeps its click, the pattern Fleet's rows already use, but nothing shows whether a TextField in a row's `below` slot still takes focus and typing, or whether the row's tap swallows it. No kit test can drive a real click, since SwiftUI hands clicks to a window's views only once the window is on a screen and the kit's checks never put one there (tried both window.sendEvent and mouseDown on a window never shown, 2026-11-13). Needs a way to send a click that runs off the user's screen (a display nobody sees, as swift/window-recording makes, is one lead), or the answer that it cannot be checked. Noticed by window-rows-open, 2026-11-13.
+
+Done when: a test, off the user's screen, clicks a TextField inside a row that opens and shows the field takes focus and the row's open action does not run, and a click on the row's background still runs it; or the README's WindowRow line says a field inside is not supported, with the reason.
