@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.65.0
+
+Urgency: next round
+
+- a Mac window whose rows open a page gives each WindowRow `open: { ... }`, or puts `.opens("what VoiceOver reads") { ... }` on a row of its own layout, in place of its own hover fill and tap.
+
 ## v0.64.0
 
 Urgency: next round
