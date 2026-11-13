@@ -709,3 +709,10 @@ Written by: app-kit/store-dashboard
 Goal: about every 17 hours Google puts its "Verify it's you" check in front of the developer dashboard, while the profile's sign-in cookies are still good until 2027. `read` and `fill` report that as "The dashboard profile is not signed in to Google", so the owner is told to sign in again when Google wants re-verification. Why Google asks this often is not known. Both cases end in the owner's own sign-in run, but the message should name the right one. Found by the store-dashboard thread, 2026-11-13.
 
 Done when: when headless Chrome lands on Google's re-verification page, `read` and `fill` say that Google wants the owner to verify it is them, with the command to run, and the not-signed-in message appears only for a real sign-in page. Tests read recorded copies of both pages.
+
+## dashboard-refusal-line · The command the dashboard sign-in prints when a thread runs it works in app-kit's own folder too
+Written by: app-kit/store-dashboard
+
+Goal: when METAMAX_JOB_ID or AI_AGENT is set, `app-kit extension dashboard sign-in` refuses and prints `cd '<folder>' && bun run app-kit extension dashboard sign-in` for the owner to paste into their own terminal (extension/dashboard/command.ts). Pasted inside app-kit's own checkout that fails, because app-kit has no `app-kit` script of its own there; it needs `bun bin/app-kit.ts`. Found by the store-dashboard thread, 2026-11-13.
+
+Done when: the printed command runs the sign-in when pasted in an app that installed the kit and also in app-kit's own checkout, and extension/test/dashboard-sign-in.test.ts checks both.
