@@ -695,3 +695,10 @@ Written by: app-kit/shorter-instructions
 Goal: the root AGENTS.md goes with every request an app-kit thread makes. On 2026-11-11 (c836517) it went from 3,294 words to 1,059 by moving each folder's inventory and three folder-only rules into the folders' own AGENTS.md, which load only when a thread works there. Its rules grew from 1,011 to 1,131 words between 2026-11-09 and 2026-11-11, so the root passes a third of its old size (1,098) again within weeks. test/instruction-files.test.ts holds the folder pairing and keeps the inventory out of the root, but sets no size on purpose: a word limit set just above today's size would fail an unrelated branch that adds a rule. The user decides whether a limit is wanted and at what number, or whether a rule that applies only in one folder should be written in that folder's AGENTS.md from the start, and the test and this file's rules then say so.
 
 Done when: the user has chosen; if a limit, a unit test holds the root at it and names the folder files as where folder-only rules go, and fails on a root over it.
+
+## dashboard-sign-in-ends · The Store dashboard's sign-in ends once the dashboard has loaded, not when Chrome fully quits
+Written by: app-kit/store-dashboard
+
+Goal: `app-kit extension dashboard sign-in` opens the dashboard's own Chrome profile for the owner and waits for that Chrome to quit (`open -W` in command-line/signed-in-chrome.ts). Closing the window leaves Chrome running on macOS, still holding the profile's lock, so the next headless `read` or `fill` cannot start until Chrome is quit by hand. This caught the owner twice on 2026-11-08 and 2026-11-09. The sign-in should end, and close that Chrome, once the developer dashboard has loaded signed in. Found by the store-dashboard thread, 2026-11-13.
+
+Done when: after the owner signs in and the dashboard loads, the sign-in command closes its Chrome by itself and exits 0, and a `read` started right after runs without any manual quit. A test with a stand-in Chrome shows the command ends on the dashboard's address rather than on the process exiting.
