@@ -2369,14 +2369,21 @@ listen(app, { onStop: () => db.close() });
 and in Railway's settings file, `.railway/railway.ts`, so Railway checks the health route after a deploy and waits for the clean stop instead of killing the server at once ("Railway's settings" below):
 
 ```ts
-import { defineRailway, project, service } from 'railway/iac';
+import { defineRailway, preserve, project, service } from 'railway/iac';
 
 export default defineRailway(() =>
   project('argon-watcher', {
-    resources: [service('web', { healthcheck: '/api/health', env: { RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10' } })],
+    resources: [
+      service('web', {
+        healthcheck: '/api/health',
+        env: { DATABASE_URL: preserve(), CLERK_SECRET_KEY: preserve(), RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10' },
+      }),
+    ],
   }),
 );
 ```
+
+The `env` names every variable the service has: the ones `railway config migrate` wrote as `preserve()` keep their values in Railway, and the draining time goes in beside them. An `env` that names only the draining time would have the apply delete the rest.
 
 - **Writes other websites send.** A page on any site the person has open can send a write to any server, one on this machine included, and a browser's cross-origin rules stop the page reading the answer, never the write. So a request that can change something (any method but GET, HEAD and OPTIONS, and a websocket's opening) is refused `403 { error: 'This server takes no writes sent from another website.' }`, with a log line naming the site, unless the browser says the app's own page sent it (`Sec-Fetch-Site: same-origin`, or `none` for an address typed or an extension's request) or it carries neither `Sec-Fetch-Site` nor `Origin`, as a script, a webhook or curl does: every browser names one on a cross-site write. The body's type is not looked at, so an app's own `cors()` cannot open a write to another site. A site whose pages must call the server, such as the same app on another Mac, is named in `otherSites` (`appServer({ service, otherSites: ['http://192.168.1.20:5900'] })`): its writes pass, its page may send the person's cookies with them, and its cross-origin questions are answered, which no other site's are. The page served through Vite's proxy in development is the app's own page. `otherSiteCheck()` is exported alone too, for an app not built on `appServer`. A server running open on this machine (`serverSignIn` with no settings) also refuses a request sent to any name but `localhost`, `*.localhost`, a `127.` address and `[::1]`: a page whose own name is pointed at 127.0.0.1 is the same site as the server to the browser, and only the name it used gives it away. A proxy on this machine in front of an open server, such as Caddy, serves it under a `*.localhost` name for the same reason.
 - **The health route** answers `{ ok: true, service, commit }` before any sign-in check, since the app's routes and checks go on after it. `commit` is the commit Railway built from (`RAILWAY_GIT_COMMIT_SHA`), null elsewhere, so a check after a deploy can confirm which code production serves.
@@ -2389,14 +2396,14 @@ Needs `hono` 4.12 or later.
 
 #### Railway's settings
 
-Railway stops reading `railway.json` and `railway.toml` on 2026-12-01. Until then it reads them on each deploy and uses their values for that deploy only, never writing them into the service's settings, so a service still deploying from one loses its start command, its pre-deploy command (a database migration), its health check and its draining time on that date. They move to `.railway/railway.ts`, which Railway's command line reads and applies to the project when asked; a deploy never reads it, so a change to it takes effect only once it is applied. The file imports `railway/iac`, so the app adds Railway's package, `railway`, as a dev dependency. The commands are in Railway's command line 5.71.0 and later (4.42 has no `config`). The move, in the checkout linked to the app's Railway project:
+Railway stops reading `railway.json` and `railway.toml` on 2026-12-01. Until then it reads them on each deploy and uses their values for that deploy only, never writing them into the service's settings, so a service still deploying from one loses its start command, its pre-deploy command (a database migration), its health check and its draining time on that date. They move to `.railway/railway.ts`, which Railway's command line reads and applies to the project when asked; a deploy never reads it, so a change to it takes effect only once it is applied. The file imports `railway/iac`, so the app adds Railway's package, `railway`, as a dev dependency. The commands are in Railway's command line 5.71.1 and later (4.42 has no `config`, and 5.71.0's plan shows a change to the restart rule that is not there). The move, in the checkout linked to the app's Railway project (`railway link`; a worktree is linked on its own):
 
-1. `railway config migrate` shows the file it would write from every `railway.json` and `railway.toml` in the repository, and `railway config migrate --apply` writes it, on disk only: the services keep reading the old file until the cutover in step 4. `railway config pull` is not the way: it writes what Railway holds, and Railway never held the old file's values.
-2. Read the file against the old one. It has no field for the builder, the Dockerfile's path or the restart rule, which stay as the service's settings hold them, and none for `drainingSeconds`, which becomes `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` in the service's `env`, as above.
-3. Commit the file, and the old file's deletion, but push the deletion only after step 4: until then Railway reads the old file on every deploy.
-4. `railway config migrate cutover`, on the owner's yes, switches the services off the old file. It names each service it switches and warns of the redeploys that follow, and saves the old setting, which `railway config migrate undo` puts back; `railway config migrate status` then shows no service still reading it.
-5. `railway config plan` lists what applying would change in Railway, and is right when it lists only the settings moved from the old file; a plan that removes a variable is wrong. `railway config apply`, on the owner's yes, since it changes the production service. Run both straight after the cutover, since until the apply the services run without the settings the old file gave them.
-6. Push, then read the next deploy's log for the pre-deploy command and the health check.
+1. `railway config migrate --variables=managed` shows the file it would write from every `railway.json` and `railway.toml` in the repository, and `railway config migrate --apply --variables=managed` writes it, on disk only: the services keep reading the old file until the cutover in step 4. Without `--variables` it stops when no one is at a terminal, and `unmanaged` refuses an `env`, which the draining time needs. `railway config pull` is not the way: it writes what Railway holds, and Railway never held the old file's values.
+2. Read the file against the old one. It carries the builder, the Dockerfile's path and the watch paths, so read the builder against how the app really builds. It has no field for the restart rule, which stays as the service's settings hold it, nor for `drainingSeconds` and `overlapSeconds`, which become `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` and `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` in the `env` it wrote, beside the variables it wrote as `preserve()`, as above.
+3. Commit the file, and the old file's deletion, but push the deletion only after step 5: until then Railway reads the old file on every deploy. The cutover writes `.railway/.cac-migration.json`, which `undo` reads from this checkout: never commit it, and keep the checkout until the deploy is checked.
+4. `railway config migrate cutover`, on the owner's yes, switches the services whose Config File setting names the old file. It names each one, saves the old setting, which `railway config migrate undo` puts back, and redeploys it. A service that names no file, because Railway found the root `railway.json` by itself, is not switched: cutover says no service is still on Config as Code, `railway config migrate status` says the same, and pushing the old file's deletion in step 6 is that service's switch.
+5. `railway config plan` lists what applying would change in Railway, and is right when it lists only the settings moved from the old file; a plan that removes a variable is wrong, and is not applied. `railway config apply`, on the owner's yes, since it changes the production service. Ask the owner once for steps 4 and 5 and run them back to back, since a switched service runs without the old file's settings until the apply. On a failed or wrong plan or apply, `railway config migrate undo` at once.
+6. Push, then read the next deploy's log for the pre-deploy command, the start command and the health check the old file set. That log, not `status`, says the move is done.
 
 ### A job on a clock
 
