@@ -1,0 +1,3 @@
+[default]
+description = "Lets the page start dictation, read what it heard, and stop or cancel it"
+permissions = ["allow-start-dictation", "allow-dictation-heard", "allow-stop-dictation", "allow-cancel-dictation"]

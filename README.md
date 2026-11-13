@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../push/server`, `.../push/vite`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, notifications for a web app on the Home Screen with their worker and the server's sending, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the Amazon requests never sent among them, the plain look's stylesheet for their pages, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/iphone-dictation`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; iPhone dictation with punctuation through Apple's speech recognizer, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
@@ -1618,6 +1618,54 @@ In this order, since Apple's servers keep a failed fetch of the file and a phone
    ```
 
 5. A build with them is installed, then the page passes `handBackOverHttps: true`. A page that asks before then costs only the click.
+
+### iPhone dictation
+
+`app-kit/tauri/iphone-dictation` for the page, and a Tauri plugin for the shell, in `tauri/iphone-dictation/plugin/`: dictation with periods, question marks and commas, through Apple's speech recognizer (`SFSpeechRecognizer` with `addsPunctuation`, iOS 16 and later). The web's `SpeechRecognition` on an iPhone hands back bare words with no punctuation, and WebKit has no switch for it. The plugin is the kit's own; tauri-plugin-stt was not taken, since it adds no punctuation and pushes its words as events, and its audio session setup was the model for this one's.
+
+The page half, `AppRecognition`, has the web `SpeechRecognition`'s shape (`continuous`, `interimResults`, `lang`, `onresult`, `onerror`, `onend`, `start`, `stop`, `abort`), so a page's dictation written against the web takes it in place of `webkitSpeechRecognition`. Each `onresult` carries one result whose `[0].transcript` is everything heard since the start, punctuated, with `isFinal`; a page that joins the results' transcripts gets the words whole. Errors carry the web's names (`not-allowed`, `service-not-allowed`, `audio-capture`, `language-not-supported`, `no-speech`, `network`, `aborted`) or the system's own words. It differs from the web's in two ways a page notices: it listens through pauses until `stop()`, whatever `continuous` says, and its last words take longer after `stop()`, so it has a `stopWait` of 3000 ms, how long to wait for its `onend` before calling `abort()` and keeping what came.
+
+How the words are kept: Apple's results revise earlier words as more is heard (a "for" becomes "four", a comma becomes a question mark), so each partial result replaces the words not yet settled, and words settle only on Apple's last result or, on iOS 18 and later, on the pause marker it sends after a pause, after which iOS starts a fresh transcript (Apple's forum threads 762952, 764809, 770278). A result that repeats the settled words from its start has them cut, so no word is written twice.
+
+When the microphone is on: each start has a token, and a stop, a cancel, the app going to the background, a page starting to load and a newer start each make it stale. A permission answer that comes back with a stale token starts nothing, so the microphone never turns on after the person left. `stop()` turns the microphone off at once and the recognizer finishes the words it has; every end turns it off and gives the audio back to other apps. With keyboard dictation off in Settings, iOS refuses the dictation hint (`kLSRErrorDomain` 201), and the plugin tries once more without it and without on-phone recognition.
+
+Apple's recognizer does not run on the iPhone Simulator, so a Simulator build of the plugin runs a stand-in that hands back made-up punctuated words in stages, a pause that resets the transcript, and an end ("How is the weather today? It looks like rain, so bring a coat."), and asks for no permission. A phone build never has it.
+
+The shell builds the plugin from the kit that bun installed. In `src-tauri/Cargo.toml`:
+
+```toml
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-iphone-dictation = { path = "../node_modules/app-kit/tauri/iphone-dictation/plugin" }
+```
+
+In the shell, with the permission granted to the page, and the microphone turned off when the page's web process ends, since a page that is gone cannot stop it (the plugin itself turns it off when a page starts to load):
+
+```rust
+#[cfg(target_os = "ios")]
+let builder = builder
+    .plugin(tauri_plugin_iphone_dictation::init())
+    .on_web_content_process_terminate(|_| tauri_plugin_iphone_dictation::end_dictation());
+// ...
+let page = CapabilityBuilder::new("page").remote(format!("{origin}/*")).window(MAIN)
+    .permission("iphone-dictation:default");
+```
+
+The shell's Info.plist says why the app asks, or iOS ends the app at the question; the plugin checks first and fails with a line naming the missing key instead. With Tauri's generated project, in `src-tauri/gen/apple/project.yml` under the app target's `info: properties:`, then `xcodegen generate` in that folder:
+
+```yaml
+NSMicrophoneUsageDescription: Dictation listens to what you say.
+NSSpeechRecognitionUsageDescription: Dictation turns what you say into text.
+```
+
+The page asks whether the installed build has the plugin, since a build from before it still loads the newest page, and keeps the web's recognizer when it does not:
+
+```ts
+import { AppRecognition, iphoneDictationReady } from 'app-kit/tauri/iphone-dictation';
+
+const Recognition = (await iphoneDictationReady()) ? AppRecognition : window.SpeechRecognition ?? window.webkitSpeechRecognition;
+```
+
+Every step logs a line starting `[iphone-dictation]`, in the page's console and in the phone's log, such as `[iphone-dictation] start 3: listening, on the phone` and `[iphone-dictation] start 3: microphone off (the last result came)`.
 
 ### Running on the Simulator or an iPhone
 

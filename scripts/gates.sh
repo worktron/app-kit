@@ -3,7 +3,8 @@
 # drive` against a page of its own test, the kit's
 # WebKit kept out of the Dock and test pages' Web Audio opening no output device (web/e2e), the extension
 # fixture loaded in a hidden Chromium through the extension harness, that Chromium kept out of the Dock, and the Rust and Swift of the iPhone notifications
-# and iPhone sign-in plugins built for the iPhone simulator, the Apple Messages plugin's Rust tests, which read made-up
+# and iPhone sign-in plugins built for the iPhone simulator, and the iPhone dictation plugin's for the simulator and a
+# phone, with its Swift rules run on the Mac, the Apple Messages plugin's Rust tests, which read made-up
 # Messages and Contacts databases, and its lint, for the Mac, and the iPhone simulator it builds nothing for, with no
 # warnings, and the window plugin's Rust tests and its lint, for the Mac
 # and the iPhone simulator, with no warnings, since its warnings would show in every app's build, and the Swift
@@ -41,6 +42,11 @@ rules_test="$(mktemp -d)"
 swiftc -warnings-as-errors tauri/iphone-notifications/plugin/ios/Sources/HandledNotifications.swift tauri/iphone-notifications/plugin/ios/Tests/main.swift -o "$rules_test/rules"
 "$rules_test/rules"
 rm -rf "$rules_test"
+# The iPhone dictation plugin's rules for settling words and for each start's token, the same way.
+dictation_test="$(mktemp -d)"
+swiftc -warnings-as-errors tauri/iphone-dictation/plugin/ios/Sources/DictationRules.swift tauri/iphone-dictation/plugin/ios/Tests/main.swift -o "$dictation_test/rules"
+"$dictation_test/rules"
+rm -rf "$dictation_test"
 
 # The plugins' Rust and Swift. rustup puts cargo in ~/.cargo/bin, which a plain bash, as a landing runs this, has not
 # read into PATH. One build folder serves every app-kit checkout, so only the first landing builds all of Tauri; cargo
@@ -54,6 +60,14 @@ export CARGO_TARGET_DIR="$HOME/Library/Caches/app-kit/cargo-target"
 for plugin in tauri/iphone-notifications/plugin tauri/iphone-sign-in/plugin; do
   (cd "$plugin" && cargo build --locked --quiet --target aarch64-apple-ios-sim && cargo check --locked --quiet)
 done
+# The dictation plugin's Swift is one thing on a phone, Apple's recognizer, and another on the Simulator, its stand-in,
+# so it is built for both, and linted for both and the Mac, with no warnings.
+rustup target list --installed | grep -qx aarch64-apple-ios || { echo "gates: no iPhone target; run: rustup target add aarch64-apple-ios" >&2; exit 1; }
+(cd tauri/iphone-dictation/plugin \
+  && cargo build --locked --quiet --target aarch64-apple-ios-sim \
+  && cargo build --locked --quiet --target aarch64-apple-ios \
+  && cargo clippy --locked --quiet --all-targets -- -D warnings \
+  && cargo clippy --locked --quiet --target aarch64-apple-ios -- -D warnings)
 (cd tauri/apple-messages/plugin \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
