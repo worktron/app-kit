@@ -154,7 +154,8 @@ impl Builder {
                 commands::request_permission,
                 commands::get_token,
                 commands::take_tapped_address,
-                commands::keep_notifications
+                commands::keep_notifications,
+                commands::keep_record
             ])
             .setup(move |app, api| {
                 #[cfg(target_os = "ios")]

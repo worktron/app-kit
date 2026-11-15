@@ -1,4 +1,4 @@
-// The page's four commands. Each calls the Swift side directly through a C function (IphoneNotificationsPlugin.swift),
+// The page's five commands. Each calls the Swift side directly through a C function (IphoneNotificationsPlugin.swift),
 // bypassing run_mobile_plugin, which the original plugin found hangs, and blocks on its own thread, never the main one.
 
 use tauri::{command, AppHandle, Runtime};
@@ -24,6 +24,11 @@ extern "C" {
     /// a JSON array of strings. Blocks until iOS's list no longer holds them, or a few seconds.
     /// Returns how many it removed, -1 when the list does not parse, -2 when iOS did not answer in time.
     fn iphone_notifications_keep(ids_json: *const std::ffi::c_char, before: f64) -> i32;
+
+    /// Clear the records of keep lists handled at or before `through` (milliseconds since 1970 on the phone's clock;
+    /// 0 clears none), then write the rest to the buffer as a JSON array. Returns its length, or when it does not fit,
+    /// minus the bytes it needs, with the records left in place.
+    fn iphone_notifications_keep_record(buffer: *mut i8, buffer_len: i32, through: f64) -> i32;
 }
 
 /// The longest tapped address the page is handed. A longer one is dropped by the Swift side, never cut short.
@@ -128,5 +133,41 @@ pub(crate) async fn keep_notifications<R: Runtime>(_app: AppHandle<R>, ids: Vec<
     {
         let _ = (ids, before);
         Ok(0)
+    }
+}
+
+/// The first room the records are read into. Fifty records with a few removed ids each fit; more takes a second read
+/// with the size the Swift side asks for.
+#[cfg(target_os = "ios")]
+const RECORD_BUFFER: usize = 64 * 1024;
+
+/// Clear the records of keep lists handled at or before `through`, in milliseconds since 1970 on the phone's clock (0
+/// clears none), and return the rest, oldest first.
+#[command]
+pub(crate) async fn keep_record<R: Runtime>(_app: AppHandle<R>, through: f64) -> Result<Vec<serde_json::Value>> {
+    #[cfg(target_os = "ios")]
+    {
+        let mut size = RECORD_BUFFER;
+        let mut through = through;
+        // A record can land between two reads, so the second may need a little more again: three tries, each with the
+        // size the last one asked for. The first already cleared, so the later ones clear nothing.
+        for _ in 0..3 {
+            let mut buffer = vec![0i8; size];
+            let result = unsafe { iphone_notifications_keep_record(buffer.as_mut_ptr(), size as i32, through) };
+            through = 0.0;
+            if result < 0 {
+                size = (-result) as usize;
+                continue;
+            }
+            let bytes: Vec<u8> = buffer[..result as usize].iter().map(|&b| b as u8).collect();
+            return serde_json::from_slice(&bytes).map_err(|e| crate::Error::Io(std::io::Error::other(e)));
+        }
+        Err(crate::Error::Io(std::io::Error::other("the records kept growing while they were read")))
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = through;
+        Ok(Vec::new())
     }
 }

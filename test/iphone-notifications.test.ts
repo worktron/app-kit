@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { keepIphoneNotifications, startIphoneNotifications, tappedPage, type Invoke, type IphoneDevice } from '../tauri/iphone-notifications';
+import {
+  clearIphoneKeepRecord,
+  keepIphoneNotifications,
+  readIphoneKeepRecord,
+  startIphoneNotifications,
+  tappedPage,
+  type Invoke,
+  type IphoneDevice,
+  type KeepRecord,
+} from '../tauri/iphone-notifications';
 import { TAPPED_EVENT } from '../tauri/iphone-notifications/names';
 
 const ORIGIN = 'http://localhost:5173';
@@ -217,5 +226,73 @@ test('off an iPhone app keeping notifications makes no plugin call', async () =>
     const calls: string[] = [];
     expect(await keepIphoneNotifications(['a'], 1, { invoke: async (command) => (calls.push(command), 1) })).toBe(0);
     expect(calls).toEqual([]);
+  }
+});
+
+/** The plugin's side of the record: it clears through the time it is given, then answers with the rest. */
+function recordingPhone(records: KeepRecord[]) {
+  const asked: { command: string; args?: Record<string, unknown> }[] = [];
+  let saved = [...records];
+  const invoke: Invoke = async (command, args) => {
+    asked.push({ command, args });
+    const through = (args?.through as number) ?? 0;
+    if (through > 0) saved = saved.filter((record) => record.at > through);
+    return saved;
+  };
+  return { invoke, asked, saved: () => saved };
+}
+
+const keepRecord = (at: number, removed: string[] = []): KeepRecord => ({
+  at,
+  source: 'keep list',
+  state: 'in the background',
+  sent: at - 2_000,
+  keep: 3,
+  delivered: 5,
+  removed,
+  kept: { onList: 3, sentAfter: 1, notFromPush: 0 },
+  left: 0,
+});
+
+test('reading the record asks the plugin through 0, so nothing is cleared, and returns the records oldest first', async () => {
+  const phone = recordingPhone([keepRecord(1_000, ['thread-2']), keepRecord(2_000)]);
+  expect(await readIphoneKeepRecord({ invoke: phone.invoke })).toEqual([keepRecord(1_000, ['thread-2']), keepRecord(2_000)]);
+  expect(phone.asked).toEqual([{ command: 'plugin:iphone-notifications|keep_record', args: { through: 0 } }]);
+  expect(phone.saved()).toHaveLength(2);
+});
+
+test('clearing through a record’s time leaves a record that landed after it', async () => {
+  const phone = recordingPhone([keepRecord(1_000), keepRecord(2_000), keepRecord(3_000)]);
+  await clearIphoneKeepRecord(2_000, { invoke: phone.invoke });
+  expect(phone.asked).toEqual([{ command: 'plugin:iphone-notifications|keep_record', args: { through: 2_000 } }]);
+  expect(phone.saved().map((record) => record.at)).toEqual([3_000]);
+  expect(lines).toContain('[iphone-notifications] cleared the record of keep lists through 2000, 1 left');
+});
+
+test('clearing through no time makes no plugin call, so a page with nothing read never clears', async () => {
+  const phone = recordingPhone([keepRecord(1_000)]);
+  await clearIphoneKeepRecord(0, { invoke: phone.invoke });
+  await clearIphoneKeepRecord(Number.NaN, { invoke: phone.invoke });
+  expect(phone.asked).toEqual([]);
+});
+
+test('a plugin that fails to read or clear the record leaves the page working with none', async () => {
+  const invoke: Invoke = async () => {
+    throw new Error('no plugin');
+  };
+  expect(await readIphoneKeepRecord({ invoke })).toEqual([]);
+  await clearIphoneKeepRecord(1_000, { invoke });
+  expect(lines.some((line) => line.includes('could not read the record of keep lists'))).toBe(true);
+  expect(lines.some((line) => line.includes('could not clear the record of keep lists'))).toBe(true);
+});
+
+test('off an iPhone app the record reads as none and clearing makes no plugin call', async () => {
+  for (const [agent, tauri] of [[MAC, true], [IPHONE, false]] as const) {
+    setAgent(agent);
+    if (!tauri) delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    const phone = recordingPhone([keepRecord(1_000)]);
+    expect(await readIphoneKeepRecord({ invoke: phone.invoke })).toEqual([]);
+    await clearIphoneKeepRecord(1_000, { invoke: phone.invoke });
+    expect(phone.asked).toEqual([]);
   }
 });

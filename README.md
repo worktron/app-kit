@@ -1523,6 +1523,19 @@ await keepIphoneNotifications(waitingIds, serverTimeOfThisList);
 
 `before` is in milliseconds since 1970 on the server's clock, the time of the server's answer the list comes from, so it compares with the send times the server wrote. It resolves to how many it removed, and anywhere but an iPhone app it does nothing. Each decision logs a line starting `[iphone-notifications]`, such as `[iphone-notifications] keep list: removing thread-4`.
 
+Those lines stay in the phone's own log, which nothing on the Mac reads reliably, so the plugin also keeps a record of each keep list it handles and each `keepIphoneNotifications` call, for the page to send wherever the app keeps its logs:
+
+```ts
+import { clearIphoneKeepRecord, readIphoneKeepRecord } from 'app-kit/tauri/iphone-notifications';
+
+const records = await readIphoneKeepRecord();
+if (records.length > 0 && (await sendToTheServer(records)).ok) await clearIphoneKeepRecord(records[records.length - 1].at);
+```
+
+Each record (`KeepRecord`) says when the app handled it (`at`, on the phone's clock), whether it was a silent push's list or the page's call (`source`), whether the app was in the background, coming to the front or in front (`state`), the list's send time (`sent`) and how many tags it kept (`keep`), how many notifications were delivered, the identifiers it removed, how many it kept by reason (`kept`: on the list, sent after the list, made on the phone), and how many iOS still listed five seconds after removing them (`left`). A push with no list, or a list with no send time, is recorded too, with why in `skipped`. Records hold tags and counts, never a notification's title or text.
+
+The phone keeps the newest 50, in the app's UserDefaults under `app-kit.iphone-notifications.keep-record`, each saved before the plugin tells iOS the push is handled. They stay until the page clears them: `clearIphoneKeepRecord` clears those at or before the time it is given, so pass the `at` of the newest record the page sent, only after the send worked, and a record that landed meanwhile stays. Before the phone's first unlock after a restart iOS keeps saved data unreadable, and writing then would replace the records, so the plugin writes none and logs why. Anywhere but an iPhone app, or when the plugin fails, reading gives none and clearing does nothing. The command is `keep_record`, in the plugin's default permission.
+
 The shell's Info.plist needs the background mode, or iOS never hands the app a list. With Tauri's generated project, in `src-tauri/gen/apple/project.yml` under the app target's `info: properties:`:
 
 ```yaml

@@ -13,6 +13,7 @@ export const COMMANDS = {
   getToken: 'get_token',
   takeTappedAddress: 'take_tapped_address',
   keepNotifications: 'keep_notifications',
+  keepRecord: 'keep_record',
 } as const;
 
 /**
@@ -32,6 +33,12 @@ export const COVERS_KEY = 'covers';
 
 /** The key beside `aps` that holds a silent push's list of the tags whose notifications stay. */
 export const KEEP_KEY = 'keep';
+
+/** The key in the app's UserDefaults the plugin saves its record of each keep list under. */
+export const KEEP_RECORD_KEY = 'app-kit.iphone-notifications.keep-record';
+
+/** How many records of keep lists the phone keeps, the oldest dropped first. */
+export const KEEP_RECORD_LIMIT = 50;
 
 /** What every log line of the page half and the plugin starts with. */
 export const LOG_PREFIX = '[iphone-notifications]';

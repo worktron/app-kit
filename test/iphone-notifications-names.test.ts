@@ -6,11 +6,23 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ADDRESS_KEY, COMMANDS, COVERS_KEY, KEEP_KEY, LOG_PREFIX, PLUGIN, SENT_KEY, TAPPED_EVENT } from '../tauri/iphone-notifications/names';
+import {
+  ADDRESS_KEY,
+  COMMANDS,
+  COVERS_KEY,
+  KEEP_KEY,
+  KEEP_RECORD_KEY,
+  KEEP_RECORD_LIMIT,
+  LOG_PREFIX,
+  PLUGIN,
+  SENT_KEY,
+  TAPPED_EVENT,
+} from '../tauri/iphone-notifications/names';
 
 const plugin = join(import.meta.dir, '../tauri/iphone-notifications/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
 const swift = read('ios/Sources/IphoneNotificationsPlugin.swift');
+const recordSwift = read('ios/Sources/KeepRecord.swift');
 const rust = ['src/lib.rs', 'src/commands.rs', 'src/mobile.rs'].map(read).join('\n');
 const crate = read('Cargo.toml').match(/^name = "(.+)"$/m)![1];
 
@@ -83,4 +95,30 @@ test('the Swift answers background pushes from plugin start, before any window o
   expect(start).toContain('setUpBackgroundPush(');
   expect(swift).toContain('application:didReceiveRemoteNotification:fetchCompletionHandler:');
   expect(swift).toContain('UIApplication.didFinishLaunchingNotification');
+});
+
+test('the Swift saves the record of keep lists under the key and limit the page names, with the fields its type names', () => {
+  expect(recordSwift).toContain(`let keepRecordKey = "${KEEP_RECORD_KEY}"`);
+  expect(recordSwift).toContain(`let keepRecordLimit = ${KEEP_RECORD_LIMIT}`);
+  const fieldsOf = (body: string) => [...body.matchAll(/^\s+(?:let|var) (\w+)/gm)].map((m) => m[1]).sort();
+  const page = readFileSync(join(import.meta.dir, '../tauri/iphone-notifications/index.ts'), 'utf8');
+  const pageRecord = page.match(/export type KeepRecord = \{([\s\S]*?)\n\};/)![1];
+  const pageFields = [...pageRecord.matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]).sort();
+  expect(pageFields).toEqual(['at', 'delivered', 'keep', 'kept', 'left', 'removed', 'sent', 'skipped', 'source', 'state']);
+  expect(fieldsOf(recordSwift.match(/struct KeepRecord: Codable, Equatable \{([\s\S]*?)\n\n {4}init/)![1])).toEqual(pageFields);
+  const kept = pageRecord.match(/kept: \{ (.*?) \};/)![1];
+  expect(fieldsOf(recordSwift.match(/struct KeptCounts: Codable, Equatable \{([\s\S]*?)\n\}/)![1])).toEqual(
+    [...kept.matchAll(/(\w+): number/g)].map((m) => m[1]).sort(),
+  );
+});
+
+test('each keep list and each page keep call saves its record before iOS or the page is told it is finished', () => {
+  const push = swift.match(/private func handleBackgroundPush[\s\S]*?\n\}/)![0];
+  for (const finish of push.split('saveKeepRecord(').slice(1)) expect(finish).toMatch(/^[\s\S]*?completion\(/);
+  expect(push.split('saveKeepRecord(').length - 1).toBe(3);
+  expect(push.split('completion(').length - 1).toBe(3);
+  const page = swift.match(/func keepNotificationsDirect[\s\S]*?\n\}/)![0];
+  expect(page.indexOf('saveKeepRecord(')).toBeGreaterThan(-1);
+  expect(page.indexOf('saveKeepRecord(')).toBeLessThan(page.indexOf('sem.signal()'));
+  expect(swift).toContain('isProtectedDataAvailable');
 });
