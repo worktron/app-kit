@@ -765,3 +765,9 @@ Goal: The next app that moves off railway.json follows steps that match what Rai
 Also worth saying: apply the saved plan (`railway config plan --out <file>`, then `railway config apply --plan <file> --yes`), never pass `--confirm-destructive`, and add `.railway/**/*` to the typecheck and `.railway/.cac-migration.json` to `.gitignore`. friends-and-family's `.railway/railway.ts` and `server/railway-settings.test.ts` are a worked example.
 Done when: the README's steps say each of these, and the next app's move follows them with no correction from its brief.
 Touches: README.md "Railway's settings".
+
+## railway-builder-line · README's "Railway's settings" says a Dockerfile builder line never applies
+Written by: app-kit
+
+Goal: `railway config migrate` (CLI 5.74.0) writes `build: { builder: "DOCKERFILE" }` into `.railway/railway.ts` for a service whose railway.json named the Dockerfile builder, but Railway's service setting takes only HEROKU, NIXPACKS, PAKETO and RAILPACK (the `Builder` enum in the CLI's GraphQL schema). Applying it leaves the service on RAILPACK, and every later `railway config plan` shows `build.builder (null → "DOCKERFILE")` as a change that redeploys the service on apply and never sticks. A build still uses the Dockerfile at the repository's root whenever there is one. Getter dropped the line (377c61f), with a comment and a test that holds the root Dockerfile. The README's "Railway's settings" steps should say to delete that line after migrate, and that a root Dockerfile is what makes Railway build with it. Noticed by getter's railway-settings landing, 2026-11-15.
+Done when: app-kit's README "Railway's settings" says to drop a generated `builder: "DOCKERFILE"` line and why, and names the root Dockerfile as what selects the Dockerfile build.
