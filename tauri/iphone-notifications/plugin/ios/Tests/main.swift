@@ -81,9 +81,13 @@ expect("no saved records read as none", decodeKeepRecords(nil).isEmpty)
 expect("saved data that does not parse reads as none, so new records still go in", decodeKeepRecords(Data("{".utf8)).isEmpty)
 
 var many: [KeepRecord] = []
-for at in 1...60 { many = appendingKeepRecord(many, record(at: Double(at))) }
+for at in 1...60 { many = appendingKeepRecord(many, record(at: 0), now: Double(at)) }
 expect("the phone keeps the newest 50, newest last", many.count == 50 && many.first?.at == 11 && many.last?.at == 60)
 
+let read = appendingKeepRecord([], record(at: 0), now: 1_500)
+let late = appendingKeepRecord(read, record(at: 0), now: 1_000)
+expect("a record saved after another, its removal begun earlier, is stamped after it, so clearing what was read leaves it",
+       late.map(\.at) == [1_500, 1_501] && clearingKeepRecords(late, through: read.last!.at).map(\.at) == [1_501])
 expect("clearing through a time removes those at or before it", clearingKeepRecords(many, through: 30).map(\.at) == (31...60).map(Double.init))
 expect("clearing through 0 removes none", clearingKeepRecords(many, through: 0).count == 50)
 expect("clearing through the newest removes all", clearingKeepRecords(many, through: 60).isEmpty)
@@ -95,7 +99,7 @@ expect("records one byte too big say the size they need", copyKeepRecords(full, 
 var wide = KeepOutcome(delivered: 64)
 for i in 0..<64 { wide.count(.remove, id: String(repeating: "x", count: 60) + String(format: "%04d", i)) }
 var largest: [KeepRecord] = []
-for at in 1...50 { largest = appendingKeepRecord(largest, KeepRecord(at: Double(at), source: "page", state: "in front", sent: 1, keep: 0, outcome: wide)) }
+for at in 1...50 { largest = appendingKeepRecord(largest, KeepRecord(source: "page", state: "in front", sent: 1, keep: 0, outcome: wide), now: Double(at)) }
 let largestSize = encodeKeepRecords(largest).count
 expect("fifty records of 64 long removed ids each fit in a megabyte (\(largestSize) bytes)", largestSize < 1_048_576)
 

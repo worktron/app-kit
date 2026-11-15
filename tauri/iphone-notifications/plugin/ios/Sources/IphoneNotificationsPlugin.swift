@@ -238,7 +238,7 @@ private func saveKeepRecord(_ record: KeepRecord, dataAvailable: Bool) {
     keepRecordLock.lock()
     defer { keepRecordLock.unlock() }
     let defaults = UserDefaults.standard
-    let records = appendingKeepRecord(decodeKeepRecords(defaults.data(forKey: keepRecordKey)), record)
+    let records = appendingKeepRecord(decodeKeepRecords(defaults.data(forKey: keepRecordKey)), record, now: now())
     defaults.set(encodeKeepRecords(records), forKey: keepRecordKey)
     NSLog("[iphone-notifications] %@: kept a record, %d saved", record.source, records.count)
 }
@@ -276,23 +276,22 @@ func keepRecordDirect(_ buffer: UnsafeMutablePointer<CChar>, _ bufferLen: Int32,
 /// A push that reached the app: a keep list removes what it leaves out, and anything else is left to iOS. Each one is
 /// recorded before iOS is told it is finished, since iOS may stop the app right after.
 private func handleBackgroundPush(_ userInfo: [AnyHashable: Any], _ completion: @escaping (UIBackgroundFetchResult) -> Void) {
-    let at = now()
     let (state, dataAvailable) = appState()
     guard let keep = userInfo[keepKey] as? [String] else {
         NSLog("[iphone-notifications] a push with no keep list reached the app %@: nothing to remove", state)
-        saveKeepRecord(KeepRecord(at: at, source: "keep list", state: state, sent: (userInfo[sentKey] as? NSNumber)?.doubleValue, keep: nil, skipped: "no keep list"), dataAvailable: dataAvailable)
+        saveKeepRecord(KeepRecord(source: "keep list", state: state, sent: (userInfo[sentKey] as? NSNumber)?.doubleValue, keep: nil, skipped: "no keep list"), dataAvailable: dataAvailable)
         completion(.noData)
         return
     }
     guard let before = (userInfo[sentKey] as? NSNumber)?.doubleValue else {
         NSLog("[iphone-notifications] a keep list with no send time: nothing removed, since a late one could remove a newer notification")
-        saveKeepRecord(KeepRecord(at: at, source: "keep list", state: state, sent: nil, keep: keep.count, skipped: "no send time"), dataAvailable: dataAvailable)
+        saveKeepRecord(KeepRecord(source: "keep list", state: state, sent: nil, keep: keep.count, skipped: "no send time"), dataAvailable: dataAvailable)
         completion(.noData)
         return
     }
     NSLog("[iphone-notifications] a keep list of %d reached the app %@", keep.count, state)
     removeHandled(keep: keep, before: before, from: "keep list") { outcome in
-        saveKeepRecord(KeepRecord(at: at, source: "keep list", state: state, sent: before, keep: keep.count, outcome: outcome), dataAvailable: dataAvailable)
+        saveKeepRecord(KeepRecord(source: "keep list", state: state, sent: before, keep: keep.count, outcome: outcome), dataAvailable: dataAvailable)
         DispatchQueue.main.async { completion(outcome.removed.isEmpty ? .noData : .newData) }
     }
 }
@@ -342,12 +341,11 @@ func keepNotificationsDirect(_ idsJson: UnsafePointer<CChar>, _ before: Double) 
         NSLog("[iphone-notifications] the page's keep list did not parse")
         return -1
     }
-    let at = now()
     let (state, dataAvailable) = appState()
     let sem = DispatchSemaphore(value: 0)
     var removed = 0
     removeHandled(keep: ids, before: before, from: "page") { outcome in
-        saveKeepRecord(KeepRecord(at: at, source: "page", state: state, sent: before, keep: ids.count, outcome: outcome), dataAvailable: dataAvailable)
+        saveKeepRecord(KeepRecord(source: "page", state: state, sent: before, keep: ids.count, outcome: outcome), dataAvailable: dataAvailable)
         removed = outcome.removed.count
         sem.signal()
     }

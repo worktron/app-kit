@@ -38,8 +38,9 @@ struct KeepOutcome: Equatable {
 
 /// One keep list or page keep call, as the page reads it.
 struct KeepRecord: Codable, Equatable {
-    /// When the app handled it, in milliseconds since 1970 on the phone's clock.
-    let at: Double
+    /// When the record was saved, in milliseconds since 1970 on the phone's clock, and always later than the record
+    /// before it, so clearing through a record the page read never clears one saved after the read.
+    var at: Double
     /// `keep list` for a silent push, `page` for the page's own keep call.
     let source: String
     /// The app's state then: `in front`, `coming to the front` or `in the background`.
@@ -55,7 +56,7 @@ struct KeepRecord: Codable, Equatable {
     let kept: KeptCounts
     let left: Int
 
-    init(at: Double, source: String, state: String, sent: Double?, keep: Int?, skipped: String? = nil, outcome: KeepOutcome = KeepOutcome()) {
+    init(at: Double = 0, source: String, state: String, sent: Double?, keep: Int?, skipped: String? = nil, outcome: KeepOutcome = KeepOutcome()) {
         self.at = at
         self.source = source
         self.state = state
@@ -81,9 +82,12 @@ func encodeKeepRecords(_ records: [KeepRecord]) -> Data {
     return (try? encoder.encode(records)) ?? Data("[]".utf8)
 }
 
-/// The records with `record` added last, the oldest dropped past the limit.
-func appendingKeepRecord(_ records: [KeepRecord], _ record: KeepRecord) -> [KeepRecord] {
-    Array((records + [record]).suffix(keepRecordLimit))
+/// The records with `record` added last, stamped `now` or just after the last record when the clock reads earlier
+/// (a removal that took seconds, or the phone's clock set back), the oldest dropped past the limit.
+func appendingKeepRecord(_ records: [KeepRecord], _ record: KeepRecord, now: Double) -> [KeepRecord] {
+    var stamped = record
+    stamped.at = max(now, (records.last?.at ?? 0) + 1)
+    return Array((records + [stamped]).suffix(keepRecordLimit))
 }
 
 /// The records left once those handled at or before `through` are cleared. 0 clears none.

@@ -141,7 +141,7 @@ export async function keepIphoneNotifications(keep: string[], before: number, op
  * `keepIphoneNotifications` call (`page`). The plugin keeps the newest 50, and they stay until the page clears them.
  */
 export type KeepRecord = {
-  /** When the app handled it, in milliseconds since 1970 on the phone's clock. */
+  /** When the plugin saved it, in milliseconds since 1970 on the phone's clock, always later than the record before. */
   at: number;
   source: 'keep list' | 'page';
   /** The app's state then. A list iOS held until the app opened reads `coming to the front` or `in front`. */
