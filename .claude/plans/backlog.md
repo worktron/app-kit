@@ -753,3 +753,15 @@ Written by: friends-and-family/railway-settings
 Goal: A deploy log shows whether the old server stopped cleanly inside Railway's draining time. Today `listen` in `server/start` prints `SIGTERM: stopping, open requests have 5000ms to finish` and then runs `onStop` and exits with nothing more, and Railway logs nothing about draining or a kill. So a log ending on that line looks the same whether the server closed its database cleanly or was killed mid-stop. friends-and-family's Railway move on 2026-11-15 could prove only that the stop began (3.6s after Railway's SIGTERM) and that `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` was 10, not that the stop finished.
 Done when: `listen` prints one line once `onStop` has settled and before it exits (for example `stopped cleanly in 412ms`), and `stopping failed:` stays as it is; a test with a stand-in `print` shows the line after a SIGTERM; the README's "Stopping" says what the line proves.
 Touches: `server/start/index.ts`, its test, README "Starting the server".
+
+## railway-readme-5-74 · Correct the README's "Railway's settings" steps for Railway's command line 5.74.0
+Written by: friends-and-family/railway-settings
+
+Goal: The next app that moves off railway.json follows steps that match what Railway's command line does. friends-and-family's move on 2026-11-15 (command line 5.74.0, npm `railway` 3.17.0) found four places where the README's "Railway's settings" is wrong:
+- `railway config plan` runs before the cutover; it is not blocked, so the owner can see the exact plan before any switch.
+- For a service whose railway.json sits at the repository root, `railway config migrate cutover` says "No declared services are still on Config as Code" and does nothing, and writes no undo file: Railway finds the root file itself, so the switch is pushing the file's deletion after the apply.
+- The settings file can hold the restart rule: `deploy: { restartPolicyType, restartPolicyMaxRetries }` on the service is applied, and Railway then holds it (friends-and-family holds 5). `drainingSeconds` still belongs in `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` (railwayapp/cli#1324).
+- Migrate writes `variables: { managed: true }` into `project(...)`, which railway 3.17.0's `ProjectDefinition` type does not declare, so a typecheck that reads `.railway/` fails; leaving it out is the same, since managed is Railway's default (`VariablePolicy` in railwayapp/cli's `src/iac/graph.rs`).
+Also worth saying: apply the saved plan (`railway config plan --out <file>`, then `railway config apply --plan <file> --yes`), never pass `--confirm-destructive`, and add `.railway/**/*` to the typecheck and `.railway/.cac-migration.json` to `.gitignore`. friends-and-family's `.railway/railway.ts` and `server/railway-settings.test.ts` are a worked example.
+Done when: the README's steps say each of these, and the next app's move follows them with no correction from its brief.
+Touches: README.md "Railway's settings".
