@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.65.1
+
+Urgency: rides along
+
+- an iPhone app that wants dictation with punctuation adds the plugin to its shell, the two Info.plist keys, and uses AppRecognition when iphoneDictationReady() says yes; README section iPhone dictation; nothing changes for one that does not.
+
 ## v0.65.0
 
 Urgency: next round
