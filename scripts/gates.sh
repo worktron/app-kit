@@ -67,7 +67,8 @@ rustup target list --installed | grep -qx aarch64-apple-ios || { echo "gates: no
   && cargo build --locked --quiet --target aarch64-apple-ios-sim \
   && cargo build --locked --quiet --target aarch64-apple-ios \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
-  && cargo clippy --locked --quiet --target aarch64-apple-ios -- -D warnings)
+  && cargo clippy --locked --quiet --target aarch64-apple-ios -- -D warnings \
+  && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings)
 (cd tauri/apple-messages/plugin \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
