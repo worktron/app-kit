@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.69.0
+
+Urgency: next round
+
+- an app whose signed-in screen shows its name in a bar adds the signed-in picture and passes it as whileReturning, with firstPaint in its Vite config, which sets the mark; an app whose page is blank until its code loads, or that passes whileReturning={null}, draws its name instead (README, "The name before the code, in one picture or two").
+
 ## v0.68.0
 
 Urgency: next round
