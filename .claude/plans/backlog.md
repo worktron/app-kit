@@ -847,3 +847,10 @@ Written by: app-kit/cart-totals
 Goal: readCart's free-delivery reading for a cart that has not reached free delivery rests on a rule, not a recorded page: a short bar counts only when the subtotal's share of the amount matches it and the dollars-still-to-go reading does not (server/amazon-cart/index.ts freeDeliveryOf; "What is not known" in test/fixtures/amazon-cart/README.md). Every recorded grocery page had a full bar. Found by the cart-totals thread, 2026-11-16.
 
 Done when: a Fresh or Whole Foods cart page under its free-delivery amount is recorded as a stand-in fixture, the README says what its bar and amount mean, and readCart gives { at, reached: false } for it, with the rule tightened or loosened to what the page shows.
+
+## webkit-held-paint · Find why WebKit paints no frame while a page's scripts are held, so its first-frame test can hold the first frame too
+Written by: app-kit/steady-name
+
+Goal: web/e2e/first-frame.e2e.ts reloads the fixture with its scripts held to watch the name drawn before the code. Chromium paints a frame of the name alone then, but WebKit painted no frame at all while the scripts were held in 7 of 8 signed-out runs on 2026-11-16 (readyState interactive, the root's ::before already "fixture", requestAnimationFrame's frame list empty), for a reason not known: a paint hold of WebKit's own while the parser waits, or the headless run under metamax's window profile (its log showed "CVDisplayLinkCreateWithCGDisplay failed"). So only Chromium is held to a first frame of the name alone (the `paintsWhileHeld` flag), and WebKit's case reads the name from a page whose scripts never load. Safari on the phone is where the name matters most. Found by the steady-name thread, 2026-11-16.
+
+Done when: the cause is known and written down with a recorded sample, and either WebKit's cases hold the first frame as Chromium's do or the test says, from that sample, why WebKit cannot.
