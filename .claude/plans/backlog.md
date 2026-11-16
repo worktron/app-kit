@@ -826,3 +826,10 @@ Written by: checkpoint/first-build
 Goal: app-kit points every app that goes on a phone to its native iPhone build (Tauri, with the kit's iPhone sign-in and iPhone notifications), and never tells an app or its owner to add a web app to the home screen.
 Why: on 2026-11-16 Checkpoint, a routines app, was built on the kit's "Notifications on the Home Screen" (webPushState with its needs-home-screen state, turnOnWebPush, pushWorker, sendWebPush) and the README's "Getting onto the Home Screen on an iPhone" steps, and landed as a web app added to the home screen. The owner's answer, in their words: "no fucking home screen. we build apps." Practices gets the same ticket for rules/mobile-apps.md.
 Done when: the README names the native iPhone build as the way an app reaches a phone and has no section telling anyone to add a web app to the home screen ("Getting onto the Home Screen on an iPhone", the needs-home-screen steps); the Home Screen Web Push pieces are either removed or kept only for a browser tab on a computer, the owner's call, asked before it is made; isInstalledApp and PullToRefresh describe the iPhone app, not a home-screen web app; and no app on the kit is told to show "add to home screen" steps.
+
+## regular-cart-subtotal · The Amazon cart reader gives regular Amazon's own subtotal
+Written by: app-kit/cart-totals
+
+Goal: readCart gives subtotal null for regular Amazon, because no recorded regular cart page holds its own subtotal in a form the tests can hold. Its page carries one in its own checkout box (#sc-buy-box), beside the collapsed grocery carts' boxes that carry theirs with the same ids, so a reading must stay inside #sc-buy-box. test/fixtures/amazon-cart/README.md ("Regular Amazon's own subtotal is on the page but not read") says what is known. Found by the cart-totals thread, 2026-11-16.
+
+Done when: a regular cart page with its own subtotal is recorded as a stand-in fixture, readCart gives that subtotal for store regular, read only inside #sc-buy-box, with tests that the grocery boxes beside it never supply it, and CHANGES.md says what Amazon-reading apps get.
