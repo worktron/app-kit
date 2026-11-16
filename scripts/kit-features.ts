@@ -251,7 +251,8 @@ function browsersOf(selector: string): 'signed in' | 'signed out' | 'both' {
 function namesDrawn(page: string): { signedIn: boolean; signedOut: boolean; secondPicture: boolean } {
   const drawn = { signedIn: false, signedOut: false, secondPicture: false }
   for (const [, selectors, body] of page.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
-    if (!/(^|;|\s)content\s*:/.test(body!)) continue
+    // A content of '' or none draws nothing, as no content does.
+    if (!/(^|;|\s)content\s*:(?!\s*(''|""|none|normal)\s*(;|!|$))/.test(body!)) continue
     for (const selector of selectors!.split(',').filter((each) => each.includes('#root:empty::before'))) {
       const browsers = browsersOf(selector)
       if (browsers !== 'signed out') drawn.signedIn = true

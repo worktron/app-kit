@@ -161,6 +161,11 @@ test('an app with the sign-in gate draws its name before the code, in one pictur
   const homeWithoutName = "html:not([data-signed-in-before]) #root:empty::before { padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
   expect(await verdict(NAME, { 'index.html': page(barWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
   expect(await verdict(NAME, { 'index.html': page(homeWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+  // A rule whose content draws nothing, '' or none, is no name either.
+  for (const nothing of ["''", 'none']) {
+    const blankBar = two.replace("html[data-signed-in-before] #root:empty::before { content: 'Shop';", `html[data-signed-in-before] #root:empty::before { content: ${nothing};`);
+    expect(await verdict(NAME, { 'index.html': page(blankBar), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+  }
   // A picture only for a browser not signed in last time, and none for one that was, which then opens blank.
   expect(await verdict(NAME, { 'index.html': page("html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; }\n"), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
 
