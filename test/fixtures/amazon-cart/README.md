@@ -1,11 +1,11 @@
 # Amazon cart pages
 
-The cart pages keep the structure of cart pages recorded from a real account (regular Amazon, Amazon Fresh and Whole Foods Market on 2026-10-22, Amazon Fresh and Whole Foods Market again on 2026-11-05): the elements, ids and data attributes the reader uses, with made-up products, prices, product numbers, line ids, tokens, names, towns and ZIP codes in place of the real ones. The signed-out pages and `refused.html` keep the structure of pages fetched on 2026-11-05 with no cookies at all, which hold nothing about anyone. The repository is public, so `test/amazon-cart.test.ts` holds that every number and product here is a stand-in.
+The cart pages keep the structure of cart pages recorded from a real account (regular Amazon, Amazon Fresh and Whole Foods Market on 2026-10-22, Amazon Fresh and Whole Foods Market again on 2026-11-05, all three again on 2026-11-16 for the subtotal and free-delivery box): the elements, ids and data attributes the reader uses, with made-up products, prices, product numbers, line ids, tokens, names, towns and ZIP codes in place of the real ones. The signed-out pages and `refused.html` keep the structure of pages fetched on 2026-11-05 with no cookies at all, which hold nothing about anyone. The repository is public, so `test/amazon-cart.test.ts` holds that every number and product here is a stand-in.
 
 | Page | Recorded as |
 | --- | --- |
-| `cart-fresh.html`, `cart-wholefoods.html` | A grocery store's own cart page, `cartPath(store)`, signed in, with lines. |
-| `cart-regular.html` | Regular Amazon's cart page, signed in, with a line, a saved-for-later item and both grocery carts shown collapsed. |
+| `cart-fresh.html`, `cart-wholefoods.html` | A grocery store's own cart page, `cartPath(store)`, signed in, with lines. Fresh's checkout box has the subtotal after discounts, the original one struck through, and a full free-delivery bar; Whole Foods' has a subtotal and no free-delivery box, which stands for delivery that is never free. |
+| `cart-regular.html` | Regular Amazon's cart page, signed in, with a line, a saved-for-later item and both grocery carts shown collapsed, each collapsed box with its own subtotal and free-delivery box (as recorded 2026-11-16). |
 | `signed-out-cart.html` | Regular Amazon's cart page with no cookies. Amazon Fresh's cart page with no cookies redirects here too. |
 | `signed-out-grocery.html` | Whole Foods Market's cart page with no cookies: a page with no cart on it. |
 | `refused.html` | What Amazon answered a request with too few of a browser's headers: status 406, "Page Not Found". |
@@ -21,6 +21,17 @@ The cart pages keep the structure of cart pages recorded from a real account (re
 - **Regular Amazon's cart**: the page has its active cart, `#sc-active-cart`, with Amazon's count of items as `data-cart-total-item-count`.
 - **Signed out**: the header's account line reads "Hello, sign in". It is checked first, since a signed-out regular cart page has an active cart too, empty.
 
+## A grocery cart's subtotal and free delivery
+
+Both sit inside the expanded grocery cart's checkout box (`#sc-fresh-buy-box` or `#sc-alm-buy-box`), in its form. Regular Amazon's page has the same elements, with the same ids and classes, inside each collapsed grocery cart's box, so they are never looked up page-wide.
+
+- **The subtotal**: `#sc-subtotal-amount-buybox`, after Amazon's item discounts. The original is `#sc-original-subtotal-amount-buybox`, struck through, and the discount `#sc-estimated-savings-amount-buybox`; neither is read.
+- **Free delivery**: `.sc-fresh-delivery-threshold` holds a progress bar with `data-progress-percentage`, the amount in `.sc-localmarket-progress-subtotal`, and "Nice! You get FREE delivery" in a success alert once the bar is full. Recorded 2026-11-16 on both grocery carts, each with a full bar; the fixtures' amounts are stand-ins.
+
+## A line Amazon says is unavailable
+
+Recorded 2026-11-16 on Amazon Fresh: the page said "1 item is unavailable." above the lines, and Amazon's count was one less than the lines' quantities added up, so Amazon does not count the unavailable line. The unavailable line is an ordinary line to its attributes: `data-itemtype="active"`, a price, a quantity, and `data-outofstock="0"` like every other line, so no attribute marks it. Inside it are marks the reader could use, none of which any other line had: its content is wrapped in `.sc-list-item-content-removed`, it holds an anchor `#out-of-stock` and a `.out-of-stock-item-information` block, a "See similar items" link with the class `alm-oos-see-similar`, and an inline warning box reading "Currently unavailable". `readCart` reads it as a line like the others; telling it apart is not done yet.
+
 ## What marks a product's page
 
 - **The product's own page**: its canonical link ends in the product number, on every product page recorded, the not-sold page included. The hidden `ASIN` input is not a mark: the not-sold page has none.
@@ -28,6 +39,9 @@ The cart pages keep the structure of cart pages recorded from a real account (re
 - **Signed out**: the header's account line reads "Hello, sign in", as on a cart page.
 
 ## What is not known
+
+- **A free-delivery bar that is not full has not been recorded.** The amount beside a part-full bar may be the amount delivery is free from, or the cart's progress toward it. `readCart` counts a reading only when the bar and the numbers agree (a full bar with the amount at or below the subtotal, or a short bar with it above), and gives `freeDelivery: null` otherwise. Nor have other delivery terms: without Amazon's grocery delivery subscription, Amazon Fresh is said to be free from a higher amount with fees below it, and Whole Foods Market to have no free-delivery amount, which reads as null.
+- **Regular Amazon's own subtotal is on the page but not read.** On 2026-11-16 its checkout box, `#sc-buy-box`, had its own `#sc-subtotal-amount-buybox`. The fixture does not hold it, and `readCart` gives `subtotal: null` for regular Amazon until one is recorded and tested.
 
 - **An empty grocery cart has never been recorded.** Both grocery carts held items at every recording. Whether its page still has the expanded grocery cart, and whether that still has a checkout box naming the store, is unknown. If it does, `readCart` reads it as a cart with no lines. If the checkout box is gone, `readCart` throws `NotTheCart` with the reason "The page's grocery cart has no checkout box naming its store", rather than guessing that the cart is empty. Recording one, with `amazon-connector raw GET '/cart/localmarket?almBrandId=<brand id>' --save <name>` after a grocery checkout, settles it.
 - **An empty regular cart has been seen only signed out.** Signed out, the active cart is there with a count of 0 and "Your Amazon Cart is empty". A signed-in empty regular cart is expected to be the same without the sign-in, and to read as a cart with no lines, but it has not been recorded.

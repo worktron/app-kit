@@ -32,6 +32,8 @@ test("a grocery cart is its lines and Amazon's own count; the Buy it again sugge
     ],
     items: 3,
     url: 'https://www.amazon.com/cart/localmarket?almBrandId=QW1hem9uIEZyZXNo',
+    subtotal: 9.35,
+    freeDelivery: { at: 5, reached: true },
   });
 });
 
@@ -44,6 +46,9 @@ test("a Whole Foods line with no price in its data takes the shown price, and Am
     ],
     items: 4,
     url: 'https://www.amazon.com/cart/localmarket?almBrandId=VUZHIFdob2xlIEZvb2Rz',
+    subtotal: 11.46,
+    // This page's checkout box has no free-delivery box, as for someone whose delivery is never free.
+    freeDelivery: null,
   });
 });
 
@@ -53,7 +58,49 @@ test("the regular cart is its active lines, not saved ones, and not the collapse
     lines: [{ asin: 'B0TEST0003', name: 'Example Tall Kitchen Bags, 13 Gallon, 60ct', price: 9.52, quantity: 2, lineId: '00000000-0000-4000-8000-000000000003' }],
     items: 2,
     url: 'https://www.amazon.com/gp/cart/view.html',
+    // The collapsed grocery carts' boxes on this page show a subtotal and free delivery; neither is this cart's.
+    subtotal: null,
+    freeDelivery: null,
   });
+});
+
+/** The Fresh page with its free-delivery box showing the bar at `percentage` and the amount `amount`. */
+function freshWithDelivery(percentage: string, amount: string): string {
+  return fixture('cart-fresh.html')
+    .replace('data-progress-percentage="100"', `data-progress-percentage="${percentage}"`)
+    .replace('<span class="a-size-base a-color-secondary">$5</span>', `<span class="a-size-base a-color-secondary">${amount}</span>`);
+}
+
+test("a grocery cart's subtotal is the discounted one, and its free delivery counts only when the bar and the amounts agree", () => {
+  // The recorded page: a full bar, with the amount at or below the subtotal of $9.35.
+  expect(readCart(fixture('cart-fresh.html'), 'Amazon Fresh')).toMatchObject({ subtotal: 9.35, freeDelivery: { at: 5, reached: true } });
+  expect(readCart(freshWithDelivery('100', '$9.35'), 'Amazon Fresh').freeDelivery).toEqual({ at: 9.35, reached: true });
+  // A short bar with the amount above the subtotal: under the amount, by its numbers.
+  expect(readCart(freshWithDelivery('37', '$25'), 'Amazon Fresh').freeDelivery).toEqual({ at: 25, reached: false });
+  // A full bar with the amount above the subtotal, or a short bar with it at or below: the numbers disagree, so none.
+  expect(readCart(freshWithDelivery('100', '$25'), 'Amazon Fresh').freeDelivery).toBeNull();
+  expect(readCart(freshWithDelivery('37', '$3.46'), 'Amazon Fresh').freeDelivery).toBeNull();
+  expect(readCart(freshWithDelivery('37', '$9.35'), 'Amazon Fresh').freeDelivery).toBeNull();
+  // A bar with no percentage, or an amount that is not dollars: none.
+  expect(readCart(freshWithDelivery('', '$5'), 'Amazon Fresh').freeDelivery).toBeNull();
+  expect(readCart(freshWithDelivery('100', 'FREE'), 'Amazon Fresh').freeDelivery).toBeNull();
+});
+
+test('a grocery cart whose checkout box has no free-delivery box has no free delivery, and keeps its subtotal', () => {
+  const noBox = fixture('cart-fresh.html').replace(/<div class="sc-fresh-delivery-threshold">[\s\S]*?<\/span><\/div>\n/, '');
+  expect(noBox).not.toContain('sc-fresh-delivery-threshold');
+  expect(readCart(noBox, 'Amazon Fresh')).toMatchObject({ subtotal: 9.35, freeDelivery: null });
+});
+
+test('an empty grocery cart, whose box shows no subtotal, reads as no subtotal and no free delivery', () => {
+  // The recorded page with its lines and subtotal taken out; an empty grocery cart has not been recorded (README).
+  const empty = fixture('cart-fresh.html')
+    .replace(/<div data-asin=[\s\S]*?<\/div>\n/g, '')
+    .replace('data-quantity="3"', 'data-quantity="0"')
+    .replace(/<span id="sc-subtotal-amount-buybox"[\s\S]*?<\/span><\/span>\n/, '')
+    .replace('data-progress-percentage="100"', 'data-progress-percentage="0"');
+  expect(empty).not.toContain('sc-subtotal-amount-buybox');
+  expect(readCart(empty, 'Amazon Fresh')).toMatchObject({ lines: [], items: 0, subtotal: null, freeDelivery: null });
 });
 
 test("a page with the store's cart mark and no lines reads as that cart with no lines", () => {

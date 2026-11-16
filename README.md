@@ -2618,6 +2618,7 @@ const page = await pageFromTheBrowser(cartPath('Amazon Fresh'));
 try {
   const cart = readCart(page, 'Amazon Fresh');
   // cart.lines: what is in the cart now; an empty list is a cart with nothing in it.
+  // cart.subtotal and cart.freeDelivery: a grocery cart's total and whether its delivery is free yet, each null when unsure.
 } catch (error) {
   if (!(error instanceof NotTheCart)) throw error;
   // Not the cart: say nothing about what is in it, and log error.kind and error.message.
@@ -2626,14 +2627,15 @@ try {
 
 | Export | What it gives |
 | --- | --- |
-| `readCart(html, store)` | The store's cart as `Cart`: `store`, `lines` (each `asin`, `name`, `price` in dollars or null, `quantity` and `lineId`, Amazon's id for the line), `items`, Amazon's own count of the items, which can differ from the lines' quantities added up, and `url`, the cart's address, where the person checks out. "Buy it again" suggestions, saved-for-later items and the other stores' carts shown on the same page are not lines. |
+| `readCart(html, store)` | The store's cart as `Cart`: `store`, `lines` (each `asin`, `name`, `price` in dollars or null, `quantity` and `lineId`, Amazon's id for the line), `items`, Amazon's own count of the items, which can differ from the lines' quantities added up, `url`, the cart's address, where the person checks out, `subtotal`, a grocery cart's total in dollars after Amazon's item discounts, and `freeDelivery`, a grocery cart's `{ at, reached }`: the subtotal its delivery is free from and whether the cart has reached it. "Buy it again" suggestions, saved-for-later items and the other stores' carts shown on the same page are not lines. |
 | `NotTheCart` | What `readCart` throws for a page that is not that store's cart, so it never reads as an empty cart: `kind` is `signed-out` when Amazon showed the page to someone not signed in, and `not-this-cart` for anything else (another store's cart, a page refusing the request, a change at Amazon, including a cart Amazon counts items in with no line the reader knows), with `store` and a message giving the reason. |
 | `cartPath(store)` | The address on amazon.com of the store's cart page: each grocery store has its own, and regular Amazon's shows the grocery carts collapsed. |
-| `Cart`, `CartLine`, `NotTheCartKind` | The types. |
+| `Cart`, `CartLine`, `FreeDelivery`, `NotTheCartKind` | The types. `Cart`'s `subtotal` and `freeDelivery` are optional, so a cart built elsewhere still types; `readCart` always gives both. |
 
-- **How a page is known as the store's cart.** A grocery cart page (Amazon Fresh, Whole Foods Market) has one expanded grocery cart whose checkout box names the store's brand id; regular Amazon's has its active cart; and a header reading "Hello, sign in" is a signed-out page, whatever else it holds. These marks are read from real pages, recorded on 2026-10-22 and 2026-11-05.
+- **How a page is known as the store's cart.** A grocery cart page (Amazon Fresh, Whole Foods Market) has one expanded grocery cart whose checkout box names the store's brand id; regular Amazon's has its active cart; and a header reading "Hello, sign in" is a signed-out page, whatever else it holds. These marks are read from real pages, recorded on 2026-10-22, 2026-11-05 and 2026-11-16.
 - **An empty grocery cart has never been recorded.** Whether its page keeps the checkout box naming the store is unknown. If it does, it reads as a cart with no lines; if not, `readCart` throws `NotTheCart` with the reason "The page's grocery cart has no checkout box naming its store", rather than guessing that the cart is empty. A signed-in empty regular cart has not been recorded either: signed out, its active cart is there, empty, so it is expected to read as a cart with no lines. `test/fixtures/amazon-cart/README.md` keeps what is known and how to record the rest.
-- **What never comes out.** A cart page's header holds the person's name and delivery town; the reader reads the cart's lines and counts only. A server keeps what is read and discards the page.
+- **A subtotal and free delivery are null rather than a guess.** Both are read only inside the open grocery cart's checkout box, since regular Amazon's page carries each collapsed grocery cart's box too. `subtotal` is null when the box shows none, as on an empty cart. `freeDelivery` is null when the box has no free-delivery amount (delivery that is never free, for someone without Amazon's grocery delivery subscription) and when its numbers disagree: it counts only when the progress bar is full and the amount is at or below the subtotal, or the bar is short and the amount is above it. Only full bars have been recorded. Regular Amazon's cart gives null for both: its own total has not been recorded in a fixture yet.
+- **What never comes out.** A cart page's header holds the person's name and delivery town; the reader reads the cart's lines, counts and totals only. A server keeps what is read and discards the page.
 
 ### Adding to an Amazon cart
 

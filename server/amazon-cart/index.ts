@@ -11,6 +11,9 @@
 // - regular Amazon's cart page has its active cart, #sc-active-cart. A signed-out page has one too, empty, so a page
 //   whose header says "Hello, sign in" throws first.
 // A cart whose count Amazon gives as more than none, with no line the reader knows, throws too: its lines changed shape.
+//
+// A grocery cart's subtotal and free-delivery amount are read only inside its own expanded cart's checkout box, never
+// page-wide: regular Amazon's page carries each collapsed grocery cart's box with the same ids and classes.
 import { dollars, parse, STORES, storeOfBrand, textOf, type Store } from '../amazon-orders/index';
 
 export type CartLine = { asin: string; name: string; price: number | null; quantity: number; lineId: string };
@@ -25,7 +28,22 @@ export type Cart = {
   items: number;
   /** The cart's address, where the person checks out. */
   url: string;
+  /**
+   * A grocery cart's subtotal in dollars, after Amazon's item discounts, as its checkout box shows it ("Subtotal (3
+   * items): $9.35"). null when the box shows none, as on an empty cart, and always null for regular Amazon, whose
+   * subtotal has not been recorded. Optional only so carts built outside readCart still type; readCart always gives it.
+   */
+  subtotal?: number | null;
+  /**
+   * A grocery cart's free delivery: the subtotal it starts at and whether this cart has reached it. null when the checkout
+   * box shows no free-delivery amount, when the amount and the cart's subtotal disagree with the box's progress, and
+   * always for regular Amazon. Optional only so carts built outside readCart still type; readCart always gives it.
+   */
+  freeDelivery?: FreeDelivery | null;
 };
+
+/** The subtotal a grocery cart's delivery is free from, and whether the cart has reached it. */
+export type FreeDelivery = { at: number; reached: boolean };
 
 /**
  * Why a page is not the store's cart: `signed-out` when Amazon showed it to someone not signed in, `not-this-cart` for
@@ -57,17 +75,36 @@ function itemCount(text: string | null | undefined): number | null {
 }
 
 /**
+ * A grocery checkout box's free delivery, or null unless its numbers agree. The box shows the amount beside a progress
+ * bar, with "Nice! You get FREE delivery" once it is full. Only a full bar has been recorded, so the amount shown beside a
+ * part-full bar could be the cart's progress rather than the amount; a reading counts only when the amount is at or below
+ * the subtotal with the bar full, or above it with the bar short, and anything else gives null rather than a wrong amount.
+ */
+function freeDeliveryOf(box: Element, subtotal: number | null): FreeDelivery | null {
+  const threshold = box.querySelector('.sc-fresh-delivery-threshold');
+  if (!threshold || subtotal === null) return null;
+  const at = dollars(textOf(threshold.querySelector('.sc-localmarket-progress-subtotal')));
+  const percentage = threshold.querySelector('[data-progress-percentage]')?.getAttribute('data-progress-percentage')?.trim() ?? '';
+  if (at === null || !/^\d+(\.\d+)?$/.test(percentage)) return null;
+  const reached = Number(percentage) >= 100;
+  return (reached ? at <= subtotal : at > subtotal) ? { at, reached } : null;
+}
+
+/**
  * The active lines of one store's cart and Amazon's count of its items. "Buy it again" suggestions, saved-for-later
  * items and the other stores' carts on the same page are not lines. Throws NotTheCart for a page that is not this
- * store's cart.
+ * store's cart. A grocery cart also gives its subtotal and free delivery, each null when its checkout box does not
+ * show it plainly; regular Amazon's gives null for both.
  */
-export function readCart(html: string, store: Store): Cart {
+export function readCart(html: string, store: Store): Required<Cart> {
   const doc = parse(html);
   if (textOf(doc.querySelector('#nav-link-accountList-nav-line-1')).startsWith('Hello, sign in'))
     throw new NotTheCart(store, 'signed-out', `Amazon showed the ${store} cart page to someone not signed in`);
   const { brandId, grocery } = STORES[store];
   let lines: Element[];
   let counted: number | null;
+  let subtotal: number | null = null;
+  let freeDelivery: FreeDelivery | null = null;
   if (grocery) {
     const cart = doc.querySelector('#sc-expanded-cart-localmarket');
     if (!cart) throw new NotTheCart(store, 'not-this-cart', `The page has no grocery cart open, so it is not the ${store} cart`);
@@ -80,6 +117,8 @@ export function readCart(html: string, store: Store): Cart {
     if (shown !== brandId) throw new NotTheCart(store, 'not-this-cart', `The page is the ${storeOfBrand(shown) ?? `brand ${shown}`} cart, not the ${store} cart`);
     lines = [...cart.querySelectorAll(`[data-itemtype="active"][data-itemid][data-localmarket-brand="${brandId}"]`)];
     counted = itemCount(box.getAttribute('data-quantity')) ?? itemCount(textOf(cart.querySelector('#sc-subtotal-label-buybox')));
+    subtotal = dollars(textOf(box.querySelector('#sc-subtotal-amount-buybox')));
+    freeDelivery = freeDeliveryOf(box, subtotal);
   } else {
     const cart = doc.querySelector('#sc-active-cart');
     if (!cart) throw new NotTheCart(store, 'not-this-cart', `The page has no active cart, so it is not the ${store} cart`);
@@ -100,6 +139,8 @@ export function readCart(html: string, store: Store): Cart {
     lines: read,
     items: counted ?? read.reduce((sum, line) => sum + line.quantity, 0),
     url: `https://www.amazon.com${cartPath(store)}`,
+    subtotal,
+    freeDelivery,
   };
 }
 
