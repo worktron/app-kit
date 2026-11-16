@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.66.0
+
+Urgency: rides along
+
+- an app that sends keep lists can read what each did on the phone with readIphoneKeepRecord and clear what it has sent on with clearIphoneKeepRecord (README, iPhone notifications, "Removing notifications handled elsewhere"); an app that does not need it changes nothing.
+
 ## v0.65.1
 
 Urgency: rides along
