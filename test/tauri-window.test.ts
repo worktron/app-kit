@@ -209,6 +209,17 @@ test("on the iPhone, window.open hands its address, made whole, to the opener an
   }
 });
 
+// iOS keeps the web view's swipe back off, and Tauri has no setting for it, so the plugin turns it on for its own window
+// as each web view is made. The kit has no iPhone app to link the plugin into, so this reads the Rust; the iPhone
+// Simulator build compiles it.
+test('the iPhone window turns on the swipe back for the main window only', () => {
+  const lib = read('src/lib.rs');
+  expect(lib).toMatch(/#\[cfg\(target_os = "ios"\)\]\s*let builder = builder\.on_webview_ready\(\|webview\| \{\s*if on_main\(webview\.label\(\)\) \{\s*iphone::allow_swipe_back\(&webview\);/);
+  const iphone = read('src/iphone.rs');
+  expect(iphone).toContain('msg_send![view, setAllowsBackForwardNavigationGestures: true]');
+  expect(iphone).toMatch(/#\[cfg\(target_os = "ios"\)\]\s*pub\(crate\) fn allow_swipe_back/);
+});
+
 test('the README shows the shell that plugin/tests/readme.rs compiles', () => {
   const readme = readFileSync(join(import.meta.dir, '../README.md'), 'utf8');
   const section = readme.split('### A window onto the hosted site')[1]!.split('\n### ')[0]!;

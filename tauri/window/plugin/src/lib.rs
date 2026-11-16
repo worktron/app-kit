@@ -7,7 +7,8 @@
 //! - the page's grant, named as local and remote, since a built app counts a page under frontendDist as local;
 //! - the kit's start page (../start/index.html), which the window opens on and which goes on to the site once it
 //!   answers, and otherwise says it cannot reach it (`Site::start_page_window`);
-//! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops;
+//! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops, and the swipe from the left edge
+//!   back through the site's pages and in-page moves, which iOS keeps off (iphone.rs);
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
 //!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), and updates from the app's
@@ -192,7 +193,14 @@ impl Site {
     pub fn plugin<R: Runtime>(&self) -> TauriPlugin<R> {
         let for_navigation = self.clone();
         let for_events = self.clone();
-        Builder::new("app-kit-window")
+        let builder = Builder::new("app-kit-window");
+        #[cfg(target_os = "ios")]
+        let builder = builder.on_webview_ready(|webview| {
+            if on_main(webview.label()) {
+                iphone::allow_swipe_back(&webview);
+            }
+        });
+        builder
             .setup(|app, _api| {
                 if app.try_state::<tauri_plugin_opener::Opener<R>>().is_none() {
                     return Err(MISSING_OPENER.into());
