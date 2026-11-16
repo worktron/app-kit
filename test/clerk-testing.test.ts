@@ -4,6 +4,7 @@
  * No module is replaced, so the real @clerk/hono other files test is the one this file runs.
  */
 import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { clerkMiddleware, getAuth } from '@clerk/hono';
 import { requireCaller, callerOf } from '../authentication/agent-keys';
@@ -57,6 +58,18 @@ test('a key Clerk accepts is the person its recorded answer names, on a route ke
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ for: clerk.key.personId, via: 'key' });
   expect(logged).toEqual([`key ${clerk.key.keyName} (${clerk.key.keyId}) let through for GET /api/items/abc as GET /api/items/:id`]);
+});
+
+test('a key Clerk accepts is its person under plain Bun too, outside the simulated page this file runs in', async () => {
+  // bun test's preload makes Response.json answer plain application/json; plain Bun adds a charset, which Clerk does not parse.
+  const child = Bun.spawn(['bun', join(import.meta.dir, 'clerk-testing-child.ts')], {
+    stdout: 'pipe',
+    stderr: 'inherit',
+    env: { ...process.env, NODE_ENV: 'test', CLERK_TELEMETRY_DISABLED: '1' },
+  });
+  const { status, body, personId } = JSON.parse((await new Response(child.stdout).text()).trim().split('\n').at(-1)!);
+  expect(await child.exited).toBe(0);
+  expect({ status, body: JSON.parse(body) }).toEqual({ status: 200, body: { for: personId, via: 'key' } });
 });
 
 test('a key Clerk does not know is nobody, with why', async () => {

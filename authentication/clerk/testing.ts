@@ -89,17 +89,22 @@ export function fakeClerkApi(): FakeClerkApi {
 
   let allowlist: string[] = [];
 
+  // Clerk parses a body only when its content-type is exactly application/json, and plain Bun's Response.json adds
+  // ";charset=utf-8", which Clerk then hands back as text: a key it should accept would throw instead.
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
   const answer = async (request: Request): Promise<Response> => {
     const { pathname } = new URL(request.url);
-    if (request.headers.get('authorization') !== `Bearer ${SECRET_KEY}`) return Response.json({ errors: [{ code: 'authentication_invalid' }] }, { status: 401 });
+    if (request.headers.get('authorization') !== `Bearer ${SECRET_KEY}`) return json({ errors: [{ code: 'authentication_invalid' }] }, 401);
     if (pathname === '/v1/jwks') {
       const { kid, jwk } = await key();
-      return Response.json({ keys: [{ ...jwk, kid, use: 'sig', alg: 'RS256' }] });
+      return json({ keys: [{ ...jwk, kid, use: 'sig', alg: 'RS256' }] });
     }
     if (pathname === '/api_keys/verify') {
       const { secret } = (await request.json()) as { secret?: string };
       const sample = secret === KEY_SECRETS.valid ? recorded.valid : recorded.notFound;
-      return Response.json(sample.body, { status: sample.status });
+      return json(sample.body, sample.status);
     }
     if (pathname === '/v1/allowlist_identifiers' && request.method === 'GET') {
       const [sample] = allowlisted.body.data;
@@ -109,7 +114,7 @@ export function fakeClerkApi(): FakeClerkApi {
         identifier,
         identifier_type: identifier.startsWith('+') ? 'phone_number' : 'email_address',
       }));
-      return Response.json({ data, total_count: data.length });
+      return json({ data, total_count: data.length });
     }
     throw new Error(`fakeClerkApi: no stand-in answer for ${request.method} ${pathname}`);
   };
