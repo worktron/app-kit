@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.67.0
+
+Urgency: next round
+
+- a Mac app that releases after each landing adds `"app-kit": { "mac-release": "<the folder holding src-tauri>" }` ("." at the root) to its repository's root package.json; once the Mac running the watcher passes --owner, an app without it stops releasing.
+
 ## v0.66.1
 
 Urgency: next round
