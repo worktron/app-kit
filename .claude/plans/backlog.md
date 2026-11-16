@@ -833,3 +833,10 @@ Written by: app-kit/cart-totals
 Goal: readCart gives subtotal null for regular Amazon, because no recorded regular cart page holds its own subtotal in a form the tests can hold. Its page carries one in its own checkout box (#sc-buy-box), beside the collapsed grocery carts' boxes that carry theirs with the same ids, so a reading must stay inside #sc-buy-box. test/fixtures/amazon-cart/README.md ("Regular Amazon's own subtotal is on the page but not read") says what is known. Found by the cart-totals thread, 2026-11-16.
 
 Done when: a regular cart page with its own subtotal is recorded as a stand-in fixture, readCart gives that subtotal for store regular, read only inside #sc-buy-box, with tests that the grocery boxes beside it never supply it, and CHANGES.md says what Amazon-reading apps get.
+
+## unavailable-cart-lines · The Amazon cart reader says which grocery lines Amazon marks unavailable
+Written by: app-kit/cart-totals
+
+Goal: a grocery cart line Amazon says is unavailable is read like any other line, so an app counts it toward a cart it cannot order. test/fixtures/amazon-cart/README.md ("A line Amazon says is unavailable") lists the marks such a line carries (.sc-list-item-content-removed, #out-of-stock) and that it has no attribute saying so. Found by the cart-totals thread, 2026-11-16.
+
+Done when: each line readCart gives says whether Amazon marks it unavailable, held by tests on stand-in fixtures with an unavailable line and an ordinary one, and CHANGES.md says what Amazon-reading apps get.
