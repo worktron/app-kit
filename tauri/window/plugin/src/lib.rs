@@ -26,6 +26,8 @@ mod mac;
 #[cfg(target_os = "macos")]
 mod menu;
 #[cfg(target_os = "macos")]
+mod relaunch;
+#[cfg(target_os = "macos")]
 mod updates;
 
 #[cfg(target_os = "macos")]
@@ -323,6 +325,8 @@ fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show(app),
         #[cfg(target_os = "macos")]
+        RunEvent::Exit => relaunch::exited(app, launched_program(app).as_deref()),
+        #[cfg(target_os = "macos")]
         RunEvent::MenuEvent(event) => {
             change_zoom(app, event.id().as_ref());
             menu::menu_event(app, event.id().as_ref());
@@ -349,6 +353,12 @@ fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: &sign_in::Sig
     }
     #[cfg(target_os = "macos")]
     show(app);
+}
+
+/// The program the app was launched from, as the window read it at launch.
+#[cfg(target_os = "macos")]
+fn launched_program<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.try_state::<MacWindow>()?.launched.path.clone()
 }
 
 /// What the Mac window keeps: the program it was launched from, what the page was last told about full screen, and
@@ -432,14 +442,14 @@ fn mac_page_loaded<R: Runtime>(webview: &Webview<R>) {
     let _ = webview.set_zoom(state.zoom(app));
 }
 
-/// Restarts the app into the newer build installed, through Tauri's restart, which since 2.12.5 opens the app through
-/// macOS, so it comes back in front as itself. With no newer build installed it does nothing, so no page or frame can
-/// restart the app at will.
+/// Restarts the app into the newer build installed, opening it again through macOS once this copy has quit, so it comes
+/// back in front as itself and in the Dock icon the person pinned (relaunch.rs). With no newer build installed it does
+/// nothing, so no page or frame can restart the app at will.
 #[cfg(target_os = "macos")]
 fn restart<R: Runtime>(app: &AppHandle<R>) {
     if app.state::<MacWindow>().launched.newer_build_installed() {
         log::info!("Restart asked for with a newer build installed, restarting into it");
-        app.request_restart();
+        relaunch::request(app, launched_program(app).as_deref());
     } else {
         log::info!("Restart asked for with no newer build installed, so there is nothing to restart into; ignored");
     }

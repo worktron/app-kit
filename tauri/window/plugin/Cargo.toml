@@ -10,7 +10,8 @@ rust-version = "1.77.2"
 publish = false
 
 [dependencies]
-# 2.12.5 restarts a Mac app through macOS (LaunchServices), so it comes back in front as itself.
+# 2.12.5 restarts a Mac app through macOS (LaunchServices), which src/relaunch.rs does too, waiting for the old copy
+# to quit first; Tauri's restart is its fallback.
 tauri = "2.12.5"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"

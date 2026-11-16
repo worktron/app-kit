@@ -19,6 +19,8 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Manager, Runtime, Url};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+use crate::relaunch;
+
 /// The host of the link the page opens to install the newer version found, `<scheme>://update`.
 const UPDATE_HOST: &str = "update";
 /// The flag and window event that tell the page where an update stands: "available", "installing" or "failed".
@@ -295,9 +297,10 @@ pub(crate) fn install_update<R: Runtime>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         match update.download_and_install(|_, _| {}, || {}).await {
             Ok(()) => {
-                // Tauri's restart opens the app through macOS, so the newer version comes back in front as itself.
+                // The app quits and opens again through macOS once it has, so the newer version comes back in front
+                // as itself and in the Dock icon the person pinned (relaunch.rs).
                 log::info!("version {} installed, restarting into it", update.version);
-                app.request_restart();
+                relaunch::request(&app, crate::launched_program(&app).as_deref());
             }
             Err(error) => {
                 log::warn!("version {} could not be installed: {error}", update.version);
