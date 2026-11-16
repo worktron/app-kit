@@ -80,6 +80,9 @@ test("a grocery cart's subtotal is the discounted one, and its free delivery cou
   // The same bar beside the dollars still to go ($15.65), or beside an amount the bar is not the share of: none.
   expect(readCart(freshWithDelivery('37', '$15.65'), 'Amazon Fresh').freeDelivery).toBeNull();
   expect(readCart(freshWithDelivery('10', '$25'), 'Amazon Fresh').freeDelivery).toBeNull();
+  // A small cart, where the two readings give nearly the same bar ($3.00 of $32 is 9%, and of $35 is 9% too): none.
+  const small = freshWithDelivery('9', '$32').replace('$9.35</span></span>', '$3.00</span></span>');
+  expect(readCart(small, 'Amazon Fresh')).toMatchObject({ subtotal: 3, freeDelivery: null });
   // A full bar with the amount above the subtotal, or a short bar with it at or below: the numbers disagree, so none.
   expect(readCart(freshWithDelivery('100', '$25'), 'Amazon Fresh').freeDelivery).toBeNull();
   expect(readCart(freshWithDelivery('37', '$3.46'), 'Amazon Fresh').freeDelivery).toBeNull();

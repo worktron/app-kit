@@ -81,9 +81,10 @@ const BAR_SLACK = 2;
  * A grocery checkout box's free delivery, or null unless its numbers agree. The box shows the amount beside a progress
  * bar, with "Nice! You get FREE delivery" once it is full. Only a full bar has been recorded, so the amount shown beside a
  * short bar could be the cart's progress or the dollars still to go rather than the amount. A full bar counts when the
- * amount is at or below the subtotal; a short bar counts only when the amount is above the subtotal and the bar is the
- * subtotal's share of it (within BAR_SLACK), which neither of those other readings gives. Anything else gives null rather
- * than a wrong amount.
+ * amount is at or below the subtotal. A short bar counts only when the amount is above the subtotal, the bar is the
+ * subtotal's share of the amount (within BAR_SLACK), and the bar is not also the subtotal's share of the subtotal plus the
+ * amount, as it would be if the amount were the dollars still to go: for a small cart the two readings give nearly the
+ * same bar and cannot be told apart. Anything else gives null rather than a wrong amount.
  */
 function freeDeliveryOf(box: Element, subtotal: number | null): FreeDelivery | null {
   const threshold = box.querySelector('.sc-fresh-delivery-threshold');
@@ -93,7 +94,8 @@ function freeDeliveryOf(box: Element, subtotal: number | null): FreeDelivery | n
   if (at === null || !/^\d+(\.\d+)?$/.test(percentage)) return null;
   const bar = Number(percentage);
   if (bar >= 100) return at <= subtotal ? { at, reached: true } : null;
-  return at > subtotal && Math.abs((subtotal / at) * 100 - bar) <= BAR_SLACK ? { at, reached: false } : null;
+  const fits = (amount: number) => Math.abs((subtotal / amount) * 100 - bar) <= BAR_SLACK;
+  return at > subtotal && fits(at) && !fits(subtotal + at) ? { at, reached: false } : null;
 }
 
 /**
