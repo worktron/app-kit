@@ -1,0 +1,42 @@
+{
+  "data": {
+    "repositoryOwner": {
+      "repositories": {
+        "pageInfo": {
+          "hasNextPage": true,
+          "endCursor": "Y3Vyc29yOnYyOpHORtHCYw=="
+        },
+        "nodes": [
+          {
+            "nameWithOwner": "example/example-tool",
+            "owner": {
+              "login": "example"
+            },
+            "ref": {
+              "target": {
+                "oid": "2bf0cda32b900181b173a0c6c4d4de8d8152b986"
+              }
+            },
+            "object": {
+              "text": "{\n  \"name\": \"example-tool\",\n  \"private\": true\n}\n"
+            }
+          },
+          {
+            "nameWithOwner": "example/example-site",
+            "owner": {
+              "login": "example"
+            },
+            "ref": {
+              "target": {
+                "oid": "87db69e2b7fe79539963c3a4cb1cb331b847075a"
+              }
+            },
+            "object": {
+              "text": "{\n  \"name\": \"example-site\",\n  \"version\": \"0.1.0\",\n  \"private\": true\n}\n"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

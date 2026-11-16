@@ -20,11 +20,14 @@ const HOME_FOLDER = /\\?\/(?:Users|home)\\?\/[\w.-]+/g;
  * client's name is one part of a host name, at most 63 characters, for the same reason as an email's.
  */
 const GOOGLE_PROJECT = /\bprojects\/\d{6,}|\bproject_number:\d{6,}|\bproject \d{6,}|[\w-]{1,63}\.apps\.googleusercontent\.com/g;
-/** Test addresses, the project's own, and the Co-Authored-By trailer's, which names no one and a plan may quote. */
-const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$|^noreply@anthropic\.com$/;
+/**
+ * Test addresses, the project's own, the Co-Authored-By trailer's, which names no one and a plan may quote, and
+ * GitHub's SSH user, which every SSH address of a GitHub repository holds (`git@github.com:<owner>/<app>.git`).
+ */
+const ALLOWED_EMAIL = /@(?:example\.com|worktron\.com)$|^noreply@anthropic\.com$|^git@github\.com$/;
 const COMMIT_NAMES = new Set(['Worktron']);
-/** Addresses that name no one, in commits from before example.com was the rule: GitHub's SSH user and two made up. */
-const NAMES_NO_ONE = new Set(['git@github.com', 'a@b.co', 'x@y.co']);
+/** Addresses that name no one, in commits from before example.com was the rule: two made up. */
+const NAMES_NO_ONE = new Set(['a@b.co', 'x@y.co']);
 const THIS_FILE = relative(process.cwd(), import.meta.path);
 
 const git = (...args: string[]) => {
@@ -43,7 +46,7 @@ function personalFacts(text: string, allowed: (email: string) => boolean = (e) =
 
 test('a personal email or a home folder is found, and test addresses are not', () => {
   expect(personalFacts('Signed in as someone@gmail.com from /Users/someone/Workspace')).toEqual(['someone@gmail.com', '/Users/someone']);
-  expect(personalFacts('ana@example.com, kit@worktron.com, ./users/list')).toEqual([]);
+  expect(personalFacts('ana@example.com, kit@worktron.com, ./users/list, git@github.com:example/app.git')).toEqual([]);
   // The trailer's address names no one; anyone else's at the same company is a person's.
   expect(personalFacts('Co-Authored-By: Claude <noreply@anthropic.com>, from someone@anthropic.com')).toEqual(['someone@anthropic.com']);
   expect(personalFacts('"dataPath" : "\\/Users\\/someone\\/Library"')).toEqual(['\\/Users\\/someone']);

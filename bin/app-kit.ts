@@ -115,11 +115,14 @@ const USAGE = `app-kit <part> <command>
                               updater asks, which every installed copy then offers as an
                               update; --token-only reads the keys only through the
                               keychain's 1Password token, never the signed-in op
-  mac watch [--gh-user <login>] <git url>[#<folder>]...
+  mac watch [--gh-user <login>] [--owner <login>]... [<git url>[#<folder>]...]
                               one pass: for each app whose main moved and changed its Mac
                               app since its last release, release main's commit from a
-                              clone of its own; gh publishes as <login>; one line per
-                              decision in ~/.local/state/app-kit/mac-release/mac-release.log;
+                              clone of its own; the apps are those named, and each one in
+                              an --owner account's own repositories whose root package.json
+                              declares "app-kit": { "mac-release": "<folder>" }; gh asks and
+                              publishes as <login>; one line per decision in
+                              ~/.local/state/app-kit/mac-release/mac-release.log;
                               exits 1 when a step failed for any app
   mac key <owner>/<repository>
                               make the key that signs the app's updates, once, keep it in
@@ -286,11 +289,21 @@ async function mac([command, ...args]: string[]): Promise<boolean> {
   if (command === 'release' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
     code = await (await import('../tauri/mac-release/release.ts')).release({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
   } else if (command === 'watch') {
-    const ghUser = args[0] === '--gh-user' ? args[1] : undefined
-    const urls = ghUser === undefined ? args : args.slice(2)
-    if ((args[0] === '--gh-user' && (!ghUser || ghUser.startsWith('-'))) || urls.length === 0 || urls.some((url) => url.startsWith('-'))) return false
+    let ghUser: string | undefined
+    const owners: string[] = []
+    let rest = args
+    while (rest[0] === '--gh-user' || rest[0] === '--owner') {
+      const value = rest[1]
+      if (!value || value.startsWith('-')) return false
+      if (rest[0] === '--owner') owners.push(value)
+      else if (ghUser === undefined) ghUser = value
+      else return false
+      rest = rest.slice(2)
+    }
+    const urls = rest
+    if ((owners.length === 0 && urls.length === 0) || urls.some((url) => url.startsWith('-'))) return false
     // Each failure is a line in the watcher's log; the exit code says a pass had one.
-    code = (await (await import('../tauri/mac-release/watch.ts')).watch({ urls, ghUser })) > 0 ? 1 : 0
+    code = (await (await import('../tauri/mac-release/watch.ts')).watch({ urls, owners, ghUser })) > 0 ? 1 : 0
   }
   else if (command === 'key' && args.length === 1 && !args[0]!.startsWith('-')) code = await (await import('../tauri/mac-release/key.ts')).makeKey({ cwd: process.cwd(), repository: args[0]! })
   else return false

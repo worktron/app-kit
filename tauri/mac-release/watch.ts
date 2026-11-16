@@ -15,13 +15,21 @@
  * gh is given the token of the account `--gh-user` names, rather than whichever account another session last made
  * active on this Mac.
  *
+ * Which apps: those named on the command line, and with `--owner`, each app in that account's own repositories whose
+ * root package.json on main declares `"app-kit": { "mac-release": "<the folder holding src-tauri>" }` ("." for the
+ * root), so an app starts releasing by a change in its own repository. One GraphQL question per account each pass
+ * gives every repository's main head with that file, so an app whose main has not moved is not even fetched. Only
+ * repositories the account owns are searched, never ones it collaborates on, since what is found is signed and
+ * published. When GitHub cannot be asked, the apps found last are watched as before.
+ *
  * Files, under $XDG_STATE_HOME/app-kit/mac-release (~/.local/state/app-kit/mac-release by default):
  *   mac-release.log        one line per decision, rotated to mac-release.log.1 at 1 MB
+ *   apps.json              the apps found last, and since when asking GitHub fails
  *   <app>/checkout/        the clone it builds in, which nobody works in
  *   <app>/build-<n>.log    the install's and release's output for main's commit number n
  *   <app>/record.json      the main commit last judged and the last failure (commit, step, time)
  */
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG, readConfig, releasesRepository } from './app.ts';
 import { lastLine } from '../testflight/key.ts';
@@ -35,6 +43,7 @@ import {
   checkOutMain,
   cloneGit,
   countsAsApp,
+  declaredApps,
   fetchMain,
   minutes,
   passOverApps,
@@ -98,7 +107,12 @@ export function decide(input: { lastTag: string | null; lastCommit: string | nul
 }
 
 export type WatchOptions = {
+  /** Apps watched whether or not they declare themselves, by their git addresses. */
   urls: string[];
+  /** The accounts whose own repositories are searched for apps that declare a Mac release in their root package.json. */
+  owners?: string[];
+  /** The address a found app is cloned from, by its owner/name; SSH's when left out. */
+  cloneUrl?: (nameWithOwner: string) => string;
   /** The gh account whose token publishes, by its login; whichever account gh has active when left out. */
   ghUser?: string;
   run?: Run;
@@ -108,20 +122,89 @@ export type WatchOptions = {
   limits?: Partial<Limits>;
 };
 
-/** One pass over every app; gives how many of them had a step fail in it, each failure logged. */
+/** The key a root package.json names a Mac release's folder under: `"app-kit": { "mac-release": "shell" }`. */
+export const DECLARATION_KEY = 'mac-release';
+
+/** What the watcher keeps about the apps it finds: the entries found last, and since when asking GitHub fails. */
+type FoundRecord = { apps: string[]; githubFailingSince: string | null };
+
+/** One pass over every app; gives how many of them had a step fail in it, and one more when GitHub could not be asked, each failure logged. */
 export async function watch(options: WatchOptions): Promise<number> {
   const state = stateFolder('mac-release', options.env ?? process.env, options.home);
-  return passOverApps({
-    urls: options.urls,
+  const logFile = join(state, 'mac-release.log');
+  const now = options.now ?? Date.now;
+  // Main's head as GitHub gave it with the apps found, so an app whose main has not moved is not even fetched.
+  const heads = new Map<string, string>();
+  let askingFailed = false;
+  const urls = async (): Promise<string[]> => {
+    if (!options.owners?.length) return options.urls;
+    const found = await findApps(options, join(state, 'apps.json'), (name, message) => appendLog(logFile, `${new Date(now()).toISOString()} ${name}: ${message}`));
+    askingFailed = found.failed;
+    // An app given by its address is watched as given, keeping its clone, and not a second time as found.
+    const given = new Set(options.urls.map(appName));
+    const apps = found.apps.filter((app) => !given.has(appName(app.entry)));
+    for (const app of apps) if (app.head) heads.set(app.entry, app.head);
+    return [...apps.map((app) => app.entry), ...options.urls];
+  };
+  const failures = await passOverApps({
+    urls,
     lockFile: join(state, 'mac-release.lock'),
-    logFile: join(state, 'mac-release.log'),
-    now: options.now ?? Date.now,
-    app: (url) => watchApp(url, state, options),
+    logFile,
+    now,
+    app: (url) => watchApp(url, state, options, heads.get(url) ?? null),
   });
+  return failures + (askingFailed ? 1 : 0);
 }
 
-/** One app's pass; gives true when a step failed. */
-async function watchApp(url: string, state: string, options: WatchOptions): Promise<boolean> {
+/**
+ * The apps the owners' repositories declare, with a line for each app that starts or stops being watched. When GitHub
+ * cannot be asked, the apps found last, with their heads unknown so each is fetched as before, and a line when the
+ * failing starts and one when it ends.
+ */
+async function findApps(options: WatchOptions, recordFile: string, line: (name: string, message: string) => void): Promise<{ apps: { entry: string; head: string | null }[]; failed: boolean }> {
+  const run = options.run ?? runCommand;
+  const now = options.now ?? Date.now;
+  let last: FoundRecord = { apps: [], githubFailingSince: null };
+  try {
+    last = { ...last, ...(JSON.parse(readFileSync(recordFile, 'utf8')) as Partial<FoundRecord>) };
+  } catch {
+    // none yet: every app found is new
+  }
+  const save = (record: FoundRecord) => writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
+  const env = await ghEnv(run, watcherChildEnv(options.env ?? process.env), options.ghUser);
+  const found = typeof env === 'string' ? { failed: env } : await declaredApps({ owners: options.owners!, key: DECLARATION_KEY, run, env, cloneUrl: options.cloneUrl });
+  const asking = 'asking GitHub which apps declare a Mac release';
+  if ('failed' in found) {
+    if (!last.githubFailingSince) {
+      line('github', `failed: ${asking}: ${found.failed}; watching the ${last.apps.length} apps found last, with a line when it works`);
+      save({ apps: last.apps, githubFailingSince: new Date(now()).toISOString() });
+    }
+    return { apps: last.apps.map((entry) => ({ entry, head: null })), failed: true };
+  }
+  if (last.githubFailingSince) line('github', `${asking} works again (failing since ${last.githubFailingSince})`);
+  const entries = found.map((app) => app.entry);
+  for (const entry of entries.filter((entry) => !last.apps.includes(entry))) {
+    const address = appAddress(entry);
+    const from = typeof address === 'string' || !address.folder ? "the repository's root" : `${address.folder}/`;
+    line(appName(entry), `watching: main's package.json declares a Mac release from ${from}`);
+  }
+  for (const entry of last.apps.filter((entry) => !entries.includes(entry))) {
+    line(appName(entry), "no longer watching: main's package.json declares no Mac release, or the repository is archived or gone");
+  }
+  save({ apps: entries, githubFailingSince: null });
+  return { apps: found, failed: false };
+}
+
+/** The environment gh runs in: with the token of the account `ghUser` names, or why there is none. */
+async function ghEnv(run: Run, env: Env, ghUser: string | undefined): Promise<Env | string> {
+  if (!ghUser) return { ...env };
+  const token = await run(['gh', 'auth', 'token', '--user', ghUser], { env, timeoutMs: 30_000 });
+  if (token.code !== 0 || !token.stdout.trim()) return `gh has no token for ${ghUser}: ${lastLine(token.out)}`;
+  return { ...env, GH_TOKEN: token.stdout.trim() };
+}
+
+/** One app's pass, `knownHead` main's head as GitHub gave it when the app was found; gives true when a step failed. */
+async function watchApp(url: string, state: string, options: WatchOptions, knownHead: string | null): Promise<boolean> {
   const run = options.run ?? runCommand;
   const now = options.now ?? Date.now;
   const limits = { ...LIMITS, ...options.limits };
@@ -141,6 +224,8 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const appFolder = join(checkout, address.folder);
   const childEnv = watcherChildEnv(options.env ?? process.env);
   const git = cloneGit(run, checkout, folder, childEnv);
+  // GitHub said where main is, and it is where this clone judged it last.
+  if (knownHead && knownHead === record.judgedHead && !record.fetchFailingSince && !retryDue(record, knownHead, now()) && existsSync(join(checkout, '.git'))) return false;
   if (!(await fetchMain({ git, checkout, url: address.url, record, save, line, now, fetchMs: limits.fetch, cloneMs: limits.install }))) return true;
 
   const head = (await git(['rev-parse', 'refs/remotes/origin/main'])).out;
@@ -168,13 +253,9 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
 
   // gh's token for the named account, handed to gh here and to the release, so another session's `gh auth switch`
   // never decides which account publishes.
-  const ghEnv: Env = { ...childEnv };
-  if (options.ghUser) {
-    const token = await run(['gh', 'auth', 'token', '--user', options.ghUser], { env: childEnv, timeoutMs: 30_000 });
-    if (token.code !== 0 || !token.stdout.trim()) return failed('gh', `failed: gh has no token for ${options.ghUser}: ${lastLine(token.out)}; ${retry}`);
-    ghEnv.GH_TOKEN = token.stdout.trim();
-  }
-  const last = await run(['gh', 'release', 'view', '--repo', repository, '--json', 'tagName,body'], { env: ghEnv, timeoutMs: 60_000 });
+  const publishing = await ghEnv(run, childEnv, options.ghUser);
+  if (typeof publishing === 'string') return failed('gh', `failed: ${publishing}; ${retry}`);
+  const last = await run(['gh', 'release', 'view', '--repo', repository, '--json', 'tagName,body'], { env: publishing, timeoutMs: 60_000 });
   let lastTag: string | null = null;
   let lastCommit: string | null = null;
   if (last.code === 0) {
@@ -217,7 +298,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   // The app's own kit releases it, at background priority, keeping the Mac awake only while it runs.
   const released = await run(['caffeinate', '-i', 'taskpolicy', '-b', 'bun', 'run', 'app-kit', 'mac', 'release', '--token-only'], {
     cwd: appFolder,
-    env: ghEnv,
+    env: publishing,
     timeoutMs: limits.release,
     output: (chunk) => buildOutput.append(chunk),
   });

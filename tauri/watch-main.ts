@@ -2,7 +2,8 @@
  * What the kit's two watchers of an app's main share, the TestFlight watcher (testflight/watch.ts) and the Mac release
  * watcher (mac-release/watch.ts): one pass over every app under a lock, an app's name and folder from its entry, which
  * files make up the app, a clone of its own that main is fetched into and checked out in with nothing left from another
- * commit's build, the record of the commit judged last and the last failure, the hourly retry, and the build logs.
+ * commit's build, the record of the commit judged last and the last failure, the hourly retry, and the build logs, and
+ * finding the apps whose root package.json declares themselves under "app-kit" (the Mac release watcher's way so far).
  * Each watcher decides for itself whether main's head goes up, and how.
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -99,7 +100,8 @@ export function saveRecord(file: string, record: MainRecord): void {
  * group of its own, so no build goes on in a clone the next pass checks out.
  */
 export async function passOverApps(input: {
-  urls: string[];
+  /** The apps' entries, or how to find them, which runs under the lock so two passes never find them at once. */
+  urls: string[] | (() => Promise<string[]>);
   lockFile: string;
   logFile: string;
   now: () => number;
@@ -116,9 +118,10 @@ export async function passOverApps(input: {
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   let failures = 0;
   try {
+    const urls = typeof input.urls === 'function' ? await input.urls() : input.urls;
     // Each app has one clone and one record, by its repository's name, so a repository is watched once, at one folder.
     const watched = new Set<string>();
-    for (const url of input.urls) {
+    for (const url of urls) {
       try {
         if (watched.has(appName(url))) throw new Error(`${url} is a repository an earlier entry already watches; each is watched at one folder`);
         watched.add(appName(url));
@@ -172,9 +175,19 @@ export async function fetchMain(input: {
   cloneMs: number;
 }): Promise<boolean> {
   const { git, record } = input;
-  const fetched = existsSync(join(input.checkout, '.git'))
-    ? await git(['fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main'], input.fetchMs)
-    : await git(['clone', '--quiet', '--no-checkout', input.url, input.checkout], input.cloneMs);
+  const cloned = existsSync(join(input.checkout, '.git'));
+  // A clone is kept by the repository's name alone, so one made from another repository, such as another owner's of
+  // the same name, is never fetched into and built as this one. The address is read as stored, since `remote get-url`
+  // gives it rewritten by any insteadOf rule; the same repository by another address, as an https clone found over SSH
+  // later, is pointed at the new one.
+  const origin = cloned ? (await git(['config', '--get', 'remote.origin.url'])).out : input.url;
+  if (origin !== input.url && repositoryOf(origin) === repositoryOf(input.url)) await git(['remote', 'set-url', 'origin', input.url]);
+  const fetched =
+    repositoryOf(origin) !== repositoryOf(input.url)
+      ? { ok: false, out: `the clone in ${input.checkout} is of ${origin}, not ${input.url}; remove that folder to clone it afresh`, timedOut: false }
+      : cloned
+        ? await git(['fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main'], input.fetchMs)
+        : await git(['clone', '--quiet', '--no-checkout', input.url, input.checkout], input.cloneMs);
   if (!fetched.ok) {
     if (!record.fetchFailingSince) {
       const why = fetched.timedOut ? 'it did not finish in time and was stopped' : lastLine(fetched.out);
@@ -189,6 +202,17 @@ export async function fetchMain(input: {
     input.save(record);
   }
   return true;
+}
+
+/**
+ * The repository a git address names, so two ways of writing one compare equal: GitHub's https and SSH forms give
+ * `github.com/<owner>/<name>` in lower case, as GitHub's names are; any other address is itself, less a trailing `.git`
+ * or slash.
+ */
+export function repositoryOf(url: string): string {
+  const trimmed = url.replace(/\/+$/, '').replace(/\.git$/, '');
+  const github = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+\/[^/]+)$/i.exec(trimmed);
+  return github ? `github.com/${github[1]!.toLowerCase()}` : trimmed;
 }
 
 /**
@@ -234,4 +258,98 @@ function pruneBuildLogs(folder: string) {
 /** A step's time limit in words, for a log line. */
 export function minutes(ms: number): string {
   return ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${ms / 1000} seconds`;
+}
+
+/** An app found declaring itself: its entry, as a watcher's list gives one, and main's head as GitHub gave it. */
+export type DeclaredApp = { entry: string; head: string | null };
+
+/**
+ * The entry a root package.json declares for `key` under "app-kit", such as `"app-kit": { "mac-release": "shell" }`:
+ * `cloneUrl` alone for the repository's root (`"."`), `cloneUrl#<folder>` otherwise, or null when it declares nothing.
+ * The folder is not judged here: a watcher's entry rule (appAddress) refuses one that is not plain, with a line.
+ */
+export function declaredEntry(packageJson: string, key: string, cloneUrl: string): string | null {
+  let declared: unknown;
+  try {
+    declared = (JSON.parse(packageJson) as { 'app-kit'?: Record<string, unknown> })?.['app-kit']?.[key];
+  } catch {
+    return null;
+  }
+  if (declared === undefined || declared === null) return null;
+  const folder = typeof declared === 'string' ? declared.replace(/\/+$/, '') : JSON.stringify(declared);
+  return folder === '.' || folder === '' ? cloneUrl : `${cloneUrl}#${folder}`;
+}
+
+/** The address a found app is cloned from: SSH, since fetching over https would go through gh's active account. */
+export const sshCloneUrl = (nameWithOwner: string) => `git@github.com:${nameWithOwner}.git`;
+
+/**
+ * One question to GitHub per page of 100 repositories: each repository the owner owns, never a fork, an archived one or
+ * one it only collaborates on, with main's head and main's root package.json.
+ */
+const DECLARED_APPS_QUERY = `query($owner: String!, $after: String) {
+  repositoryOwner(login: $owner) {
+    repositories(first: 100, after: $after, ownerAffiliations: OWNER, isFork: false, isArchived: false) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        nameWithOwner
+        owner { login }
+        ref(qualifiedName: "refs/heads/main") { target { oid } }
+        object(expression: "main:package.json") { ... on Blob { text } }
+      }
+    }
+  }
+}`;
+
+type DeclaredAppsPage = {
+  data?: {
+    repositoryOwner: {
+      repositories: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: { nameWithOwner: string; owner: { login: string }; ref: { target: { oid: string } } | null; object: { text?: string } | null }[];
+      };
+    } | null;
+  };
+  errors?: { message: string }[];
+};
+
+/**
+ * The apps the owners' repositories declare for `key` in their root package.json on main, by asking GitHub's GraphQL API
+ * through gh, whose environment `env` holds the token that reads them; or why the question failed. A repository another
+ * account owns is never one of them, whatever GitHub answers, since the watcher signs and publishes what it builds.
+ */
+export async function declaredApps(input: {
+  owners: string[];
+  key: string;
+  run: Run;
+  env: Env;
+  cloneUrl?: (nameWithOwner: string) => string;
+}): Promise<DeclaredApp[] | { failed: string }> {
+  const cloneUrl = input.cloneUrl ?? sshCloneUrl;
+  const apps: DeclaredApp[] = [];
+  for (const owner of input.owners) {
+    let after: string | null = null;
+    do {
+      const asked = await input.run(['gh', 'api', 'graphql', '-f', `query=${DECLARED_APPS_QUERY}`, '-f', `owner=${owner}`, ...(after ? ['-f', `after=${after}`] : [])], {
+        env: input.env,
+        timeoutMs: 60_000,
+      });
+      if (asked.code !== 0) return { failed: `gh could not ask GitHub about ${owner}'s repositories: ${asked.timedOut ? 'it did not finish in a minute and was stopped' : lastLine(asked.out)}` };
+      let page: DeclaredAppsPage;
+      try {
+        page = JSON.parse(asked.stdout) as DeclaredAppsPage;
+      } catch {
+        return { failed: `GitHub's answer about ${owner}'s repositories is not JSON: ${lastLine(asked.out)}` };
+      }
+      const repositories = page.data?.repositoryOwner?.repositories;
+      if (page.errors?.length || !repositories) return { failed: `GitHub did not list ${owner}'s repositories: ${page.errors?.[0]?.message ?? 'no such account'}` };
+      for (const node of repositories.nodes) {
+        if (node.owner.login.toLowerCase() !== owner.toLowerCase() || typeof node.object?.text !== 'string') continue;
+        const entry = declaredEntry(node.object.text, input.key, cloneUrl(node.nameWithOwner));
+        if (entry) apps.push({ entry, head: node.ref?.target.oid ?? null });
+      }
+      after = repositories.pageInfo.hasNextPage ? repositories.pageInfo.endCursor : null;
+    } while (after);
+  }
+  return apps;
 }

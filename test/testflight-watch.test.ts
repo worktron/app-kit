@@ -323,7 +323,7 @@ test('the same head twice reads no key and writes no line', async () => {
   clock += 5 * MINUTE;
   const second = await pass();
   expect(logLines()).toHaveLength(1);
-  expect(second.calls.map((c) => c.command.slice(0, 2).join(' '))).toEqual(['git fetch', 'git rev-parse']);
+  expect(second.calls.map((c) => c.command.slice(0, 2).join(' '))).toEqual(['git config', 'git fetch', 'git rev-parse']);
 });
 
 test('a lock left by a killed pass is taken over; a live one makes the pass do nothing', async () => {
@@ -549,7 +549,7 @@ test('an unmoved main is judged again once when the newest build reaches its las
   expect(record().expiryCheckAt).toBe(new Date(expires - 15 * DAY).toISOString());
   // Before that moment, an unmoved main still reads no key.
   clock = expires - 15 * DAY - MINUTE;
-  expect((await pass()).calls.map((c) => c.command.slice(0, 2).join(' '))).toEqual(['git fetch', 'git rev-parse']);
+  expect((await pass()).calls.map((c) => c.command.slice(0, 2).join(' '))).toEqual(['git config', 'git fetch', 'git rev-parse']);
   clock = expires - 15 * DAY;
   await pass();
   expect(logLines().slice(1)).toEqual([
