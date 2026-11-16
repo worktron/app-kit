@@ -34,8 +34,9 @@ const answerApi = (route: Route) =>
 
 /**
  * The name as the page draws it before its code runs, and whether the page is marked, in a new page of the same context
- * whose scripts never load. The page the test reloads cannot show this reliably: WebKit may paint no frame at all while
- * the scripts are held, and cannot photograph a page still loading.
+ * whose scripts never load. WebKit cannot photograph a page still loading, and in this suite's runs on 2026-11-16 it
+ * painted no frame at all while the reloaded page's scripts were held in 7 of 8 signed-out runs, for a reason not
+ * known, so only Chromium is held to a first frame of the name alone (`paintsWhileHeld`).
  */
 async function nameBeforeTheCode(context: BrowserContext, clip?: { x: number; y: number; width: number; height: number }) {
   const page = await context.newPage();
@@ -50,9 +51,13 @@ async function nameBeforeTheCode(context: BrowserContext, clip?: { x: number; y:
 
 const marked = (page: Page) => page.evaluate(() => document.documentElement.hasAttribute('data-signed-in-before'));
 
-const engines: { name: string; open: (chromium: Browser) => Promise<Browser>; close: (browser: Browser) => Promise<void> }[] = [
-  { name: 'Chromium', open: async (chromium) => chromium, close: async () => {} },
-  { name: 'WebKit', open: () => webkit.launch(webkitWithoutDockIcon()), close: (browser) => browser.close() },
+/** Waits until the page has painted a frame of the name alone, before its code runs. */
+const nameAlone = (page: Page) =>
+  expect.poll(() => page.evaluate(() => (window as unknown as { __appKitFrames: { text: string }[] }).__appKitFrames.some((frame) => frame.text === 'fixture'))).toBe(true);
+
+const engines: { name: string; paintsWhileHeld: boolean; open: (chromium: Browser) => Promise<Browser>; close: (browser: Browser) => Promise<void> }[] = [
+  { name: 'Chromium', paintsWhileHeld: true, open: async (chromium) => chromium, close: async () => {} },
+  { name: 'WebKit', paintsWhileHeld: false, open: () => webkit.launch(webkitWithoutDockIcon()), close: (browser) => browser.close() },
 ];
 
 for (const engine of engines) {
@@ -72,6 +77,7 @@ for (const engine of engines) {
       // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
       reloaded.catch(() => {});
       await scripts.seen();
+      if (engine.paintsWhileHeld) await nameAlone(page);
       expect(await marked(page)).toBe(false);
       await scripts.release();
       await reloaded;
@@ -79,6 +85,7 @@ for (const engine of engines) {
 
       const frames = await takeFrames(page);
       expectSteady(frames, PAPER);
+      if (engine.paintsWhileHeld) expect(frames[0]!.text, 'the first frame').toBe('fixture');
       // The name alone, while the browser paints before the code, then the sign-in screen.
       expect(frames.filter((frame) => frame.text !== 'fixture' && !frame.text.includes('Email')).map((frame) => frame.text)).toEqual([]);
       await context.close();
@@ -113,6 +120,7 @@ for (const engine of engines) {
       // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
       reloaded.catch(() => {});
       await scripts.seen();
+      if (engine.paintsWhileHeld) await nameAlone(page);
       expect(await marked(page)).toBe(true);
 
       await scripts.release();
@@ -129,6 +137,7 @@ for (const engine of engines) {
 
       const frames = await takeFrames(page);
       expectSteady(frames, PAPER);
+      if (engine.paintsWhileHeld) expect(frames[0]!.text, 'the first frame').toBe('fixture');
       expect(frames.filter((frame) => !frame.text.startsWith('fixture')).map((frame) => frame.text)).toEqual([]);
       await context.close();
     } finally {
