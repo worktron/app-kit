@@ -804,3 +804,12 @@ Written by: app-kit/app-clients
 
 Goal: scripts/kit-features.ts "the error boundary's placeholder" reads only `<ErrorBoundary` tags for a `placeholder=`, so an app that imports the kit's boundary under another name and passes the placeholder there reads as lacking it. matter does exactly that (src/client/components/ErrorBoundary.tsx:11, `<KitErrorBoundary placeholder={<Wordmark />}>`), and the 2026-11-16 round put it in matter's brief as a gap it does not have.
 Done when: the check counts a placeholder on the tag of whatever name the app imports app-kit's ErrorBoundary as, test/kit-features-entries.test.ts has a made-up app that wraps the kit's boundary under another name and reads as having it, and matter reads as having it.
+
+## notification-click-shows-window · A click on a Mac app's notification brings its hidden window forward
+Written by: argon-watcher/messages
+
+Goal: on the Mac, clicking a notification from an app on the kit's window plugin shows its window, as a Dock click does. Today the click activates the app and shows nothing when the window is hidden (closed with ⌘W, which hides it): macOS sends `applicationShouldHandleReopen` (Tauri's `RunEvent::Reopen`, which the plugin answers with `show`) only for a Dock or Finder activation, never for a notification click (Electron moved to `applicationDidBecomeActive` for this, electron commit 2bc85b2, 2020). tauri-plugin-notification 2.5.0's desktop `show()` reports no click at all; 2.6.0 reports a desktop click to `onAction` and Rust's `Notification::on_action` (plugins-workspace #3671).
+Found: argon-watcher, 2026-11-16. Its Mac app's urgent alerts, and its new "Argon is signed out" notice (which says "Click Argon in the Dock" for this reason), open nothing when clicked with the window hidden.
+Gives up: nothing; an app that wants a click to open a page still adds that itself.
+Done when: the window plugin shows the main window when one of the app's notifications is clicked, on tauri-plugin-notification 2.6+ (or by an app-became-active hook), with a test of the decision and a log line `a notification was clicked, showing the window`, and argon's notice can then say "Click to sign in".
+Touches: tauri/window/plugin (and its README's Mac section); apps take it with their next Mac release.
