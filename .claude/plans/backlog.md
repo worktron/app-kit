@@ -840,3 +840,10 @@ Written by: app-kit/cart-totals
 Goal: a grocery cart line Amazon says is unavailable is read like any other line, so an app counts it toward a cart it cannot order. test/fixtures/amazon-cart/README.md ("A line Amazon says is unavailable") lists the marks such a line carries (.sc-list-item-content-removed, #out-of-stock) and that it has no attribute saying so. Found by the cart-totals thread, 2026-11-16.
 
 Done when: each line readCart gives says whether Amazon marks it unavailable, held by tests on stand-in fixtures with an unavailable line and an ordinary one, and CHANGES.md says what Amazon-reading apps get.
+
+## part-full-delivery-bar · A grocery cart page with a part-full free-delivery bar is recorded
+Written by: app-kit/cart-totals
+
+Goal: readCart's free-delivery reading for a cart that has not reached free delivery rests on a rule, not a recorded page: a short bar counts only when the subtotal's share of the amount matches it and the dollars-still-to-go reading does not (server/amazon-cart/index.ts freeDeliveryOf; "What is not known" in test/fixtures/amazon-cart/README.md). Every recorded grocery page had a full bar. Found by the cart-totals thread, 2026-11-16.
+
+Done when: a Fresh or Whole Foods cart page under its free-delivery amount is recorded as a stand-in fixture, the README says what its bar and amount mean, and readCart gives { at, reached: false } for it, with the rule tightened or loosened to what the page shows.
