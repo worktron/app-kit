@@ -74,11 +74,16 @@ function itemCount(text: string | null | undefined): number | null {
   return found === undefined ? null : Number(found);
 }
 
+/** How far, in points of percent, a short bar may be from the subtotal's share of the amount: Amazon may round it. */
+const BAR_SLACK = 2;
+
 /**
  * A grocery checkout box's free delivery, or null unless its numbers agree. The box shows the amount beside a progress
  * bar, with "Nice! You get FREE delivery" once it is full. Only a full bar has been recorded, so the amount shown beside a
- * part-full bar could be the cart's progress rather than the amount; a reading counts only when the amount is at or below
- * the subtotal with the bar full, or above it with the bar short, and anything else gives null rather than a wrong amount.
+ * short bar could be the cart's progress or the dollars still to go rather than the amount. A full bar counts when the
+ * amount is at or below the subtotal; a short bar counts only when the amount is above the subtotal and the bar is the
+ * subtotal's share of it (within BAR_SLACK), which neither of those other readings gives. Anything else gives null rather
+ * than a wrong amount.
  */
 function freeDeliveryOf(box: Element, subtotal: number | null): FreeDelivery | null {
   const threshold = box.querySelector('.sc-fresh-delivery-threshold');
@@ -86,8 +91,9 @@ function freeDeliveryOf(box: Element, subtotal: number | null): FreeDelivery | n
   const at = dollars(textOf(threshold.querySelector('.sc-localmarket-progress-subtotal')));
   const percentage = threshold.querySelector('[data-progress-percentage]')?.getAttribute('data-progress-percentage')?.trim() ?? '';
   if (at === null || !/^\d+(\.\d+)?$/.test(percentage)) return null;
-  const reached = Number(percentage) >= 100;
-  return (reached ? at <= subtotal : at > subtotal) ? { at, reached } : null;
+  const bar = Number(percentage);
+  if (bar >= 100) return at <= subtotal ? { at, reached: true } : null;
+  return at > subtotal && Math.abs((subtotal / at) * 100 - bar) <= BAR_SLACK ? { at, reached: false } : null;
 }
 
 /**

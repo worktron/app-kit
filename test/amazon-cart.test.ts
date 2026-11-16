@@ -75,8 +75,11 @@ test("a grocery cart's subtotal is the discounted one, and its free delivery cou
   // The recorded page: a full bar, with the amount at or below the subtotal of $9.35.
   expect(readCart(fixture('cart-fresh.html'), 'Amazon Fresh')).toMatchObject({ subtotal: 9.35, freeDelivery: { at: 5, reached: true } });
   expect(readCart(freshWithDelivery('100', '$9.35'), 'Amazon Fresh').freeDelivery).toEqual({ at: 9.35, reached: true });
-  // A short bar with the amount above the subtotal: under the amount, by its numbers.
+  // A short bar with the amount above the subtotal and the bar its share ($9.35 of $25 is 37%): under the amount.
   expect(readCart(freshWithDelivery('37', '$25'), 'Amazon Fresh').freeDelivery).toEqual({ at: 25, reached: false });
+  // The same bar beside the dollars still to go ($15.65), or beside an amount the bar is not the share of: none.
+  expect(readCart(freshWithDelivery('37', '$15.65'), 'Amazon Fresh').freeDelivery).toBeNull();
+  expect(readCart(freshWithDelivery('10', '$25'), 'Amazon Fresh').freeDelivery).toBeNull();
   // A full bar with the amount above the subtotal, or a short bar with it at or below: the numbers disagree, so none.
   expect(readCart(freshWithDelivery('100', '$25'), 'Amazon Fresh').freeDelivery).toBeNull();
   expect(readCart(freshWithDelivery('37', '$3.46'), 'Amazon Fresh').freeDelivery).toBeNull();
