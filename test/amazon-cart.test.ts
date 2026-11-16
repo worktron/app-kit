@@ -47,8 +47,7 @@ test("a Whole Foods line with no price in its data takes the shown price, and Am
     items: 4,
     url: 'https://www.amazon.com/cart/localmarket?almBrandId=VUZHIFdob2xlIEZvb2Rz',
     subtotal: 11.46,
-    // This page's checkout box has no free-delivery box, as for someone whose delivery is never free.
-    freeDelivery: null,
+    freeDelivery: { at: 10, reached: true },
   });
 });
 

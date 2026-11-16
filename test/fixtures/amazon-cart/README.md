@@ -4,7 +4,7 @@ The cart pages keep the structure of cart pages recorded from a real account (re
 
 | Page | Recorded as |
 | --- | --- |
-| `cart-fresh.html`, `cart-wholefoods.html` | A grocery store's own cart page, `cartPath(store)`, signed in, with lines. Fresh's checkout box has the subtotal after discounts, the original one struck through, and a full free-delivery bar; Whole Foods' has a subtotal and no free-delivery box, which stands for delivery that is never free. |
+| `cart-fresh.html`, `cart-wholefoods.html` | A grocery store's own cart page, `cartPath(store)`, signed in, with lines. Each checkout box has its subtotal and a full free-delivery bar; Fresh's also has the original subtotal struck through. |
 | `cart-regular.html` | Regular Amazon's cart page, signed in, with a line, a saved-for-later item and both grocery carts shown collapsed, each collapsed box with its own subtotal and free-delivery box (as recorded 2026-11-16). |
 | `signed-out-cart.html` | Regular Amazon's cart page with no cookies. Amazon Fresh's cart page with no cookies redirects here too. |
 | `signed-out-grocery.html` | Whole Foods Market's cart page with no cookies: a page with no cart on it. |
