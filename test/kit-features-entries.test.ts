@@ -156,6 +156,11 @@ test('an app with the sign-in gate draws its name before the code, in one pictur
   // The bar's picture with no picture for the gate, so the name jumps twice, or with nothing to set the mark.
   expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
   expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('lacks');
+  // Two rules, one of which draws nothing: that kind of browser opens blank.
+  const barWithoutName = "html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { padding: 12px 16px; }\nhtml[data-signed-in-before] #root:empty::after { content: ''; }\n";
+  const homeWithoutName = "html:not([data-signed-in-before]) #root:empty::before { padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
+  expect(await verdict(NAME, { 'index.html': page(barWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+  expect(await verdict(NAME, { 'index.html': page(homeWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
   // A picture only for a browser not signed in last time, and none for one that was, which then opens blank.
   expect(await verdict(NAME, { 'index.html': page("html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; }\n"), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
 

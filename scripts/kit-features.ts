@@ -235,18 +235,33 @@ const BOUNDARY_PLACEHOLDER: Feature = {
 }
 
 // The app's name, drawn by index.html before the code loads, then held by the sign-in gate until the first screen draws:
-// never a blank page. Either way of drawing it is right: one picture that the
-// finished screen replaces whole, as Getter's, or, for a signed-in screen that shows the name in a bar, a second picture
-// there for a browser signed in last time, which firstPaint marks, and the same picture given to the gate. Which one an
-// app needs depends on where its screen draws the name, which no search can see, so only a blank page and a second
+// never a blank page. Either way of drawing it is right: one picture that the finished screen replaces whole, as
+// Getter's, or, for a signed-in screen that shows the name in a bar, a second picture there for a browser signed in last
+// time, which firstPaint marks, and the same picture given to the gate. Which one an app needs depends on where its
+// screen draws the name, which no search can see, so only a blank page, for either kind of browser, and a second
 // picture left half done are lacking. (README, "The name before the code, in one picture or two".)
-const BEFORE = '#root:empty::before'
-/** A rule for the root's ::before that draws something. */
-const DRAWS_NAME = /#root:empty::before\s*(,[^{]*)?\{[^}]*content\s*:/
-/** A rule for the root's ::before only for a browser signed in last time, not one for every other browser. */
-const SIGNED_IN_PICTURE = /(?<!:not\()\[data-signed-in-before\][^{},]*#root:empty::before/
-/** A rule for the root's ::before only for a browser not signed in last time. */
-const SIGNED_OUT_PICTURE = /:not\(\[data-signed-in-before\]\)[^{},]*#root:empty::before/
+
+/** Which browsers a selector for the root's ::before applies to: those signed in last time, the others, or both. */
+function browsersOf(selector: string): 'signed in' | 'signed out' | 'both' {
+  if (/:not\(\s*\[data-signed-in-before\]\s*\)/.test(selector)) return 'signed out'
+  return selector.includes('[data-signed-in-before]') ? 'signed in' : 'both'
+}
+
+/** For each kind of browser, whether the page's CSS draws a name in the root's ::before before the code loads. */
+function namesDrawn(page: string): { signedIn: boolean; signedOut: boolean; secondPicture: boolean } {
+  const drawn = { signedIn: false, signedOut: false, secondPicture: false }
+  for (const [, selectors, body] of page.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    if (!/(^|;|\s)content\s*:/.test(body!)) continue
+    for (const selector of selectors!.split(',').filter((each) => each.includes('#root:empty::before'))) {
+      const browsers = browsersOf(selector)
+      if (browsers !== 'signed out') drawn.signedIn = true
+      if (browsers !== 'signed in') drawn.signedOut = true
+      if (browsers === 'signed in') drawn.secondPicture = true
+    }
+  }
+  return drawn
+}
+
 /** A script in the page setting the mark itself. */
 const PAGE_SETS_MARK = /<script[^>]*>[^<]*(data-signed-in-before|signedInBefore)/
 const NAME_BEFORE_THE_CODE: Feature = {
@@ -258,12 +273,13 @@ const NAME_BEFORE_THE_CODE: Feature = {
     const pages = app.tracked
       .filter((path) => /(^|\/)index\.html$/.test(path) && !path.includes('node_modules/'))
       .map((path) => app.show(path))
-      .filter((text) => /id=["']root["']/.test(text) && text.includes(BEFORE))
-    if (!pages.some((text) => DRAWS_NAME.test(text))) return 'lacks'
+      .filter((text) => /id=["']root["']/.test(text))
+    // The page that draws the name; any one does, as an app with a second page for another purpose has.
+    const drawn = pages.map(namesDrawn).find((each) => each.signedIn && each.signedOut)
+    if (!drawn) return 'lacks'
     // Rendered under any name, as Timescale renders the kit's gate as KitSignInGate, so the setting is looked for anywhere.
     if (ships(app, 'whileReturning[[:space:]]*=[[:space:]]*\\{[[:space:]]*null[[:space:]]*\\}')) return 'lacks'
-    // A picture only for a browser not signed in last time leaves a returning one blank.
-    if (!pages.some((text) => SIGNED_IN_PICTURE.test(text))) return has(!pages.some((text) => SIGNED_OUT_PICTURE.test(text)))
+    if (!drawn.secondPicture) return 'has'
     const marked = ships(app, 'firstPaint\\(') || ships(app, 'data-signed-in-before') || pages.some((text) => PAGE_SETS_MARK.test(text))
     return has(marked && ships(app, 'whileReturning[[:space:]]*='))
   },
