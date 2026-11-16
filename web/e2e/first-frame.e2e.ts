@@ -32,20 +32,17 @@ async function hold(page: Page, url: string | RegExp, answer: (route: Route) => 
 const answerApi = (route: Route) =>
   new URL(route.request().url()).pathname === '/api/health' ? route.fulfill({ body: 'ok' }) : route.fulfill({ json: { items: [{ id: '1', title: 'Dentist on Tuesday' }] } });
 
-/** Waits until the page has drawn a frame of the name alone, before its code runs. */
-const nameAlone = (page: Page) =>
-  expect.poll(() => page.evaluate(() => (window as unknown as { __appKitFrames: { text: string }[] }).__appKitFrames.some((frame) => frame.text === 'fixture'))).toBe(true);
-
 /**
- * The name as the page draws it before its code runs, in a new page of the same context, whose scripts never load: a
- * page still loading cannot be photographed in WebKit, which waits for the load to finish.
+ * The name as the page draws it before its code runs, and whether the page is marked, in a new page of the same context
+ * whose scripts never load. The page the test reloads cannot show this reliably: WebKit may paint no frame at all while
+ * the scripts are held, and cannot photograph a page still loading.
  */
-async function nameBeforeTheCode(context: BrowserContext, clip: { x: number; y: number; width: number; height: number }) {
+async function nameBeforeTheCode(context: BrowserContext, clip?: { x: number; y: number; width: number; height: number }) {
   const page = await context.newPage();
   await page.route(SCRIPTS, (route) => route.abort());
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.getElementById('root')!, '::before').content)).toBe('"fixture"');
-  const picture = await page.screenshot({ clip });
+  const picture = clip ? await page.screenshot({ clip }) : null;
   const mark = await marked(page);
   await page.close();
   return { picture, marked: mark };
@@ -67,12 +64,14 @@ for (const engine of engines) {
       await page.route('**/api/**', answerApi);
       await page.goto('/');
       await expect(page.getByLabel('Email')).toBeVisible();
+      expect(await nameBeforeTheCode(context), 'the name before the code, unmarked').toEqual({ picture: null, marked: false });
 
       await watchFrames(context);
       const scripts = await hold(page, SCRIPTS);
       const reloaded = page.reload();
+      // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
+      reloaded.catch(() => {});
       await scripts.seen();
-      await nameAlone(page);
       expect(await marked(page)).toBe(false);
       await scripts.release();
       await reloaded;
@@ -80,7 +79,8 @@ for (const engine of engines) {
 
       const frames = await takeFrames(page);
       expectSteady(frames, PAPER);
-      expect(frames[0]!.text).toBe('fixture');
+      // The name alone, while the browser paints before the code, then the sign-in screen.
+      expect(frames.filter((frame) => frame.text !== 'fixture' && !frame.text.includes('Email')).map((frame) => frame.text)).toEqual([]);
       await context.close();
     } finally {
       await engine.close(browser);
@@ -110,8 +110,9 @@ for (const engine of engines) {
       const scripts = await hold(page, SCRIPTS);
       const list = await hold(page, '**/api/**', answerApi);
       const reloaded = page.reload();
+      // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
+      reloaded.catch(() => {});
       await scripts.seen();
-      await nameAlone(page);
       expect(await marked(page)).toBe(true);
 
       await scripts.release();
@@ -128,7 +129,6 @@ for (const engine of engines) {
 
       const frames = await takeFrames(page);
       expectSteady(frames, PAPER);
-      expect(frames[0]!.text).toBe('fixture');
       expect(frames.filter((frame) => !frame.text.startsWith('fixture')).map((frame) => frame.text)).toEqual([]);
       await context.close();
     } finally {
