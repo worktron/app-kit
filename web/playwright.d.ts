@@ -5,7 +5,12 @@ import type { BrowserContext, Page } from '@playwright/test';
 /** Counts the page's loads from now on, a new page in the same tab included. */
 export function countLoads(page: Page): { loads: number };
 
-/** One frame as `watchFrames` noted it: the body's background, and whether the app's root had any text in it. */
+/**
+ * One frame as `watchFrames` noted it: the body's background, and whether the app's root had any text in it. A root
+ * with no text of its own reads as the text of its `::before`, the name a page draws before its code loads. That is
+ * the name as the page declares it: a face with `font-display: block` still loading holds it invisible, and the frame
+ * still reads as drawn, as text the app draws itself does.
+ */
 export interface Frame {
   background: string;
   drawn: boolean;

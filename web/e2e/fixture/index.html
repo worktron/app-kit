@@ -6,6 +6,13 @@
     <title>Kit fixture</title>
     <link rel="icon" href="data:," />
     <style>html, body { background: #f4efe6; margin: 0; }</style>
+    <!-- The app's name before its code loads, in two pictures (README, "The first frame and the fonts"): signed out, where
+         a home page would draw its title; for a browser signed in last time, which firstPaint marks, where the signed-in
+         bar draws it (BAR_NAME in app.tsx, its React twin). -->
+    <style>
+      html:not([data-signed-in-before]) #root:empty::before { content: 'fixture'; display: block; padding-top: 30vh; text-align: center; font: 600 32px/40px sans-serif; }
+      html[data-signed-in-before] #root:empty::before { content: 'fixture'; display: block; padding: 12px 16px; font: 600 16px/20px sans-serif; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

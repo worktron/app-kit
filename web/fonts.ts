@@ -11,7 +11,8 @@ export const FONT_WAIT_MS = 1500;
  * Resolves once every face is loaded, or after `atMostMs`, whichever comes first; never rejects. Each face is a CSS font
  * shorthand naming a weight and family, as `500 1em "Cormorant Variable"`; the size only picks the face. Its
  * `@font-face` must already be in a stylesheet the page has, or there is nothing to load. Draw the app in its `then`,
- * with the page's own HTML showing a wordmark until then, so the page is never blank.
+ * with the page's own HTML showing a wordmark until then, so the page is never blank: one picture, or two where the
+ * signed-in screen draws the name in a bar (README, "The name before the code, in one picture or two").
  */
 export function waitForFonts(faces: readonly string[], { atMostMs = FONT_WAIT_MS }: { atMostMs?: number } = {}): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();

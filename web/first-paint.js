@@ -2,7 +2,11 @@
 // wrong scheme, on every load. A few lines in the head pick the scheme before the first paint and set the page's
 // background and text color, `color-scheme` for the browser's own controls, and the phone's bar color (theme-color).
 // Plain JavaScript, typed by first-paint.d.ts, since an app's vite.config loads it in Node, which refuses TypeScript
-// from inside node_modules, where an app has the kit.
+// from inside node_modules, where an app has the kit. The script also marks the page when this browser was signed in
+// last time, so the page's own CSS can draw, before the code loads, what a returning browser will see (README, "The
+// name before the code, in one picture or two").
+
+import { SIGNED_IN_BEFORE, SIGNED_IN_KEY } from './sign-in/names.js';
 
 const VARIABLE = /^--[A-Za-z0-9_-]+$/;
 const DEFAULT_VARIABLES = { background: '--page-background', color: '--page-color' };
@@ -59,6 +63,8 @@ export function firstPaintScript(options) {
     "    for (var i = 0; i < tags.length; i++) tags[i].setAttribute('content', scheme.background);",
     '  }',
     '  paint();',
+    // Before the first paint, as the head runs before the body. Blocked storage, as in some private windows, leaves no mark.
+    `  try { if (window.localStorage.getItem(${JSON.stringify(SIGNED_IN_KEY)}) === '1') root.setAttribute(${JSON.stringify(SIGNED_IN_BEFORE)}, ''); } catch (e) {}`,
     choose
       ? ''
       : "  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paint);",

@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { firstFrameFont, firstPaint, firstPaintScript, firstPaintStyle, type BuiltFiles, type FirstPaintOptions } from '../web/first-paint';
+import { lastSignedIn, rememberSignedIn } from '../web/sign-in/remembered';
 
 const SCHEMES = {
   light: { background: '#fff8f0', color: '#2c2420' },
@@ -15,6 +16,8 @@ afterEach(() => {
   for (const tag of document.querySelectorAll('meta[name="theme-color"]')) tag.remove();
   document.documentElement.removeAttribute('style');
   delete document.documentElement.dataset.scheme;
+  document.documentElement.removeAttribute('data-signed-in-before');
+  window.localStorage.clear();
 });
 
 /** The system's setting, and a way to change it as the person's Mac or phone does at sunset. */
@@ -67,6 +70,32 @@ test("a page with no theme-color tag gets one, and the app's own variable names 
   expect(document.documentElement.style.getPropertyValue('--app-paper')).toBe('#fff8f0');
   expect(document.documentElement.style.getPropertyValue('--page-color')).toBe('#2c2420');
   expect(document.querySelectorAll('meta[name="theme-color"]')).toHaveLength(1);
+});
+
+test('marks the page when the gate remembers this browser as signed in, and only then', () => {
+  const marked = () => document.documentElement.hasAttribute('data-signed-in-before');
+  run({ schemes: SCHEMES });
+  expect(marked()).toBe(false);
+  rememberSignedIn(false);
+  run({ schemes: SCHEMES });
+  expect(marked()).toBe(false);
+  // The gate's own record, so the script and the gate read the same key.
+  rememberSignedIn(true);
+  expect(lastSignedIn()).toBe(true);
+  run({ schemes: SCHEMES });
+  expect(marked()).toBe(true);
+});
+
+test('blocked storage leaves the page unmarked and still paints it', () => {
+  systemIsDark(true);
+  const real = Object.getOwnPropertyDescriptor(window, 'localStorage')!;
+  Object.defineProperty(window, 'localStorage', { get: () => { throw new Error('blocked'); }, configurable: true });
+  try {
+    expect(run({ schemes: SCHEMES }).scheme).toBe('dark');
+    expect(document.documentElement.hasAttribute('data-signed-in-before')).toBe(false);
+  } finally {
+    Object.defineProperty(window, 'localStorage', real);
+  }
 });
 
 test("the style paints html and body in the variables, with the first scheme's colors when the script did not run", () => {
@@ -157,9 +186,10 @@ afterAll(() => rmSync(app, { recursive: true, force: true }));
 
 test("an app's Vite config loads the plugin by its import name with Node, from inside node_modules", () => {
   const kit = join(app, 'node_modules', 'app-kit');
-  mkdirSync(join(kit, 'web'), { recursive: true });
+  mkdirSync(join(kit, 'web', 'sign-in'), { recursive: true });
   cpSync(join(import.meta.dir, '..', 'package.json'), join(kit, 'package.json'));
-  cpSync(join(import.meta.dir, '..', 'web', 'first-paint.js'), join(kit, 'web', 'first-paint.js'));
+  // With the names it imports, so a TypeScript import in either fails here as it would in an app's build.
+  for (const file of ['first-paint.js', 'sign-in/names.js']) cpSync(join(import.meta.dir, '..', 'web', file), join(kit, 'web', file));
   const load =
     "const { firstPaint } = await import('app-kit/web/first-paint'); console.log(firstPaint({ schemes: { light: { background: '#fff', color: '#000' }, dark: { background: '#000', color: '#fff' } } }).name);";
   const done = Bun.spawnSync(['node', '--input-type=module', '-e', load], { cwd: app, stdout: 'pipe', stderr: 'pipe' });

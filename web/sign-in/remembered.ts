@@ -1,6 +1,6 @@
 import { local, read, session, write, type KeyValueStore } from '../storage';
+import { SIGNED_IN_KEY } from './names.js';
 
-const SIGNED_IN_KEY = 'app-kit.signedIn';
 const ACCOUNT_KEY = 'app-kit.lastAccount';
 const RETURN_KEY = 'app-kit.returnTo';
 

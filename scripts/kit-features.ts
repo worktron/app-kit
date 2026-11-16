@@ -234,6 +234,41 @@ const BOUNDARY_PLACEHOLDER: Feature = {
     ),
 }
 
+// The app's name, drawn by index.html before the code loads, then held by the sign-in gate until the first screen draws:
+// never a blank page. Either way of drawing it is right: one picture that the
+// finished screen replaces whole, as Getter's, or, for a signed-in screen that shows the name in a bar, a second picture
+// there for a browser signed in last time, which firstPaint marks, and the same picture given to the gate. Which one an
+// app needs depends on where its screen draws the name, which no search can see, so only a blank page and a second
+// picture left half done are lacking. (README, "The name before the code, in one picture or two".)
+const BEFORE = '#root:empty::before'
+/** A rule for the root's ::before that draws something. */
+const DRAWS_NAME = /#root:empty::before\s*(,[^{]*)?\{[^}]*content\s*:/
+/** A rule for the root's ::before only for a browser signed in last time, not one for every other browser. */
+const SIGNED_IN_PICTURE = /(?<!:not\()\[data-signed-in-before\][^{},]*#root:empty::before/
+/** A rule for the root's ::before only for a browser not signed in last time. */
+const SIGNED_OUT_PICTURE = /:not\(\[data-signed-in-before\]\)[^{},]*#root:empty::before/
+/** A script in the page setting the mark itself. */
+const PAGE_SETS_MARK = /<script[^>]*>[^<]*(data-signed-in-before|signedInBefore)/
+const NAME_BEFORE_THE_CODE: Feature = {
+  feature: 'the name drawn before the code, never a blank page',
+  readme: 'The name before the code, in one picture or two',
+  names: ['SignInGate', 'whileReturning', 'data-signed-in-before', 'app-kit/web/first-paint'],
+  appliesTo: (app) => ships(app, 'SignInGate') && ships(app, importing('app-kit/web')),
+  present: async (app) => {
+    const pages = app.tracked
+      .filter((path) => /(^|\/)index\.html$/.test(path) && !path.includes('node_modules/'))
+      .map((path) => app.show(path))
+      .filter((text) => /id=["']root["']/.test(text) && text.includes(BEFORE))
+    if (!pages.some((text) => DRAWS_NAME.test(text))) return 'lacks'
+    // Rendered under any name, as Timescale renders the kit's gate as KitSignInGate, so the setting is looked for anywhere.
+    if (ships(app, 'whileReturning[[:space:]]*=[[:space:]]*\\{[[:space:]]*null[[:space:]]*\\}')) return 'lacks'
+    // A picture only for a browser not signed in last time leaves a returning one blank.
+    if (!pages.some((text) => SIGNED_IN_PICTURE.test(text))) return has(!pages.some((text) => SIGNED_OUT_PICTURE.test(text)))
+    const marked = ships(app, 'firstPaint\\(') || ships(app, 'data-signed-in-before') || pages.some((text) => PAGE_SETS_MARK.test(text))
+    return has(marked && ships(app, 'whileReturning[[:space:]]*='))
+  },
+}
+
 // Calls Google's APIs with a grant the app holds: Gmail, Calendar, Drive, Docs, Sheets, Tasks, People and the token
 // endpoint. A key-only API (Books) and Google's fonts are not, and a scope's address (www.googleapis.com/auth/…) is a
 // name, not a call. Only the server's code: the reader is for an app's server, and an extension's is left out.
@@ -297,6 +332,7 @@ export const FEATURES: Feature[] = [
   TEST_START_UP,
   OPEN_DB,
   BOUNDARY_PLACEHOLDER,
+  NAME_BEFORE_THE_CODE,
   GOOGLE_ANSWERS,
   FIELDS_NEVER_ZOOM,
   PUBLIC_PAGES,

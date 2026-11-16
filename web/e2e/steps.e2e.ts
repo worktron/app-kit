@@ -110,6 +110,24 @@ test('frames are noted from the first, and a page drawn in one background throug
   expectSteady(await takeFrames(page), 'rgb(244, 239, 230)');
 });
 
+test("a name the page draws before its code, as the root's ::before, is a drawn frame with that name as its text", async ({ page, context }) => {
+  await watchFrames(context);
+  // A page whose code never loads, so every frame is the name alone; then one with no name, which draws nothing.
+  const served = (style: string) => `<!doctype html><style>body { background: #f4efe6; } ${style}</style><div id="root"><!-- the app --></div>`;
+  await page.route('**/before-the-code', (route) => route.fulfill({ contentType: 'text/html', body: served("#root:empty::before { content: 'Shop'; }") }));
+  await page.route('**/blank', (route) => route.fulfill({ contentType: 'text/html', body: served('') }));
+  await page.goto('/before-the-code');
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  const named = await takeFrames(page);
+  expectSteady(named, 'rgb(244, 239, 230)');
+  expect([...new Set(named.map((frame) => frame.text))]).toEqual(['Shop']);
+  await page.goto('/blank');
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  const blank = await takeFrames(page);
+  expect(blank.length).toBeGreaterThan(0);
+  expect(blank.every((frame) => !frame.drawn && frame.text === '')).toBe(true);
+});
+
 test('a frame with nothing drawn, or in another background, is not steady', () => {
   const drawn = { background: 'rgb(0, 0, 0)', drawn: true, text: 'App' };
   expect(() => expectSteady([], 'rgb(0, 0, 0)')).toThrow('frames noted');

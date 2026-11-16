@@ -86,7 +86,8 @@ interface GateProps {
   /**
    * What to draw while the provider loads in a browser that was signed in last time, and, with `waitForFirstDraw`,
    * until the app is drawn. The placeholder unless the app says otherwise, as when its own bar draws the wordmark in
-   * another place and the placeholder's would jump.
+   * another place and the placeholder's would jump: then the name in the bar alone, the React twin of index.html's
+   * `html[data-signed-in-before] #root:empty::before` (README, "The name before the code, in one picture or two").
    */
   whileReturning?: ReactNode;
   /**

@@ -24,7 +24,14 @@ export async function watchFrames(context, { root = '#root' } = {}) {
     Object.assign(window, { __appKitFrames: frames });
     const look = () => {
       if (document.body) {
-        const text = (/** @type {HTMLElement | null} */ (document.querySelector(selector))?.innerText ?? '').trim();
+        const element = /** @type {HTMLElement | null} */ (document.querySelector(selector));
+        let text = (element?.innerText ?? '').trim();
+        // The name a page draws before its code loads, `#root:empty::before { content: 'Shop' }`, which innerText leaves
+        // out. A rule that does not match reads as none.
+        if (element && !text) {
+          const content = getComputedStyle(element, '::before').content;
+          if (/^["']/.test(content)) text = content.slice(1, -1).trim();
+        }
         frames.push({ background: getComputedStyle(document.body).backgroundColor, drawn: text.length > 0, text });
       }
       requestAnimationFrame(look);

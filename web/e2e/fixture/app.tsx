@@ -199,6 +199,9 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   return (
     <NavigateProvider navigate={navigate}>
       <header>
+        <div data-bar-name style={BAR_NAME}>
+          fixture
+        </div>
         <UpdateLine appName="the fixture" scheme="com.example.fixture" />
         <ConnectionLine />
         <AccountMenu items={[{ label: 'Shelf', href: '/shelf' }]} />
@@ -215,6 +218,13 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
 }
 
 const placeholder = <div role="progressbar">fixture</div>;
+/** The name where the signed-in bar draws it, as index.html draws it for a browser signed in last time. */
+const BAR_NAME = { display: 'block', padding: '12px 16px', font: '600 16px/20px sans-serif' } as const;
+const whileReturning = (
+  <div role="progressbar" style={BAR_NAME}>
+    fixture
+  </div>
+);
 const placeholderWithLine = (line: string) => (
   <div role="progressbar">
     fixture <p role="status">{line}</p>
@@ -234,6 +244,7 @@ export function start(itemsOf: (answer: Answer) => Item[]) {
           provider={provider}
           placeholder={placeholder}
           placeholderWithLine={placeholderWithLine}
+          whileReturning={whileReturning}
           iphoneSignIn={iphoneSignIn}
           signedOut={<SignInScreen />}
           waitForFirstDraw

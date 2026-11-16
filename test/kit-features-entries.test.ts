@@ -131,6 +131,37 @@ test("with the sign-in gate, an error boundary has the placeholder, however its 
   expect(await verdict(PLACEHOLDER, { 'client/src/App.tsx': '<ErrorBoundary>\n' })).toBe('not asked');
 });
 
+test('an app with the sign-in gate draws its name before the code, in one picture or two, never a blank page', async () => {
+  const NAME = 'the name drawn before the code, never a blank page';
+  const page = (style: string, head = '') => `<!doctype html><html><head>${head}<style>${style}</style></head><body><div id="root"></div></body></html>\n`;
+  const one = "#root:empty::before {\n  content: 'Shop';\n  padding-top: 20vh;\n}\n";
+  const two = "html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
+  const gate = (props = '') => `import { SignInGate } from 'app-kit/web';\n<SignInGate provider={provider} placeholder={<Wordmark />}${props} signedOut={<Home />}>\n`;
+  const firstPaint = { 'vite.config.ts': "import { firstPaint } from 'app-kit/web/first-paint';\nplugins: [firstPaint({ schemes })]\n" };
+  // One picture, held by the gate until the screen draws, as Getter's: right for a screen that never shows the name.
+  expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/main.tsx': gate() })).toBe('has');
+  // Two, with the bar's picture given to the gate and the mark set by firstPaint, or by the page's own line.
+  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('has');
+  const ownLine = "<script>try { if (localStorage.getItem('app-kit.signedIn') === '1') document.documentElement.setAttribute('data-signed-in-before', '') } catch {}</script>";
+  expect(await verdict(NAME, { 'client/index.html': page(two, ownLine), 'client/src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('has');
+  // The gate under another name, as Timescale renders it, read wherever the setting is.
+  const renamed = "import { SignInGate as KitSignInGate } from 'app-kit/web';\n<KitSignInGate provider={provider} whileReturning={<BarName />}>\n";
+  expect(await verdict(NAME, { 'index.html': page(two), 'src/Gate.tsx': renamed, ...firstPaint })).toBe('has');
+
+  // Nothing before the code, as Matter, or nothing at all.
+  expect(await verdict(NAME, { 'index.html': page('body { margin: 0; }'), 'src/main.tsx': gate() })).toBe('lacks');
+  expect(await verdict(NAME, { 'index.html': page('#root:empty::before { max-width: 560px; }'), 'src/main.tsx': gate() })).toBe('lacks');
+  // A blank page while sign-in loads, as Timescale's, under its renamed gate.
+  expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/SignInGate.tsx': renamed.replace('{<BarName />}', '{null}') })).toBe('lacks');
+  // The bar's picture with no picture for the gate, so the name jumps twice, or with nothing to set the mark.
+  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
+  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('lacks');
+  // A picture only for a browser not signed in last time, and none for one that was, which then opens blank.
+  expect(await verdict(NAME, { 'index.html': page("html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; }\n"), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
+
+  expect(await verdict(NAME, { 'index.html': page(one), 'src/main.tsx': "import { request } from 'app-kit/web';\n" })).toBe('not asked');
+});
+
 test("a server calling Google's APIs with a grant reads the answers through the kit; fonts, Books and scope names are not calls", async () => {
   const GOOGLE = "Google's answers read by the kit";
   const gmail = "const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';\n";

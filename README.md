@@ -289,7 +289,7 @@ Google Chrome for Testing checks in with macOS as a Dock app and makes itself a 
 `app-kit/web/playwright` holds the steps the apps each wrote, and the traps each one relearned:
 
 - `countLoads(page)` returns `{ loads }`, the page loads from then on, for holding sign-in and sign-out to none.
-- `watchFrames(context, { root })`, before the page loads, notes every frame's background and whether the app's root (`#root` by default) has any text; `takeFrames(page)` returns the frames since the last call, and `expectSteady(frames, background)` fails unless every one is drawn, all in that one background. A page load paints an empty page, and a page whose first frame is not in its own colors flashes.
+- `watchFrames(context, { root })`, before the page loads, notes every frame's background and whether the app's root (`#root` by default) has any text, reading a root with no text of its own as its `::before`, the name the page draws before its code loads; `takeFrames(page)` returns the frames since the last call, and `expectSteady(frames, background)` fails unless every one is drawn, all in that one background. A page load paints an empty page, and a page whose first frame is not in its own colors flashes.
 - `finger(page)` is a finger, through Chrome's debugging protocol, since Playwright's own touch is taps alone; Chromium only. `slide(from, to, { holdMs, steps })` lands, holds (a quarter second or more is a long press), moves and lifts. Without a hold the landing and the first moves go together, since on a busy machine a round trip each would leave the finger still long enough to be a long press, and the finger settles before it lifts, since a lift at speed leaves Chromium a fling that takes the next tap as its stop. A tap within about a quarter second of a lift still makes no click in Chromium, so a test clicks there instead, as a finger is slower than a test. A page that takes swipes says so with `touch-action`, or Chromium pans it instead.
 - `noNewWindows`, a fixture for `test.extend({ noNewWindows })` that runs for every test, fails any test that opens a new window. It refuses a `window.open` or a link that would open a new window, in the page, before the browser sees them, and lets one aimed at the page's own window (`_self`, `_parent`, `_top`) move it as usual: Playwright's WebKit on a Mac hands such a link to the Mac's own app, such as Maps, in front of the person's work. A window opened any other way fails the test too, after it opened.
 - `largestTextSize(pageOrContext)`, before the page loads, is the phone's largest Text Size for an app that calls `followTextSize()`: the kit's reading answers 3.12, as an iPhone at its largest accessibility size does, so the root size, `--text-scale` and `useTextScale()` grow together. The page also reads the screen as taking touch.
@@ -564,6 +564,27 @@ void waitForFonts(['500 1em "Cormorant Variable"', '400 1em "DM Sans Variable"']
 ```
 
 Each face's `@font-face` must already be in a stylesheet the page has, or there is nothing to wait for; the console says so. It asks with `document.fonts.load`, since WebKit's `document.fonts.check()` answers true for a face not yet loaded.
+
+#### The name before the code, in one picture or two
+
+The name `index.html` draws before the code loads stands where the first screen will want it, and the sign-in gate holds the same picture (its `placeholder`, with `waitForFirstDraw`) until that screen draws whole. Where that is depends on whether the person was signed in, and the page knows before its first paint: `firstPaint`'s script sets `data-signed-in-before` on `<html>` when the gate remembers this browser as signed in, from the same record the gate reads. Pick one of two ways by where the signed-in screen draws the name:
+
+- **One picture**, for an app whose signed-in screen does not show its name, as Getter's: the name where the signed-out home page draws its title, and the finished screen replaces it whole. One `#root:empty::before` rule, and nothing more; the gate's `whileReturning` defaults to the `placeholder`.
+- **Two pictures**, for an app whose signed-in screen shows the name in a bar, as Neighbors': the name where the home page draws it for everyone else, and where the bar draws it for a browser signed in last time, so it never jumps from the middle to the bar. `whileReturning` is the second rule's React twin, the name in the bar alone, drawn while the provider loads and until the first screen draws.
+
+```css
+html:not([data-signed-in-before]) #root:empty::before { content: 'Neighbors'; display: block; padding-top: 20vh; text-align: center; font: 700 2.5rem/1 'Figtree First Frame', sans-serif; }
+html[data-signed-in-before] #root:empty::before { content: 'Neighbors'; display: block; padding: 12px 16px; font: 600 1rem/1.25rem 'Figtree First Frame', sans-serif; }
+```
+
+```tsx
+<SignInGate provider={provider} placeholder={<HomeName />} whileReturning={<BarName />} signedOut={<Home />} waitForFirstDraw>
+```
+
+- The mark comes only with `firstPaint`; an app with a head script of its own sets it there, from `localStorage['app-kit.signedIn'] === '1'`, or takes `firstPaint`, whose `choose` and `variables` cover a scheme of its own.
+- A browser signed in somewhere else since, or with storage blocked, gets the signed-out picture, then the bar, as before. The local run with no sign-in provider never remembers a sign-in, so it always shows the signed-out picture.
+- Never `whileReturning={null}`: it leaves the page blank while sign-in loads.
+- `web/e2e/first-frame.e2e.ts` holds it on the kit's fixture in a hidden Chromium and the kit's hidden WebKit: reloaded signed in, the name before the code, the gate's and the bar's are the same pixels. An app's own test reloads with `watchFrames` and its scripts held, as that test does; `expectSteady` counts the name before the code as drawn, though a face with `font-display: block` still loading holds it invisible.
 
 The wordmark itself needs its font before the app's stylesheet arrives, since the browser asks for a font file only when a stylesheet names it, and fontsource's faces use `font-display: swap`, so the wordmark first draws in Helvetica and changes a moment later. `firstPaint`'s `font` gives the wordmark a face of its own that is never drawn in a fallback:
 

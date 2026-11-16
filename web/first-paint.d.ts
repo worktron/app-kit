@@ -67,7 +67,8 @@ export interface HtmlContext {
 
 /**
  * A Vite plugin that puts, at the end of index.html's head, a style painting the page in the variables and a script
- * setting them, `color-scheme`, `data-scheme` on the root and every theme-color tag, before the first paint. With
+ * setting them, `color-scheme`, `data-scheme` on the root and every theme-color tag, before the first paint, and
+ * `data-signed-in-before` on the root when this browser was signed in last time. With
  * `font`, in a build, it also puts the preload of the font's built file at the start of the head and the first frame's
  * face beside the style.
  */
@@ -84,7 +85,10 @@ export function firstPaint(options: FirstPaintOptions): {
  */
 export function firstFrameFont(font: FirstPaintFont, bundle: BuiltFiles, base: string): HtmlTag[];
 
-/** The script the plugin puts in the head. */
+/**
+ * The script the plugin puts in the head. It also sets `data-signed-in-before` on the root when the sign-in gate
+ * remembers this browser as signed in, so the page's own CSS can draw the name where a signed-in screen draws it.
+ */
 export function firstPaintScript(options: FirstPaintOptions): string;
 
 /** The style the plugin puts in the head: `html, body` in the variables, with the first scheme's colors as fallbacks. */
