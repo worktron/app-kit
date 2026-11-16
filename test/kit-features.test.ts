@@ -135,12 +135,13 @@ test("every feature names a README heading and only names the kit still has, so 
   const exports = (JSON.parse(readFileSync(join(kit, 'package.json'), 'utf8')) as { exports: Record<string, string> }).exports;
   const features = FEATURES.map((entry) => entry.feature);
   expect(new Set(features).size).toBe(features.length);
+  const names = [...new Set(FEATURES.flatMap((entry) => entry.names).filter((name) => !name.startsWith('app-kit/')))];
+  // The kit's own code, outside this list and the tests that read it, searched once for every name: one search each ran
+  // past the test's limit while a landing's gates loaded the machine.
+  const found = new Set(git(kit, 'grep', '-h', '-o', '-w', '-F', ...names.flatMap((name) => ['-e', name]), '--', ':(exclude)scripts/**', ':(exclude)test/**').split('\n'));
+  expect(names.filter((name) => !found.has(name))).toEqual([]);
   for (const entry of FEATURES) {
     expect(readme).toMatch(new RegExp(`^#+ ${entry.readme.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
-    for (const name of entry.names) {
-      if (name.startsWith('app-kit/')) expect(Object.keys(exports)).toContain(`./${name.slice('app-kit/'.length)}`);
-      // The kit's own code, outside this list and the tests that read it.
-      else expect(git(kit, 'grep', '-l', '-w', name, '--', ':(exclude)scripts/**', ':(exclude)test/**').trim()).not.toBe('');
-    }
+    for (const name of entry.names) if (name.startsWith('app-kit/')) expect(Object.keys(exports)).toContain(`./${name.slice('app-kit/'.length)}`);
   }
 });
