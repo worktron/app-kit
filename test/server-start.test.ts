@@ -5,7 +5,7 @@ import { callerOf, requireCaller, type Caller } from '../authentication/agent-ke
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { cors } from 'hono/cors';
-import { appServer } from '../server/start';
+import { appServer, listen } from '../server/start';
 import { serveBuiltPage } from '../web/server';
 import { ServerRequest } from './dom';
 
@@ -163,6 +163,31 @@ test('on SIGTERM the server closes a websocket and a stream that never ends, run
     expect(await socketClosed).toBe(1001);
   } finally {
     child.kill('SIGKILL');
+  }
+});
+
+test('listen prints its ready line only once its SIGTERM and SIGINT handlers are in place', async () => {
+  // A test that signals the server the moment it reads "listening on" died with 143 when the line came first.
+  const before = { term: process.listeners('SIGTERM'), int: process.listeners('SIGINT') };
+  let atReady: { term: number; int: number } | undefined;
+  const started = listen(server(), {
+    port: 0,
+    hostname: '127.0.0.1',
+    print: (line) => {
+      if (line.startsWith('listening on ')) {
+        atReady = {
+          term: process.listenerCount('SIGTERM') - before.term.length,
+          int: process.listenerCount('SIGINT') - before.int.length,
+        };
+      }
+    },
+  });
+  try {
+    expect(atReady).toEqual({ term: 1, int: 1 });
+  } finally {
+    await started.stop(true);
+    for (const handler of process.listeners('SIGTERM')) if (!before.term.includes(handler)) process.off('SIGTERM', handler);
+    for (const handler of process.listeners('SIGINT')) if (!before.int.includes(handler)) process.off('SIGINT', handler);
   }
 });
 

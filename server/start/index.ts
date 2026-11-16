@@ -115,7 +115,7 @@ export type ListenOptions<WebSocketData> = Omit<Bun.Serve.HostnamePortServeOptio
 
 /**
  * Serves the app with Bun.serve, handing it every option given as it is (hostname, websocket, maxRequestBodySize,
- * idleTimeout), and logs the address once. On SIGTERM or SIGINT it stops taking requests, gives open ones the grace to
+ * idleTimeout), and logs the address once its signal handlers are in place. On SIGTERM or SIGINT it stops taking requests, gives open ones the grace to
  * finish, closes what is still open (a live-update stream never ends by itself, and Bun's stop() waits for every
  * connection), runs onStop and exits. Railway sends SIGKILL at once unless the service's RAILWAY_DEPLOYMENT_DRAINING_SECONDS
  * variable is set (README, Starting the server).
@@ -129,8 +129,6 @@ export function listen<WebSocketData = undefined>(
   const server = websocket
     ? Bun.serve<WebSocketData>({ ...serve, port: chosenPort, fetch, websocket })
     : Bun.serve<WebSocketData>({ ...serve, port: chosenPort, fetch });
-  print(`listening on ${server.url}`);
-
   let stopping = false;
   const stop = async (signal: string) => {
     if (stopping) return;
@@ -150,5 +148,7 @@ export function listen<WebSocketData = undefined>(
   };
   process.on('SIGTERM', () => void stop('SIGTERM'));
   process.on('SIGINT', () => void stop('SIGINT'));
+  // After the handlers: whatever takes this line as ready may send its signal at once, and with no handler yet Bun dies with 143.
+  print(`listening on ${server.url}`);
   return server;
 }
