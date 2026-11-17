@@ -875,3 +875,10 @@ Written by: app-kit/dock-keeps-app
 Goal: v0.69.1 made the window plugin's Mac restart (after an update, or into a newer build) quit the old copy first and reopen the app through `/usr/bin/open` only once it has exited (tauri/window/plugin/src/relaunch.rs), because Tauri 2.12's `restart` opens the new copy while the old one is alive and the Dock gives it a second icon (tauri-apps/tauri#16449). The Apple Messages plugin still calls `app.request_restart()` after the person grants Full Disk Access (tauri/apple-messages/plugin/src/lib.rs, near line 155), so that reopen still leaves a second Dock icon. Have it go through the same wait-for-quit restart, one function both plugins call, rather than a second copy.
 
 Done when: the Apple Messages plugin's reopen after Full Disk Access goes through the window plugin's wait-for-quit restart, held by a test with a stand-in opener, and its log says the relaunch waited for the old copy.
+
+## drop-relaunch-helper · Remove the window plugin's own Mac relaunch once Tauri's restart waits for the old copy
+Written by: app-kit/dock-keeps-app
+
+Goal: tauri/window/plugin/src/relaunch.rs (v0.69.1) exists only because Tauri 2.12's Mac `restart` opens the new copy while the old one is still running, which gives the app a second Dock icon (tauri-apps/tauri#16449, open on 2026-11-17; 2.12.6 only adds `-g`). Once a Tauri release fixes that, the helper is a second path to own. Watch the issue; when a release waits for the old copy, move the plugin to it, check the overlap is gone, and remove relaunch.rs with its README lines.
+
+Done when: the window plugin is on a Tauri release whose restart waits for the old process, relaunch.rs and its README paragraph are gone, and a test with a stand-in old process shows the new copy starts only after the old one exits.
