@@ -868,3 +868,10 @@ Written by: app-kit/dock-keeps-app
 Goal: on 2026-11-17 a landing of app-kit (the Mac restart fix, v0.69.1) stopped with 114 browser tests failing because Chromium 1248 and WebKit 2370 were gone from Playwright's shared browser folder (`~/Library/Caches/ms-playwright`): another project's `playwright install` had deleted every browser no registered install (`.links`) still used, and no app-kit checkout was registered at that moment. `bunx playwright install chromium webkit` from an app-kit checkout put them back and the next landing passed. Today the gates fail on every browser test instead of saying the browsers are missing. Make the gates check for the browsers app-kit's Playwright version needs and install them before the browser steps (or stop with one plain line naming the command), so a landing never fails for a folder another project cleaned.
 
 Done when: with app-kit's Chromium and WebKit removed from a scratch copy of the browser folder (`PLAYWRIGHT_BROWSERS_PATH`), `scripts/gates.sh` installs them and its browser steps pass, held by a test, without touching the shared folder in the test.
+
+## messages-restart-keeps-dock · The Apple Messages reopen after Full Disk Access comes back in the pinned Dock icon
+Written by: app-kit/dock-keeps-app
+
+Goal: v0.69.1 made the window plugin's Mac restart (after an update, or into a newer build) quit the old copy first and reopen the app through `/usr/bin/open` only once it has exited (tauri/window/plugin/src/relaunch.rs), because Tauri 2.12's `restart` opens the new copy while the old one is alive and the Dock gives it a second icon (tauri-apps/tauri#16449). The Apple Messages plugin still calls `app.request_restart()` after the person grants Full Disk Access (tauri/apple-messages/plugin/src/lib.rs, near line 155), so that reopen still leaves a second Dock icon. Have it go through the same wait-for-quit restart, one function both plugins call, rather than a second copy.
+
+Done when: the Apple Messages plugin's reopen after Full Disk Access goes through the window plugin's wait-for-quit restart, held by a test with a stand-in opener, and its log says the relaunch waited for the old copy.
