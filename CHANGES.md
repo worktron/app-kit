@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.69.1
+
+Urgency: next round
+
+- take this version; nothing to change. From the second update or restart after it, the app comes back in the Dock icon the person pinned.
+
 ## v0.69.0
 
 Urgency: next round
