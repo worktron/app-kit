@@ -222,6 +222,9 @@ private func setUpObservers() {
         runSync(.front, state: "coming to the front") { _ in }
     }
     center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
+        // The first unlock after a restart, for an app iOS started before it: kept, so a wake once the phone locks again
+        // still reads Health.
+        markUnlocked()
         coordinator.watchIfReady(dataAvailable: true)
     }
 }

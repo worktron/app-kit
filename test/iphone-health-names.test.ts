@@ -85,6 +85,12 @@ test('Health’s watcher answers every call, its errors included', () => {
   expect(watcher.match(/completionHandler\(\)/g)!.length).toBe(2);
 });
 
+test('the phone is marked as unlocked since it started whenever iOS says its data is readable', () => {
+  expect(swift).toMatch(/if app\.isProtectedDataAvailable \{ markUnlocked\(\) \}/);
+  expect(swift).toMatch(/protectedDataDidBecomeAvailableNotification[\s\S]*?markUnlocked\(\)[\s\S]*?watchIfReady/);
+  expect(swift).toContain('.completeFileProtectionUntilFirstUserAuthentication');
+});
+
 test('the made-up nights write to Health only in a Simulator build', () => {
   const simulatorOnly = swift.indexOf('#if targetEnvironment(simulator)');
   const otherwise = swift.indexOf('#else', simulatorOnly);
