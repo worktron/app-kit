@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.69.3
+
+Urgency: next round
+
+- nothing to change; your iPhone check's test iPhone boots without its wallpaper and widgets, about half the CPU. An app that checks its own home-screen widget should not run the quiet step before that boot.
+
 ## v0.69.2
 
 Urgency: next round
