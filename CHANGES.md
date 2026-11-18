@@ -2,6 +2,15 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.70.0
+
+Urgency: rides along
+
+- an iPhone app that wants Health's sleep on its server adds the iphone-health plugin, its entitlements and NSHealthShareUsageDescription, and calls startIphoneHealth with the address (README, iPhone Health).
+- an iPhone app that wants Health's sleep on its server adds the iphone-health plugin, its entitlements and NSHealthShareUsageDescription, and calls startIphoneHealth with the address (README, iPhone Health).
+- an iPhone app that wants Health's sleep on its server adds the iphone-health plugin, its entitlements and NSHealthShareUsageDescription, and calls startIphoneHealth with the address (README, iPhone Health).
+- an iPhone app that wants Health's sleep on its server adds the iphone-health plugin, its entitlements and NSHealthShareUsageDescription, and calls startIphoneHealth with the address (README, iPhone Health).
+
 ## v0.69.3
 
 Urgency: next round
