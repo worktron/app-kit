@@ -894,3 +894,9 @@ Done when: the larger set (or the part of it no app's check needs) is switched o
 Goal: since v0.69.3, app-kit's quiet step switches a shut-down test iPhone's widget service (com.apple.chronod) off with its wallpaper, and the switch-off outlives `simctl erase`. An app whose iPhone check looks at its own home-screen widget (timescale's backlog has one) has no way to keep widgets on short of skipping the quiet step, which also loses the silent sound. Found by the simulator-boot-trim thread, 2026-11-18.
 
 Done when: the quiet step takes a way to keep widgets on (and turns them back on in a Simulator the kit switched them off in), with a test, and the README's silent iPhone Simulator section says when an app uses it.
+
+## simulator-switch-off-cleanup · A deleted test iPhone Simulator leaves no switch-off file behind
+
+Goal: app-kit's quiet step (v0.69.3) writes /private/var/tmp/com.apple.CoreSimulator.SimDevice.<udid>/disabled.plist for each shut-down test iPhone, and nothing removes the folder when that Simulator is deleted, so one tiny folder per deleted Simulator stays until macOS clears /private/var/tmp. iOS writes the same folder for any Simulator that booted, so it is mostly Apple's, but the kit's own deletes could remove it. Found by the simulator-boot-trim thread, 2026-11-18.
+
+Done when: wherever app-kit deletes a Simulator, its folder under /private/var/tmp goes with it, held by a test.
