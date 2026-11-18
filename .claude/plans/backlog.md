@@ -888,3 +888,9 @@ Done when: the window plugin is on a Tauri release whose restart waits for the o
 Goal: app-kit's quiet step switches off only the wallpaper, widget, Live Activities and navigation services before a test iPhone boots (tauri/iphone-simulator/services.ts, v0.69.3), which took an iPhone 17's erased boot on iOS 27.2 from about 600 CPU-seconds to about 350. simslim's larger set (github.com/MobAI-App/simslim, MIT: Siri, photo analysis, media analysis and similar, minus its never-switch-off list) measured 235 and 224 erased and 132 and 117 kept on the same Mac. Each extra service is one an app's check might use (dictation, the photo picker, share sheets), so each needs a reason it is safe. Measured by the simulator-boot-trim thread, 2026-11-18.
 
 Done when: the larger set (or the part of it no app's check needs) is switched off by the quiet step, an erased and a kept boot are measured against v0.69.3's, and timescale's iPhone check still passes on it.
+
+## simulator-keep-widgets · An app that checks its own home-screen widget can keep widgets on in its test iPhone
+
+Goal: since v0.69.3, app-kit's quiet step switches a shut-down test iPhone's widget service (com.apple.chronod) off with its wallpaper, and the switch-off outlives `simctl erase`. An app whose iPhone check looks at its own home-screen widget (timescale's backlog has one) has no way to keep widgets on short of skipping the quiet step, which also loses the silent sound. Found by the simulator-boot-trim thread, 2026-11-18.
+
+Done when: the quiet step takes a way to keep widgets on (and turns them back on in a Simulator the kit switched them off in), with a test, and the README's silent iPhone Simulator section says when an app uses it.
