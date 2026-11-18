@@ -882,3 +882,9 @@ Written by: app-kit/dock-keeps-app
 Goal: tauri/window/plugin/src/relaunch.rs (v0.69.1) exists only because Tauri 2.12's Mac `restart` opens the new copy while the old one is still running, which gives the app a second Dock icon (tauri-apps/tauri#16449, open on 2026-11-17; 2.12.6 only adds `-g`). Once a Tauri release fixes that, the helper is a second path to own. Watch the issue; when a release waits for the old copy, move the plugin to it, check the overlap is gone, and remove relaunch.rs with its README lines.
 
 Done when: the window plugin is on a Tauri release whose restart waits for the old process, relaunch.rs and its README paragraph are gone, and a test with a stand-in old process shows the new copy starts only after the old one exits.
+
+## simulator-trim-more · A test iPhone Simulator boots without Siri, photo analysis and the other services no check uses
+
+Goal: app-kit's quiet step switches off only the wallpaper, widget, Live Activities and navigation services before a test iPhone boots (tauri/iphone-simulator/services.ts, v0.69.3), which took an iPhone 17's erased boot on iOS 27.2 from about 600 CPU-seconds to about 350. simslim's larger set (github.com/MobAI-App/simslim, MIT: Siri, photo analysis, media analysis and similar, minus its never-switch-off list) measured 235 and 224 erased and 132 and 117 kept on the same Mac. Each extra service is one an app's check might use (dictation, the photo picker, share sheets), so each needs a reason it is safe. Measured by the simulator-boot-trim thread, 2026-11-18.
+
+Done when: the larger set (or the part of it no app's check needs) is switched off by the quiet step, an erased and a kept boot are measured against v0.69.3's, and timescale's iPhone check still passes on it.
