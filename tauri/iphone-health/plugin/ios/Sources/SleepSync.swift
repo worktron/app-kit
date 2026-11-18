@@ -176,6 +176,8 @@ final class SleepSync {
     private var callers = 0
     private var current: (trigger: SleepTrigger, state: String, waiting: [Waiting])?
     private var progress = SleepResult(outcome: .nothingNew)
+    /// The address the running sync reads for, so a failure is kept only while that address is still the saved one.
+    private var runAddress: String?
     private var next: (trigger: SleepTrigger, state: String, dataAvailable: Bool, waiting: [Waiting])?
     private var watching = false
 
@@ -282,6 +284,7 @@ final class SleepSync {
         generation += 1
         current = (trigger, state, waiting)
         progress = SleepResult(outcome: .nothingNew)
+        runAddress = nil
         guard dataAvailable else {
             end(.notUnlocked, status: nil)
             return
@@ -290,6 +293,7 @@ final class SleepSync {
             end(.noAddress, status: nil)
             return
         }
+        runAddress = address
         let run = generation
         schedule(deadline) {
             self.queue.async {
@@ -361,7 +365,8 @@ final class SleepSync {
         }
     }
 
-    /// End the running sync: keep it when it delivered nothing, answer every caller, then run what came meanwhile.
+    /// End the running sync: keep it when it delivered nothing and its address is still the saved one, answer every
+    /// caller, then run what came meanwhile.
     private func end(_ outcome: SleepOutcome, status: Int?) {
         guard running, let current = current else { return }
         running = false
@@ -370,7 +375,9 @@ final class SleepSync {
         // A sync that sent some batches before one failed still says how it ended, with what it sent.
         result.outcome = outcome
         if status != nil { result.status = status }
-        if outcome.kept {
+        if outcome.kept, runAddress != keeping.address {
+            log("\(current.trigger.rawValue): the address changed during the sync, so its \(outcome.rawValue) is not kept for the new one")
+        } else if outcome.kept {
             var earlier = keeping.earlier
             earlier.append(SleepAttempt(at: now(), trigger: current.trigger.rawValue, state: current.state, outcome: outcome.rawValue, status: status))
             keeping.earlier = Array(earlier.suffix(keptLimit))

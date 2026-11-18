@@ -263,6 +263,22 @@ do {
 
 do {
     let rig = Rig()
+    rig.store.changes = [.add(sample(1))]
+    rig.sender.answers = [.status(500)]
+    rig.sender.hold = true
+    let done = DispatchSemaphore(value: 0)
+    rig.sync.sync(.open, state: "in front", dataAvailable: true) { _ in done.signal() }
+    _ = rig.sender.posted.wait(timeout: .now() + 10)
+    rig.sync.setAddress("https://other.example.com/sleep", dataAvailable: true)
+    rig.settle()
+    rig.sender.letGo()
+    _ = done.wait(timeout: .now() + 5)
+    rig.settle()
+    check("a send the old address refused is not kept for the new one", rig.keeping.earlier.isEmpty, "\(rig.keeping.earlier.map(\.outcome))")
+}
+
+do {
+    let rig = Rig()
     rig.store.locked = true
     for _ in 0..<(keptLimit + 5) { _ = rig.run() }
     check("kept attempts stop at \(keptLimit), the oldest dropped", rig.keeping.earlier.count == keptLimit && rig.keeping.earlier.first?.at == 6)
