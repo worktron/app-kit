@@ -18,12 +18,16 @@
  * writes, input ones too, as a binary plist: with only the two output keys the simulator ignored it and wrote its
  * defaults.
  *
+ * A simulator that is shut down when the step runs also has its wallpaper and widget services switched off for that boot
+ * (./services.ts), since it is the one step every app's script already runs between the erase and the boot.
+ *
  * Every outcome is one `[iphone-simulator]` line and exit code 0, so a missing BlackHole never stops a simulator run;
  * only a failed boot after the step's own shutdown is 1, since the device is then down.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { SERVICES_ROOT, switchOffServices } from './services.ts';
 
 export type AudioRoute = {
   /** The output device's id, or null for the Mac's default device. */
@@ -137,21 +141,31 @@ const NO_BLACKHOLE =
 
 const where = (route: AudioRoute | null) => (route?.output ? `device ${route.output}` : "the Mac's default device");
 
+type Device = { udid: string; dataPath: string; state: string };
+
+function findDevice(udid: string, run: Run): Device | null {
+  const list = json<{ devices: Record<string, Device[]> }>(run(['xcrun', 'simctl', 'list', 'devices', '-j']));
+  return (list && Object.values(list.devices).flat().find((d) => d.udid === udid)) ?? null;
+}
+
 /**
  * Sends the simulator `udid`'s sound to BlackHole: a booted one is restarted once when its route differs, and a shut-down
- * one has the setting saved for its next boot.
+ * one has the setting saved for its next boot. A shut-down one also has its wallpaper and widget services switched off
+ * for that boot (./services.ts), which the line ends with; a booted one is left as it is, since the saving is only at boot.
  */
-export function quietSimulator(udid: string, run: Run = runCommand): Outcome {
+export function quietSimulator(udid: string, run: Run = runCommand, servicesRoot = SERVICES_ROOT): Outcome {
+  const shutDown = findDevice(udid, run)?.state === 'Shutdown';
+  const sound = quietSound(udid, run);
+  if (!shutDown) return sound;
+  return { code: sound.code, line: `${sound.line}; ${switchOffServices(udid, run, servicesRoot)}` };
+}
+
+function quietSound(udid: string, run: Run): Outcome {
   const readRoute = () => {
     const listing = run(['xcrun', 'simctl', 'io', udid, 'enumerate']);
     return listing.ok ? parseAudioRoute(listing.out) : null;
   };
-  const device = () => {
-    const list = json<{ devices: Record<string, { udid: string; dataPath: string; state: string }[]> }>(
-      run(['xcrun', 'simctl', 'list', 'devices', '-j']),
-    );
-    return (list && Object.values(list.devices).flat().find((d) => d.udid === udid)) ?? null;
-  };
+  const device = () => findDevice(udid, run);
   const readSaved = (file: string | null): SavedRoute | null => {
     if (!file || !existsSync(file)) return null;
     const plist = json<{ useHostDefaultOutputDevice?: boolean; sim_output_device_uid?: string }>(

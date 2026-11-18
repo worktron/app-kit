@@ -94,6 +94,8 @@ type Stand = {
   listingAfterBuild?: string;
   /** simctl refuses to shut a Simulator down. */
   shutdownRefused?: boolean;
+  /** What `launchctl print-disabled system` inside the Simulator prints, or a failure; a trimmed boot's when left out. */
+  servicesListing?: string | 'fails';
 };
 
 /** Stand-ins for Apple's tools and Tauri, recording each call; the sound step and the watcher are recorded among them. */
@@ -113,6 +115,10 @@ function apple(stand: Stand = {}) {
     if (line.startsWith('xcrun simctl bootstatus ')) {
       booted.add(command[3]);
       return ok();
+    }
+    if (line.startsWith('xcrun simctl spawn ') && line.endsWith(' launchctl print-disabled system')) {
+      if (stand.servicesListing === 'fails') return exit(149, 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to lookup in current state: Shutdown');
+      return ok(stand.servicesListing ?? readFileSync(join(import.meta.dir, 'fixtures/iphone-simulator/print-disabled.txt'), 'utf8'));
     }
     if (line.startsWith('xcrun simctl shutdown ')) {
       if (stand.shutdownRefused) return exit(149, 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to shutdown device in current state: Booted');
@@ -195,6 +201,7 @@ describe('iphone run sim', () => {
       `watcher ${SIMULATOR}`,
       `quiet ${SIMULATOR}`,
       `xcrun simctl bootstatus ${SIMULATOR} -b`,
+      `xcrun simctl spawn ${SIMULATOR} launchctl print-disabled system`,
       `xcrun simctl terminate ${SIMULATOR} ${BUNDLE}`,
       `xcrun simctl install ${SIMULATOR} <app>/src-tauri/gen/apple/build/arm64-sim/Sample App.app`,
       `xcrun simctl launch ${SIMULATOR} ${BUNDLE}`,
@@ -202,6 +209,7 @@ describe('iphone run sim', () => {
     expect(printed).toEqual([
       `using the Simulator "Sample App" (${SIMULATOR})`,
       '[iphone-simulator] simulator sound already goes to BlackHole (silent)',
+      '[iphone-simulator] wallpaper and widgets are switched off in this Simulator, so its boot costs the Mac less',
       `running in the Simulator ${SIMULATOR}`,
       `the Simulator shuts down at ${clock(NOW + 10 * 60_000)}, in 10 minutes: app-kit iphone-simulator keep ${SIMULATOR} moves it to 10 minutes from then, and xcrun simctl shutdown ${SIMULATOR} ends it when the check is done`,
       `screenshot: xcrun simctl io ${SIMULATOR} screenshot <file.png>`,
@@ -360,6 +368,15 @@ describe('iphone run sim', () => {
       'quiet SCRATCH-UDID',
       'xcrun simctl bootstatus SCRATCH-UDID -b',
     ]);
+  });
+
+  test('the line after the boot says when the wallpaper and widgets still run, and never fails the run', async () => {
+    const running = await runIn(app, apple({ servicesListing: 'disabled services = {\n\t"com.apple.pairedsyncd" => enabled\n}\n' }), { target: 'sim' });
+    expect(running.code).toBe(0);
+    expect(running.printed).toContain('[iphone-simulator] wallpaper and widgets run in this Simulator: they are switched off only at a boot from shut down, after the quiet step');
+    const unread = await runIn(app, apple({ servicesListing: 'fails' }), { target: 'sim' });
+    expect(unread.code).toBe(0);
+    expect(unread.printed).toContain('[iphone-simulator] could not read which services the Simulator holds off');
   });
 
   test('a failed build stops before the Simulator is touched, and a failed sound step before the boot', async () => {

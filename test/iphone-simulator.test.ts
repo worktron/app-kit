@@ -2,7 +2,8 @@
 // do, the restart that changes the route of a booted one, and the setting saved for a shut-down one's next boot, run
 // against a stand-in for xcrun and plutil.
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { servicesFile } from '../tauri/iphone-simulator/services.ts';
 import { dirname, join } from 'path';
 import { type AudioRoute, blackHoleIdFromNames, decide, decideShutDown, parseAudioRoute, parseMacAudioDevices, quietSimulator, type Run } from '../tauri/iphone-simulator/index.ts';
 
@@ -139,6 +140,7 @@ describe('quietSimulator', () => {
     const dataPath = mkdtempSync(join(cache, 'iphone-simulator-'));
     mkdirSync(join(dataPath, 'var/run'), { recursive: true });
     const settings = join(dataPath, 'var/run/com.apple.coresimulator.audio.plist');
+    const servicesRoot = join(dataPath, 'host');
     if (!options.erased) writeFileSync(settings, '');
     let saved: Record<string, string | boolean> | null = options.erased
       ? null
@@ -178,6 +180,12 @@ describe('quietSimulator', () => {
         if (options.blackHoleInstalled === false) profile.SPAudioDataType[0]._items = profile.SPAudioDataType[0]._items.filter((item: { _name: string }) => !item._name.startsWith('BlackHole'));
         return { ok: true, out: JSON.stringify(profile) };
       }
+      // The services file the launch manager reads, in a host folder of the test's own: kept as JSON, which the
+      // stand-in's conversion to XML leaves as it is.
+      if (tool === 'plutil' && command.at(-1)!.startsWith(servicesRoot)) {
+        if (a === '-convert' && b === 'json') return { ok: true, out: readFileSync(command.at(-1)!, 'utf8') };
+        if (a === '-convert' && b === 'xml1') return { ok: true, out: '' };
+      }
       if (tool === 'plutil' && a === '-convert') return saved ? { ok: true, out: JSON.stringify(saved) } : { ok: false, out: 'file does not exist' };
       if (tool === 'plutil' && a === '-create' && b === 'binary1') {
         writeFileSync(settings, '');
@@ -191,7 +199,7 @@ describe('quietSimulator', () => {
       }
       return { ok: false, out: `unexpected: ${command.join(' ')}` };
     };
-    return { run, commands, settings, saved: () => saved, done: () => rmSync(dataPath, { recursive: true, force: true }) };
+    return { run, commands, settings, servicesRoot, saved: () => saved, done: () => rmSync(dataPath, { recursive: true, force: true }) };
   }
 
   /** The commands that change something, without the listings and reads. */
@@ -201,7 +209,7 @@ describe('quietSimulator', () => {
   test('a simulator on the speakers is shut down, routed to BlackHole in its settings file, and booted again', () => {
     const sim = simulator();
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({ code: 0, line: '[iphone-simulator] restarted the simulator to send its sound to BlackHole (silent)' });
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({ code: 0, line: '[iphone-simulator] restarted the simulator to send its sound to BlackHole (silent)' });
       const settings = sim.settings;
       expect(changes(sim.commands)).toEqual([
         `xcrun simctl shutdown ${UDID}`,
@@ -218,8 +226,10 @@ describe('quietSimulator', () => {
   test('a second run finds it silent and restarts nothing', () => {
     const sim = simulator({ routed: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({ code: 0, line: '[iphone-simulator] simulator sound already goes to BlackHole (silent)' });
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({ code: 0, line: '[iphone-simulator] simulator sound already goes to BlackHole (silent)' });
       expect(sim.commands.some((c) => c.includes('shutdown') || c.includes('bootstatus'))).toBe(false);
+      // A booted simulator's launch manager rewrites its services file, so it is left alone.
+      expect(existsSync(servicesFile(UDID, sim.servicesRoot))).toBe(false);
     } finally {
       sim.done();
     }
@@ -228,7 +238,7 @@ describe('quietSimulator', () => {
   test('without BlackHole it says how to install it, exits 0 and leaves the simulator running', () => {
     const sim = simulator({ blackHoleInstalled: false });
     try {
-      const { code, line } = quietSimulator(UDID, sim.run);
+      const { code, line } = quietSimulator(UDID, sim.run, sim.servicesRoot);
       expect(code).toBe(0);
       expect(line).toContain('brew install --cask blackhole-2ch');
       expect(sim.commands.some((c) => c.includes('shutdown'))).toBe(false);
@@ -240,7 +250,7 @@ describe('quietSimulator', () => {
   test('a simulator that will not shut down is left as it was, its settings untouched', () => {
     const sim = simulator({ stuckBooted: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({
         code: 0,
         line: "[iphone-simulator] could not shut the simulator down to change its sound, so it plays on the Mac's default device",
       });
@@ -253,7 +263,7 @@ describe('quietSimulator', () => {
   test('a failed boot after its own shutdown exits 1, since the simulator is then down', () => {
     const sim = simulator({ bootFails: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({ code: 1, line: '[iphone-simulator] the simulator did not boot again after the restart for its sound' });
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({ code: 1, line: '[iphone-simulator] the simulator did not boot again after the restart for its sound' });
     } finally {
       sim.done();
     }
@@ -262,7 +272,7 @@ describe('quietSimulator', () => {
   test('a simulator the listing does not know, or one xcrun cannot read, changes nothing', () => {
     const sim = simulator({ unlisted: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({
         code: 0,
         line: "[iphone-simulator] the simulator has no audio settings file yet, so its sound plays on the Mac's speakers until the next run",
       });
@@ -277,9 +287,9 @@ describe('quietSimulator', () => {
   test('a freshly erased simulator gets a settings file holding all four keys, with no boot of its own', () => {
     const sim = simulator({ shutDown: true, erased: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({
         code: 0,
-        line: '[iphone-simulator] set the shut-down simulator to send its sound to BlackHole when it boots (silent)',
+        line: '[iphone-simulator] set the shut-down simulator to send its sound to BlackHole when it boots (silent); wallpaper and widgets switched off for its boot',
       });
       expect(changes(sim.commands)).toEqual([
         `mkdir -p ${dirname(sim.settings)}`,
@@ -307,7 +317,7 @@ describe('quietSimulator', () => {
   test('a shut-down simulator saved on the speakers has only its output keys changed', () => {
     const sim = simulator({ shutDown: true });
     try {
-      expect(quietSimulator(UDID, sim.run).line).toBe('[iphone-simulator] set the shut-down simulator to send its sound to BlackHole when it boots (silent)');
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot).line).toBe('[iphone-simulator] set the shut-down simulator to send its sound to BlackHole when it boots (silent); wallpaper and widgets switched off for its boot');
       expect(changes(sim.commands)).toEqual([
         `plutil -replace sim_output_device_uid -string BlackHole2ch_UID ${sim.settings}`,
         `plutil -replace useHostDefaultOutputDevice -bool false ${sim.settings}`,
@@ -320,9 +330,9 @@ describe('quietSimulator', () => {
   test('a shut-down simulator already saved to BlackHole is left alone', () => {
     const sim = simulator({ shutDown: true, routed: true });
     try {
-      expect(quietSimulator(UDID, sim.run)).toEqual({
+      expect(quietSimulator(UDID, sim.run, sim.servicesRoot)).toEqual({
         code: 0,
-        line: '[iphone-simulator] the shut-down simulator is already set to send its sound to BlackHole when it boots (silent)',
+        line: '[iphone-simulator] the shut-down simulator is already set to send its sound to BlackHole when it boots (silent); wallpaper and widgets switched off for its boot',
       });
       expect(changes(sim.commands)).toEqual([]);
     } finally {
@@ -333,7 +343,7 @@ describe('quietSimulator', () => {
   test('a shut-down simulator without BlackHole gets no settings file and stays shut down', () => {
     const sim = simulator({ shutDown: true, erased: true, blackHoleInstalled: false });
     try {
-      const { code, line } = quietSimulator(UDID, sim.run);
+      const { code, line } = quietSimulator(UDID, sim.run, sim.servicesRoot);
       expect(code).toBe(0);
       expect(line).toContain('brew install --cask blackhole-2ch');
       expect(changes(sim.commands)).toEqual([]);
@@ -347,9 +357,9 @@ describe('quietSimulator', () => {
     const sim = simulator({ shutDown: true });
     const refuse: Run = (command) => (command.includes('-replace') ? { ok: false, out: 'Permission denied' } : sim.run(command));
     try {
-      expect(quietSimulator(UDID, refuse)).toEqual({
+      expect(quietSimulator(UDID, refuse, sim.servicesRoot)).toEqual({
         code: 0,
-        line: "[iphone-simulator] could not save BlackHole in the shut-down simulator's audio settings, so it will play on the Mac's speakers",
+        line: "[iphone-simulator] could not save BlackHole in the shut-down simulator's audio settings, so it will play on the Mac's speakers; wallpaper and widgets switched off for its boot",
       });
     } finally {
       sim.done();
@@ -360,9 +370,9 @@ describe('quietSimulator', () => {
     const sim = simulator({ shutDown: true, erased: true });
     const refuse: Run = (command) => (command[0] === 'mkdir' ? { ok: false, out: 'Permission denied' } : sim.run(command));
     try {
-      expect(quietSimulator(UDID, refuse)).toEqual({
+      expect(quietSimulator(UDID, refuse, sim.servicesRoot)).toEqual({
         code: 0,
-        line: "[iphone-simulator] could not save BlackHole in the shut-down simulator's audio settings, so it will play on the Mac's speakers",
+        line: "[iphone-simulator] could not save BlackHole in the shut-down simulator's audio settings, so it will play on the Mac's speakers; wallpaper and widgets switched off for its boot",
       });
       expect(sim.saved()).toBeNull();
     } finally {

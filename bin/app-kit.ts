@@ -105,7 +105,8 @@ const USAGE = `app-kit <part> <command>
   iphone-simulator quiet <udid>
                               send the simulator <udid>'s sound to BlackHole: a booted
                               one restarts once when it plays elsewhere, a shut-down
-                              one has the setting saved for its next boot; prints
+                              one has the setting saved for its next boot, and its
+                              wallpaper and widgets switched off for that boot; prints
                               one line, and exits 0 even when BlackHole is missing,
                               1 only when the simulator did not boot again
   mac release [--token-only]  from a Tauri app's folder, at landed code: build its Mac app

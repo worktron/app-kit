@@ -10,7 +10,8 @@
  * - Each checkout has its own Simulator, named after the app and, in a linked worktree, the worktree's folder, so two
  *   threads running the same app never install over each other's build or screenshot the other's.
  * - The sound step (../iphone-simulator) runs before the boot, so a new Simulator's first boot is already silent and
- *   no second boot is needed.
+ *   no second boot is needed, and boots with its wallpaper and widgets switched off; after the boot the run reads back
+ *   whether they stayed off.
  * - A Simulator left booted costs the Mac about 250 processes and 4 GB until someone shuts it down, and three left for
  *   hours made it barely usable; so before the boot the run takes one of two places on the Mac and gives the Simulator
  *   a shut-down time and a watcher (../iphone-simulator/lifetime.ts), and a run that fails after the boot, or is
@@ -32,6 +33,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
+import { servicesLine, servicesOff } from '../iphone-simulator/services.ts';
 import { claimMade, clock, keep, type Lifetime, markBooted, MINUTES, recordMade, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
 import { stateFolder } from '../state.ts';
 import { lastLine } from '../testflight/key.ts';
@@ -277,6 +279,9 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
     const booted = await run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], { cwd, env });
     if (booted.code !== 0) return failed(`the Simulator ${udid} did not boot: ${lastLine(booted.out)}`);
     if (held) markBooted(lifetime, udid);
+    // iOS reads the services the sound step switched off only as it boots, and a later runtime may ignore the file.
+    const disabled = await run(['xcrun', 'simctl', 'spawn', udid, 'launchctl', 'print-disabled', 'system'], { cwd, env });
+    print(servicesLine(disabled.code === 0 ? servicesOff(disabled.out) : null));
     await run(['xcrun', 'simctl', 'terminate', udid, app.bundleId], { cwd, env }); // not running is fine
     const installed = await run(['xcrun', 'simctl', 'install', udid, bundle], { cwd, env });
     if (installed.code !== 0) return failed(`could not install ${basename(bundle)} in the Simulator: ${lastLine(installed.out)}`);
