@@ -15,8 +15,16 @@ swiftc -parse-as-library -emit-library -static -emit-module -module-name MenuBar
   || { cat "$log" >&2; exit 1; }
 swiftc -I "$out" -L "$out" -lMenuBarTheme e2e/swiftc-app.swift -o "$out/app" 2>>"$log" || { cat "$log" >&2; exit 1; }
 # With the macOS 27 SDK the module holds the status item session; without it, the check in Panel.swift has gone wrong.
-if [ "$(xcrun --show-sdk-version | cut -d. -f1)" -ge 27 ] && ! nm "$out/libMenuBarTheme.a" | grep ExpandedInterface >/dev/null; then
-  echo "swiftc-build: built with the macOS $(xcrun --show-sdk-version) SDK, but the theme has no status item session" >&2; exit 1
+# The SDK's version comes from its own SDKSettings.plist: `xcrun --show-sdk-version` fails on some Command Line Tools
+# installs ("unable to lookup item 'SDKVersion'"), which once skipped this check without a word.
+sdk=$(xcrun --show-sdk-path)
+version=$(plutil -extract Version raw "$sdk/SDKSettings.plist" 2>/dev/null || true)
+major=${version%%.*}
+case "$major" in
+  '' | *[!0-9]*) echo "swiftc-build: cannot read the macOS SDK's version from $sdk/SDKSettings.plist (got '$version')" >&2; exit 1 ;;
+esac
+if [ "$major" -ge 27 ] && ! nm "$out/libMenuBarTheme.a" | grep ExpandedInterface >/dev/null; then
+  echo "swiftc-build: built with the macOS $version SDK, but the theme has no status item session" >&2; exit 1
 fi
 # The Command Line Tools keep earlier SDKs beside the current one; the newest of the 26 ones stands for an older Mac's.
 older=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | sort -V | tail -1 || true)
