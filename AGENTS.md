@@ -4,7 +4,7 @@ The app baseline as one public package, which apps install from GitHub at a tag.
 
 ## Where things are
 
-Each top folder has its own `AGENTS.md`, with a `CLAUDE.md` beside it that imports it, saying what the folder holds and the rules for changing it. Claude Code loads it once a thread reads, writes or edits a file in that folder; any other agent reads it before changing that folder. `bin/`: the app-kit command. `CHANGES.md`: what an app does when it moves to each version, newest first, written only by the landing.
+Each top folder has its own `AGENTS.md`, with a `CLAUDE.md` beside it that imports it, saying what the folder holds and the rules for changing it. Claude Code loads it once a thread reads, writes or edits a file in that folder; any other agent reads it before changing that folder. `bin/`: the app-kit command. `CHANGES.md`: what an app does when it moves to each version, newest first, written only by the landing; a correction to an entry already released lands as a `Release: none` change.
 
 ## Rules for agents working here
 

@@ -152,6 +152,10 @@ test('a minor change must carry an Apps line, a patch may, none keeps none, and 
   expect(appsOf([{ apps: ['do this and that'], message: `The change\n\nRelease: patch\nApps: do this\n  and that\n${TRAILER}\n` }], 'patch')).toEqual({ lines: ['do this and that'] });
 });
 
+test("an Apps line repeated across a branch's commits is listed once", () => {
+  expect(appsOf([{ apps: ['Add the plugin'], message: '' }, { apps: [' Add the plugin '], message: '' }, { apps: ['Add the plugins'], message: '' }], 'minor')).toEqual({ lines: ['Add the plugin', 'Add the plugins'] });
+});
+
 test('a minor or patch change must say how soon apps take it, the most urgent wins, and one apps must take says what they do', () => {
   const said = (urgencies: string[], message = '') => ({ urgencies, message });
   expect(urgencyOf([said([])], 'patch', [])).toEqual({ refused: expect.stringContaining('a patch change must say how soon apps take it; add an Urgency: line') });

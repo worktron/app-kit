@@ -76,14 +76,14 @@ export function kindOf(commits: { releases: string[]; message: string }[], chang
 /**
  * What an app must do about the change, from each commit's Apps trailer, read unfolded so a wrapped line stays one.
  * A minor change, the kind apps may have to change for, must say; a patch may. An Apps line git did not read as a
- * trailer is refused rather than dropped.
+ * trailer is refused rather than dropped. A line repeated across the branch's commits is listed once.
  */
 export function appsOf(commits: { apps: string[]; message: string }[], kind: Kind): { lines: string[] } | { refused: string } {
   // Each line git read as a trailer starts its own line in the message, so any more lines starting Apps: sit elsewhere.
   if (commits.some((commit) => (commit.message.match(/^apps:/gim)?.length ?? 0) > commit.apps.length)) {
     return { refused: 'an Apps: line is in a commit message but not in its last paragraph, where git reads it; put it beside Release and Co-Authored-By' }
   }
-  const lines = commits.flatMap((commit) => commit.apps.map((value) => value.trim()).filter(Boolean))
+  const lines = [...new Set(commits.flatMap((commit) => commit.apps.map((value) => value.trim()).filter(Boolean)))]
   if (kind === 'minor' && !lines.length) {
     return { refused: `a minor change must say what an app does about it; add an Apps: line beside the Release line, such as "Apps: an extension's manifest moves to its checkout's root", or mark the change patch if apps need do nothing` }
   }
