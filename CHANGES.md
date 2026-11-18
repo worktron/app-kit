@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.69.2
+
+Urgency: next round
+
+- nothing to change; a row's WindowButton now shows its hover, and a row that opens goes dark while the pointer is on its button.
+
 ## v0.69.1
 
 Urgency: next round
