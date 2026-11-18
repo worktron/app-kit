@@ -323,6 +323,41 @@ do {
     check("times are whole milliseconds", json.contains("\"start\":1763430000000"), json)
 }
 
+do {
+    check("an unlocked phone has been unlocked since it started", unlockedSinceRestart(protectedDataAvailable: true) { false })
+    check("a locked phone whose kept file still reads was unlocked since it started, so its wake reads Health and is kept as locked",
+          unlockedSinceRestart(protectedDataAvailable: false) { true })
+    check("a locked phone whose kept file does not read has not been unlocked since it started",
+          !unlockedSinceRestart(protectedDataAvailable: false) { false })
+}
+
+do {
+    let rig = Rig()
+    rig.store.changes = [.add(sample(1))]
+    rig.sender.hold = true
+    let first = DispatchSemaphore(value: 0)
+    let second = DispatchSemaphore(value: 0)
+    var secondResult: SleepResult?
+    rig.sync.sync(.backgroundWake, state: "in the background", dataAvailable: true) { _ in first.signal() }
+    _ = rig.sender.posted.wait(timeout: .now() + 10)
+    rig.sync.sync(.backgroundWake, state: "in the background", dataAvailable: true) { r in
+        secondResult = r
+        second.signal()
+    }
+    rig.settle()
+    // Both callers' deadlines and the running sync's come due together: the waiting wake is answered then, not after
+    // the sync it waits for has had a deadline of its own.
+    rig.deadlines.fire()
+    _ = first.wait(timeout: .now() + 10)
+    let answered = second.wait(timeout: .now() + 10) == .success
+    check("a wake waiting on a stalled send is answered within its own deadline", answered && secondResult?.outcome == .noAnswer)
+    _ = rig.sender.posted.wait(timeout: .now() + 10)
+    check("the sync it waited for still runs after", rig.sender.bodies.count == 2)
+    rig.sender.letGo()
+    rig.deadlines.fire()
+    rig.settle()
+}
+
 if failures > 0 {
     print("\(failures) failed")
     exit(1)

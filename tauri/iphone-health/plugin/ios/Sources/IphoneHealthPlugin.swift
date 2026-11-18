@@ -160,6 +160,19 @@ private let coordinator = SleepSync(
     store: HealthSleepStore(), sender: NetworkSender(), keeping: SavedState(), watcher: HealthWatcher(),
     now: { milliseconds(Date()) }, log: log)
 
+/// A file kept readable from the first unlock after a restart until the next restart, as UserDefaults is, so reading it
+/// tells a locked phone that was unlocked since it started from one that was not.
+private let unlockMarker: URL = {
+    let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    return folder.appendingPathComponent("app-kit-iphone-health-unlocked")
+}()
+
+private func markUnlocked() {
+    guard !FileManager.default.fileExists(atPath: unlockMarker.path) else { return }
+    try? FileManager.default.createDirectory(at: unlockMarker.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try? Data("unlocked".utf8).write(to: unlockMarker, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+}
+
 /// The app's state and whether the phone has been unlocked since it started, read on the main thread as UIKit requires.
 private func appState() -> (state: String, dataAvailable: Bool) {
     let read = { () -> (String, Bool) in
@@ -170,7 +183,11 @@ private func appState() -> (state: String, dataAvailable: Bool) {
         case .inactive: state = "coming to the front"
         default: state = "in the background"
         }
-        return (state, app.isProtectedDataAvailable)
+        if app.isProtectedDataAvailable { markUnlocked() }
+        let unlocked = unlockedSinceRestart(protectedDataAvailable: app.isProtectedDataAvailable) {
+            FileManager.default.contents(atPath: unlockMarker.path) != nil
+        }
+        return (state, unlocked)
     }
     return Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
 }

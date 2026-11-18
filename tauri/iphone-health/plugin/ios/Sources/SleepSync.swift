@@ -18,6 +18,13 @@ let batchLimit = 1000
 /// How long a sync may take before it ends as `no answer`, in seconds, unless iOS ends it sooner.
 let syncDeadline = 25.0
 
+/// Whether the phone has been unlocked since it started, before which the saved state reads as empty and must not be
+/// written. iOS's `isProtectedDataAvailable` is false whenever the phone is locked, so it alone would call every locked
+/// night "not unlocked"; after the first unlock a file kept until then still reads, which `markerReads` asks.
+func unlockedSinceRestart(protectedDataAvailable: Bool, markerReads: () -> Bool) -> Bool {
+    protectedDataAvailable || markerReads()
+}
+
 /// What started a sync (`TRIGGERS` in names.ts).
 enum SleepTrigger: String, Codable {
     case open = "open"
@@ -161,9 +168,15 @@ final class SleepSync {
     private var running = false
     /// Each sync's number, so an answer that comes after its sync ended is dropped.
     private var generation = 0
-    private var current: (trigger: SleepTrigger, state: String, completions: [(SleepResult) -> Void])?
+    /// A caller waiting for its answer, with a number so its own deadline can find it.
+    private struct Waiting {
+        let id: Int
+        let answer: (SleepResult) -> Void
+    }
+    private var callers = 0
+    private var current: (trigger: SleepTrigger, state: String, waiting: [Waiting])?
     private var progress = SleepResult(outcome: .nothingNew)
-    private var next: (trigger: SleepTrigger, state: String, dataAvailable: Bool, completions: [(SleepResult) -> Void])?
+    private var next: (trigger: SleepTrigger, state: String, dataAvailable: Bool, waiting: [Waiting])?
     private var watching = false
 
     init(store: SleepStore, sender: SleepSender, keeping: SleepKeeping, watcher: SleepWatcher,
@@ -220,18 +233,38 @@ final class SleepSync {
 
     /// Send what is new. `state` is the app's state when the trigger came; `dataAvailable` whether the phone has been
     /// unlocked since it started, before which the saved state reads as empty and must not be written.
+    /// Each caller is answered within the deadline from its own arrival, even one that waits for a sync to end before
+    /// its own runs, since iOS gives a wake only so long.
     func sync(_ trigger: SleepTrigger, state: String, dataAvailable: Bool, completion: @escaping (SleepResult) -> Void) {
         queue.async {
+            self.callers += 1
+            let caller = Waiting(id: self.callers, answer: completion)
             if self.running {
+                // A caller that starts a sync is answered by that sync's deadline; one that waits gets its own.
+                self.schedule(self.deadline) { self.queue.async { self.answerLate(caller.id, trigger) } }
                 if self.next == nil {
-                    self.next = (trigger, state, dataAvailable, [completion])
+                    self.next = (trigger, state, dataAvailable, [caller])
                 } else {
-                    self.next!.completions.append(completion)
+                    self.next!.waiting.append(caller)
                 }
                 self.log("\(trigger.rawValue): a sync is running, so this one runs after it")
                 return
             }
-            self.start(trigger, state: state, dataAvailable: dataAvailable, completions: [completion])
+            self.start(trigger, state: state, dataAvailable: dataAvailable, waiting: [caller])
+        }
+    }
+
+    /// Answer a caller whose deadline came while it still waited, as `no answer`. The sync it waited on goes on, and
+    /// one still to run still runs.
+    private func answerLate(_ id: Int, _ trigger: SleepTrigger) {
+        if let at = current?.waiting.firstIndex(where: { $0.id == id }) {
+            let caller = current!.waiting.remove(at: at)
+            log("\(trigger.rawValue): answered at its deadline while the sync goes on")
+            caller.answer(SleepResult(outcome: .noAnswer))
+        } else if let at = next?.waiting.firstIndex(where: { $0.id == id }) {
+            let caller = next!.waiting.remove(at: at)
+            log("\(trigger.rawValue): answered at its deadline while it waited for the sync before it")
+            caller.answer(SleepResult(outcome: .noAnswer))
         }
     }
 
@@ -244,10 +277,10 @@ final class SleepSync {
         }
     }
 
-    private func start(_ trigger: SleepTrigger, state: String, dataAvailable: Bool, completions: [(SleepResult) -> Void]) {
+    private func start(_ trigger: SleepTrigger, state: String, dataAvailable: Bool, waiting: [Waiting]) {
         running = true
         generation += 1
-        current = (trigger, state, completions)
+        current = (trigger, state, waiting)
         progress = SleepResult(outcome: .nothingNew)
         guard dataAvailable else {
             end(.notUnlocked, status: nil)
@@ -343,10 +376,10 @@ final class SleepSync {
             keeping.earlier = Array(earlier.suffix(keptLimit))
         }
         log("\(current.trigger.rawValue) (\(current.state)): \(outcome.rawValue)")
-        for completion in current.completions { completion(result) }
+        for caller in current.waiting { caller.answer(result) }
         if let next = next {
             self.next = nil
-            start(next.trigger, state: next.state, dataAvailable: next.dataAvailable, completions: next.completions)
+            start(next.trigger, state: next.state, dataAvailable: next.dataAvailable, waiting: next.waiting)
         }
     }
 }
