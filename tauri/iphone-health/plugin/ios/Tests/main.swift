@@ -301,21 +301,21 @@ do {
 
 do {
     let rig = Rig(address: nil)
-    rig.sync.watchIfReady(dataAvailable: true)
+    rig.sync.watchIfReady(dataAvailable: true, answered: true)
     rig.settle()
     check("with no address nothing is watched", rig.watcher.registered == 0)
     check("with no address a sync ends at once", rig.run().outcome == .noAddress)
     rig.sync.setAddress("https://hub.example.com/sleep", dataAvailable: true)
     rig.settle()
     check("the page's start with no earlier address registers the watcher", rig.watcher.registered == 1)
-    rig.sync.watchIfReady(dataAvailable: true)
+    rig.sync.watchIfReady(dataAvailable: true, answered: true)
     rig.settle()
     check("the watcher is registered once per process", rig.watcher.registered == 1)
 }
 
 do {
     let rig = Rig()
-    rig.sync.watchIfReady(dataAvailable: false)
+    rig.sync.watchIfReady(dataAvailable: false, answered: true)
     rig.settle()
     check("before the first unlock nothing is watched", rig.watcher.registered == 0)
     rig.store.locked = true
@@ -324,9 +324,43 @@ do {
     rig.sync.setAddress("https://other.example.com/sleep", dataAvailable: false)
     rig.settle()
     check("before the first unlock the address is not replaced", rig.keeping.address == "https://hub.example.com/sleep")
-    rig.sync.watchIfReady(dataAvailable: true)
+    rig.sync.watchIfReady(dataAvailable: true, answered: true)
     rig.settle()
     check("the first unlock registers the watcher", rig.watcher.registered == 1)
+}
+
+do {
+    let rig = Rig()
+    rig.sync.watchIfReady(dataAvailable: true, answered: false)
+    rig.settle()
+    check("before Health's question is answered nothing is watched", rig.watcher.registered == 0)
+    rig.sync.setAddress("https://hub.example.com/sleep", dataAvailable: true)
+    rig.settle()
+    check("the page's start after the answer registers the watcher", rig.watcher.registered == 1)
+}
+
+do {
+    let questions = OneQuestionAtATime()
+    let firstUp = DispatchSemaphore(value: 0)
+    let answerFirst = DispatchSemaphore(value: 0)
+    let secondDone = DispatchSemaphore(value: 0)
+    let lock = NSLock()
+    var order: [String] = []
+    var waited = false
+    func note(_ line: String) { lock.lock(); order.append(line); lock.unlock() }
+    DispatchQueue.global().async {
+        questions.ask({ note("first asked"); firstUp.signal(); answerFirst.wait(); note("first answered") }, waiting: {})
+    }
+    firstUp.wait()
+    DispatchQueue.global().async {
+        questions.ask({ note("second asked") }, waiting: { lock.lock(); waited = true; lock.unlock() })
+        secondDone.signal()
+    }
+    let early = secondDone.wait(timeout: .now() + 0.3)
+    check("a second Health question waits for the first's answer", early == .timedOut && order == ["first asked"])
+    answerFirst.signal()
+    _ = secondDone.wait(timeout: .now() + 5)
+    check("the second question is asked once the first is answered, and says it waited", order == ["first asked", "first answered", "second asked"] && waited)
 }
 
 do {

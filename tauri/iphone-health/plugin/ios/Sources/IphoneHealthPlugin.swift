@@ -218,14 +218,18 @@ private func setUpObservers() {
     observersSetUp = true
     let center = NotificationCenter.default
     center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
-        // iOS still calls the app background as this arrives.
-        runSync(.front, state: "coming to the front") { _ in }
+        healthQuestionAnswered { answered in
+            // Starts the watcher if the launch's check could not, as iOS answered it later.
+            coordinator.watchIfReady(dataAvailable: appState().dataAvailable, answered: answered)
+            // iOS still calls the app background as this arrives.
+            if answered { runSync(.front, state: "coming to the front") { _ in } }
+        }
     }
     center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
         // The first unlock after a restart, for an app iOS started before it: kept, so a wake once the phone locks again
         // still reads Health.
         markUnlocked()
-        coordinator.watchIfReady(dataAvailable: true)
+        healthQuestionAnswered { answered in coordinator.watchIfReady(dataAvailable: true, answered: answered) }
     }
 }
 
@@ -233,8 +237,17 @@ private func setUpObservers() {
 
 /// Ask for Health's types, with iOS's sheet over the app's window. A Tauri app's window is never made the key window, and
 /// HealthKit then makes its sheet and never shows it, so the question waited forever (seen on the iOS 27.2 Simulator);
-/// the window is made key first. Blocks until the person answers.
+/// the window is made key first. Blocks until the person answers, and asks one question at a time, since iOS loses the
+/// answer to a sheet when another question comes while it is up.
+private let questions = OneQuestionAtATime()
+
 private func askForHealth(share: Set<HKSampleType>?, read: Set<HKObjectType>) -> Error? {
+    questions.ask({ askNow(share: share, read: read) }, waiting: {
+        log("another Health question is up, so this one waits for its answer")
+    })
+}
+
+private func askNow(share: Set<HKSampleType>?, read: Set<HKObjectType>) -> Error? {
     let makeKey = {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
         guard !windows.contains(where: { $0.isKeyWindow }), let window = windows.first(where: { !$0.isHidden }) else { return }
@@ -250,6 +263,24 @@ private func askForHealth(share: Set<HKSampleType>?, read: Set<HKObjectType>) ->
     }
     asked.wait()
     return failure
+}
+
+/// Whether Health's question about sleep has been answered, whatever the person chose, which iOS never says. Only a
+/// clear "still to ask" answers false: when iOS cannot say, the watcher and reads go ahead as before, since skipping
+/// them on doubt could stop every wake on a locked phone. Answers on any thread.
+private func healthQuestionAnswered(_ answer: @escaping (Bool) -> Void) {
+    healthStore.getRequestStatusForAuthorization(toShare: [], read: [sleepType]) { status, error in
+        switch status {
+        case .shouldRequest:
+            log("Health's question is not answered yet, so nothing is read or watched until the page's start asks it")
+            answer(false)
+        case .unnecessary:
+            answer(true)
+        default:
+            log("iOS could not say whether Health's question was answered (\(error?.localizedDescription ?? "no reason given")), so the plugin goes ahead")
+            answer(true)
+        }
+    }
 }
 
 // MARK: - The page's commands
@@ -288,9 +319,11 @@ func startDirect(_ addressPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer
         log("refused the address \(address): not a web address")
         return json(["outcome": "bad address"])
     }
-    // iOS never says whether reading was allowed: a refusal reads as no sleep.
+    // iOS never says whether reading was allowed: a refusal reads as no sleep. A question that failed has no answer, and
+    // a watcher or read before one fails for good, so nothing is saved or read.
     if let error = askForHealth(share: nil, read: [sleepType]) {
-        log("asking for Health's sleep failed: \(error.localizedDescription)")
+        log("asking for Health's sleep failed, so nothing is saved or sent: \(error.localizedDescription)")
+        return json(["outcome": "health not asked"])
     }
     let (_, dataAvailable) = appState()
     let saved = DispatchSemaphore(value: 0)
@@ -401,15 +434,16 @@ public class IphoneHealthPlugin: Plugin {
     }
 }
 
-/// Runs before launch finishes, which Apple asks of Health's watcher: with an address saved, the watcher is registered
-/// now, and a launch into the front sends what is new.
+/// Runs before launch finishes, which Apple asks of Health's watcher: with an address saved and Health's question
+/// answered, the watcher is registered now, and a launch into the front sends what is new.
 @_cdecl("init_plugin_iphone_health")
 func initPlugin() -> Plugin {
     let start = {
         setUpObservers()
         let (state, dataAvailable) = appState()
-        coordinator.watchIfReady(dataAvailable: dataAvailable)
-        if state != "in the background" {
+        healthQuestionAnswered { answered in
+            coordinator.watchIfReady(dataAvailable: dataAvailable, answered: answered)
+            guard answered, state != "in the background" else { return }
             coordinator.hasAddress { known in
                 if known { runSync(.open) { _ in } }
             }

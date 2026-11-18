@@ -210,19 +210,21 @@ final class SleepSync {
                 self.keeping.setAnchor(nil, for: address)
                 self.keeping.earlier = []
             }
-            self.watchIfReady(dataAvailable: true)
+            // Only the page's start saves an address, once its Health question is answered.
+            self.watchOnQueue(dataAvailable: true, answered: true)
             done()
         }
     }
 
-    /// Register the watcher once an address is saved and the saved state can be read: at plugin start, after the page's
-    /// start, and at the first unlock after a restart.
-    func watchIfReady(dataAvailable: Bool) {
-        queue.async { self.watchOnQueue(dataAvailable: dataAvailable) }
+    /// Register the watcher once an address is saved, the saved state can be read and Health's question has been answered:
+    /// at plugin start, after the page's start, at the first unlock after a restart and as the app comes to the front.
+    /// A watcher registered before the answer fails and never runs again in that process, so `answered` false waits.
+    func watchIfReady(dataAvailable: Bool, answered: Bool) {
+        queue.async { self.watchOnQueue(dataAvailable: dataAvailable, answered: answered) }
     }
 
-    private func watchOnQueue(dataAvailable: Bool) {
-        guard !watching, dataAvailable, keeping.address != nil else { return }
+    private func watchOnQueue(dataAvailable: Bool, answered: Bool) {
+        guard !watching, dataAvailable, answered, keeping.address != nil else { return }
         watching = true
         log("watching Health for new sleep")
         watcher.register()
@@ -388,5 +390,21 @@ final class SleepSync {
             self.next = nil
             start(next.trigger, state: next.state, dataAvailable: next.dataAvailable, waiting: next.waiting)
         }
+    }
+}
+
+/// Health's questions, one at a time. iOS loses the person's answer to a sheet when a second question comes while it is
+/// up, so a second caller waits until the first has its answer. Blocks, so never call it on the main thread.
+final class OneQuestionAtATime {
+    private let turn = DispatchSemaphore(value: 1)
+
+    /// Run `question` once no other question is up; `waiting` is called first when one is.
+    func ask<T>(_ question: () -> T, waiting: () -> Void) -> T {
+        if turn.wait(timeout: .now()) == .timedOut {
+            waiting()
+            turn.wait()
+        }
+        defer { turn.signal() }
+        return question()
     }
 }

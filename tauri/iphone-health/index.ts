@@ -29,9 +29,9 @@ export {
 
 export type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
-/** How the start's send ended. `no health`, `no permission text` and `bad address` mean nothing was saved or sent. */
+/** How the start's send ended. `no health`, `no permission text`, `bad address` and `health not asked` (iOS's Health question failed) mean nothing was saved or sent. */
 export type HealthStart = {
-  outcome: SleepOutcome | 'no health' | 'no permission text' | 'bad address';
+  outcome: SleepOutcome | 'no health' | 'no permission text' | 'bad address' | 'health not asked';
   samples?: number;
   deleted?: number;
   status?: number | null;
