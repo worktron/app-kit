@@ -171,6 +171,14 @@ test('each device gets one request to its own service, naming the app, and the t
   expect(JSON.parse(sent.body).url).toBe('/alerts/1');
 });
 
+test('ttlSeconds 0 sends apns-expiration 0, which Apple tries once and does not store; any other ttl is now plus ttl', async () => {
+  const d = deps(async () => ({ status: 200 }));
+  await sendToApple([{ token: 'phone', environment: 'production' }], { keep: ['thread-1'] }, { topic: 'com.example.app', ttlSeconds: 0 }, d);
+  await sendToApple([{ token: 'phone', environment: 'production' }], { badge: 2 }, { topic: 'com.example.app', ttlSeconds: 0 }, d);
+  await sendToApple([{ token: 'phone', environment: 'production' }], { title: 't', body: 'b' }, { topic: 'com.example.app', ttlSeconds: 3600 }, d);
+  expect(d.asked.map((r) => r.headers['apns-expiration'])).toEqual(['0', '0', String(NOW / 1000 + 3600)]);
+});
+
 test('a device whose send never answers counts as failed, and the others still go', async () => {
   const d = deps((req) => (req.path.endsWith('/stalled') ? new Promise(() => {}) : Promise.resolve({ status: 200 })), { timeoutMs: 5 });
   const result = await sendToApple(

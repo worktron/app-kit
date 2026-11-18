@@ -1515,7 +1515,7 @@ const result = await sendToApple(devices, { title, body, url: '/alerts/3', tag }
 for (const token of result.gone) await forgetAppleDevice(token);
 ```
 
-`topic` is the iPhone app's bundle id. The push key comes from `APPLE_PUSH_KEY_ID`, `APPLE_PUSH_TEAM_ID` and `APPLE_PUSH_KEY` (the .p8 file's contents); with any missing it sends nothing. `url` is the page a tap opens, and the payload carries only its path, query and fragment, so a debug build whose page runs on a dev server opens the same page there. A device Apple calls unregistered or bad comes back in `gone` for the app to remove; since the phone registers again on its next launch, a token removed by mistake comes back. A send that Apple has not answered in 15 seconds counts as failed.
+`topic` is the iPhone app's bundle id. `ttlSeconds` is how long Apple keeps the push for a phone that is offline. Apple keeps only one push per app for an offline phone, normally the last sent, so a later push replaces an earlier one; `ttlSeconds: 0` tells Apple to try once and not store it, so it reaches a phone that is online and never replaces a push waiting for one that is not. The push key comes from `APPLE_PUSH_KEY_ID`, `APPLE_PUSH_TEAM_ID` and `APPLE_PUSH_KEY` (the .p8 file's contents); with any missing it sends nothing. `url` is the page a tap opens, and the payload carries only its path, query and fragment, so a debug build whose page runs on a dev server opens the same page there. A device Apple calls unregistered or bad comes back in `gone` for the app to remove; since the phone registers again on its next launch, a token removed by mistake comes back. A send that Apple has not answered in 15 seconds counts as failed.
 
 Two more fields keep a notification quiet and put a count on the app's icon:
 

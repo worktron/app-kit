@@ -203,6 +203,10 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
  * Never throws for a device's failure: it is logged, and a token Apple has retired comes back in `gone`. With no push
  * key configured it sends nothing. An alert goes as Apple's `alert` push at priority 10; a keep list as a `background`
  * push at priority 5 with no collapse id, the only way Apple takes a push that wakes the app and shows nothing.
+ * `ttlSeconds` is how long Apple keeps the push for a phone that is offline, sent as `apns-expiration` = now + ttl.
+ * While a phone is offline Apple keeps one push per app, normally the last sent, so a later push replaces an earlier
+ * one. `ttlSeconds: 0` sends `apns-expiration: 0`, Apple's "attempt once, don't store": the push reaches a phone that
+ * is online and is dropped for one that is not, so it never pushes a stored push off.
  */
 export async function sendToApple(
   devices: AppleDevice[],
@@ -223,7 +227,7 @@ export async function sendToApple(
         'apns-topic': opts.topic,
         'apns-push-type': keep ? 'background' : 'alert',
         'apns-priority': keep ? '5' : '10',
-        'apns-expiration': String(Math.floor(deps.now() / 1000) + opts.ttlSeconds),
+        'apns-expiration': opts.ttlSeconds === 0 ? '0' : String(Math.floor(deps.now() / 1000) + opts.ttlSeconds),
       };
       if (payload.tag) headers['apns-collapse-id'] = payload.tag.slice(0, 64);
       const shortToken = `${device.token.slice(0, 12)}…`;
