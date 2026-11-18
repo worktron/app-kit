@@ -44,6 +44,7 @@
     "./tauri/iphone-notifications/server": "./tauri/iphone-notifications/server.ts",
     "./tauri/iphone-sign-in": "./tauri/iphone-sign-in/index.ts",
     "./tauri/iphone-dictation": "./tauri/iphone-dictation/index.ts",
+    "./tauri/iphone-health": "./tauri/iphone-health/index.ts",
     "./tauri/window": "./tauri/window/index.ts",
     "./tauri/playwright": "./tauri/playwright.js",
     "./server/google": "./server/google/index.ts",

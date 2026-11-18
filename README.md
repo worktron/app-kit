@@ -6,7 +6,7 @@ The baseline every app of ours ships with, written once instead of copied from t
 | --- | --- | --- |
 | `web/` | `app-kit/web`, `.../server`, `.../first-paint`, `.../push/server`, `.../push/vite`, `.../playwright`, `.../playwright-webkit` | Web apps: the web client kit, the MUI theme for each look, its sign-in gate and the provider interface the gate takes, the server's sending of the built page, a Vite plugin for the first frame, notifications for a web app on the Home Screen with their worker and the server's sending, and the steps browser tests share. |
 | `extension/` | `app-kit/extension/...` | Browser extensions: the worker files Chrome loads, the Amazon requests never sent among them, the plain look's stylesheet for their pages, the native host, the test harness. |
-| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/iphone-dictation`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; iPhone dictation with punctuation through Apple's speech recognizer, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent and boots it without its wallpaper and widgets; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
+| `tauri/` | `app-kit/tauri/sign-in`, `.../sign-in/server`, `app-kit/tauri/iphone-notifications`, `.../iphone-notifications/server`, `app-kit/tauri/iphone-sign-in`, `app-kit/tauri/iphone-dictation`, `app-kit/tauri/iphone-health`, `app-kit/tauri/window`, `app-kit/tauri/playwright` | Mac and iPhone apps built with Tauri: a window onto the hosted site, with the plugin the shell builds and the Mac menu bar; desktop sign-in through the browser, with its server routes; iPhone notifications through Apple's push service, with the plugin the shell builds and the server's sending; iPhone sign-in in Apple's sign-in sheet, with its plugin; iPhone dictation with punctuation through Apple's speech recognizer, with its plugin; the sleep in Apple Health sent to the app's server, with its plugin; the `app-kit iphone run` command, which builds the app and starts it on a Simulator or a paired iPhone, with at most two Simulators on the Mac at once, each shut down 10 minutes after its app starts; the `app-kit iphone-simulator quiet` command, which keeps a simulator silent and boots it without its wallpaper and widgets; the `app-kit testflight` commands, which upload an iPhone build after each landing; the `app-kit mac` commands, which publish a Mac release every installed copy updates itself to; the bridge faked for browser tests. |
 | `swift/` | the Swift files of `swift/menu-bar` and `swift/mac-app`, built by the app | Mac apps built in Swift: the menu bar theme, with its panel, pieces, tokens and bundled font, and a window's pieces and controls in the plain look; and the Mac app package: the log, launch at login, the Dock icon while a window is open, the native messaging host, the build for About, the refresh after wake and a program run with a time limit. |
 | `command-line/` | `app-kit/command-line` | Command-line tools: the `--version` line with the commit it runs from, help and wrong usage with their exit codes, color on a terminal only, opening the browser with an off switch, the warning when installed from a worktree, a secret read from 1Password, and the runner for outside programs with a time limit. |
 | `authentication/` | `app-kit/authentication/clerk`, `.../clerk/server`, `.../clerk/playwright`, `.../clerk/testing`, `.../stand-in`, `.../stand-in/playwright`, `.../agent-keys`, `.../agent-keys/openapi`, `.../agent-keys/testing`, `.../server-sign-in` | Who is calling: Clerk's adapter, with its test steps and a stand-in for its server API, the test stand-in, keys for agents with their API reference and a check of every route, and whether a server requires sign-in. |
@@ -1575,6 +1575,78 @@ The shell's Info.plist needs the background mode, or iOS never hands the app a l
 ```yaml
 UIBackgroundModes: [remote-notification]
 ```
+
+### iPhone Health
+
+`app-kit/tauri/iphone-health` for the page, and a Tauri plugin for the shell, in `tauri/iphone-health/plugin/`: the sleep stretches in Apple Health, which the Apple Watch writes through the night (in bed, core, deep, REM, awake), sent by the app to its own server. The page gives the plugin the server's address once. From then on the plugin sends every new stretch, and the id of every stretch deleted in Health, by itself, from the phone's native side: when the app opens, each time it comes to the front, and when iOS wakes it in the background because new sleep reached the phone. Only a 2xx answer counts as delivered; anything else sends the same stretches again next time. No Tauri plugin reads Health, and Capacitor's reads sleep with no background wakes, so the plugin is the kit's own. Mosquito is the first app.
+
+When it can send: Health cannot be read while the phone is locked (`errorDatabaseInaccessible`), and the Watch's night often reaches the phone while it is locked, so a background wake then sends nothing and is kept, and the stretches go the next time the app opens. The Watch also passes sleep to the phone in its own time, not at once, so a wake comes minutes to hours after waking. Opening the app always works; the background wake is a bonus. Each wake is answered to iOS when its send ends, failures and the 25 second deadline included, since iOS stops waking an app that fails to answer three times, and each send asks iOS for time to finish when the person leaves the app. Before the first unlock after a restart, the saved address and place in Health's history read as empty, so nothing is read, sent or saved until then.
+
+What the server gets, POSTed as JSON (`SleepPayload` in `app-kit/tauri/iphone-health`, for the server to import):
+
+```json
+{
+  "trigger": "background wake",
+  "state": "in the background",
+  "samples": [{ "uuid": "…", "start": 1763430000000, "end": 1763431800000, "value": "asleepCore", "source": "com.apple.health.…", "device": "Watch7,1" }],
+  "deleted": ["…"],
+  "earlier": [{ "at": 1763452000000, "trigger": "background wake", "state": "in the background", "outcome": "locked", "status": null }]
+}
+```
+
+- `trigger` is what started the send: `open`, `front` or `background wake`. Health's watcher also runs at every launch and whenever sleep changes with the app open, and on the Simulator as the app goes to the background, so a wake iOS gave the app is proven only by `background wake` with `state` `in the background` and stretches it had not sent.
+- Times are milliseconds since 1970. `value` is Apple's case name: `inBed`, `asleepUnspecified`, `asleepCore`, `asleepDeep`, `asleepREM` or `awake`. The Watch writes `awake` only between two sleep stretches, so the night's final wake is the end of its last sleep stretch.
+- `source` is the bundle id of the app that wrote the stretch, and `device` the device as Health gives it (`Watch7,1`, `iPhone17,1`), or null. The Watch's own sleep is a `source` starting `com.apple.health.` with a `device` starting `watch`, compared without case, since Apple's own example is `watch2,4`; a sleep app on the Watch also writes a Watch device.
+- The same stretch can arrive twice, after a success whose answer was lost, so the server keeps stretches by `uuid`. `deleted` is best effort: Health may drop its record of a deletion before a send.
+- `earlier` lists the sends that delivered nothing since the last success (`locked`, `server refused` with its `status`, `no answer`, `read failed`), at most 50, and is cleared by the success that carries it.
+- The first send after an address is given goes back through all the sleep history Health shares, 1000 stretches and deletions per request. A new address starts the history over for it. From iOS 27 Health's sheet asks the person how much history to share, the past 30 days or everything, and the app sees only that.
+- The plugin keeps no keys and adds no headers, and refuses redirects, so the sleep goes only to the address given. iOS refuses plain `http` except to the Mac's own `localhost` on a Simulator. An app whose server is open to the internet needs a key added to the plugin first.
+
+The shell builds the plugin from the kit that bun installed. In `src-tauri/Cargo.toml`:
+
+```toml
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-iphone-health = { path = "../node_modules/app-kit/tauri/iphone-health/plugin" }
+```
+
+In the shell, with the permission granted to the page:
+
+```rust
+#[cfg(target_os = "ios")]
+let builder = builder.plugin(tauri_plugin_iphone_health::init());
+// ...
+#[cfg(target_os = "ios")]
+let page = page.permission("iphone-health:default");
+```
+
+The app needs Health's entitlements and says why it asks, or iOS ends the app at the question; the plugin checks the reason first and answers `no permission text` instead. With Tauri's generated project, in `src-tauri/gen/apple/project.yml`, under the app target's `entitlements: properties:` and `info: properties:`, then `xcodegen generate` in that folder (background delivery needs iOS 15 or later):
+
+```yaml
+entitlements:
+  properties:
+    com.apple.developer.healthkit: true
+    com.apple.developer.healthkit.background-delivery: true
+info:
+  properties:
+    NSHealthShareUsageDescription: Reads your sleep from Apple Health to show when you were asleep and awake.
+```
+
+A development or TestFlight build also needs HealthKit turned on for the app's identifier in the Apple Developer account (Certificates, Identifiers & Profiles), so its profile carries the entitlements.
+
+The page starts it once it knows the address, such as at start-up:
+
+```ts
+import { startIphoneHealth } from 'app-kit/tauri/iphone-health';
+
+const answer = await startIphoneHealth({ endpoint: `${window.location.origin}/api/sleep` });
+// { outcome: 'sent', samples: 6, deleted: 0, status: 200 }, or null anywhere but an iPhone app with the plugin
+```
+
+The first call shows iOS's Health sheet, once. A Tauri app's window is never made the key window, and HealthKit then never shows its sheet, so the plugin makes the window key before it asks. iOS never tells an app whether reading was allowed: a refusal reads as no sleep, so a server that never gets any is checked in the phone's Settings, Health, Data Access & Devices, under the app.
+
+On the Simulator, `simulatorSleep('add')` writes a made-up night to the Simulator's Health (in bed from 22:45, core, deep, REM, a short wake, core again until 4:45), and `simulatorSleep('delete')` deletes the newest stretch the app wrote, since nothing else puts sleep there (`simctl privacy` has no Health grant). It asks for Health's write permission and needs `NSHealthUpdateUsageDescription` in the Info.plist as well; a phone build answers with an error. The Simulator runs no background Health queries, so the background wake is proven only on a phone, by what its sends report.
+
+Every step logs a line starting `[iphone-health]` in the phone's log, such as `[iphone-health] front (coming to the front): sent` and `[iphone-health] background wake (in the background): locked`.
 
 ### iPhone sign-in
 
