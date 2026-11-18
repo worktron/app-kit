@@ -165,10 +165,56 @@ import Testing
     }
 
     @Test func aRowThatOpensLightsOnlyUnderAPointerThatHasTravelledOrWhenAsked() {
-        #expect(Opens.lights(lit: false, over: true, travelled: true))
-        #expect(!Opens.lights(lit: false, over: true, travelled: false), "a pointer at rest, or after a key press, lights nothing")
-        #expect(!Opens.lights(lit: false, over: false, travelled: true))
-        #expect(Opens.lights(lit: true, over: false, travelled: false), "the row the keyboard is on")
+        #expect(Opens.lights(lit: false, over: true, travelled: true, onButton: false))
+        #expect(!Opens.lights(lit: false, over: true, travelled: false, onButton: false), "a pointer at rest, or after a key press, lights nothing")
+        #expect(!Opens.lights(lit: false, over: false, travelled: true, onButton: false))
+        #expect(Opens.lights(lit: true, over: false, travelled: false, onButton: false), "the row the keyboard is on")
+        #expect(!Opens.lights(lit: false, over: true, travelled: true, onButton: true), "the pointer on its own button")
+        #expect(!Opens.lights(lit: true, over: true, travelled: true, onButton: true), "the button's light wins over the keyboard's row")
+    }
+
+    // ── a row's button under the pointer ──────────────────────
+
+    /// The filled button's fill under the pointer: the text color at `WindowButtonBody.filledLit` over the paper.
+    func filledLit(light: Bool) -> UInt32 {
+        Palette.mix(pick(.bg, light: light), pick(.text, light: light), WindowButtonBody<EmptyView>.filledLit)
+    }
+
+    @Test(arguments: [true, false])
+    func aFilledButtonUnderThePointerChangesMoreThanARowLightsAndKeepsItsLabelReadable(light: Bool) {
+        let paper = pick(.bg, light: light), ink = pick(.text, light: light)
+        // A step at least as big as the paper's to the highlight, the change every lit row makes.
+        #expect(Palette.contrast(filledLit(light: light), ink) > Palette.contrast(paper, pick(.hover, light: light)))
+        // The label, in the paper's color, still reads on the fainter fill.
+        #expect(Palette.contrast(filledLit(light: light), paper) >= Palette.readable)
+    }
+
+    @Test(arguments: ["window-button-hover-outlined", "window-button-hover-filled"], [true, false])
+    func aButtonUnderThePointerLightsAndItsRowGoesDark(screen: String, light: Bool) throws {
+        let sample = try #require(windowSamples.first { $0.name == screen })
+        let png = try windowSnapshot(width: sample.width, appearance: light ? Self.light : Self.dark, look: .plain()) { sample.content() }
+        let rep = try #require(NSBitmapImageRep(data: png))
+        let count = try counts(png).count
+        let hover = pick(.hover, light: light), ink = pick(.text, light: light)
+        // No row is lit: the left edge, inside the page's 24 point side, is the paper all the way down.
+        let litRows = (0..<rep.pixelsHigh).filter { y in
+            var pixel = [Int](repeating: 0, count: 4)
+            rep.getPixel(&pixel, atX: 4, y: y)
+            return UInt32(pixel[0] << 16 | pixel[1] << 8 | pixel[2]) == hover
+        }
+        #expect(litRows.isEmpty, "\(litRows.count) rows of pixels lit at the row's edge")
+        // A button 28 points tall and about 100 wide, less its words, fills about 8,000 pixels at scale 2; a word's edges blend into a few hundred.
+        let lit = try near(png, filledLit(light: light), within: 2)
+        if screen.hasSuffix("outlined") {
+            #expect(count[hover, default: 0] > 5000, "the outlined button fills in the highlight: \(count[hover, default: 0])")
+            #expect(count[hover, default: 0] < 20_000, "and only the button: \(count[hover, default: 0])")
+            #expect(count[ink, default: 0] > 5000, "the filled button at rest, in the full text color")
+            #expect(lit < 1000, "no button at three quarters: \(lit)")
+        } else {
+            #expect(lit > 5000, "the filled button at three quarters of the text color: \(lit)")
+            #expect(count[ink, default: 0] < 1000, "no filled button at rest")
+            #expect(count[hover, default: 0] < 1000, "the outlined button at rest, its inside the paper")
+        }
     }
 
     @Test func aRowThatOpensTakesTheClickOnAllOfItAndIsAButtonToVoiceOver() throws {
@@ -179,7 +225,7 @@ import Testing
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/MenuBarTheme/Window.swift"), encoding: .utf8)
         let body = try #require(source.components(separatedBy: "struct Opens: ViewModifier").last)
-        let order = [".background(", ".contentShape(Rectangle())", ".onHover", ".onTapGesture(perform: open)",
+        let order = [".backgroundPreferenceValue(ButtonUnderPointer.self)", ".contentShape(Rectangle())", ".onHover", ".onTapGesture(perform: open)",
                      ".accessibilityLabel(label)", ".accessibilityAddTraits(.isButton)", ".accessibilityAction(.default, open)"]
         let places = try order.map { try #require(body.range(of: $0), "\($0) is missing").lowerBound }
         #expect(places == places.sorted(), "the light, then the click over the same rectangle, then VoiceOver's button")

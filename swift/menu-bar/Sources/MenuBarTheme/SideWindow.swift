@@ -281,8 +281,9 @@ struct SideRowBody<Label: View>: View {
 
 /// A row's button, 28 points tall: `filled` in the text color, with the label in the paper's, for the one step the
 /// window waits on, else outlined in a line. One that is not `enabled` is outlined with its label in muted and does
-/// nothing. It lights under a pointer that has travelled and dims while pressed. VoiceOver and, with the Mac's Keyboard
-/// navigation on, Tab reach it as a button.
+/// nothing. It lights under a pointer that has travelled, an outlined one in the highlight and a filled one at three
+/// quarters of its color, and dims while pressed; a row that opens goes dark while it is lit, so the button's light shows.
+/// VoiceOver and, with the Mac's Keyboard navigation on, Tab reach it as a button.
 public struct WindowButton: View {
     let label: String
     let filled: Bool
@@ -318,10 +319,15 @@ struct WindowButtonBody<Label: View>: View {
     let pressed: Bool
     @State private var over = false
     @Environment(\.pointerTravelled) private var travelled
+    @Environment(\.drawnUnderPointer) private var drawnUnderPointer
     @Environment(\.isEnabled) private var enabled
 
+    /// How much of the text color a filled button keeps under the pointer: at 0.75 the change is larger than the step
+    /// from the paper to the highlight, in light and in dark, and its label in the paper's color still reads above 4.5 to 1.
+    static var filledLit: Double { 0.75 }
+
     var body: some View {
-        let lit = over && travelled && enabled
+        let lit = (over && travelled || drawnUnderPointer) && enabled
         let shape = RoundedRectangle(cornerRadius: Metrics.cornerInside)
         label
             .plain(PlainMetrics.small, weight: filled ? .bold : .regular)
@@ -329,10 +335,31 @@ struct WindowButtonBody<Label: View>: View {
             .lineLimit(1)
             .padding(.horizontal, 12)
             .frame(height: 28)
-            .background(shape.fill(filled ? Palette.text.color.opacity(lit ? 0.85 : 1) : lit ? Palette.hover.color : .clear))
+            .background(shape.fill(filled ? Palette.text.color.opacity(lit ? Self.filledLit : 1) : lit ? Palette.hover.color : .clear))
             .overlay(shape.strokeBorder(filled ? .clear : Palette.borderHi.color, lineWidth: Metrics.line))
             .opacity(pressed ? 0.6 : 1)
             .contentShape(Rectangle())
             .onHover { over = $0 }
+            .preference(key: ButtonUnderPointer.self, value: lit)
+    }
+}
+
+/// Whether a button inside a view is lit under the pointer, which a row that opens reads to go dark while it is, so the one
+/// lit thing is what a click there does.
+struct ButtonUnderPointer: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+struct DrawnUnderPointer: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// A `WindowButton` drawn as if the pointer had travelled onto it, for the kit's own pictures, which no pointer reaches
+    /// off screen. Apps never set it.
+    @_spi(Pictures) public var drawnUnderPointer: Bool {
+        get { self[DrawnUnderPointer.self] }
+        set { self[DrawnUnderPointer.self] = newValue }
     }
 }

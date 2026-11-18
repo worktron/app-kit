@@ -1,5 +1,5 @@
 import AppKit
-import MenuBarTheme
+@_spi(Pictures) import MenuBarTheme
 import SwiftUI
 
 /// The five screens of the Fleet Menu Studies page (rev 3) that the theme is checked against, with the page's text,
@@ -270,7 +270,30 @@ let windowSamples: [Sample] = [
             }
         })
     },
+    // The pointer on a row's own button: the row goes dark and only the button lights, the outlined one in the highlight
+    // and the filled one at three quarters of its color, while the other row's button stays at rest.
+    Sample(name: "window-button-hover-outlined", width: 520, mockup: nil, window: true) { buttonHover(onFilled: false) },
+    Sample(name: "window-button-hover-filled", width: 520, mockup: nil, window: true) { buttonHover(onFilled: true) },
 ]
+
+/// Two issues that open, with the pointer drawn on the filled button of the first or the outlined one of the second. A
+/// pointer on a button is on its row too, so that row is drawn lit as well, and the button under the pointer darkens it.
+@MainActor
+private func buttonHover(onFilled: Bool) -> AnyView {
+    AnyView(WindowPage {
+        SectionLabel("Issues 2", first: true, tone: .error)
+        Lines {
+            WindowRow("The disk is nearly full", detail: "41 GB free of 994 GB. Downloads holds 120 GB.", tone: .error, lit: onFilled,
+                      open: {}) {
+                WindowButton("Show Downloads", filled: true) {}.environment(\.drawnUnderPointer, onFilled)
+            }
+            WindowRow("Backups have not run for 3 days", detail: "The backup disk was last seen on Friday.", tone: .error, lit: !onFilled,
+                      open: {}) {
+                WindowButton("Open settings") {}.environment(\.drawnUnderPointer, !onFilled)
+            }
+        }
+    })
+}
 
 /// One window with a side column, from the Fleet Window Studies page's A and the Buddy System Window Studies page's D: the
 /// chosen thing filled, one that needs the person with its dot, one that is away dimmed, and its page beside it.

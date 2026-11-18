@@ -164,7 +164,8 @@ extension View {
     /// A row of an app's own that opens a thing, as an issue's page: a click anywhere on it calls `open`, and under a
     /// pointer that has travelled (`\.pointerTravelled`), or while `lit`, as the row the keyboard is on, it fills in the
     /// highlight, the side column's selected fill, edge to edge of the view, so the row's own padding is the room the
-    /// light leaves round its words. A button in it keeps its own click. VoiceOver reads it as a button named `label`, as
+    /// light leaves round its words. A button in it keeps its own click, and while the pointer lights that button the row
+    /// goes dark, so only the button shows lit. VoiceOver reads it as a button named `label`, as
     /// "8 minor issues", with its own buttons inside it, and opens it with its default action. `WindowRow(open:)` is the
     /// kit's row with it, named by its name and detail.
     public func opens(_ label: String, lit: Bool = false, _ open: @escaping () -> Void) -> some View {
@@ -179,12 +180,15 @@ struct Opens: ViewModifier {
     @State private var over = false
     @Environment(\.pointerTravelled) private var travelled
 
-    /// Whether the row fills in the highlight: while asked, or under a pointer that has travelled.
-    static func lights(lit: Bool, over: Bool, travelled: Bool) -> Bool { lit || over && travelled }
+    /// Whether the row fills in the highlight: while asked, or under a pointer that has travelled, and never while a button
+    /// of its own is lit under the pointer, so the one lit thing is what a click does.
+    static func lights(lit: Bool, over: Bool, travelled: Bool, onButton: Bool) -> Bool { (lit || over && travelled) && !onButton }
 
     func body(content: Content) -> some View {
         content
-            .background(Self.lights(lit: lit, over: over, travelled: travelled) ? Palette.hover.color : .clear)
+            .backgroundPreferenceValue(ButtonUnderPointer.self) { onButton in
+                Self.lights(lit: lit, over: over, travelled: travelled, onButton: onButton) ? Palette.hover.color : .clear
+            }
             .contentShape(Rectangle())
             .onHover { over = $0 }
             .onTapGesture(perform: open)
