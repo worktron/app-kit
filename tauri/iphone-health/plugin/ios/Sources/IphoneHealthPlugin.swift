@@ -446,8 +446,9 @@ public class IphoneHealthPlugin: Plugin {
     }
 }
 
-/// Runs before launch finishes, which Apple asks of Health's watcher: with an address saved and Health's question
-/// answered, the watcher is registered now, and a launch into the front sends what is new.
+/// Runs before launch finishes. Once iOS says Health's question is answered, a moment later, the watcher is registered
+/// when an address is saved, and a launch into the front sends what is new. A watcher registered after launch still
+/// misses nothing: its first callback, at registration, runs a sync, which reads all that is new since the last send.
 @_cdecl("init_plugin_iphone_health")
 func initPlugin() -> Plugin {
     let start = {

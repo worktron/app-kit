@@ -344,6 +344,7 @@ do {
     let firstUp = DispatchSemaphore(value: 0)
     let answerFirst = DispatchSemaphore(value: 0)
     let secondDone = DispatchSemaphore(value: 0)
+    let secondWaiting = DispatchSemaphore(value: 0)
     let lock = NSLock()
     var order: [String] = []
     var waited = false
@@ -353,11 +354,13 @@ do {
     }
     firstUp.wait()
     DispatchQueue.global().async {
-        questions.ask({ note("second asked") }, waiting: { lock.lock(); waited = true; lock.unlock() })
+        questions.ask({ note("second asked") }, waiting: { lock.lock(); waited = true; lock.unlock(); secondWaiting.signal() })
         secondDone.signal()
     }
-    let early = secondDone.wait(timeout: .now() + 0.3)
-    check("a second Health question waits for the first's answer", early == .timedOut && order == ["first asked"])
+    // The second question has said it waits, the fact that comes before it could be asked; only then is its order read.
+    let reachedWait = secondWaiting.wait(timeout: .now() + 5)
+    lock.lock(); let beforeAnswer = order; lock.unlock()
+    check("a second Health question waits for the first's answer", reachedWait == .success && beforeAnswer == ["first asked"])
     answerFirst.signal()
     _ = secondDone.wait(timeout: .now() + 5)
     check("the second question is asked once the first is answered, and says it waited", order == ["first asked", "first answered", "second asked"] && waited)
