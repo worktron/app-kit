@@ -954,3 +954,9 @@ Written by: app-kit/app-clients
 
 Goal: firstPaint's head script applies no stored text size, so the `#root:empty::before` name paints at the default size and jumps once followTextSize runs. An app cannot fix it alone: setting html.style.fontSize in the head makes followTextSize read that inline size as the app's own root size and multiply again, so 200% draws at 400%. Lifeform's 2026-11-18 upgrade found it while taking v0.69.0's two pictures.
 Done when: firstPaint's head script applies the stored text size (and the phone's probe) before the first paint, followTextSize leaves a root the head already scaled at that size, test/first-paint.test.ts holds a stored 200% painting the name at 200% from the first frame with no jump, and CHANGES says what an app that set its own head size does.
+
+## railway-draining-field · The draining check and README take Railway's settings file's own drainingSeconds
+Written by: app-kit/app-clients
+
+Goal: Railway's command line now writes `deploy: { drainingSeconds: 10 }` into `.railway/railway.ts` when it migrates an app (CLI 5.74.0, seen in Urge Surfer's 2026-11-18 upgrade, whose plan showed the service already holding 10 seconds). The kit's draining check in scripts/kit-features.ts counts only the RAILWAY_DEPLOYMENT_DRAINING_SECONDS variable, so it reports the feature missing for an app that has it, and the README's "Railway's settings" steps say the file has no draining field and tell apps to put the variable in `env` instead.
+Done when: the draining check counts a positive `drainingSeconds` in `.railway/railway.ts` as present, test/kit-features-entries.test.ts holds a made-up app with it counted as having the feature, and the README's migration steps say which Railway command line version writes the field and that either form keeps the draining time.
