@@ -931,3 +931,9 @@ Written by: app-kit/app-clients
 
 Goal: the kit's age words ("5m ago", "3h ago", "yesterday", then the date) live only in TypeScript (web/age.ts), so a Swift Mac window writes its own. Buddy System's (mac/Sources/Core/Pages.swift:115) says "Nh ago" for anything under a day and never "yesterday", so its Mac window and its dashboard word the same time differently. It keeps its own until MacApp or MenuBarTheme has the kit's words, as its 2026-11-18 upgrade reported.
 Done when: MacApp (or MenuBarTheme) has an age function with the TypeScript one's words and its rules for midnight and the reader's time zone, a Swift test holds the same cases as test/age.test.ts, and the README's "Mac app" table names it.
+
+## about-credits · AppBuild.showAbout can show a line about what the app carries
+Written by: app-kit/app-clients
+
+Goal: AppBuild.showAbout (swift/mac-app/Sources/MacApp/AppBuild.swift) shows the app's name, version and commit and nothing else, so an app that carries another program keeps its own About. Buddy System's About adds "Carries Disk Buddy <commit>" (mac/Sources/App/main.swift about()) and keeps its own for that, as its 2026-11-18 upgrade reported.
+Done when: showAbout takes an optional credits line or lines, a test of MacApp holds that they appear under the version, and the README's "Mac app" table says how an app passes them.
