@@ -726,13 +726,6 @@ Goal: a long notification tag with non-ASCII letters reaches the phone and match
 
 Done when: the server cuts the tag at 64 UTF-8 bytes on a whole-character boundary, the same rule as `identifierOf`, and a unit test sends a 40-character "é" tag and checks the header is 64 bytes and equal to what the Swift cut gives.
 
-## buddy-system-rows-open · Buddy System's window rows that open a buddy's page take WindowRow's open:
-Written by: app-kit/window-rows-open
-
-Goal: app-kit v0.65.0 gave the menu bar theme's WindowRow an `open:` action and a public `.opens(_:lit:_:)` modifier: a click anywhere on the row, the page's 24 point sides included, opens it, a button inside keeps its own click, and under a pointer that has travelled the row fills in the highlight out to the window's edges, read by VoiceOver as a button. Buddy System's rows that open a buddy's page still handle the click and hover themselves, so they light and click differently from Fleet's once Fleet adopts the piece. This is Buddy System's change on app-kit, not app-kit's, and goes to a thread in buddy-system once it is on v0.65.0 or later. Noticed by window-rows-open, 2026-11-13.
-
-Done when: each Buddy System window row that opens a page uses WindowRow's `open:` or `.opens`, its own hover fill and tap on those rows are gone, and a snapshot of the window shows a lit row filling edge to edge.
-
 ## row-open-field-click · A text field inside a window row that opens keeps its own click
 Written by: app-kit/window-rows-open
 
