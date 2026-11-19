@@ -283,6 +283,18 @@ private func healthQuestionAnswered(_ answer: @escaping (Bool) -> Void) {
     }
 }
 
+/// On the Simulator, start asks to write sleep too when the app explains writing, so `simulatorSleep` never shows a
+/// second sheet: while any Health sheet about sleep is up, every read of it fails with "Authorization not determined"
+/// and a watcher started then never wakes (seen on the iOS 27.2 Simulator, with a sheet asking only to write). On a
+/// phone, start asks only to read.
+private func writeForMadeUpNights() -> Set<HKSampleType>? {
+    #if targetEnvironment(simulator)
+    return explains("NSHealthUpdateUsageDescription") ? [sleepType] : nil
+    #else
+    return nil
+    #endif
+}
+
 // MARK: - The page's commands
 
 /// Whether the app's Info.plist explains `key`. iOS ends an app that asks for Health without it.
@@ -321,7 +333,7 @@ func startDirect(_ addressPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer
     }
     // iOS never says whether reading was allowed: a refusal reads as no sleep. A question that failed has no answer, and
     // a watcher or read before one fails for good, so nothing is saved or read.
-    if let error = askForHealth(share: nil, read: [sleepType]) {
+    if let error = askForHealth(share: writeForMadeUpNights(), read: [sleepType]) {
         log("asking for Health's sleep failed, so nothing is saved or sent: \(error.localizedDescription)")
         return json(["outcome": "health not asked"])
     }

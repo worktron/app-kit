@@ -66,7 +66,8 @@ export async function startIphoneHealth(options: { endpoint: string; invoke?: In
 /**
  * On the iPhone Simulator, `add` a made-up night to Health (in bed from 22:45, with core, deep, REM, a short wake and
  * core again, ending at 4:45), or `delete` the newest stretch the app wrote. For checking an app's Health sending on a
- * Simulator, since nothing else puts sleep there; it needs `NSHealthUpdateUsageDescription` in the app's Info.plist.
+ * Simulator, since nothing else puts sleep there; it needs `NSHealthUpdateUsageDescription` in the app's Info.plist,
+ * and with it the Simulator's start asks to write as well, so this shows no second sheet.
  * On a phone it answers with an error.
  */
 export async function simulatorSleep(action: 'add' | 'delete', options: { invoke?: Invoke } = {}): Promise<{ added?: string[]; deleted?: string; error?: string }> {
