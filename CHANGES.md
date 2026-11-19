@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.71.0
+
+Urgency: next round
+
+- a Mac app whose window opens on the kit's start page adds .settings_window() to its AppMenu for Settings… with Open at Login (README, A window onto the hosted site).
+
 ## v0.70.3
 
 Urgency: next round
