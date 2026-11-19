@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.70.1
+
+Urgency: rides along
+
+- an app may pass ttlSeconds 0 for a push Apple should not store; nothing to change
+
 ## v0.70.0
 
 Urgency: rides along
