@@ -117,10 +117,12 @@
         line.hidden = !words;
       }
 
-      async function read() {
+      /** Reads macOS's answer and shows it, with the words of a change that failed before it, when there was one. */
+      async function read(failed) {
         if (changing) return;
         try {
-          show(await invoke('open_at_login_status'));
+          const answer = await invoke('open_at_login_status');
+          show(failed ? { ...answer, error: failed.error } : answer, failed?.on);
         } catch (error) {
           line.textContent = `Couldn't read whether ${name} opens at login: ${error}`;
           line.hidden = false;
@@ -134,14 +136,14 @@
         try {
           show(await invoke('open_at_login_set', { on }), on);
         } catch (error) {
-          show({ state: on ? 'off' : 'enabled', error: String(error) }, on);
+          // The change itself was refused, so its words stay beside the state macOS reports now.
           changing = false;
-          return read();
+          return read({ on, error: String(error) });
         }
         changing = false;
       });
       openLoginItems.addEventListener('click', () => invoke('open_login_items'));
-      addEventListener('focus', read);
+      addEventListener('focus', () => read());
       read();
     </script>
   </body>

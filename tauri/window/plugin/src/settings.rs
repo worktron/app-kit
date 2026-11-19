@@ -72,6 +72,14 @@ pub(crate) fn bundled(url: &Url) -> bool {
     }
 }
 
+/// Whether the app's bundle holds the settings page itself. Tauri's own lookup answers a missing page with the bundle's
+/// index.html, so it would pass for an app whose frontendDist is a folder of its own; the bundle's list of files does
+/// not. A debug build with a devUrl bundles nothing, so Settings opens there only in a build without one.
+fn bundles_settings_page<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let page = format!("/{SETTINGS_PAGE}");
+    app.asset_resolver().iter().any(|(key, _)| key == page)
+}
+
 /// Opens the Settings window, or brings it forward when it is open already. An app whose frontendDist is not the kit's
 /// start folder has no settings page, and is told so in the log rather than shown a window with nothing in it.
 pub(crate) fn open<R: Runtime>(app: &AppHandle<R>) {
@@ -83,7 +91,7 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.set_focus();
         return;
     }
-    if app.asset_resolver().get(SETTINGS_PAGE.into()).is_none() {
+    if !bundles_settings_page(app) {
         log::warn!(
             "Settings chosen from the menu, but the app bundles no {SETTINGS_PAGE}: its tauri.conf.json frontendDist must \
              be the kit's start folder (README.md, A window onto the hosted site)"
@@ -217,15 +225,23 @@ mod tests {
     }
 
     /// The app's bundle as Tauri serves it, holding the settings page.
-    struct Bundled;
+    /// The app's bundle as Tauri serves it: the kit's start folder, or a folder of the app's own holding only its
+    /// index.html, which Tauri's lookup hands out for any page it does not have.
+    struct Bundled(&'static [(&'static str, &'static [u8])]);
+
+    const START_FOLDER: Bundled = Bundled(&[
+        ("/index.html", include_bytes!("../../start/index.html")),
+        ("/settings.html", include_bytes!("../../start/settings.html")),
+    ]);
+    const OWN_FOLDER: Bundled = Bundled(&[("/index.html", b"<p>The app's own page</p>")]);
 
     impl<R: Runtime> tauri::Assets<R> for Bundled {
         fn get(&self, key: &tauri::utils::assets::AssetKey) -> Option<std::borrow::Cow<'_, [u8]>> {
-            (key.as_ref() == format!("/{SETTINGS_PAGE}")).then(|| include_bytes!("../../start/settings.html").as_slice().into())
+            self.0.iter().find(|(path, _)| *path == key.as_ref()).map(|(_, bytes)| (*bytes).into())
         }
 
         fn iter(&self) -> Box<tauri::utils::assets::AssetsIter<'_>> {
-            Box::new(std::iter::empty())
+            Box::new(self.0.iter().map(|(path, bytes)| ((*path).into(), (*bytes).into())))
         }
 
         fn csp_hashes(&self, _: &tauri::utils::assets::AssetKey) -> Box<dyn Iterator<Item = tauri::utils::assets::CspHash<'_>> + '_> {
@@ -242,7 +258,7 @@ mod tests {
 
     #[test]
     fn the_settings_window_opens_once_and_its_grant_is_added_with_it() {
-        let app = app(Bundled);
+        let app = app(START_FOLDER);
         let handle = app.handle();
         assert!(handle.get_webview_window(SETTINGS_WINDOW).is_none());
         open(handle);
@@ -257,7 +273,7 @@ mod tests {
 
     #[test]
     fn the_settings_window_takes_the_colors_the_main_window_opened_the_start_page_in() {
-        let app = app(Bundled);
+        let app = app(START_FOLDER);
         assert!(app.state::<SettingsState>().colors.lock().unwrap().is_none());
         let site = crate::Site::new("https://app.example.com".parse().unwrap());
         site.start_page_window(&app, StartPage::new(Color(10, 14, 31, 255), Color(224, 226, 235, 255))).build().unwrap();
@@ -267,10 +283,12 @@ mod tests {
 
     #[test]
     fn an_app_that_bundles_no_settings_page_opens_no_window_and_adds_no_grant() {
-        let app = app(tauri::test::noop_assets());
-        open(app.handle());
-        assert!(app.handle().get_webview_window(SETTINGS_WINDOW).is_none());
-        assert!(!*app.handle().state::<SettingsState>().granted.lock().unwrap());
+        // An empty bundle, and one with an index.html of the app's own, which Tauri's lookup would hand out in its place.
+        for app in [app(Bundled(&[])), app(OWN_FOLDER)] {
+            open(app.handle());
+            assert!(app.handle().get_webview_window(SETTINGS_WINDOW).is_none());
+            assert!(!*app.handle().state::<SettingsState>().granted.lock().unwrap());
+        }
     }
 
     #[test]

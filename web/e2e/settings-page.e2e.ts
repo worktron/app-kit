@@ -21,9 +21,14 @@ const [STATUS, SET, OPEN_LOGIN_ITEMS] = OPEN_AT_LOGIN_COMMANDS.map((command) => 
 
 type Answer = { state: string; error?: string };
 
-/** The Settings page, with macOS answering `status` when asked and `set` when the switch is changed. */
-async function open(page: Page, status: Answer, set?: Answer, settings: Record<string, string> = DARK) {
-  await fakeTauri(page, { macApp: true, answers: { [STATUS]: status, [SET]: set ?? status, [OPEN_LOGIN_ITEMS]: null } });
+/**
+ * The Settings page, with macOS answering `status` when asked and `set` when the switch is changed, or the change
+ * refused by the bridge itself (`'refused'`), which the fake bridge does for a command it has no answer for.
+ */
+async function open(page: Page, status: Answer, set?: Answer | 'refused', settings: Record<string, string> = DARK) {
+  const answers: Record<string, unknown> = { [STATUS]: status, [OPEN_LOGIN_ITEMS]: null };
+  if (set !== 'refused') answers[SET] = set ?? status;
+  await fakeTauri(page, { macApp: true, answers });
   await page.addInitScript(([name, value]) => Object.assign(window, { [name as string]: value }), [SETTINGS_PAGE_SETTINGS, settings] as const);
   await page.route(SETTINGS_ADDRESS, (route) => route.fulfill({ contentType: 'text/html', body: PAGE }));
   await page.goto(SETTINGS_ADDRESS);
@@ -70,6 +75,14 @@ test('a change macOS refuses shows its own words and the state it reports after,
   await expect(toggle(page)).not.toBeChecked();
   await expect(toggle(page)).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath('settings-failed.png') });
+});
+
+test('a change the bridge refuses keeps its words beside the state macOS reports after', async ({ page }) => {
+  await open(page, { state: 'off' }, 'refused');
+  await toggle(page).click();
+  await expect(page.getByRole('status')).toHaveText(`Couldn't turn it on: Error: no ${SET} here`);
+  await expect(toggle(page)).not.toBeChecked();
+  await expect(toggle(page)).toBeEnabled();
 });
 
 test('turning it off when macOS keeps it on says so and stays on', async ({ page }) => {
