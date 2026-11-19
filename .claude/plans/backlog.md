@@ -919,3 +919,9 @@ Written by: app-kit/app-clients
 
 Goal: testing/playwright-dock.js returns {} when Playwright's browser is not installed or the copy cannot be made, so Playwright starts the ordinary browser, which can come to the front of the owner's screen, with only a console line to say so. The owner's rule is that a check never opens a window on their display. Its removeOrphans also deletes a copy whose Playwright build is gone without asking whether a browser still runs from it, which pulls the files from under a test running in another checkout. Perf Buddy keeps its own copy (apps/server/src/e2e/background-browser.ts, whose cleanup skips a copy `ps -axo command=` shows in use) and moves to the kit's once both are fixed; it reported both in the 2026-11-18 round.
 Done when: on a Mac, withoutDockIcon throws with what to run (the install command, or why the copy failed) where it now returns {}, removeOrphans leaves a copy a running process's command line names, test/playwright-dock.test.ts holds both, and CHANGES says what an app whose tests relied on the fallback sees.
+
+## process-usage-arguments · The process reader can give a process's arguments, so an app can tell Chrome's renderers apart
+Written by: app-kit/app-clients
+
+Goal: server/process-usage reads ps with comm= only (window.ts COLUMNS), so parsePs gives a program's path and never its arguments. Perf Buddy tells Chrome renderers apart by --type=renderer and so keeps its own ps parsing (apps/server/src/process-scan.ts), as its 2026-11-18 upgrade reported. Until the reader can give arguments, the README's process-usage section should say it reads the program only.
+Done when: the README says what the reader leaves out today, and either the reader can return each process's arguments on request with a test that tells a renderer from Chrome's main process, or the ticket records why the kit leaves that to apps.
