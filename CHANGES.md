@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.70.3
+
+Urgency: next round
+
+- an iPhone app on the window goes back with a swipe from the left edge, through page loads and in-page moves made on a tap; nothing to change.
+
 ## v0.70.2
 
 Urgency: next round
