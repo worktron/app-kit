@@ -900,3 +900,10 @@ Done when: the quiet step takes a way to keep widgets on (and turns them back on
 Goal: app-kit's quiet step (v0.69.3) writes /private/var/tmp/com.apple.CoreSimulator.SimDevice.<udid>/disabled.plist for each shut-down test iPhone, and nothing removes the folder when that Simulator is deleted, so one tiny folder per deleted Simulator stays until macOS clears /private/var/tmp. iOS writes the same folder for any Simulator that booted, so it is mostly Apple's, but the kit's own deletes could remove it. Found by the simulator-boot-trim thread, 2026-11-18.
 
 Done when: wherever app-kit deletes a Simulator, its folder under /private/var/tmp goes with it, held by a test.
+
+## testflight-declared · iPhone apps declare their own TestFlight uploads, as Mac apps declare their releases
+Written by: app-kit/mac-release-declared
+
+Goal: since v0.67.0 a Mac app joins releases with one line in its own root package.json, `"app-kit": { "mac-release": "<folder>" }`, and `mac watch --owner` finds it among the owners' own repositories (tauri/watch-main.ts declaredApps, tauri/mac-release/watch.ts findApps). The TestFlight watcher still takes fleet's `testflight_watch` list of apps, so adding an iPhone app to TestFlight still takes a change in fleet. The same key, `"testflight": "<folder>"` (for example "mobile"), read by the same discovery, would end that. fleet then swaps its list for owners after every listed app declares, as it did for mac_release_watch (fleet 23bed9bf). Found by the mac-release-declared thread, 2026-11-19.
+
+Done when: the TestFlight watcher, given --owner accounts, finds each app whose main declares "testflight" and uploads it after a landing, held by tests like test/mac-watch.test.ts's discovery tests, and one iPhone app uploads through its declaration with nothing changed in fleet.
