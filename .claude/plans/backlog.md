@@ -960,3 +960,9 @@ Written by: app-kit/app-clients
 
 Goal: Railway's command line now writes `deploy: { drainingSeconds: 10 }` into `.railway/railway.ts` when it migrates an app (CLI 5.74.0, seen in Urge Surfer's 2026-11-18 upgrade, whose plan showed the service already holding 10 seconds). The kit's draining check in scripts/kit-features.ts counts only the RAILWAY_DEPLOYMENT_DRAINING_SECONDS variable, so it reports the feature missing for an app that has it, and the README's "Railway's settings" steps say the file has no draining field and tell apps to put the variable in `env` instead.
 Done when: the draining check counts a positive `drainingSeconds` in `.railway/railway.ts` as present, test/kit-features-entries.test.ts holds a made-up app with it counted as having the feature, and the README's migration steps say which Railway command line version writes the field and that either form keeps the draining time.
+
+## messages-service-login · Messages Service opens at login through the kit's switch, which shows what macOS reports
+
+Goal: Messages Service opens at login through Tauri's autostart plugin, which reports what it last asked for rather than what macOS holds, so a login item turned off or waiting for approval in System Settings still reads as on. app-kit v0.71.0's window plugin has a Settings window whose one switch, "Open <app> when you log in", is backed by macOS's own login items (SMAppService), reads macOS every time the window comes forward and shows a refused change in macOS's words. Moving Messages Service onto it drops the autostart plugin and gives it the same switch every kit app on the start page gets. Found by the settings-window thread, 2026-11-19.
+
+Done when: Messages Service's menu opens the kit's Settings window with `.settings_window()`, the autostart plugin and its permissions are gone, and the installed app's switch, after the user's own click, matches what System Settings › General › Login Items shows.
