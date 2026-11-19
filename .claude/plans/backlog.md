@@ -937,3 +937,9 @@ Written by: app-kit/app-clients
 
 Goal: AppBuild.showAbout (swift/mac-app/Sources/MacApp/AppBuild.swift) shows the app's name, version and commit and nothing else, so an app that carries another program keeps its own About. Buddy System's About adds "Carries Disk Buddy <commit>" (mac/Sources/App/main.swift about()) and keeps its own for that, as its 2026-11-18 upgrade reported.
 Done when: showAbout takes an optional credits line or lines, a test of MacApp holds that they appear under the version, and the README's "Mac app" table says how an app passes them.
+
+## quiet-plain-window · A plain Mac window from the kit drops stray keys without the alert sound
+Written by: app-kit/app-clients
+
+Goal: the kit quiets stray keys (noResponder(for:) on keyDown) only in MenuBarPanel and AppWindow (swift/menu-bar Panel.swift and SideWindow.swift). AppWindow brings the see-through title bar, so an app whose Settings window or web page windows keep the ordinary title bar has no quiet window to take, and every unhandled key plays the alert sound. Buddy System's quiet-plain-windows ticket waits on this, as its 2026-11-18 upgrade reported.
+Done when: MenuBarTheme or MacApp has a plain NSWindow subclass (ordinary title bar) with the same noResponder quiet, a test holds that an unhandled keyDown reaches no beep, and the README says when to take it over AppWindow.
