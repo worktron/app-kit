@@ -966,3 +966,9 @@ Done when: the draining check counts a positive `drainingSeconds` in `.railway/r
 Goal: Messages Service opens at login through Tauri's autostart plugin, which reports what it last asked for rather than what macOS holds, so a login item turned off or waiting for approval in System Settings still reads as on. app-kit v0.71.0's window plugin has a Settings window whose one switch, "Open <app> when you log in", is backed by macOS's own login items (SMAppService), reads macOS every time the window comes forward and shows a refused change in macOS's words. Moving Messages Service onto it drops the autostart plugin and gives it the same switch every kit app on the start page gets. Found by the settings-window thread, 2026-11-19.
 
 Done when: Messages Service's menu opens the kit's Settings window with `.settings_window()`, the autostart plugin and its permissions are gone, and the installed app's switch, after the user's own click, matches what System Settings › General › Login Items shows.
+
+## argon-watcher-start-page · argon-watcher opens on the kit's start page, so it can take the Settings window
+
+Goal: argon-watcher's Mac window bundles its hosted site rather than app-kit's start page folder (tauri/window/start), so it cannot open the kit's Settings window, whose page lives in that folder, and the apps round's "opens at login on the Mac, from Settings" check skips it. Moving it onto the start page also gives it the offline wait the start page has (waits for the site, says when it cannot reach it, retries). Found by the settings-window thread, 2026-11-19.
+
+Done when: argon-watcher's tauri.conf.json names app-kit/tauri/window/start as its frontendDist, its window opens on the start page and moves on to the hosted site, and its menu takes `.settings_window()`, so the apps round counts it.
