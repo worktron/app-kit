@@ -1,42 +1,42 @@
 // The entries of scripts/kit-features.ts after one-tap sign-in (test/kit-features.test.ts), each read from made-up
-// apps on both sides of it and one it does not apply to, laid out as the kit's apps are and committed to scratch
-// repositories under node_modules/.cache, as test/apps.test.ts makes them. None of them asks Apple's servers.
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+// apps on both sides of it and one it does not apply to, laid out as the kit's apps are. Each app is a branch of one
+// scratch repository under node_modules/.cache, written by a single git process, so the test's own processes are the
+// entries' reads, which are what it checks. None of them asks Apple's servers.
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
 import { FEATURES, landedAt } from '../scripts/kit-features.ts';
 import { GIT_IDENTITY_ENV, pathWithGitItself } from './testflight-stand-in.ts';
 
 const env = { ...process.env, PATH: pathWithGitItself(process.env.PATH), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_IDENTITY_ENV };
 let root: string;
 
+const git = (stdin: string, ...args: string[]) => {
+  const p = Bun.spawnSync(['git', ...args], { cwd: root, env, stdin: Buffer.from(stdin), stdout: 'pipe', stderr: 'pipe' });
+  if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr}`);
+};
+
 beforeAll(() => {
   const cache = join(import.meta.dir, '../node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   root = mkdtempSync(join(cache, 'app-kit-feature-entries-'));
+  git('', 'init', '-q', '--bare');
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const git = (cwd: string, ...args: string[]) => {
-  const p = Bun.spawnSync(['git', ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' });
-  if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr}`);
-};
+// One block of git fast-import's stream: its length in bytes, then the text.
+const data = (text: string) => `data ${Buffer.byteLength(text)}\n${text}\n`;
 
 let made = 0;
 /** One entry's answer for a made-up app holding these files: has, lacks, or not asked when it does not apply. */
 async function verdict(feature: string, files: Record<string, string>) {
   const entry = FEATURES.find((each) => each.feature === feature);
   if (!entry) throw new Error(`no entry named ${feature}`);
-  const dir = join(root, `app-${++made}`);
-  for (const [path, text] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), text);
-  }
-  git(dir, 'init', '-q', '-b', 'main');
-  git(dir, 'add', '-A');
-  git(dir, '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'App');
-  const landed = landedAt(dir, 'HEAD');
+  const branch = `app-${++made}`;
+  const written = Object.entries(files).map(([path, text]) => `M 100644 inline ${path}\n${data(text)}`);
+  git(`commit refs/heads/${branch}\ncommitter Worktron <kit@example.com> 0 +0000\n${data('App')}${written.join('')}`, 'fast-import', '--quiet');
+  const landed = landedAt(root, branch);
   return entry.appliesTo(landed) ? await entry.present(landed, async () => ({ failed: 'these entries never ask Apple' })) : 'not asked';
 }
 
@@ -131,45 +131,58 @@ test("with the sign-in gate, an error boundary has the placeholder, however its 
   expect(await verdict(PLACEHOLDER, { 'client/src/App.tsx': '<ErrorBoundary>\n' })).toBe('not asked');
 });
 
-test('an app with the sign-in gate draws its name before the code, in one picture or two, never a blank page', async () => {
+describe('an app with the sign-in gate draws its name before the code, in one picture or two, never a blank page', () => {
   const NAME = 'the name drawn before the code, never a blank page';
   const page = (style: string, head = '') => `<!doctype html><html><head>${head}<style>${style}</style></head><body><div id="root"></div></body></html>\n`;
   const one = "#root:empty::before {\n  content: 'Shop';\n  padding-top: 20vh;\n}\n";
   const two = "html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
   const gate = (props = '') => `import { SignInGate } from 'app-kit/web';\n<SignInGate provider={provider} placeholder={<Wordmark />}${props} signedOut={<Home />}>\n`;
   const firstPaint = { 'vite.config.ts': "import { firstPaint } from 'app-kit/web/first-paint';\nplugins: [firstPaint({ schemes })]\n" };
-  // One picture, held by the gate until the screen draws, as Getter's: right for a screen that never shows the name.
-  expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/main.tsx': gate() })).toBe('has');
-  // Two, with the bar's picture given to the gate and the mark set by firstPaint, or by the page's own line.
-  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('has');
-  const ownLine = "<script>try { if (localStorage.getItem('app-kit.signedIn') === '1') document.documentElement.setAttribute('data-signed-in-before', '') } catch {}</script>";
-  expect(await verdict(NAME, { 'client/index.html': page(two, ownLine), 'client/src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('has');
-  // The gate under another name, as Timescale renders it, read wherever the setting is.
   const renamed = "import { SignInGate as KitSignInGate } from 'app-kit/web';\n<KitSignInGate provider={provider} whileReturning={<BarName />}>\n";
-  expect(await verdict(NAME, { 'index.html': page(two), 'src/Gate.tsx': renamed, ...firstPaint })).toBe('has');
 
-  // Nothing before the code, as Matter, or nothing at all.
-  expect(await verdict(NAME, { 'index.html': page('body { margin: 0; }'), 'src/main.tsx': gate() })).toBe('lacks');
-  expect(await verdict(NAME, { 'index.html': page('#root:empty::before { max-width: 560px; }'), 'src/main.tsx': gate() })).toBe('lacks');
-  // A blank page while sign-in loads, as Timescale's, under its renamed gate.
-  expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/SignInGate.tsx': renamed.replace('{<BarName />}', '{null}') })).toBe('lacks');
-  // The bar's picture with no picture for the gate, so the name jumps twice, or with nothing to set the mark.
-  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
-  expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('lacks');
-  // Two rules, one of which draws nothing: that kind of browser opens blank.
-  const barWithoutName = "html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { padding: 12px 16px; }\nhtml[data-signed-in-before] #root:empty::after { content: ''; }\n";
-  const homeWithoutName = "html:not([data-signed-in-before]) #root:empty::before { padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
-  expect(await verdict(NAME, { 'index.html': page(barWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
-  expect(await verdict(NAME, { 'index.html': page(homeWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
-  // A rule whose content draws nothing, '' or none, is no name either.
-  for (const nothing of ["''", 'none']) {
-    const blankBar = two.replace("html[data-signed-in-before] #root:empty::before { content: 'Shop';", `html[data-signed-in-before] #root:empty::before { content: ${nothing};`);
-    expect(await verdict(NAME, { 'index.html': page(blankBar), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
-  }
-  // A picture only for a browser not signed in last time, and none for one that was, which then opens blank.
-  expect(await verdict(NAME, { 'index.html': page("html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; }\n"), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
+  test("one picture, or two with the bar's picture given to the gate and the mark set", async () => {
+    // One picture, held by the gate until the screen draws, as Getter's: right for a screen that never shows the name.
+    expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/main.tsx': gate() })).toBe('has');
+    // Two, with the bar's picture given to the gate and the mark set by firstPaint, or by the page's own line.
+    expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('has');
+    const ownLine = "<script>try { if (localStorage.getItem('app-kit.signedIn') === '1') document.documentElement.setAttribute('data-signed-in-before', '') } catch {}</script>";
+    expect(await verdict(NAME, { 'client/index.html': page(two, ownLine), 'client/src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('has');
+    // The gate under another name, as Timescale renders it, read wherever the setting is.
+    expect(await verdict(NAME, { 'index.html': page(two), 'src/Gate.tsx': renamed, ...firstPaint })).toBe('has');
+  });
 
-  expect(await verdict(NAME, { 'index.html': page(one), 'src/main.tsx': "import { request } from 'app-kit/web';\n" })).toBe('not asked');
+  test('nothing before the code, or a blank page while sign-in loads', async () => {
+    // Nothing before the code, as Matter, or nothing at all.
+    expect(await verdict(NAME, { 'index.html': page('body { margin: 0; }'), 'src/main.tsx': gate() })).toBe('lacks');
+    expect(await verdict(NAME, { 'index.html': page('#root:empty::before { max-width: 560px; }'), 'src/main.tsx': gate() })).toBe('lacks');
+    // A blank page while sign-in loads, as Timescale's, under its renamed gate.
+    expect(await verdict(NAME, { 'client/index.html': page(one), 'client/src/SignInGate.tsx': renamed.replace('{<BarName />}', '{null}') })).toBe('lacks');
+  });
+
+  test("the bar's picture with no picture for the gate, or with nothing to set the mark", async () => {
+    // The bar's picture with no picture for the gate, so the name jumps twice, or with nothing to set the mark.
+    expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
+    expect(await verdict(NAME, { 'index.html': page(two), 'src/main.tsx': gate(' whileReturning={<BarName />}') })).toBe('lacks');
+  });
+
+  test('a picture that draws nothing for one kind of browser', async () => {
+    // Two rules, one of which draws nothing: that kind of browser opens blank.
+    const barWithoutName = "html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { padding: 12px 16px; }\nhtml[data-signed-in-before] #root:empty::after { content: ''; }\n";
+    const homeWithoutName = "html:not([data-signed-in-before]) #root:empty::before { padding-top: 20vh; }\nhtml[data-signed-in-before] #root:empty::before { content: 'Shop'; padding: 12px 16px; }\n";
+    expect(await verdict(NAME, { 'index.html': page(barWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+    expect(await verdict(NAME, { 'index.html': page(homeWithoutName), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+    // A rule whose content draws nothing, '' or none, is no name either.
+    for (const nothing of ["''", 'none']) {
+      const blankBar = two.replace("html[data-signed-in-before] #root:empty::before { content: 'Shop';", `html[data-signed-in-before] #root:empty::before { content: ${nothing};`);
+      expect(await verdict(NAME, { 'index.html': page(blankBar), 'src/main.tsx': gate(' whileReturning={<BarName />}'), ...firstPaint })).toBe('lacks');
+    }
+    // A picture only for a browser not signed in last time, and none for one that was, which then opens blank.
+    expect(await verdict(NAME, { 'index.html': page("html:not([data-signed-in-before]) #root:empty::before { content: 'Shop'; }\n"), 'src/main.tsx': gate(), ...firstPaint })).toBe('lacks');
+  });
+
+  test('an app without the gate is not asked', async () => {
+    expect(await verdict(NAME, { 'index.html': page(one), 'src/main.tsx': "import { request } from 'app-kit/web';\n" })).toBe('not asked');
+  });
 });
 
 test("a server calling Google's APIs with a grant reads the answers through the kit; fonts, Books and scope names are not calls", async () => {
