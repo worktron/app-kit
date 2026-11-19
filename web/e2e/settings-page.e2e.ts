@@ -79,8 +79,13 @@ test('a change macOS refuses shows its own words and the state it reports after,
 
 test('a change the bridge refuses keeps its words beside the state macOS reports after', async ({ page }) => {
   await open(page, { state: 'off' }, 'refused');
+  await expect(toggle(page)).toBeEnabled();
+  const reads = async () => (await commands(page)).filter((command) => command === STATUS).length;
+  const before = await reads();
   await toggle(page).click();
   await expect(page.getByRole('status')).toHaveText(`Couldn't turn it on: Error: no ${SET} here`);
+  // The state shown is macOS's, read again after the refusal, not the click's.
+  expect(await reads()).toBe(before + 1);
   await expect(toggle(page)).not.toBeChecked();
   await expect(toggle(page)).toBeEnabled();
 });
