@@ -36,7 +36,15 @@ import {
   useWindowFullScreen,
   useWindowMenu,
 } from '../tauri/window';
-import { START_PAGE_HEALTH, START_PAGE_SETTINGS } from '../tauri/window/names';
+import {
+  OPEN_AT_LOGIN_COMMANDS,
+  OPEN_AT_LOGIN_STATES,
+  SETTINGS_PAGE,
+  SETTINGS_PAGE_SETTINGS,
+  SETTINGS_WINDOW,
+  START_PAGE_HEALTH,
+  START_PAGE_SETTINGS,
+} from '../tauri/window/names';
 
 const plugin = join(import.meta.dir, '../tauri/window/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -101,12 +109,35 @@ test('the window hands the start page its settings under the name the page reads
   expect(readFileSync(join(import.meta.dir, '../server/start/index.ts'), 'utf8')).toContain(`app.get('${START_PAGE_HEALTH}'`);
 });
 
-test("the README's frontendDist is the start page's folder in the kit bun installed, which holds the page alone", () => {
+test('the Settings window, its page and its commands go by the names the page and the build use', () => {
+  const settings = read('src/settings.rs');
+  expect(constant(settings, 'SETTINGS_WINDOW')).toBe(SETTINGS_WINDOW);
+  expect(constant(settings, 'SETTINGS_PAGE')).toBe(SETTINGS_PAGE);
+  expect(constant(settings, 'SETTINGS_PAGE_SETTINGS')).toBe(SETTINGS_PAGE_SETTINGS);
+  const build = read('build.rs');
+  expect(build).toContain(`const COMMANDS: &[&str] = &[${OPEN_AT_LOGIN_COMMANDS.map((command) => `"${command}"`).join(', ')}];`);
+  // Tauri names each command's permission allow-<command, with dashes>, which the window's grant names.
+  for (const command of OPEN_AT_LOGIN_COMMANDS) {
+    expect(settings).toContain(`"app-kit-window:allow-${command.replaceAll('_', '-')}"`);
+    expect(settings).toContain(`pub(crate) fn ${command}(`);
+  }
+  const page = readFileSync(join(import.meta.dir, '../tauri/window/start', SETTINGS_PAGE), 'utf8');
+  expect(page).toContain(`window.${SETTINGS_PAGE_SETTINGS}`);
+  expect(page).toContain('`plugin:app-kit-window|${command}`');
+  for (const command of OPEN_AT_LOGIN_COMMANDS) expect(page).toContain(`invoke('${command}'`);
+  for (const state of OPEN_AT_LOGIN_STATES) expect(page).toContain(`'${state}'`);
+  // The Rust's states, as serde names them from the enum's variants in kebab case.
+  const loginItem = read('src/login_item.rs');
+  const variants = loginItem.match(/pub\(crate\) enum State \{([^}]*)\}/)![1]!.match(/\w+/g)!;
+  expect(variants.map((variant) => variant.replace(/(?<!^)[A-Z]/g, (letter) => `-${letter}`).toLowerCase())).toEqual([...OPEN_AT_LOGIN_STATES]);
+});
+
+test("the README's frontendDist is the start page's folder in the kit bun installed, which holds the two pages alone", () => {
   const readme = readFileSync(join(import.meta.dir, '../README.md'), 'utf8');
   const dist = readme.match(/"frontendDist": "\.\.\/node_modules\/app-kit\/([^"]+)"/)![1]!;
   expect(dist).toBe('tauri/window/start');
   // Tauri bundles the whole folder into every app.
-  expect(readdirSync(join(import.meta.dir, '..', dist))).toEqual(['index.html']);
+  expect(readdirSync(join(import.meta.dir, '..', dist)).sort()).toEqual(['index.html', SETTINGS_PAGE]);
 });
 
 /** What the Mac window does to tell the page: sets the flag, then dispatches the event. */

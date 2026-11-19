@@ -8,6 +8,8 @@ description = "A Tauri window onto an app's hosted site, with desktop sign-in's 
 edition = "2021"
 rust-version = "1.77.2"
 publish = false
+# Tauri's name for the plugin's permissions (`app-kit-window:allow-…`), which an app's build reads through it.
+links = "tauri-plugin-app-kit-window"
 
 [dependencies]
 # 2.12.5 restarts a Mac app through macOS (LaunchServices), which src/relaunch.rs does too, waiting for the old copy
@@ -15,6 +17,7 @@ publish = false
 tauri = "2.12.5"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 
@@ -22,6 +25,13 @@ log = "0.4"
 dispatch2 = "0.3"
 # The Mac app's updates from its releases (updates.rs), turned on by plugins.updater in the app's tauri.conf.json.
 tauri-plugin-updater = "2.14"
+# Opening the app at login through macOS's own login items (login_item.rs), for the Settings window's switch.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSString"] }
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 # Turns on the iPhone web view's swipe back (src/iphone.rs), which Tauri has no setting for.
@@ -30,6 +40,8 @@ objc2 = "0.6"
 [dev-dependencies]
 base64 = "0.23"
 minisign = "0.10.0"
+# The Settings window's permission test reads the permission files build.rs writes, as an app's build does.
+toml = "0.9"
 tauri = { version = "2.12.5", features = ["test"] }
 # The README's shell registers these, and tests/readme.rs compiles it.
 tauri-plugin-deep-link = "2"

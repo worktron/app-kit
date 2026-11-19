@@ -11,8 +11,9 @@
 //!   back through the site's pages and in-page moves, which iOS keeps off (iphone.rs);
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
-//!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), and updates from the app's
-//!   releases when its tauri.conf.json has plugins.updater (updates.rs).
+//!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), updates from the app's
+//!   releases when its tauri.conf.json has plugins.updater (updates.rs), and the kit's Settings window, with its switch
+//!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it.
 //!
 //! Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be. README.md's
 //! "A window onto the hosted site" shows an app's shell.
@@ -23,16 +24,22 @@ mod sign_in;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod iphone;
 #[cfg(target_os = "macos")]
+mod login_item;
+#[cfg(target_os = "macos")]
 mod mac;
 #[cfg(target_os = "macos")]
 mod menu;
 #[cfg(target_os = "macos")]
 mod relaunch;
 #[cfg(target_os = "macos")]
+mod settings;
+#[cfg(target_os = "macos")]
 mod updates;
 
 #[cfg(target_os = "macos")]
 pub use menu::{update_item, AppMenu, FILE_MENU, VIEW_MENU};
+#[cfg(target_os = "macos")]
+pub use settings::SETTINGS_WINDOW;
 
 use links::{link_decision, loggable, new_window_decision, Link};
 use tauri::ipc::CapabilityBuilder;
@@ -57,7 +64,7 @@ const MISSING_OPENER: &str = "app-kit's window sends links out through the opene
 /// Where the window hands the start page its settings, and the health route it asks by default (names.ts).
 const START_PAGE_SETTINGS: &str = "__APP_KIT_START_PAGE__";
 const START_PAGE_HEALTH: &str = "/api/health";
-/// The start page, the only file in the folder an app's frontendDist names.
+/// The start page, in the folder an app's frontendDist names, which holds it and the Settings page alone.
 const START_PAGE: &str = "index.html";
 
 /// What the kit's start page shows in an app's own colors: its background, which is also the window's first frame, and
@@ -170,6 +177,8 @@ impl Site {
     /// is the page's background. The app adds its title and size, as for `window`, and builds it.
     pub fn start_page_window<'a, R: Runtime, M: Manager<R>>(&self, manager: &'a M, page: StartPage) -> WebviewWindowBuilder<'a, R, M> {
         let script = self.start_page_script(&manager.package_info().name, &page);
+        #[cfg(target_os = "macos")]
+        settings::keep_colors(manager, &page);
         log::info!("the window opens on the start page, which goes on to {} once it answers", loggable(&self.address));
         self.window(manager, WebviewUrl::App(START_PAGE.into())).background_color(page.background).initialization_script(script)
     }
@@ -200,6 +209,13 @@ impl Site {
                 iphone::allow_swipe_back(&webview);
             }
         });
+        // The Settings window's switch, which only that window is granted (settings.rs).
+        #[cfg(target_os = "macos")]
+        let builder = builder.invoke_handler(tauri::generate_handler![
+            settings::open_at_login_status,
+            settings::open_at_login_set,
+            settings::open_login_items
+        ]);
         builder
             .setup(|app, _api| {
                 if app.try_state::<tauri_plugin_opener::Opener<R>>().is_none() {
@@ -208,6 +224,7 @@ impl Site {
                 #[cfg(target_os = "macos")]
                 {
                     app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
+                    app.manage(settings::SettingsState::default());
                     updates::start(app);
                 }
                 Ok(())
@@ -290,6 +307,10 @@ fn send_out<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &str) {
 }
 
 fn navigation<R: Runtime>(webview: &Webview<R>, url: &Url, site: &Site) -> bool {
+    #[cfg(target_os = "macos")]
+    if webview.label() == settings::SETTINGS_WINDOW {
+        return settings_navigation(webview.app_handle(), url);
+    }
     if !on_main(webview.label()) {
         return true;
     }
@@ -314,6 +335,20 @@ fn navigation<R: Runtime>(webview: &Webview<R>, url: &Url, site: &Site) -> bool 
             false
         }
     }
+}
+
+/// The Settings window stays on its bundled page, since its grant is for that page alone: a web, mail, phone or text
+/// link goes out as from the main window, and anything else does nothing.
+#[cfg(target_os = "macos")]
+fn settings_navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
+    if settings::bundled(url) {
+        return true;
+    }
+    match new_window_decision(url) {
+        Link::SendOut => send_out(app, url, "a link from Settings"),
+        Link::Keep | Link::Refuse => log::info!("Settings stays on its page: did nothing with a link to {}", loggable(url)),
+    }
+    false
 }
 
 fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {

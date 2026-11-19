@@ -33,7 +33,7 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             .build(),
     );
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(|app| AppMenu::new().settings().sign_out().commit(COMMIT).build(app));
+    let builder = builder.menu(|app| AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app));
     let builder = builder.plugin(site.plugin());
     builder.setup(move |app| {
         app.add_capability(site.capability())?;

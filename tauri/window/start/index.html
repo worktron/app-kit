@@ -10,8 +10,8 @@
       Try again, and goes on by itself once it can. The window plugin hands it the site's address, the app's name and
       its colors before this script runs (Site::start_page_window in plugin/src/lib.rs), under the name
       START_PAGE_SETTINGS in names.ts. It uses no Tauri permission, so it needs nothing granted beyond the plugin's own
-      grant. An app's tauri.conf.json points frontendDist at this folder, which holds nothing else, since Tauri bundles
-      the whole folder.
+      grant. An app's tauri.conf.json points frontendDist at this folder, which holds only this page and the Settings
+      page beside it (settings.html), since Tauri bundles the whole folder.
     -->
     <style>
       html,

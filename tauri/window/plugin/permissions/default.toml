@@ -1,0 +1,3 @@
+[default]
+description = "Grants nothing. The Settings window's switch, which opens the app at login, is granted to the kit's Settings window alone, by the capability the plugin adds when it opens (src/settings.rs)."
+permissions = []

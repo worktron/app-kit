@@ -24,6 +24,8 @@ fn main() {
     let cases = [
         ("an app with settings and sign-in", &app, AppMenu::new().settings().sign_out().commit("3f2a9c1"), WITH_BOTH),
         ("an app with neither", &app, AppMenu::new(), WITH_NEITHER),
+        // The kit's own Settings window takes the same place and shortcut as the page's Settings….
+        ("an app with the kit's Settings window", &app, AppMenu::new().settings_window(), WITH_SETTINGS_WINDOW),
         ("an app that updates itself", &updating, AppMenu::new(), WITH_UPDATES),
     ];
     for (name, app, menu, expected) in cases {
@@ -152,6 +154,46 @@ const WITH_UPDATES: &str = "
 const WITH_NEITHER: &str = "
     test
       About test
+      -
+      Services
+      -
+      Hide test ⌘H
+      Hide Others ⌥⌘H
+      Show All
+      -
+      Quit test ⌘Q
+    File
+      Close Window ⌘W
+    Edit
+      Undo ⌘Z
+      Redo ⇧⌘Z
+      -
+      Cut ⌘X
+      Copy ⌘C
+      Paste ⌘V
+      Select All ⌘A
+    View
+      Actual Size ⌘0
+      Zoom In ⌘=
+      Zoom Out ⌘-
+      -
+      Reload ⌘R
+      -
+      Enter Full Screen ⌃⌘F
+    Window
+      Minimize ⌘M
+      Zoom
+      -
+      Bring All to Front
+";
+
+/// Settings… opening the kit's own window, with no Sign Out.
+#[cfg(target_os = "macos")]
+const WITH_SETTINGS_WINDOW: &str = "
+    test
+      About test
+      -
+      Settings… ⌘,
       -
       Services
       -

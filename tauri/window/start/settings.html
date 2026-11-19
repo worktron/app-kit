@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings</title>
+    <!--
+      app-kit's Settings window on the Mac (README.md, "A window onto the hosted site"), which Settings… (⌘,) opens for an
+      app whose menu asks for it (AppMenu::settings_window): one switch that opens the app when the person logs in,
+      through macOS's own login items. It shows what macOS reports, read when the page loads, when the window comes
+      forward and after every change, never what was clicked. The window plugin hands it the app's name and, when the
+      app opens on the start page, its colors before this script runs (plugin/src/settings.rs), under the name
+      SETTINGS_PAGE_SETTINGS in names.ts; the commands and states are names.ts's too. Only this window is granted the
+      commands. It sits beside the start page, since an app's frontendDist names this folder.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --background: Canvas;
+        --text: CanvasText;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background: var(--background);
+        color: var(--text);
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: default;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main {
+        padding: 24px 28px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      input[type='checkbox'] {
+        margin: 0;
+        flex: none;
+      }
+      #line {
+        margin: 10px 0 0;
+        opacity: 0.7;
+      }
+      #line[hidden],
+      #open-login-items[hidden] {
+        display: none;
+      }
+      button {
+        margin-top: 10px;
+        padding: 2px 12px;
+        border: 1px solid color-mix(in srgb, var(--text) 50%, transparent);
+        border-radius: 6px;
+        background: none;
+        color: var(--text);
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="row">
+        <label for="open-at-login" id="label">Open when you log in</label>
+        <input id="open-at-login" type="checkbox" switch role="switch" disabled />
+      </div>
+      <p id="line" role="status" hidden></p>
+      <button id="open-login-items" type="button" hidden>Open Login Items</button>
+    </main>
+    <script>
+      const settings = window.__APP_KIT_SETTINGS_PAGE__ ?? {};
+      const name = settings.name ?? 'This app';
+      const toggle = document.getElementById('open-at-login');
+      const line = document.getElementById('line');
+      const openLoginItems = document.getElementById('open-login-items');
+
+      document.getElementById('label').textContent = `Open ${name} when you log in`;
+      document.title = `${name} Settings`;
+      if (settings.background && settings.text) {
+        // The start page's colors, with the color scheme they are in, so macOS draws the switch for that scheme.
+        const root = document.documentElement.style;
+        root.setProperty('--background', settings.background);
+        root.setProperty('--text', settings.text);
+        root.setProperty('color-scheme', dark(settings.background) ? 'dark' : 'light');
+      }
+
+      /** Whether a #rrggbb color is dark, by its relative luminance. */
+      function dark(color) {
+        const [r, g, b] = [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16) / 255);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5;
+      }
+
+      /** One of the plugin's commands, which only this window is granted. */
+      function invoke(command, args) {
+        return window.__TAURI_INTERNALS__.invoke(`plugin:app-kit-window|${command}`, args);
+      }
+
+      let changing = false;
+
+      /** Shows macOS's answer: `{ state, error? }`, the state one of enabled, requires-approval, off, not-available. */
+      function show(answer, asked) {
+        const state = answer.state;
+        toggle.checked = state === 'enabled' || state === 'requires-approval';
+        toggle.disabled = state === 'not-available';
+        openLoginItems.hidden = state !== 'requires-approval';
+        let words = '';
+        if (answer.error) words = `Couldn't turn it ${asked ? 'on' : 'off'}: ${answer.error}`;
+        else if (state === 'requires-approval') words = `macOS is waiting for you to allow ${name} in Login Items.`;
+        else if (state === 'not-available') words = 'Opening at login needs macOS 13 or later.';
+        line.textContent = words;
+        line.hidden = !words;
+      }
+
+      async function read() {
+        if (changing) return;
+        try {
+          show(await invoke('open_at_login_status'));
+        } catch (error) {
+          line.textContent = `Couldn't read whether ${name} opens at login: ${error}`;
+          line.hidden = false;
+        }
+      }
+
+      toggle.addEventListener('change', async () => {
+        const on = toggle.checked;
+        changing = true;
+        toggle.disabled = true;
+        try {
+          show(await invoke('open_at_login_set', { on }), on);
+        } catch (error) {
+          show({ state: on ? 'off' : 'enabled', error: String(error) }, on);
+          changing = false;
+          return read();
+        }
+        changing = false;
+      });
+      openLoginItems.addEventListener('click', () => invoke('open_login_items'));
+      addEventListener('focus', read);
+      read();
+    </script>
+  </body>
+</html>

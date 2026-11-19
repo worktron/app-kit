@@ -4,7 +4,8 @@
 //! menu, without which a text field loses ⌘C and ⌘V; View's zoom, Reload (⌘R) and full screen; and Window's Minimize
 //! (⌘M), Zoom and Bring All to Front, where macOS lists the open windows. Close Window, Minimize and the rest of macOS's
 //! own items are macOS's, with its shortcuts and its handling. The window carries out Reload and the zoom; Settings
-//! and Sign Out are the page's, which the window brings forward and tells (`MENU_EVENT`).
+//! and Sign Out are the page's, which the window brings forward and tells (`MENU_EVENT`), unless the app asks for the
+//! kit's own Settings window (`settings_window`, settings.rs), which the plugin opens.
 //! The page's names are tauri/window/names.ts's, and test/tauri-window.test.ts holds them to it.
 
 use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder, WINDOW_SUBMENU_ID};
@@ -17,6 +18,8 @@ const SETTINGS: &str = "settings";
 const SIGN_OUT: &str = "sign-out";
 
 const SETTINGS_ITEM: &str = "app-kit-settings";
+/// Settings… when it opens the kit's own Settings window rather than going to the page.
+pub(crate) const SETTINGS_WINDOW_ITEM: &str = "app-kit-settings-window";
 const SIGN_OUT_ITEM: &str = "app-kit-sign-out";
 pub(crate) const RELOAD_ITEM: &str = "app-kit-reload";
 
@@ -28,9 +31,18 @@ pub const VIEW_MENU: &str = "app-kit-view";
 /// The menu bar, built by `build` for `tauri::Builder::menu`. The app names what it has beyond what every app has.
 #[derive(Clone, Debug, Default)]
 pub struct AppMenu {
-    settings: bool,
+    settings: Settings,
     sign_out: bool,
     commit: Option<String>,
+}
+
+/// What Settings… does, if the app has it: hand it to the page, or open the kit's own Settings window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Settings {
+    #[default]
+    None,
+    Page,
+    Window,
 }
 
 impl AppMenu {
@@ -40,7 +52,15 @@ impl AppMenu {
 
     /// Settings… (⌘,), which the page opens.
     pub fn settings(mut self) -> Self {
-        self.settings = true;
+        self.settings = Settings::Page;
+        self
+    }
+
+    /// Settings… (⌘,), which opens the kit's own Settings window, with a switch that opens the app when the person logs
+    /// in. The window is a page bundled beside the start page, so the app's frontendDist is the kit's start folder.
+    /// Called after `settings`, it takes that one's place, and the other way round.
+    pub fn settings_window(mut self) -> Self {
+        self.settings = Settings::Window;
         self
     }
 
@@ -67,6 +87,15 @@ impl AppMenu {
         }
     }
 
+    /// Settings…'s id: the page's, the kit's window's, or none.
+    fn settings_item(&self) -> Option<&'static str> {
+        match self.settings {
+            Settings::None => None,
+            Settings::Page => Some(SETTINGS_ITEM),
+            Settings::Window => Some(SETTINGS_WINDOW_ITEM),
+        }
+    }
+
     pub fn build<R: Runtime>(&self, app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         let info = app.package_info();
         let about = self.about(info, app.config().bundle.copyright.clone());
@@ -77,10 +106,8 @@ impl AppMenu {
             first = first.item(&update_item(app)?);
         }
         first = first.separator();
-        if self.settings {
-            first = first
-                .item(&MenuItemBuilder::with_id(SETTINGS_ITEM, "Settings…").accelerator("CmdOrCtrl+,").build(app)?)
-                .separator();
+        if let Some(id) = self.settings_item() {
+            first = first.item(&MenuItemBuilder::with_id(id, "Settings…").accelerator("CmdOrCtrl+,").build(app)?).separator();
         }
         first = first.services().separator().hide_with_text(format!("Hide {name}")).hide_others().show_all().separator();
         if self.sign_out {
@@ -133,9 +160,14 @@ pub(crate) fn page_script(command: &str) -> String {
     format!("window.dispatchEvent(new CustomEvent({MENU_EVENT:?}, {{ detail: {command:?} }}));")
 }
 
-/// Carries out the window's own menu items: Reload, and Settings and Sign Out handed to the page, with the window
-/// brought forward, since either can be chosen with it closed. The zoom is `change_zoom`'s.
+/// Carries out the window's own menu items: Reload, the kit's Settings window, and Settings and Sign Out handed to the
+/// page, with the window brought forward, since either can be chosen with it closed. The zoom is `change_zoom`'s.
 pub(crate) fn menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    if id == SETTINGS_WINDOW_ITEM {
+        log::info!("Settings chosen from the menu, opening the kit's Settings window");
+        crate::settings::open(app);
+        return;
+    }
     let Some(window) = app.get_webview_window(crate::MAIN) else { return };
     if id == RELOAD_ITEM {
         log::info!("Reload chosen, reloading the page");
@@ -165,6 +197,18 @@ mod tests {
         assert_eq!(about.version.as_deref(), Some("1.4.0"));
         assert_eq!(about.short_version.as_deref(), Some("3f2a9c1"));
         assert_eq!(AppMenu::new().about(&info, None).short_version, None);
+    }
+
+    #[test]
+    fn the_settings_window_item_opens_the_kits_window_and_settings_still_goes_to_the_page() {
+        assert_eq!(AppMenu::new().settings_item(), None);
+        assert_eq!(AppMenu::new().settings().settings_item(), Some(SETTINGS_ITEM));
+        assert_eq!(AppMenu::new().settings_window().settings_item(), Some(SETTINGS_WINDOW_ITEM));
+        // The later call wins, so an app never has two Settings… items.
+        assert_eq!(AppMenu::new().settings().settings_window().settings_item(), Some(SETTINGS_WINDOW_ITEM));
+        assert_eq!(AppMenu::new().settings_window().settings().settings_item(), Some(SETTINGS_ITEM));
+        // The kit's window is the plugin's to open, never handed to the page.
+        assert_eq!(page_command(SETTINGS_WINDOW_ITEM), None);
     }
 
     #[test]

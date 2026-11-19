@@ -233,3 +233,27 @@ test("a window onto the site opens on the kit's start page, not straight on the 
   // A Tauri app not on the window plugin.
   expect(await verdict(START, { 'src-tauri/Cargo.toml': 'tauri = "2"\n', 'src-tauri/src/lib.rs': direct })).toBe('not asked');
 });
+
+test("a Mac app that opens on the kit's start page opens at login from the kit's Settings window, and one whose bundle is its site is not asked", async () => {
+  const OPEN_AT_LOGIN = 'opens at login on the Mac, from Settings';
+  const cargo = { 'src-tauri/Cargo.toml': 'tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }\n' };
+  const onStartPage = { 'src-tauri/tauri.conf.json': '{ "build": { "frontendDist": "../node_modules/app-kit/tauri/window/start" } }\n' };
+  // Matter's shell, before and after.
+  const before = 'let menu = AppMenu::new().sign_out().commit(COMMIT).build(app)?;\n';
+  const after = 'let menu = AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app)?;\n';
+  expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': before })).toBe('lacks');
+  expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': after })).toBe('has');
+  // The autostart plugin is not counted.
+  expect(
+    await verdict(OPEN_AT_LOGIN, {
+      'src-tauri/Cargo.toml': `${cargo['src-tauri/Cargo.toml']}tauri-plugin-autostart = "2"\n`,
+      ...onStartPage,
+      'src-tauri/src/lib.rs': before,
+    }),
+  ).toBe('lacks');
+  // Argon's shell, whose bundle is its hosted site, so no settings page ships in it.
+  const remote = { 'src-tauri/tauri.conf.json': '{ "build": { "frontendDist": "https://app.example.com" } }\n' };
+  expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...remote, 'src-tauri/src/lib.rs': 'AppMenu::new().settings().sign_out().build(app)\n' })).toBe('not asked');
+  // An iPhone shell on the start page, with no Mac menu.
+  expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': 'let window = site.start_page_window(app, page).build()?;\n' })).toBe('not asked');
+});

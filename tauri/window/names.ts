@@ -41,3 +41,16 @@ export const MENU_SIGN_OUT = 'sign-out';
 export const START_PAGE_SETTINGS = '__APP_KIT_START_PAGE__';
 /** The health route the start page asks by default, which every server on app-kit/server/start answers. */
 export const START_PAGE_HEALTH = '/api/health';
+
+/**
+ * The kit's Settings window on the Mac (plugin/src/settings.rs, start/settings.html): its label, the only window
+ * granted the switch's commands, and its page, beside the start page.
+ */
+export const SETTINGS_WINDOW = 'app-kit-settings';
+export const SETTINGS_PAGE = 'settings.html';
+/** Where the window hands the Settings page its settings before the page's script runs: `{ name, background?, text? }`. */
+export const SETTINGS_PAGE_SETTINGS = '__APP_KIT_SETTINGS_PAGE__';
+/** The plugin's commands behind the switch that opens the app at login (plugin/build.rs), called as `plugin:app-kit-window|<command>`. */
+export const OPEN_AT_LOGIN_COMMANDS = ['open_at_login_status', 'open_at_login_set', 'open_login_items'] as const;
+/** What the switch is told the login item is, as macOS reports it (plugin/src/login_item.rs). */
+export const OPEN_AT_LOGIN_STATES = ['enabled', 'requires-approval', 'off', 'not-available'] as const;
