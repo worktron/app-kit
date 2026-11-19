@@ -942,3 +942,9 @@ Written by: app-kit/app-clients
 
 Goal: runCommand (command-line/run.ts) always starts a program detached, in a process group of its own, so its time limit can stop the program and its children together. When the caller is a daemon that crashes without its own stop, the time-limit timer dies with it, and launchd's cleanup of the daemon's group cannot reach the detached program, so a program that has hung (an osascript stuck on Chrome) runs on. Perf Buddy's daemon runs every outside program through runCommand since its 2026-11-18 upgrade, and its owner accepted this as a known limit there.
 Done when: runCommand takes an option to keep the program in the caller's group (for example group: 'caller'), whose time limit still stops the program and its own children by another route, a test holds that a caller killed mid-run leaves no program behind in that mode, and the README's runCommand bullet says when to use it.
+
+## open-path-patterns · requireCaller's openPaths can name a route pattern, not only an exact path
+Written by: app-kit/app-clients
+
+Goal: requireCaller (authentication/agent-keys) lets a signed-out request through only when its path is in openPaths exactly (a Set's has), so an app whose open addresses carry a file name or an id cannot list them. Lifeform's open paths include /api/images/:filename and /api/audio/<id>_<voice>.mp3 (server/sign-in.ts:32-39), so its 2026-11-18 upgrade kept its own check instead of the kit's.
+Done when: openPaths takes Hono route paths (as `/api/images/:filename`) beside exact ones, matched the way Hono matches routes so a pattern never opens more than it names, test/agent-keys.test.ts holds a pattern that opens its addresses and leaves a neighbouring one shut, and the README's "Keys for agents" says how to write one.
