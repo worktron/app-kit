@@ -943,3 +943,9 @@ Written by: app-kit/app-clients
 
 Goal: the kit quiets stray keys (noResponder(for:) on keyDown) only in MenuBarPanel and AppWindow (swift/menu-bar Panel.swift and SideWindow.swift). AppWindow brings the see-through title bar, so an app whose Settings window or web page windows keep the ordinary title bar has no quiet window to take, and every unhandled key plays the alert sound. Buddy System's quiet-plain-windows ticket waits on this, as its 2026-11-18 upgrade reported.
 Done when: MenuBarTheme or MacApp has a plain NSWindow subclass (ordinary title bar) with the same noResponder quiet, a test holds that an unhandled keyDown reaches no beep, and the README says when to take it over AppWindow.
+
+## run-command-caller-group · runCommand can leave a program in its caller's process group, so a crashed daemon's cleanup reaches it
+Written by: app-kit/app-clients
+
+Goal: runCommand (command-line/run.ts) always starts a program detached, in a process group of its own, so its time limit can stop the program and its children together. When the caller is a daemon that crashes without its own stop, the time-limit timer dies with it, and launchd's cleanup of the daemon's group cannot reach the detached program, so a program that has hung (an osascript stuck on Chrome) runs on. Perf Buddy's daemon runs every outside program through runCommand since its 2026-11-18 upgrade, and its owner accepted this as a known limit there.
+Done when: runCommand takes an option to keep the program in the caller's group (for example group: 'caller'), whose time limit still stops the program and its own children by another route, a test holds that a caller killed mid-run leaves no program behind in that mode, and the README's runCommand bullet says when to use it.
