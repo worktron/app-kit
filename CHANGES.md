@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.70.2
+
+Urgency: next round
+
+- an app whose server tests send a key through the Clerk stand-in (clerk.withKey()) gets the key's person instead of a 500.
+
 ## v0.70.1
 
 Urgency: rides along
