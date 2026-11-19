@@ -948,3 +948,9 @@ Written by: app-kit/app-clients
 
 Goal: requireCaller (authentication/agent-keys) lets a signed-out request through only when its path is in openPaths exactly (a Set's has), so an app whose open addresses carry a file name or an id cannot list them. Lifeform's open paths include /api/images/:filename and /api/audio/<id>_<voice>.mp3 (server/sign-in.ts:32-39), so its 2026-11-18 upgrade kept its own check instead of the kit's.
 Done when: openPaths takes Hono route paths (as `/api/images/:filename`) beside exact ones, matched the way Hono matches routes so a pattern never opens more than it names, test/agent-keys.test.ts holds a pattern that opens its addresses and leaves a neighbouring one shut, and the README's "Keys for agents" says how to write one.
+
+## first-paint-text-size · The name before the code paints at the person's text size, and followTextSize takes a root already scaled
+Written by: app-kit/app-clients
+
+Goal: firstPaint's head script applies no stored text size, so the `#root:empty::before` name paints at the default size and jumps once followTextSize runs. An app cannot fix it alone: setting html.style.fontSize in the head makes followTextSize read that inline size as the app's own root size and multiply again, so 200% draws at 400%. Lifeform's 2026-11-18 upgrade found it while taking v0.69.0's two pictures.
+Done when: firstPaint's head script applies the stored text size (and the phone's probe) before the first paint, followTextSize leaves a root the head already scaled at that size, test/first-paint.test.ts holds a stored 200% painting the name at 200% from the first frame with no jump, and CHANGES says what an app that set its own head size does.
