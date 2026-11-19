@@ -925,3 +925,9 @@ Written by: app-kit/app-clients
 
 Goal: server/process-usage reads ps with comm= only (window.ts COLUMNS), so parsePs gives a program's path and never its arguments. Perf Buddy tells Chrome renderers apart by --type=renderer and so keeps its own ps parsing (apps/server/src/process-scan.ts), as its 2026-11-18 upgrade reported. Until the reader can give arguments, the README's process-usage section should say it reads the program only.
 Done when: the README says what the reader leaves out today, and either the reader can return each process's arguments on request with a test that tells a renderer from Chrome's main process, or the ticket records why the kit leaves that to apps.
+
+## swift-age · A Swift Mac app writes "how long ago" in the kit's words
+Written by: app-kit/app-clients
+
+Goal: the kit's age words ("5m ago", "3h ago", "yesterday", then the date) live only in TypeScript (web/age.ts), so a Swift Mac window writes its own. Buddy System's (mac/Sources/Core/Pages.swift:115) says "Nh ago" for anything under a day and never "yesterday", so its Mac window and its dashboard word the same time differently. It keeps its own until MacApp or MenuBarTheme has the kit's words, as its 2026-11-18 upgrade reported.
+Done when: MacApp (or MenuBarTheme) has an age function with the TypeScript one's words and its rules for midnight and the reader's time zone, a Swift test holds the same cases as test/age.test.ts, and the README's "Mac app" table names it.
