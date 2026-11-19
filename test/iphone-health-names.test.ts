@@ -92,14 +92,17 @@ test('the phone is marked as unlocked since it started whenever iOS says its dat
 });
 
 test('the made-up nights write to Health only in a Simulator build', () => {
-  const simulatorOnly = swift.indexOf('#if targetEnvironment(simulator)');
-  const otherwise = swift.indexOf('#else', simulatorOnly);
-  expect(simulatorOnly).toBeGreaterThan(-1);
-  for (const write of ['healthStore.save(', 'healthStore.delete(', 'askForHealth(share: [sleepType]']) {
+  // Each stretch from `#if targetEnvironment(simulator)` to its `#else`, the only code a Simulator build alone has.
+  const simulatorOnly = [...swift.matchAll(/#if targetEnvironment\(simulator\)/g)].map((match) => [match.index, swift.indexOf('#else', match.index)]);
+  expect(simulatorOnly.length).toBeGreaterThan(0);
+  const outside = simulatorOnly.reduceRight((rest, [from, to]) => rest.slice(0, from) + rest.slice(to), swift);
+  for (const write of ['healthStore.save(', 'healthStore.delete(', 'askForHealth(share: [sleepType]', '? [sleepType] : nil']) {
     const at = swift.indexOf(write);
-    expect(at).toBeGreaterThan(simulatorOnly);
-    expect(at).toBeLessThan(otherwise);
+    expect(simulatorOnly.some(([from, to]) => at > from && at < to)).toBe(true);
+    expect(outside).not.toContain(write);
   }
-  expect(swift.slice(0, simulatorOnly)).toContain('askForHealth(share: nil, read: [sleepType])');
-  expect(swift.slice(0, simulatorOnly)).not.toContain('askForHealth(share: [');
+  // Start asks to write only through the helper that answers nil outside a Simulator build.
+  expect(outside).toContain('askForHealth(share: writeForMadeUpNights(), read: [sleepType])');
+  expect(outside).toMatch(/func writeForMadeUpNights\(\)[^}]*#else\s+return nil\s+#endif/);
+  expect(outside).not.toContain('askForHealth(share: [');
 });
