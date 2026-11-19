@@ -193,6 +193,16 @@ test('CHANGES.md takes each version above the newest, under the heading Dependab
   expect(readFileSync(join(import.meta.dir, '../CHANGES.md'), 'utf8').startsWith(`${CHANGES_HEADING}\n\n## v`)).toBe(true);
 });
 
+test('CHANGES.md lists each line once under each version', () => {
+  const repeated = readFileSync(join(import.meta.dir, '../CHANGES.md'), 'utf8')
+    .split(/^(?=## v)/m)
+    .flatMap((entry) => {
+      const lines = entry.split('\n').filter((line) => line.startsWith('- '));
+      return lines.filter((line, at) => lines.indexOf(line) !== at).map((line) => `${entry.split('\n')[0]}: ${line}`);
+    });
+  expect(repeated).toEqual([]);
+});
+
 test('while the version is 0.x, minor raises the middle number and patch the last', () => {
   expect(nextVersion('0.5.0', 'minor')).toBe('0.6.0');
   expect(nextVersion('0.5.3', 'minor')).toBe('0.6.0');
@@ -258,7 +268,7 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
   expect((await git('ls-tree', '--name-only', await mainOnGitHub(work))).split('\n')).not.toContain('CHANGES.md');
 }, TWO_LANDINGS);
 
-test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry', async () => {
+test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry, listed once when two commits carry it', async () => {
   const { work, git } = await scratch();
   await branch(work, 'change', release('A change', 'minor', ''));
   const before = await git('rev-parse', 'HEAD');
@@ -266,6 +276,7 @@ test.concurrent('a minor change with no Apps line is refused before anything mov
   expect(refused).toEqual({ landed: false, reason: expect.stringContaining('a minor change must say what an app does about it') });
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   await commit(work, release('Say it', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'say.txt');
+  await commit(work, release('Say it again', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'again.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.6.0' });
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\nUrgency: next round\n\n- move the manifest to the checkout root`);
 }, TWO_LANDINGS);

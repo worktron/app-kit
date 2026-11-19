@@ -163,7 +163,6 @@ Urgency: rides along
 Urgency: rides along
 
 - An extension's first Web Store release goes Unlisted: on an item never published, app-kit extension dashboard fill now stops before saving anything unless store-listing.md's Visibility line says Unlisted; make it "- Visibility: Unlisted, to invited testers."
-- An extension's first Web Store release goes Unlisted: on an item never published, app-kit extension dashboard fill now stops before saving anything unless store-listing.md's Visibility line says Unlisted; make it "- Visibility: Unlisted, to invited testers."
 
 ## v0.54.0
 
@@ -235,7 +234,6 @@ Urgency: now
 
 Urgency: rides along
 
-- Messages Service moves to this tag for its first release; an app signed with a Developer ID certificate now notarizes on release and may name the certificate by its fingerprint.
 - Messages Service moves to this tag for its first release; an app signed with a Developer ID certificate now notarizes on release and may name the certificate by its fingerprint.
 
 ## v0.47.1
