@@ -1051,3 +1051,14 @@ Written by: lifeform/clerk-blank-frame
 Goal: on a busy computer Chrome can pause reading index.html right after `<body>` and paint the first frame before `#root` exists, so the name drawn by `#root:empty::before` (README, "The name before the code, in one picture or two") is missing from that frame: a blank page. Lifeform hit it (1 in about 215 runs on a loaded Mac; 45 of 60 loads with Chrome's CPU slowed 20x) and fixed it in 8f401bc by leaving out the body tag, so `#root`'s own tag makes the body and the root in one parser step (Blink yields only between tokens, and only once a body exists, html_document_parser.cc; it lays out nothing before a body, Document::ShouldScheduleLayout). Every app following the guide has the same gap. Separately, watchFrames (web/playwright.js) skips frames while `document.body` is null and reads a missing `#root` as a blank frame with no hint why, so its failure message names neither case. Found by lifeform's clerk-blank-frame thread, 2026-11-20.
 
 Done when: the README's name-before-the-code section shows index.html with no body tag and says why, watchFrames' frame record says when `#root` was missing, and a kit browser test with Chrome's CPU slowed proves a page following the guide paints the name in its first frame.
+
+## test-browser-copies-registered · The kit's browser tests leave about 1,250 registered copies of Chromium and WebKit
+Written by: app-kit/app-copies
+
+A fault, found by app-copies on 2026-11-20. macOS registers every app bundle it finds and never drops a registration, even once the file is gone. The copies of Playwright's browsers the kit makes in a test's temporary folder (the WebKit kept out of the Dock, the WebKit and Chromium the offline-audio test records, the extension's Chromium kept out of the Dock) are each registered, and the test folder's removal leaves the registration behind. On the owner's Mac on 2026-11-20, `lsregister -dump` held 855 registrations under `app-kit-offline-audio-*/webkit`, 229 under `app-kit-extension-dock-*/chromium` and 161 under `app-kit-dock-*/webkit`, in temporary folders that no longer exist. They make every lookup in macOS's list slower and every diagnosis of "which copy opens this link" noisier.
+
+Goal: a test run that makes a copy of a browser leaves no registration of it once its folder is gone.
+
+Done when: the copies are either made where macOS does not register them or forgotten (`lsregister -u <path>`, which works on a missing path) as the copy's folder is removed, held by a test of the step that removes it, and `lsregister -dump` after a full `scripts/gates.sh` run shows no new path under those folder names. tauri/built-apps.ts already holds the delete-then-forget step for built apps.
+
+Touches: web/playwright-webkit.js, testing/playwright-dock.js, web/playwright-offline-audio.js, test/playwright-dock.test.ts, test/playwright-offline-audio.test.ts.
