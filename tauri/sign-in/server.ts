@@ -94,9 +94,10 @@ async function bodyOf(c: Context): Promise<Record<string, unknown>> {
 /** The longest reason the log takes from the page. */
 export const REASON_LOGGED_CHARACTERS = 300;
 
-/** `text` as one log line: control characters, line breaks among them, as spaces, and no longer than the log takes. */
+/** `text` as one log line: control characters and Unicode's line and paragraph separators as spaces, and no longer than the log takes. */
 function logLine(text: string): string {
-  const plain = [...text].map((character) => (character < ' ' || character === '\u007f' ? ' ' : character)).join('');
+  const breaks = ['\u007f', '\u2028', '\u2029'];
+  const plain = [...text].map((character) => (character < ' ' || breaks.includes(character) ? ' ' : character)).join('');
   return plain.length > REASON_LOGGED_CHARACTERS ? `${plain.slice(0, REASON_LOGGED_CHARACTERS)}…` : plain;
 }
 
