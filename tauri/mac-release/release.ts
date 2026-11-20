@@ -32,6 +32,11 @@
  *   the archive about to go up, with its bundled page, is searched for any left before anything is published
  *   (build-paths.ts says what the rewrite reaches and what it cannot).
  *
+ * The app the build made in the Tauri folder, and the copy unpacked to check the archive, are deleted once the release is
+ * done with them, worked or not, and macOS told to forget them, since macOS registers each within a minute and a copy
+ * left in the watcher's folder took links meant for the installed app; and the release starts by deleting Xcode's build
+ * folders of Tauri checkouts that are gone (../built-apps.ts). The update archive and its signature stay.
+ *
  * The update key reaches only Tauri's build, through its environment, never a command line or a file. The App Store
  * Connect key is the one exception: Tauri reads it only from a file, so it is written readable by this user alone into
  * a folder of its own, named for this process, removed however the build ends; a release that notarizes also removes
@@ -47,6 +52,7 @@ import { assetName, keyItem, latestJson, moveCommand, nextVersion, readConfig, r
 import { itemFields, KEYCHAIN_SERVICE, lastLine, notFound, readItem, readKey } from '../testflight/key.ts';
 import { compileFailed } from '../testflight/upload.ts';
 import { buildEnv, type Env } from '../build-env.ts';
+import { MAC_BUNDLE_FOLDER, macApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { foundPathsMessage, pathRewriteEnv, searchForPaths, unrewritable } from './build-paths.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunResult } from '../../command-line/run.ts';
 
@@ -67,7 +73,7 @@ export type ReleaseOptions = {
 };
 
 /** Where `tauri build` puts the Mac app and its update archive. */
-export const BUNDLE_FOLDER = 'src-tauri/target/release/bundle/macos';
+export const BUNDLE_FOLDER = MAC_BUNDLE_FOLDER;
 
 /** What a Developer ID certificate's name starts with: a build signed by one is notarized. */
 export const DEVELOPER_ID = 'Developer ID Application';
@@ -129,9 +135,18 @@ export function removeLeftKeyFolders(folder = tmpdir()): void {
   }
 }
 
-/** Releases, as the module's comment says. Stopped by a signal, it stops the build and removes its temporary folder. */
+/**
+ * Releases, as the module's comment says. Stopped by a signal, it stops the build, removes its temporary folder and
+ * deletes the apps it built.
+ */
 export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4> {
   const folders = new Set<string>();
+  /** The apps unpacked to check the archive, inside a folder of `folders`, for macOS to forget once it is removed. */
+  const checkCopies = new Set<string>();
+  const build: BuildStarted = { started: false };
+  const run = options.run ?? runCommand;
+  const home = (options.env ?? process.env).HOME || homedir();
+  const output = options.output ?? ((chunk: string) => void process.stdout.write(chunk));
   const remove = () => {
     for (const folder of folders) rmSync(folder, { recursive: true, force: true });
   };
@@ -139,19 +154,27 @@ export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4> {
     (options.fail ?? ((line: string) => console.error(`[mac release] ${line}`)))(`stopped by ${signal}; stopping the build`);
     stopRunning('SIGTERM');
     remove();
+    // After the build is stopped for good, so it cannot write the app again.
+    stopRunning('SIGKILL');
+    removeAppsNow([...(build.started ? macApps(options.cwd) : []), ...checkCopies]);
     process.exit(1);
   };
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
-    return await releaseSteps(options, folders);
+    await sweepGoneCheckouts(home, run, output);
+    return await releaseSteps(options, folders, checkCopies, build);
   } finally {
     for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
     remove();
+    await removeApps([...(build.started ? macApps(options.cwd) : []), ...checkCopies], run, output);
   }
 }
 
-/** The steps; every folder made goes into `folders`, which `release` removes however the steps end. */
-async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Promise<0 | 1 | 3 | 4> {
+/**
+ * The steps; every folder made goes into `folders`, which `release` removes however the steps end, and every app
+ * unpacked to check goes into `checkCopies`.
+ */
+async function releaseSteps(options: ReleaseOptions, folders: Set<string>, checkCopies: Set<string>, started: BuildStarted): Promise<0 | 1 | 3 | 4> {
   const madeFolder = (prefix: string) => {
     const folder = mkdtempSync(join(tmpdir(), prefix));
     folders.add(folder);
@@ -300,6 +323,7 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   }
   let built: RunResult;
   try {
+    started.started = true;
     built = await run(['bunx', 'tauri', 'build', '--bundles', 'app', '--config', overrides], { cwd, env: buildEnvironment, output });
   } finally {
     if (keyFolder) {
@@ -351,6 +375,7 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
   mkdirSync(unpacked);
   const untarred = await run(['tar', '-xzf', join(folder, name), '-C', unpacked], { env });
   const inside = join(unpacked, `${config.productName}.app`);
+  checkCopies.add(inside);
   if (untarred.code !== 0 || !existsSync(inside)) return fail(`the update archive holds no ${config.productName}.app: ${lastLine(untarred.out)}`);
   const searched = [{ folder: inside, label: `${config.productName}.app` }];
   const page = config.frontendDist === null ? null : join(cwd, 'src-tauri', config.frontendDist);
@@ -389,6 +414,6 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>): Prom
     );
   }
   print(`published ${config.productName} ${version}: https://github.com/${repository}/releases/tag/v${version}`);
-  print(`installed copies offer it the next time their window comes forward, or at Check for Updates…; ${app} is the same build`);
+  print('installed copies offer it the next time their window comes forward, or at Check for Updates…');
   return 0;
 }

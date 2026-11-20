@@ -11,6 +11,7 @@ import { runCommand } from '../command-line/run.ts';
 import { clock, readHeld, readIdle, readMade, recordMade } from '../tauri/iphone-simulator/lifetime.ts';
 import { alive, stateFolder } from '../tauri/state.ts';
 import { exit, git, ok, repository, scratch, standInRunner, type Answer } from './testflight-stand-in.ts';
+import { LSREGISTER } from '../tauri/built-apps.ts';
 
 // The worktree test runs real git a few times.
 setDefaultTimeout(15_000);
@@ -39,7 +40,6 @@ function appFiles(): Record<string, string> {
   return {
     'src-tauri/tauri.conf.json': JSON.stringify({ productName: 'Sample App', identifier: 'app.example.sample_app', bundle: { iOS: { developmentTeam: TEAM } } }),
     'src-tauri/gen/apple/sample-shell.xcodeproj/project.pbxproj': `// !$*UTF8*$!\n{\n\t\t\t${RUST_STEP}\n}\n`,
-    'src-tauri/gen/apple/build/arm64-sim/Sample App.app/Info.plist': '',
     'src-tauri/gen/apple/build/arm64/sample-shell.ipa': '',
   };
 }
@@ -82,6 +82,8 @@ function addProfile(name: string, text: string) {
 
 type Stand = {
   registers?: boolean;
+  /** The failed build wrote the Simulator's app before it failed. */
+  partial?: boolean;
   build?: number;
   launch?: number;
   quiet?: 0 | 1;
@@ -108,7 +110,7 @@ function apple(stand: Stand = {}) {
     return JSON.stringify(parsed);
   };
   let built = false;
-  const answer: Answer = (command) => {
+  const answer: Answer = (command, options) => {
     const line = command.join(' ');
     if (line.startsWith('bunx tauri ios build')) built = true;
     if (line === 'xcrun simctl list devices -j') return ok(stand.listingAfterBuild !== undefined && built ? stand.listingAfterBuild : listing());
@@ -126,7 +128,15 @@ function apple(stand: Stand = {}) {
       return ok();
     }
     if (line.startsWith('xcrun simctl create ')) return stand.create ? exit(stand.create, 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=403):\nIncompatible device') : ok(`${NEW_SIMULATOR}\n`);
-    if (line.startsWith('bunx tauri ios build')) return stand.build ? exit(stand.build, 'error: could not compile `sample-app`') : ok('    Finished `debug` profile\n');
+    if (line.startsWith('bunx tauri ios build')) {
+      // Tauri moves the Simulator's app out of its archive into the checkout, and a phone build leaves its archive.
+      if (line.includes('aarch64-sim') && (!stand.build || stand.partial)) write(options.cwd!, { 'src-tauri/gen/apple/build/arm64-sim/Sample App.app/Info.plist': '' });
+      if (!line.includes('aarch64-sim') && !stand.build) write(options.cwd!, { 'src-tauri/gen/apple/build/sample-shell_iOS.xcarchive/Products/Applications/Sample App.app/Info.plist': '' });
+      if (stand.build) return exit(stand.build, 'error: could not compile `sample-app`');
+      return ok('    Finished `debug` profile\n');
+    }
+    // A built app macOS never registered, as most are when they are deleted at once.
+    if (command[0] === LSREGISTER) return exit(1, `failed to scan ${command[2]}: -10814 from spotlight`);
     if (line.startsWith('xcrun simctl launch ') && stand.launch) return exit(stand.launch, 'An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):\nThe request to open "app.example.sample-app" failed.');
     if (/^xcrun simctl (terminate|install|launch) /.test(line)) return ok();
     if (line.startsWith('xcrun devicectl list devices')) {
@@ -172,9 +182,11 @@ async function runIn(cwd: string, stand: ReturnType<typeof apple>, options: Part
     lifetime: { startWatcher: stand.startWatcher, now: () => NOW },
     ...options,
   });
-  // What ran, as words, without the stand-in's scratch paths.
-  const calls = stand.calls.map((c) => c.command.join(' ').replaceAll(cwd, '<app>').replaceAll(home, '<home>'));
-  return { code, printed, calls };
+  // What ran, as words, without the stand-in's scratch paths; the paths macOS was told to forget are kept apart.
+  const words = stand.calls.map((c) => c.command.join(' ').replaceAll(cwd, '<app>').replaceAll(home, '<home>'));
+  const calls = words.filter((c) => !c.startsWith(`${LSREGISTER} `));
+  const forgot = words.filter((c) => c.startsWith(`${LSREGISTER} `)).map((c) => c.slice(`${LSREGISTER} -u `.length));
+  return { code, printed, calls, forgot };
 }
 
 beforeEach(() => {
@@ -393,6 +405,57 @@ describe('iphone run sim', () => {
   });
 });
 
+/** Xcode's build folder for `checkout` under the test's home, holding its copy of the app, as a build leaves it. */
+function xcodeCopy(name: string, checkout: string, configuration = 'debug-iphonesimulator'): string {
+  const folder = join(home, 'Library/Developer/Xcode/DerivedData', name);
+  const info = readFileSync(join(import.meta.dir, 'fixtures/xcode-build-folder/info.plist'), 'utf8');
+  write(folder, {
+    'info.plist': info.replace('{{PROJECT}}', join(checkout, 'src-tauri/gen/apple/sample-shell.xcodeproj')),
+    [`Build/Products/${configuration}/Sample App.app/Info.plist`]: '',
+  });
+  return folder;
+}
+
+describe('the apps a run leaves', () => {
+  test("a Simulator run deletes the app it installed and Xcode's copy, has macOS forget them, and first sweeps a gone checkout's build folder", async () => {
+    const mine = xcodeCopy('sample-shell-mine', app);
+    const gone = xcodeCopy('sample-shell-gone', join(place.folder, 'closed-worktree'));
+    const { code, forgot } = await runIn(app, apple(), { target: 'sim' });
+    expect(code).toBe(0);
+    expect(existsSync(gone)).toBe(false);
+    expect(existsSync(join(app, 'src-tauri/gen/apple/build/arm64-sim/Sample App.app'))).toBe(false);
+    expect(existsSync(join(mine, 'Build/Products/debug-iphonesimulator/Sample App.app'))).toBe(false);
+    // Xcode's folder for a checkout that still exists stays, with its caches.
+    expect(existsSync(join(mine, 'info.plist'))).toBe(true);
+    expect(forgot).toEqual([
+      '<home>/Library/Developer/Xcode/DerivedData/sample-shell-gone/Build/Products/debug-iphonesimulator/Sample App.app',
+      '<home>/Library/Developer/Xcode/DerivedData/sample-shell-mine/Build/Products/debug-iphonesimulator/Sample App.app',
+      '<app>/src-tauri/gen/apple/build/arm64-sim/Sample App.app',
+    ]);
+  });
+
+  test('a build that fails after writing its app deletes it too, and the run still says why it failed', async () => {
+    const { code, printed, forgot } = await runIn(app, apple({ build: 1, partial: true }), { target: 'sim' });
+    expect(code).toBe(1);
+    expect(existsSync(join(app, 'src-tauri/gen/apple/build/arm64-sim/Sample App.app'))).toBe(false);
+    expect(forgot).toEqual(['<app>/src-tauri/gen/apple/build/arm64-sim/Sample App.app']);
+    expect(printed.at(-1)).toBe('! the Simulator build failed; its output is above');
+  });
+
+  test("a phone run deletes the archive's app and Xcode's copy, and keeps the .ipa it installed", async () => {
+    addProfile('team', profile(`${TEAM}.*`, [PHONE]));
+    const mine = xcodeCopy('sample-shell-mine', app, 'debug-iphoneos');
+    const { code, forgot } = await runIn(app, apple(), { target: 'phone', udid: PHONE });
+    expect(code).toBe(0);
+    expect(existsSync(join(app, 'src-tauri/gen/apple/build/arm64/sample-shell.ipa'))).toBe(true);
+    expect(existsSync(join(mine, 'Build/Products/debug-iphoneos/Sample App.app'))).toBe(false);
+    expect(forgot).toEqual([
+      '<home>/Library/Developer/Xcode/DerivedData/sample-shell-mine/Build/Products/debug-iphoneos/Sample App.app',
+      '<app>/src-tauri/gen/apple/build/sample-shell_iOS.xcarchive/Products/Applications/Sample App.app',
+    ]);
+  });
+});
+
 describe('iphone run phone', () => {
   test('a phone already in a profile for the app is built for, installed on and started on, with no Xcode build of its own', async () => {
     // The team's catch-all profile holds the phone; a distribution profile, with no devices, and another team's are passed over.
@@ -489,8 +552,11 @@ describe('the pure parts', () => {
   test('a project with the value written in is refused before anything runs, naming the line to fix', async () => {
     const pbxproj = 'src-tauri/gen/apple/sample-shell.xcodeproj/project.pbxproj';
     writeFileSync(join(app, pbxproj), readFileSync(join(app, pbxproj), 'utf8').replace('${FORCE_COLOR}', '3'));
+    // An app an earlier build left, which a run refused before its build never deletes.
+    write(app, { 'src-tauri/gen/apple/build/arm64-sim/Sample App.app/Info.plist': '' });
     const stand = apple();
     const { code, printed } = await runIn(app, stand, { target: 'sim' });
+    expect(existsSync(join(app, 'src-tauri/gen/apple/build/arm64-sim/Sample App.app'))).toBe(true);
     expect(code).toBe(1);
     expect(printed).toEqual([
       `! ${pbxproj}'s Rust build step passes "3" where it should say \${FORCE_COLOR}: a terminal's FORCE_COLOR was written in when the project was made again, and Tauri reads it as a chip architecture. Put \${FORCE_COLOR} back before \${ARCHS:?} and commit it.`,
@@ -553,6 +619,8 @@ describe('a run that ends after the boot', () => {
     expect(xcrunCalls()).toContain('simctl shutdown SCRATCH-UDID');
     expect(simulatorsLog()).toContain('"SCRATCH-UDID" (SCRATCH-UDID): shut down, its run was stopped by SIGTERM');
     expect(readHeld(join(place.folder, 'state/app-kit/simulators'), 'SCRATCH-UDID')).toBeNull();
+    // The app the build left in the checkout went with the stop.
+    expect(existsSync(join(place.folder, 'child-app/src-tauri/gen/apple/build/arm64-sim/Sample App.app'))).toBe(false);
     // With the file gone, the watcher has nothing to do and ends.
     const pid = watcherPid();
     await until(() => !alive(pid));

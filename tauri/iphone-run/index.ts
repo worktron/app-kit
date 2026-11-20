@@ -23,6 +23,9 @@
  *   for that phone; Tauri's own build is a generic one that never does, so when no profile holds the phone, one Xcode
  *   build for it runs first. That build stops at the Rust step, which only runs under Tauri; the profile is what it is
  *   for.
+ * - The apps the build made, in the checkout and in Xcode's build folder for it, are deleted once the run is done with
+ *   them, and macOS told to forget them, and the run starts by deleting Xcode's build folders of Tauri checkouts that
+ *   are gone (../built-apps.ts), so macOS keeps no copy of the app to hand its links to.
  * Every outside program goes through the kit's runner (command-line/run.ts), each in a process group of its own,
  * so a stop by Ctrl-C stops those groups too.
  *
@@ -32,6 +35,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
+import { iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
 import { servicesLine, servicesOff } from '../iphone-simulator/services.ts';
 import { claimMade, clock, keep, type Lifetime, markBooted, MINUTES, recordMade, release, releaseNow, setTime, takePlace } from '../iphone-simulator/lifetime.ts';
@@ -159,11 +163,17 @@ function built(folder: string, extension: string, names: string[]): string | nul
  */
 export async function runIphone(options: IphoneRunOptions): Promise<0 | 1> {
   const say = options.fail ?? ((line: string) => console.error(`[iphone] ${line}`));
+  const run = options.run ?? runCommand;
+  const home = options.home ?? homedir();
+  const output = options.output ?? ((chunk: string) => void process.stdout.write(chunk));
   const holding: Holding = { current: null };
+  const build: BuildStarted = { started: false };
   const onSignal = (signal: NodeJS.Signals) => {
     say(`stopped by ${signal}; stopping the programs it started`);
     stopRunning('SIGTERM');
     stopRunning('SIGKILL');
+    // After the build is stopped for good, so it cannot write the app again.
+    if (build.started) removeAppsNow(iphoneApps(options.cwd, home));
     if (holding.current) {
       say(`shutting down the Simulator ${holding.current.udid} it booted`);
       releaseNow(holding.current.folder, holding.current.udid, `its run was stopped by ${signal}`);
@@ -172,16 +182,18 @@ export async function runIphone(options: IphoneRunOptions): Promise<0 | 1> {
   };
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
-    return await runSteps(options, holding);
+    await sweepGoneCheckouts(home, run, output);
+    return await runSteps(options, holding, build);
   } finally {
     for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
+    if (build.started) await removeApps(iphoneApps(options.cwd, home), run, output);
   }
 }
 
 /** The Simulator a run holds a place for, which a stop by signal shuts down. */
 type Holding = { current: { folder: string; udid: string } | null };
 
-async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 | 1> {
+async function runSteps(options: IphoneRunOptions, holding: Holding, started: BuildStarted): Promise<0 | 1> {
   const { cwd } = options;
   const run = options.run ?? runCommand;
   const home = options.home ?? homedir();
@@ -205,6 +217,7 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
     );
   }
   const build = async (...args: string[]) => {
+    started.started = true;
     const done = await run(['bunx', 'tauri', 'ios', 'build', ...args], { cwd, env, output });
     return done.code === 0;
   };
@@ -330,6 +343,8 @@ async function runSteps(options: IphoneRunOptions, holding: Holding): Promise<0 
       print(`${name} is in a development profile for ${app.bundleId}`);
     } else {
       print(`adding ${name} to the team's development profile for ${app.bundleId}: one Xcode build for the phone, which stops at the Rust step`);
+      // It writes into Xcode's build folder for the checkout, as the build does.
+      started.started = true;
       const registered = await run(
         [
           'xcodebuild',

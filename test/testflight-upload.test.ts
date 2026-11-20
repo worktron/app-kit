@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { runCommand } from '../command-line/run.ts';
+import { LSREGISTER } from '../tauri/built-apps.ts';
 import { dirname, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import sharp from 'sharp';
@@ -175,12 +176,16 @@ test("PATH finds rustc in the cargo folder, which a background job's PATH lacks"
 test('a commit that is not on main, or a tree with changes, is refused before anything is built', async () => {
   git(app, 'checkout', '-q', '-b', 'a-branch');
   commit(app, { 'src/app.ts': 'export const x = 1;\n' });
+  // Apps an earlier build left, which an upload refused before its build never deletes.
+  const { archived, xcodeCopy } = leftApps();
   const offMain = apple();
   const refused = await runUpload(offMain);
   expect(refused.code).toBe(1);
   expect(refused.printed[0]).toStartWith(`! HEAD (${short()}) is not a commit on origin/main's first-parent line`);
   expect(offMain.named('tauri')).toEqual([]);
   expect(offMain.named('op')).toEqual([]);
+  expect(existsSync(archived)).toBe(true);
+  expect(existsSync(xcodeCopy)).toBe(true);
 
   git(app, 'checkout', '-q', 'main');
   writeFileSync(join(app, 'src/app.ts'), 'export const y = 2;\n');
@@ -297,6 +302,52 @@ test('the key folder is removed when altool refuses, and after an upload', async
   expect(existsSync(uploaded.keyFolders[0])).toBe(false);
 });
 
+/** The apps an upload's build leaves: the archive's in the checkout, and Xcode's copy in its build folder for it. */
+/** Xcode's build folder of a Tauri checkout that is gone, under `home`, with the app in it: what each run sweeps first. */
+function goneCheckoutFolder(home: string) {
+  const folder = join(home, 'Library/Developer/Xcode/DerivedData/closed-app-xyz');
+  const copy = join(folder, 'Build/Products/debug-iphonesimulator/Closed App.app');
+  mkdirSync(copy, { recursive: true });
+  const info = readFileSync(join(import.meta.dir, 'fixtures/xcode-build-folder/info.plist'), 'utf8');
+  writeFileSync(join(folder, 'info.plist'), info.replace('{{PROJECT}}', join(home, 'closed-worktree/src-tauri/gen/apple/closed.xcodeproj')));
+  return { folder, copy };
+}
+
+function leftApps() {
+  const archived = join(app, 'src-tauri/gen/apple/build/past-the-break_iOS.xcarchive/Products/Applications/Past the Break.app');
+  const xcodeFolder = join(place.folder, 'Library/Developer/Xcode/DerivedData/past-the-break-abc');
+  const xcodeCopy = join(xcodeFolder, 'Build/Products/release-iphoneos/Past the Break.app');
+  for (const folder of [archived, xcodeCopy]) {
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'Info.plist'), '');
+  }
+  const info = readFileSync(join(import.meta.dir, 'fixtures/xcode-build-folder/info.plist'), 'utf8');
+  writeFileSync(join(xcodeFolder, 'info.plist'), info.replace('{{PROJECT}}', join(app, 'src-tauri/gen/apple/past-the-break.xcodeproj')));
+  return { archived, xcodeCopy };
+}
+
+test("the archive's app and Xcode's copy are deleted and forgotten after an upload, and after one altool refuses, whose reason stays the last line", async () => {
+  const uploaded = apple();
+  const after = leftApps();
+  const gone = goneCheckoutFolder(place.folder);
+  expect((await runUpload(uploaded)).code).toBe(0);
+  for (const path of [after.archived, after.xcodeCopy]) expect(existsSync(path)).toBe(false);
+  // The upload first swept Xcode's folder of a checkout that is gone, and macOS forgot the app in it.
+  expect(existsSync(gone.folder)).toBe(false);
+  expect(uploaded.named(LSREGISTER).map((call) => call.command[2]).sort()).toEqual([after.archived, after.xcodeCopy, gone.copy].sort());
+
+  const refused = apple({ altool: 'refused' });
+  const left = leftApps();
+  const said: string[] = [];
+  const { code, printed } = await runUpload(refused, { output: (chunk) => said.push(chunk) });
+  expect(code).toBe(1);
+  for (const path of [left.archived, left.xcodeCopy]) expect(existsSync(path)).toBe(false);
+  // The watcher takes the last "[testflight] " line as the reason: the deletes go to the build's output, unprefixed.
+  expect(printed.at(-1)).toStartWith(`! altool did not upload build ${count()}`);
+  const deletes = said.filter((chunk) => chunk.startsWith('deleted the built app '));
+  expect(deletes).toHaveLength(2);
+});
+
 test('a number App Store Connect already holds is "already uploaded", and the wait for processing goes on', async () => {
   const { code, printed } = await runUpload(apple({ altool: 'duplicate' }));
   expect(code).toBe(0);
@@ -313,9 +364,10 @@ test('processing that fails, or takes more than thirty minutes, exits 1', async 
   expect(slow.printed.at(-1)).toBe(`! build ${count()} was uploaded, but Apple had not processed it in 30 minutes (PROCESSING)`);
 });
 
-test('stopped by the watcher\'s time limit, the upload stops the programs it started, removes the key and puts the plists back', async () => {
+test('stopped by the watcher\'s time limit, the upload stops the programs it started, removes the key, puts the plists back and deletes the apps its build left', async () => {
   for (const at of ['build', 'altool'] as const) {
     const marker = join(place.folder, `hang-${at}`);
+    const left = leftApps();
     // As the watcher runs it: under caffeinate, which ends at once on the signal, in a process group of its own,
     // signalled once the step is under way.
     const stopped = await runCommand(['caffeinate', '-i', 'bun', join(import.meta.dir, 'testflight-upload-child.ts'), app, cargoHome, at, marker], {
@@ -327,6 +379,8 @@ test('stopped by the watcher\'s time limit, the upload stops the programs it sta
     expect(Bun.spawnSync(['pgrep', '-f', marker]).stdout.toString()).toBe('');
     expect(git(app, 'status', '--porcelain')).toBe('');
     if (at === 'altool') expect(existsSync(readFileSync(`${marker}.keys`, 'utf8'))).toBe(false);
+    // Stopped once its build had started, the upload deleted the apps the build leaves.
+    for (const path of [left.archived, left.xcodeCopy]) expect(existsSync(path)).toBe(false);
     // Stopped mid-build, Tauri's keychain, which holds the private key, and its copy of the profile are removed too.
     const keychains = join(place.folder, 'Library/Keychains');
     expect(existsSync(keychains) ? readdirSync(keychains).filter((name) => !name.startsWith('.')) : []).toEqual([]);

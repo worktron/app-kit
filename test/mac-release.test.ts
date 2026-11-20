@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { assetName, nextVersion, releasesRepository, signedVersion } from '../tauri/mac-release/app.ts';
 import { identityName, NOTARY_KEY_FOLDER, release, type ReleaseOptions } from '../tauri/mac-release/release.ts';
 import { USERS } from '../tauri/mac-release/build-paths.ts';
+import { LSREGISTER } from '../tauri/built-apps.ts';
 import {
   DEVELOPER_ID_IDENTITIES,
   DEVELOPER_ID_NAME,
@@ -113,6 +114,38 @@ test('a landed app is built with the key in its environment alone and published 
   const folder = command[command.length - 1]!.split('/').slice(0, -1).join('/');
   expect(existsSync(folder)).toBe(false);
   expect(result.printed.at(-2)).toBe(`published Example App 0.1.9: https://github.com/${REPOSITORY}/releases/tag/v0.1.9`);
+});
+
+test('the built app and the copy unpacked to check it are deleted and forgotten, published or not; the update archive stays', async () => {
+  const { app } = macApp(place.folder);
+  const built = join(app, 'src-tauri/target/release/bundle/macos/Example App.app');
+  const gone = goneCheckoutFolder(place.folder);
+  const result = await runRelease(app);
+  expect(result.code).toBe(0);
+  expect(existsSync(built)).toBe(false);
+  expect(existsSync(`${built}.tar.gz`)).toBe(true);
+  // The release first swept Xcode's folder of a checkout that is gone, and macOS forgot the app in it.
+  expect(existsSync(gone.folder)).toBe(false);
+  const forgotten = result.named(LSREGISTER).map((call) => call.command[2]!);
+  expect(forgotten[0]).toBe(gone.copy);
+  expect(forgotten[1]).toBe(built);
+  expect(forgotten.slice(2)).toEqual([expect.stringMatching(/\/app-kit-mac-release-[^/]+\/unpacked\/Example App\.app$/)]);
+  expect(result.printed.at(-1)).toBe('installed copies offer it the next time their window comes forward, or at Check for Updates…');
+
+  const failed = await runRelease(app, { publish: () => Promise.resolve(exit(1, 'HTTP 502')) });
+  expect(failed.code).toBe(1);
+  expect(existsSync(built)).toBe(false);
+  expect(failed.named(LSREGISTER).map((call) => call.command[2])).toContain(built);
+});
+
+test('a release refused before its build leaves the app another build left in the folder', async () => {
+  const { app } = macApp(place.folder);
+  const left = join(app, 'src-tauri/target/release/bundle/macos/Example App.app');
+  mkdirSync(left, { recursive: true });
+  const refused = await runRelease(app, {}, { arch: 'x64' });
+  expect(refused.code).toBe(1);
+  expect(existsSync(left)).toBe(true);
+  expect(refused.named(LSREGISTER)).toEqual([]);
 });
 
 test('the version is one past the higher of the last release and the config', async () => {
@@ -270,7 +303,7 @@ test('the archive is published under a name GitHub keeps, and the repository com
   expect(signedVersion(signatureFile(null))).toBeNull();
 });
 
-test('a release stopped by a signal while publishing removes the folder its files went up from', async () => {
+test('a release stopped by a signal while publishing removes the folder its files went up from, and the app its build left', async () => {
   const { app } = macApp(place.folder);
   const child = Bun.spawn(['bun', join(import.meta.dir, 'mac-release-child.ts'), app], { stdout: 'pipe', stderr: 'pipe' });
   const reader = child.stdout.getReader();
@@ -286,7 +319,20 @@ test('a release stopped by a signal while publishing removes the folder its file
   child.kill('SIGTERM');
   expect(await child.exited).toBe(1);
   expect(existsSync(folder)).toBe(false);
+  // Stopped after its build, the release deleted the app the build left, and kept the update archive.
+  expect(existsSync(join(app, 'src-tauri/target/release/bundle/macos/Example App.app'))).toBe(false);
+  expect(existsSync(join(app, 'src-tauri/target/release/bundle/macos/Example App.app.tar.gz'))).toBe(true);
 });
+
+/** Xcode's build folder of a Tauri checkout that is gone, under `home`, with the app in it: what each run sweeps first. */
+function goneCheckoutFolder(home: string) {
+  const folder = join(home, 'Library/Developer/Xcode/DerivedData/closed-app-xyz');
+  const copy = join(folder, 'Build/Products/debug-iphonesimulator/Closed App.app');
+  mkdirSync(copy, { recursive: true });
+  const info = readFileSync(join(import.meta.dir, 'fixtures/xcode-build-folder/info.plist'), 'utf8');
+  writeFileSync(join(folder, 'info.plist'), info.replace('{{PROJECT}}', join(home, 'closed-worktree/src-tauri/gen/apple/closed.xcodeproj')));
+  return { folder, copy };
+}
 
 /** An app signed by the Developer ID certificate, named in its config by its fingerprint, in `case`. */
 function developerIdApp(name: string, fingerprint = FINGERPRINT) {

@@ -28,5 +28,6 @@ const stand = macRunner(
         },
       },
 );
-const code = await release({ cwd: app, run: stand.run, env: { PATH: '/usr/bin:/bin' }, arch: 'arm64', print: () => {}, output: () => {} });
+// The app's folder is the home, so the release's sweep of Xcode's build folders never reaches the real ones.
+const code = await release({ cwd: app, run: stand.run, env: { PATH: '/usr/bin:/bin', HOME: app }, arch: 'arm64', print: () => {}, output: () => {} });
 process.exit(code);

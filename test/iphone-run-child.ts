@@ -4,6 +4,8 @@
 // install, after the boot, with the place taken and a real watcher started, looking every tenth of a second. The
 // Simulator's tools are the test's stand-ins: here answered in the run, and on PATH for the signal handler's shut-down
 // and the watcher. It is never itself a test.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runIphone } from '../tauri/iphone-run/index.ts';
 import { runCommand, type RunResult } from '../command-line/run.ts';
 import { startWatcher } from '../tauri/iphone-simulator/lifetime.ts';
@@ -25,6 +27,12 @@ const code = await runIphone({
   lifetime: { folder, startWatcher: startWatcher(folder, 100) },
   run: (command, options) => {
     if (command[0] === 'bunx' && hang === 'build') return runCommand(['bash', '-c', `echo "hanging ${marker}"; sleep 600; echo "${marker}"`], options);
+    if (command[0] === 'bunx') {
+      // The app Tauri leaves in the checkout, which the stop by signal deletes.
+      const built = join(app, 'src-tauri/gen/apple/build/arm64-sim/Sample App.app');
+      mkdirSync(built, { recursive: true });
+      writeFileSync(join(built, 'Info.plist'), '');
+    }
     if (command.join(' ') === 'xcrun simctl list devices -j') return answered(listing);
     if (command.slice(0, 3).join(' ') === 'xcrun simctl install' && hang === 'install') {
       console.log(`hanging ${marker}`);

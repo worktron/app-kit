@@ -28,6 +28,9 @@
  *   the icon's pixels are read before the build, and the refusal names `app-kit icons render`, which draws them opaque.
  * - Tauri writes the export method and the build number into tracked files; only the values it wrote are put back,
  *   so an edit made to either file during the build survives.
+ * - The apps the build made (the archive's, and Xcode's copy) are deleted once the upload is done with them, worked or
+ *   not, and macOS told to forget them, and the upload starts by deleting Xcode's build folders of Tauri checkouts that
+ *   are gone (../built-apps.ts): macOS registers the archive's app hours after the upload, and keeps it registered.
  *
  * Exit codes: 0 uploaded and processed (or already uploaded, then processed); 3 the app did not compile; 1 anything
  * else.
@@ -59,6 +62,7 @@ import {
   type XcodeTargets,
 } from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
+import { iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
 export { buildEnv, STOP_SIGNALS };
@@ -324,6 +328,10 @@ export type UploadOptions = {
  */
 export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
   const say = options.fail ?? ((line: string) => console.error(`[testflight] ${line}`));
+  const run = options.run ?? runCommand;
+  const home = options.home ?? homedir();
+  const output = options.output ?? ((chunk: string) => void process.stdout.write(chunk));
+  const build: BuildStarted = { started: false };
   const onSignal = (signal: NodeJS.Signals) => {
     say(`stopped by ${signal}; stopping the programs it started and removing the key`);
     stopRunning('SIGTERM');
@@ -332,17 +340,21 @@ export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
       cleanup();
     }
     stopRunning('SIGKILL');
+    // After the build is stopped for good, so it cannot write the app again.
+    if (build.started) removeAppsNow(iphoneApps(options.cwd, home));
     process.exit(1);
   };
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
-    return await uploadSteps(options);
+    await sweepGoneCheckouts(home, run, output);
+    return await uploadSteps(options, build);
   } finally {
     for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
+    if (build.started) await removeApps(iphoneApps(options.cwd, home), run, output);
   }
 }
 
-async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
+async function uploadSteps(options: UploadOptions, started: BuildStarted): Promise<0 | 1 | 3> {
   const { cwd, tokenOnly } = options;
   const run = options.run ?? runCommand;
   const now = options.now ?? Date.now;
@@ -476,6 +488,7 @@ async function uploadSteps(options: UploadOptions): Promise<0 | 1 | 3> {
     }
     print(`building build ${buildNumber} (${short})`);
     const config = JSON.stringify({ bundle: { iOS: { bundleVersion: String(buildNumber) } } });
+    started.started = true;
     const built = await run(['bunx', 'tauri', 'ios', 'build', '--ci', '--export-method', 'app-store-connect', '--config', config], {
       cwd,
       env: {
