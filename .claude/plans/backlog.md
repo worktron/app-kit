@@ -1009,3 +1009,10 @@ Written by: sightline/app-kit-v0-70-2
 Idea, not a fault. An app that clears its saved screens (Sightline does when its view settings change, in client/src/useView.ts `forgetSavedScreens`) has to know the local storage keys app-kit's SavedCopies writes and remove them itself, so it breaks quietly if the kit renames a key.
 Goal: An app clears every copy SavedCopies saved with one kit call, knowing none of its keys.
 Done when: app-kit exports a forget-all call beside SavedCopies, a kit test shows it leaves no saved copy behind and touches no other key, and its CHANGES.md entry names it for apps that clear by key today.
+
+## iphone-swipe-switch · A kit iPhone window can keep WebKit's swipe back off, for a page with its own
+Written by: metamax/app-kit-v0-71-1
+
+Goal: since v0.70.3 the window plugin's on_webview_ready calls iphone::allow_swipe_back for every window labelled main (tauri/window/plugin/src/lib.rs:209), with no way to say no. Metamax's phone page has its own swipe back with its own slide and a sideways swipe to the next thread, and pushes history on taps, so WebKit's gesture had entries to go back through: WebKit holds touches at the left edge until its own gesture fails, and a swipe from the edge would play WebKit's snapshot slide while one an inch in played the page's. Metamax turns it off again right after the window is built (mobile/src-tauri/src/lib.rs keep_own_swipe, landed 2026-11-20 at 33f6e2f), which depends on the plugin running first. Found by metamax's v0.71.1 upgrade.
+
+Done when: the window plugin takes a setting (on the Site or the builder) that leaves WebKit's swipe back off for a window, the README's iPhone section says when a page with its own swipe should use it, a Rust test holds the setting, and metamax drops keep_own_swipe for it.
