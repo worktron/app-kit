@@ -1030,3 +1030,10 @@ Written by: metamax/app-kit-v0-71-1
 Goal: testing/start-up.ts sweepEnded removes the temporary folders of test processes that have ended, and never ends what those processes started. Metamax's own sweep (server/lib/process-test-dir.ts endLeftovers, from scripts/test-preload.ts) ends a dead run's leftover children first on purpose: a leftover once waited for good on a file in a folder removed under it, and held its run. Preloading both brings that hang back, so metamax declined the kit's file. Found by metamax's v0.71.1 upgrade.
 
 Done when: the kit's sweep ends the processes a dead test process left running (by its process group or the folder it recorded) before it removes that folder, a test starts a child that outlives its test process and sees it ended and the folder gone, and metamax can take the start-up file in place of its own sweep.
+
+## built-page-manifest-reread · serveBuiltPage reads Vite's list of built files again when a new build is swapped in
+Written by: metamax/app-kit-v0-71-1
+
+Goal: app-kit/web/server serveBuiltPage reads dist/.vite/manifest.json once, at the first file asked for, and keeps it for the server's life. A server that swaps a fresh build into the folder while it runs (metamax's live/client-build.ts does on every landing) then sends every file of the later build with no-cache instead of a year's caching: 2 MB of script per reload on a slow link. Metamax makes the sender again whenever the manifest's modification time changes (server/lib/built-page.ts, landed 2026-11-20 at 33f6e2f). Found by metamax's v0.71.1 upgrade.
+
+Done when: serveBuiltPage notices a changed manifest (its modification time, checked per request or on a cheap interval) and reads it again, a test swaps a build in under a running sender and sees the new build's files kept for a year, and metamax drops its own remaking for it.
