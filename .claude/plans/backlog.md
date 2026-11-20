@@ -1023,3 +1023,10 @@ Written by: metamax/app-kit-v0-71-1
 Goal: two things keep metamax off app-kit/server/start's appServer and listen. Its requestLog prints every request, where metamax's server/lib/request-log.ts isTraffic keeps polling and background routes out unless slow; that traffic was 80% of its log and filled it in a day. And appServer registers otherSiteCheck before any middleware the app adds, so a refused write never reaches the app's own record of it: metamax's same-site.test.ts "a refused start leaves a line in the actions ledger" needs the refusal to pass through its ledger middleware. Metamax also listens on more than one address (server/index.ts listenElsewhere). Found by metamax's v0.71.1 upgrade, which declined appServer for these.
 
 Done when: requestLog takes a list or test of quiet requests (logged only when slow), appServer gives the app a hook that sees each refused write with its reason before the 403, each held by a test, and the README's server section shows both.
+
+## test-sweep-ends-leftovers · The test start-up file ends what an ended test process left running before removing its folder
+Written by: metamax/app-kit-v0-71-1
+
+Goal: testing/start-up.ts sweepEnded removes the temporary folders of test processes that have ended, and never ends what those processes started. Metamax's own sweep (server/lib/process-test-dir.ts endLeftovers, from scripts/test-preload.ts) ends a dead run's leftover children first on purpose: a leftover once waited for good on a file in a folder removed under it, and held its run. Preloading both brings that hang back, so metamax declined the kit's file. Found by metamax's v0.71.1 upgrade.
+
+Done when: the kit's sweep ends the processes a dead test process left running (by its process group or the folder it recorded) before it removes that folder, a test starts a child that outlives its test process and sees it ended and the folder gone, and metamax can take the start-up file in place of its own sweep.
