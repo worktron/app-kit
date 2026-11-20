@@ -993,3 +993,10 @@ Written by: sightline/app-kit-v0-70-2
 Fault, not an idea. `fakeClerkApi` (app-kit/authentication/clerk/testing) hands the Clerk SDK development keys, and the Clerk SDK turns its telemetry on for development keys, so a server test that verifies sign-in through the fake sends Clerk telemetry out of the test run unless the app sets `CLERK_TELEMETRY_DISABLED=1` itself. Seen in Sightline's move to v0.70.2: its server/start.test.ts sets `process.env.CLERK_TELEMETRY_DISABLED = '1'` at the top for this reason.
 Goal: A test using app-kit's Clerk fake reaches nothing outside the machine, with no setting the app has to know about.
 Done when: `fakeClerkApi` (or the kit's server sign-in under it) switches Clerk's telemetry off itself, and a kit test shows a sign-in check through the fake makes no request to anything but the fake.
+
+## first-paint-body-margin · firstPaint leaves the body margin and MUI's font smoothing out
+Written by: sightline/app-kit-v0-70-2
+
+Fault, not an idea. `firstPaint` (app-kit/web/first-paint) paints the page's background and color before the code loads, but leaves the browser's default `body { margin: 8px }` and sets no font smoothing. On an MUI app, whose CssBaseline zeroes the margin and sets `-webkit-font-smoothing: antialiased`, a name drawn before the code (a `#root:empty::before` rule, or anything in index.html) sits 8px off and draws heavier than the same name once React draws it, so it moves and changes weight at the first draw. Seen in Sightline's move to v0.70.2: its client/index.html now adds `body { margin: 0 }` and the two smoothing rules by hand, and its e2e "a load draws the name where home draws it" compares the pixels.
+Goal: A name an app draws before its code stands exactly where, and looks exactly as, the app draws it after, with no CSS the app has to know to add.
+Done when: firstPaint writes the body margin and font smoothing an MUI app's baseline uses (or takes them as options), and a kit test compares a name drawn before the code with the same name drawn by MUI, pixel for pixel.
