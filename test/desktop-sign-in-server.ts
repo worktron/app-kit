@@ -25,8 +25,11 @@ export function serveDesktopSignIn(signedInAs: () => string | null) {
     }),
   );
   const sent: SentRequest[] = [];
+  // The paths of requests sent to outlive the page, which the browser finishes after the page moves on.
+  const keptAlive: string[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(new URL(String(input), window.location.origin), init);
+    if (init?.keepalive) keptAlive.push(new URL(request.url).pathname);
     sent.push({
       path: new URL(request.url).pathname,
       authorization: request.headers.get('Authorization'),
@@ -44,5 +47,5 @@ export function serveDesktopSignIn(signedInAs: () => string | null) {
     if (!code) throw new Error(`no code for ${nonce}: ${answer.status}`);
     return code;
   };
-  return { sent, codeFor };
+  return { sent, keptAlive, codeFor };
 }

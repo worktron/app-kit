@@ -128,11 +128,21 @@ function plainOptions(choices: PlainChoices): Options {
       MuiPaper: { defaultProps: { elevation: 0 }, styleOverrides: { root: { backgroundImage: 'none' } } },
       MuiCard: { styleOverrides: { root: { boxShadow: 'none', backgroundColor: 'transparent' } } },
       MuiAppBar: { defaultProps: { elevation: 0, color: 'inherit' }, styleOverrides: { root: { borderBottom: line } } },
-      // An action is a word in the accent, a removal one in the error color, with nothing filled.
+      // An action is a word in the accent, a removal one in the error color, with nothing filled. It keeps its size beside
+      // a row's text, and wraps, inside an address too, only when it is wider than its box, as a button naming an account
+      // can be on a phone.
       MuiButton: {
         defaultProps: { variant: 'text', disableElevation: true, disableRipple: true },
         styleOverrides: {
-          root: { minWidth: 0, padding: 0, flexShrink: 0, whiteSpace: 'nowrap', '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' } },
+          root: {
+            minWidth: 0,
+            maxWidth: '100%',
+            padding: 0,
+            flexShrink: 0,
+            overflowWrap: 'anywhere',
+            textAlign: 'start',
+            '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+          },
         },
       },
       MuiDivider: { styleOverrides: { root: { borderColor: 'var(--mui-palette-divider)' } } },

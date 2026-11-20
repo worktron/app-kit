@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ANSWER_KEY, ARGUMENTS, COMMANDS, LOG_PREFIX, PLUGIN } from '../tauri/iphone-sign-in/names';
-import { BACK_OVER_HTTPS, BACK_PARAM } from '../tauri/sign-in/names';
+import { BACK_OVER_HTTPS, BACK_PARAM, REFUSED_PARAM } from '../tauri/sign-in/names';
 
 const plugin = join(import.meta.dir, '../tauri/iphone-sign-in/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
@@ -67,6 +67,17 @@ test('the Swift asks the browser page for the hand-back over https by the names 
   expect(swift).toContain(`[asking.percentEncodedQuery, "${BACK_PARAM}=${BACK_OVER_HTTPS}"]`);
   expect(swift).not.toContain('queryItems');
   expect(swift).toContain('callback: .https(host: host, path: path)');
+});
+
+test('after two refusals over https the Swift opens the page with why, in the field the page reads, encoded so no letter can trap', () => {
+  expect(swift).toContain(`[withReason.percentEncodedQuery, "${REFUSED_PARAM}=\\(encoded)"]`);
+  // CharacterSet.alphanumerics takes every alphabet's letters: a translated reason's é would reach percentEncodedQuery
+  // bare, which traps.
+  expect(swift).not.toMatch(/withAllowedCharacters: (CharacterSet)?\.alphanumerics/);
+  expect(swift).toContain('CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")');
+  expect(swift).toContain('withAllowedCharacters: WebAuthPlugin.plainCharacters');
+  // One more ask over https before falling back, and the fallback carries the reason only after it.
+  expect(swift).toContain('askOverHttps { second in overScheme(self.refusal(first, second)) }');
 });
 
 test('the Swift logs as the page does', () => {

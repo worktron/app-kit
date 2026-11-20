@@ -7,7 +7,7 @@ import { fieldsNeverZoom, followTextSize, lookTheme, TextSizeSetting } from '../
 // The kit's MUI themes drawn on a settings page, the Plain Look Studies page's General and Profiles tabs as a web page
 // draws them: section labels, rows between hairlines, status in colored words, a switch, a menu that reads as text, a
 // field, actions as words and a removal in the error color, the kit's Text size row, labeled fields of each kind, once
-// empty and once filled, and the build at the foot.
+// empty and once filled, a button naming a long account, and the build at the foot.
 // ?look=console draws the console theme. ?fields=never-zoom builds the plain theme as an app that turns on fields that
 // never zoom builds it: the setting spread into its components, then its own outlined field padding after it. Both follow the system's light or dark setting, which the test sets, and the
 // page's text follows the size chosen in the Text size row.
@@ -93,6 +93,11 @@ function Settings() {
         Labeled fields
       </Typography>
       <LabeledFields />
+      <Typography variant="overline" component="h2" sx={{ display: 'block', mt: 3, mb: 1 }}>
+        Account
+      </Typography>
+      {/* A button that names an account, which can be wider than a phone. */}
+      <Button variant="contained">Continue as someone.with.a.rather.long.address@example.com</Button>
       <Typography variant="body2" color="textSecondary" sx={{ mt: 3 }} id="build">
         Beeline 1.0.0, 873623f
       </Typography>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProviderSession } from '../../web/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
-import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST } from './names';
+import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST, REFUSED_PARAM } from './names';
 import { HEX_32 } from './fingerprint';
 import { post } from './requests';
 import type { DesktopSignInAccount } from './window';
@@ -27,13 +27,16 @@ export const ASK_TAKEN_EVERY_MS = 500;
 export const ASK_TAKEN_FOR_MS = 90_000;
 
 /**
- * What the app's window asked the browser for: the fingerprint of its secret, the Google account chosen there, and
- * whether the iPhone's sheet waits for the hand-back over https.
+ * What the app's window asked the browser for: the fingerprint of its secret, the Google account chosen there, whether
+ * the iPhone's sheet waits for the hand-back over https, and, in an iPhone's browser, whether this page runs there and
+ * why iOS refused the hand-back over https when it did.
  */
 export interface DesktopSignInRequest {
   nonce: string;
   account: DesktopSignInAccount;
   overHttps: boolean;
+  iphone: boolean;
+  refused: string | null;
 }
 
 /**
@@ -55,8 +58,10 @@ export function desktopSignInRequest(location: Pick<Location, 'pathname' | 'sear
   const nonce = query.get('nonce');
   if (!nonce || !HEX_32.test(nonce)) return null;
   const account = query.get('account');
-  const overHttps = query.get(BACK_PARAM) === BACK_OVER_HTTPS && inIphoneBrowser();
-  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account }, overHttps };
+  const iphone = inIphoneBrowser();
+  const overHttps = query.get(BACK_PARAM) === BACK_OVER_HTTPS && iphone;
+  const refused = iphone ? query.get(REFUSED_PARAM) : null;
+  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account }, overHttps, iphone, refused };
 }
 
 /**
@@ -93,6 +98,17 @@ export function backLink(code: string, nonce: string, origin: string = window.lo
   return `${origin}${DESKTOP_SIGN_IN_BACK_PATH}#${new URLSearchParams({ ticket: code, nonce })}`;
 }
 
+/**
+ * Why the iPhone's sign-in stopped at the page's click, for the app's server log: iOS's refusal of the hand-back over
+ * https as the plugin wrote it, or, with none on the address, the causes that leave none, with the iOS version the
+ * browser names.
+ */
+export function stoppedForATap(asked: Pick<DesktopSignInRequest, 'refused'>, agent: string = navigator.userAgent): string {
+  if (asked.refused) return asked.refused;
+  const ios = agent.match(/\bOS (\d+(?:_\d+)*) like Mac OS X/)?.[1]?.replaceAll('_', '.') ?? 'unknown';
+  return `iOS ${ios}: the address carried no refusal, so the sheet never asked over https: an app build from before the retry, iOS before 17.4, an app that does not pass handBackOverHttps, or back=https lost on the way back from Google`;
+}
+
 export type DesktopSignInBrowserPage =
   | { state: 'not-from-app' }
   | { state: 'signing-out' }
@@ -114,9 +130,12 @@ export interface DesktopSignInBrowserPageOptions {
  * The browser's sign-in page once signed in. Signed in as an account other than the one the window asked for, or asked
  * for Google's list, and not back from Google, it only signs out: the app's sign-in screen then goes to Google for the
  * account asked, through `startGoogleHere`. Otherwise it is `ready`: the app draws which account goes to the app and a
- * button that calls `handOver`, with words such as "only if you just chose Continue with Google in the app", and the
- * state says where the hand-over stands for the app to draw. Asked by the iPhone's sheet for the hand-back over https,
- * it skips `ready` and hands over. `again` decides again, for a link the browser did not open or that expired, or a
+ * button that calls `handOver`, and the state says where the hand-over stands for the app to draw. The kit's words for
+ * it, one plain step: a heading "Finish signing in to <App>", "Signed in as <address>. Continue only if you just started
+ * signing in from <App>.", and a button "Continue to <App>" that names no address, so it fits a phone. The condition is
+ * what the click is for: another app can open this page. Asked by the iPhone's sheet for the hand-back over https, it
+ * skips `ready` and hands over. Stopped at `ready` in an iPhone's browser, it tells the app's server why, once, since
+ * the sheet waited over https only when nothing went wrong. `again` decides again, for a link the browser did not open or that expired, or a
  * sign-out that failed; it is the person's click too, so it hands over without `ready`.
  */
 export function useDesktopSignInBrowserPage({
@@ -128,6 +147,7 @@ export function useDesktopSignInBrowserPage({
   latest.current = session;
   const started = useRef(false);
   const code = useRef('');
+  const told = useRef('');
 
   const send = useCallback(async () => {
     const asked = desktopSignInRequest();
@@ -155,8 +175,13 @@ export function useDesktopSignInBrowserPage({
       latest.current.signOut().catch(() => setNow({ state: 'failed' }));
       return;
     }
-    if (clicked || asked.overHttps) void send();
-    else setNow({ state: 'ready' });
+    if (clicked || asked.overHttps) return void send();
+    setNow({ state: 'ready' });
+    if (asked.iphone && told.current !== asked.nonce) {
+      told.current = asked.nonce;
+      // Kept alive, so a tap that moves the page on before it is answered does not cancel it.
+      void post(latest.current, '/stopped-for-a-tap', { reason: stoppedForATap(asked) }, { keepalive: true }).catch(() => undefined);
+    }
   }, [send]);
 
   // A named account is compared once the person's email is known: a provider can know who is signed in a moment before

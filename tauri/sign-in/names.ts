@@ -36,6 +36,14 @@ export const BACK_PARAM = 'back';
 export const BACK_OVER_HTTPS = 'https';
 
 /**
+ * When iOS refuses the hand-back over https twice, the plugin's Swift opens the browser page again waiting for the app's
+ * link, with why in this field of its address (`refused=…`): Apple's reason with the iOS version, the app's build, and
+ * whether one tap ever worked on that install. The page sends it to the app's server, whose log is the only one anyone
+ * can read for a TestFlight install. test/iphone-sign-in-names.test.ts holds the Swift to it.
+ */
+export const REFUSED_PARAM = 'refused';
+
+/**
  * The window event the shell dispatches with `{ ticket, nonce }` as its detail, for a page that has set the flag below,
  * so the page signs in where it is with no page load.
  */

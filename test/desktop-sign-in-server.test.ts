@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Hono } from 'hono';
 import { fingerprint, randomHex } from '../tauri/sign-in/fingerprint';
-import { CODE_GOOD_MS, CODE_KEPT_MS, DESKTOP_SIGN_IN_OPEN_PATH, DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes } from '../tauri/sign-in/server';
+import { CODE_GOOD_MS, CODE_KEPT_MS, DESKTOP_SIGN_IN_OPEN_PATH, DESKTOP_SIGN_IN_ROUTES, desktopSignInRoutes, LOG_PREFIX, REASON_LOGGED_CHARACTERS } from '../tauri/sign-in/server';
 
 const realWarn = console.warn;
 const realLog = console.log;
@@ -173,4 +173,24 @@ test('a ticket maker that fails, as the provider out of reach, answers 502 and s
   const res = await app.request(DESKTOP_SIGN_IN_OPEN_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, secret }) });
   expect(res.status).toBe(502);
   expect(lines).toContain('[desktop-sign-in] no ticket: the ticket maker failed Error: unreachable');
+});
+
+test("the iPhone's page saying why it stopped for a tap is logged as one line, cut to what the log takes", async () => {
+  const { post } = server('p1');
+  const why = 'iOS 26.1, build 24: Application with identifier X is not associated with domain Y.\nSecond line';
+  expect((await post('/stopped-for-a-tap', { reason: why })).status).toBe(204);
+  expect(lines).toEqual([`${LOG_PREFIX} the iPhone's sign-in stopped for a tap: ${why.replace('\n', ' ')}`]);
+
+  lines = [];
+  await post('/stopped-for-a-tap', { reason: 'x'.repeat(REASON_LOGGED_CHARACTERS + 50) });
+  expect(lines).toEqual([`${LOG_PREFIX} the iPhone's sign-in stopped for a tap: ${'x'.repeat(REASON_LOGGED_CHARACTERS)}…`]);
+});
+
+test("why the iPhone's page stopped is taken only from a signed-in page with a bearer token, and only with a reason", async () => {
+  // Anything can be put in the page's address, so only the person's own page writes to the log.
+  expect((await server('p1').post('/stopped-for-a-tap', { reason: 'made up' }, {})).status).toBe(401);
+  expect((await server(null).post('/stopped-for-a-tap', { reason: 'made up' })).status).toBe(401);
+  expect((await server('p1').post('/stopped-for-a-tap', { reason: 42 })).status).toBe(400);
+  expect((await server('p1').post('/stopped-for-a-tap', {})).status).toBe(400);
+  expect(lines).toEqual([]);
 });

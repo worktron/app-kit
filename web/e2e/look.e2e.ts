@@ -217,6 +217,25 @@ for (const [size, setUp] of [
   });
 }
 
+test("on a phone a button naming a long account wraps inside the screen, and a short one beside a row's text stays on one line", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/look.html');
+  const long = page.getByRole('button', { name: /^Continue as / });
+  await expect(long).toBeVisible();
+  const box = (await long.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  // Wrapped onto more than one line, rather than cut or run past the edge.
+  const lineHeight = await long.evaluate((button) => parseFloat(getComputedStyle(button).lineHeight));
+  expect(box.height).toBeGreaterThan(lineHeight * 1.5);
+  // The row's action keeps its word whole and does not shrink beside the row's text.
+  const test = page.getByRole('button', { name: 'Test', exact: true });
+  const word = (await test.boundingBox())!;
+  expect(word.height).toBeLessThan(lineHeight * 1.5);
+  await expectFits(page);
+  await page.screenshot({ path: testInfo.outputPath('long-account-button.png'), fullPage: true, animations: 'disabled' });
+});
+
 test.describe('on a touch screen', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
 

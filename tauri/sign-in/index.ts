@@ -17,6 +17,7 @@ export {
   desktopSignInRequest,
   googleStartedHere,
   startGoogleHere,
+  stoppedForATap,
   useDesktopSignInBrowserPage,
   ASK_TAKEN_EVERY_MS,
   ASK_TAKEN_FOR_MS,
@@ -35,5 +36,6 @@ export {
   DESKTOP_SIGN_IN_ROUTES,
   LINK_HOST,
   NONCE_PARAM,
+  REFUSED_PARAM,
   TICKET_PARAM,
 } from './names';

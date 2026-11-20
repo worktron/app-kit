@@ -91,6 +91,15 @@ async function bodyOf(c: Context): Promise<Record<string, unknown>> {
   return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
 }
 
+/** The longest reason the log takes from the page. */
+export const REASON_LOGGED_CHARACTERS = 300;
+
+/** `text` as one log line: control characters, line breaks among them, as spaces, and no longer than the log takes. */
+function logLine(text: string): string {
+  const plain = [...text].map((character) => (character < ' ' || character === '\u007f' ? ' ' : character)).join('');
+  return plain.length > REASON_LOGGED_CHARACTERS ? `${plain.slice(0, REASON_LOGGED_CHARACTERS)}…` : plain;
+}
+
 /** The field `name` of a body when it is 32 bytes in hex, as every code, secret and fingerprint is. */
 const hexIn = (body: Record<string, unknown>, name: string) => {
   const value = body[name];
@@ -102,7 +111,8 @@ const hexIn = (body: Record<string, unknown>, name: string) => {
  * with the session's bearer token, so another site cannot have one made through the person's browser. `POST /redeem`
  * is the window, signed out, turning a code into a ticket with its secret: the one route the app's sign-in check lets
  * through, at DESKTOP_SIGN_IN_OPEN_PATH. `POST /taken` is the app saying it signed in with a code, and `POST /status`
- * the browser tab asking whether it has.
+ * the browser tab asking whether it has. `POST /stopped-for-a-tap` is the browser page in an iPhone's sign-in sheet
+ * saying why it stopped for the click instead of handing over by itself, which it logs.
  */
 export function desktopSignInRoutes<E extends Env = Env>({ userId, makeTicket, now = Date.now }: DesktopSignInRoutesOptions<E>): Hono<E> {
   const handedOver = new CodesHandedOver(now);
@@ -147,6 +157,16 @@ export function desktopSignInRoutes<E extends Env = Env>({ userId, makeTicket, n
     console.log(`${LOG_PREFIX} a code was turned into a ticket for the window that asked`);
     c.header('Cache-Control', 'no-store');
     return c.json({ ticket });
+  });
+
+  // Signed in with a bearer token like /code, so only the person's own page can write to the log, and cut and cleaned,
+  // since anything can be put in the page's address.
+  routes.post('/stopped-for-a-tap', async (c) => {
+    if (!c.req.header('Authorization')?.startsWith('Bearer ') || !userId(c)) return c.json({ error: 'Sign in in this browser first.' }, 401);
+    const reason = (await bodyOf(c)).reason;
+    if (typeof reason !== 'string' || !reason) return c.json({ error: 'No reason.' }, 400);
+    console.warn(`${LOG_PREFIX} the iPhone's sign-in stopped for a tap: ${logLine(reason)}`);
+    return c.body(null, 204);
   });
 
   routes.post('/taken', async (c) => {

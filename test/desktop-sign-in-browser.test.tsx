@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, startGoogleHere, useDesktopSignInBrowserPage } from '../tauri/sign-in';
+import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, startGoogleHere, stoppedForATap, useDesktopSignInBrowserPage } from '../tauri/sign-in';
 import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../web/sign-in/SignInGate';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { fingerprint, randomHex } from '../tauri/sign-in/fingerprint';
@@ -360,4 +360,46 @@ test('a page closed once its link is out asks the server nothing more', async ()
   } finally {
     jest.useRealTimers();
   }
+});
+
+/** The page as the iPhone's sheet opens it after iOS refused the hand-back over https twice. */
+const REFUSAL = 'iOS 26.1, build 24, 3 s after the app started, refused twice, one tap never worked on this install: not associated';
+const AFTER_REFUSAL = `${PAGE}&refused=${encodeURIComponent(REFUSAL)}`;
+
+test("in the iPhone's sheet after iOS refused the hand-back over https, the page waits for the click and tells the server why, once, kept alive past the tap", async () => {
+  inBrowser(IPHONE, 5);
+  goTo(AFTER_REFUSAL);
+  const { sent, keptAlive } = serveDesktopSignIn(() => 'ana@example.com');
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(heading()).toBe('ready');
+  expect(sent[0]).toEqual({ path: '/api/desktop-sign-in/stopped-for-a-tap', authorization: 'Bearer stand-in-token-0', body: { reason: REFUSAL } });
+  expect(keptAlive).toEqual(['/api/desktop-sign-in/stopped-for-a-tap']);
+  expect(desktopSignInRequest()?.refused).toBe(REFUSAL);
+  await click();
+  await waitFor(() => expect(heading()).toBe('sent'));
+  expect(sent.map((request) => request.path)).toEqual(['/api/desktop-sign-in/stopped-for-a-tap', '/api/desktop-sign-in/code']);
+});
+
+test("in the iPhone's sheet with no refusal on the address, the page tells the server that none came, with the iOS version its browser names", async () => {
+  inBrowser(IPHONE, 5);
+  goTo(PAGE);
+  const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await waitFor(() => expect(sent).toHaveLength(1));
+  const reason = (sent[0]!.body as { reason: string }).reason;
+  expect(reason).toStartWith('iOS 18.0: the address carried no refusal');
+  expect(reason).toBe(stoppedForATap({ refused: null }, IPHONE));
+});
+
+test('in any browser but an iPhone\'s, a refusal on the address is not read and nothing is sent until the click', async () => {
+  inBrowser(MAC_SAFARI, 0);
+  goTo(AFTER_REFUSAL);
+  const { sent } = serveDesktopSignIn(() => 'ana@example.com');
+  draw(standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } }));
+  await waitFor(() => expect(heading()).toBe('ready'));
+  expect(desktopSignInRequest()?.refused).toBeNull();
+  await click();
+  await waitFor(() => expect(heading()).toBe('sent'));
+  expect(sent.map((request) => request.path)).toEqual(['/api/desktop-sign-in/code']);
 });
