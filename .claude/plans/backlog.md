@@ -1037,3 +1037,10 @@ Written by: metamax/app-kit-v0-71-1
 Goal: app-kit/web/server serveBuiltPage reads dist/.vite/manifest.json once, at the first file asked for, and keeps it for the server's life. A server that swaps a fresh build into the folder while it runs (metamax's live/client-build.ts does on every landing) then sends every file of the later build with no-cache instead of a year's caching: 2 MB of script per reload on a slow link. Metamax makes the sender again whenever the manifest's modification time changes (server/lib/built-page.ts, landed 2026-11-20 at 33f6e2f). Found by metamax's v0.71.1 upgrade.
 
 Done when: serveBuiltPage notices a changed manifest (its modification time, checked per request or on a cheap interval) and reads it again, a test swaps a build in under a running sender and sees the new build's files kept for a year, and metamax drops its own remaking for it.
+
+## start-page-check-bundled-shell · The start-page check leaves out a shell with a bundled page of its own, as its comment says
+Written by: metamax/app-kit-v0-71-1
+
+Goal: scripts/kit-features.ts START_PAGE's comment says a shell with a bundled page of its own, naming metamax's phone app, is not asked, but appliesTo asks any app with the window plugin and WebviewUrl::External in its Rust, and present() counts any WebviewUrl::External as missing. Metamax's phone shell opens on its own bundled start page and names WebviewUrl::External only to move to the node once it answers (mobile/src-tauri/src/lib.rs:381), so the apps round reports the start page missing for it. Found by metamax's v0.71.1 upgrade.
+
+Done when: the check tells a shell that opens on a bundled page and goes to the site from it apart from one that opens straight on the site, test/kit-features-entries.test.ts holds a made-up app of each kind, and metamax's phone app reads as not asked.
