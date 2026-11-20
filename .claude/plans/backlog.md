@@ -1000,3 +1000,10 @@ Written by: sightline/app-kit-v0-70-2
 Fault, not an idea. `firstPaint` (app-kit/web/first-paint) paints the page's background and color before the code loads, but leaves the browser's default `body { margin: 8px }` and sets no font smoothing. On an MUI app, whose CssBaseline zeroes the margin and sets `-webkit-font-smoothing: antialiased`, a name drawn before the code (a `#root:empty::before` rule, or anything in index.html) sits 8px off and draws heavier than the same name once React draws it, so it moves and changes weight at the first draw. Seen in Sightline's move to v0.70.2: its client/index.html now adds `body { margin: 0 }` and the two smoothing rules by hand, and its e2e "a load draws the name where home draws it" compares the pixels.
 Goal: A name an app draws before its code stands exactly where, and looks exactly as, the app draws it after, with no CSS the app has to know to add.
 Done when: firstPaint writes the body margin and font smoothing an MUI app's baseline uses (or takes them as options), and a kit test compares a name drawn before the code with the same name drawn by MUI, pixel for pixel.
+
+## saved-copies-forget-all · SavedCopies forgets everything it saved in one call
+Written by: sightline/app-kit-v0-70-2
+
+Idea, not a fault. An app that clears its saved screens (Sightline does when its view settings change, in client/src/useView.ts `forgetSavedScreens`) has to know the local storage keys app-kit's SavedCopies writes and remove them itself, so it breaks quietly if the kit renames a key.
+Goal: An app clears every copy SavedCopies saved with one kit call, knowing none of its keys.
+Done when: app-kit exports a forget-all call beside SavedCopies, a kit test shows it leaves no saved copy behind and touches no other key, and its CHANGES.md entry names it for apps that clear by key today.
