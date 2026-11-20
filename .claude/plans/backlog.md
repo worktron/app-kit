@@ -972,3 +972,10 @@ Done when: Messages Service's menu opens the kit's Settings window with `.settin
 Goal: argon-watcher's Mac window bundles its hosted site rather than app-kit's start page folder (tauri/window/start), so it cannot open the kit's Settings window, whose page lives in that folder, and the apps round's "opens at login on the Mac, from Settings" check skips it. Moving it onto the start page also gives it the offline wait the start page has (waits for the site, says when it cannot reach it, retries). Found by the settings-window thread, 2026-11-19.
 
 Done when: argon-watcher's tauri.conf.json names app-kit/tauri/window/start as its frontendDist, its window opens on the start page and moves on to the hosted site, and its menu takes `.settings_window()`, so the apps round counts it.
+
+## swift-rules-bun · The iPhone plugins' Swift rules tests run under bun test, so a branch's verifier can rerun them
+Written by: app-kit
+
+Goal: the Swift rules of the iPhone notifications, dictation and Health plugins are tested on the Mac only by scripts/gates.sh, which builds each Sources file with its Tests/main.swift through swiftc and runs the result (gates.sh:43-53). metamax's branch verifier reruns only plain `bun test` or `playwright test` calls over named files, so a landing whose evidence is one of those Swift tests reads "not checked" (the Health fix of v0.71.1 got 0 passed, 2 not checked). A bun test file per plugin that builds and runs the same swiftc command and fails on any line that is not `ok:` would let the verifier rerun it, with the gates calling those files instead of their own copy of the commands. Found by the iphone-health thread, 2026-11-19.
+
+Done when: `bun test test/<plugin>-swift-rules.test.ts` builds and runs each plugin's Swift rules tests and fails when one of them fails (shown with a rule taken out), scripts/gates.sh runs them through those files, and a branch whose evidence names one gets it rerun by the verifier.
