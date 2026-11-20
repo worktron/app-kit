@@ -1062,3 +1062,14 @@ Goal: a test run that makes a copy of a browser leaves no registration of it onc
 Done when: the copies are either made where macOS does not register them or forgotten (`lsregister -u <path>`, which works on a missing path) as the copy's folder is removed, held by a test of the step that removes it, and `lsregister -dump` after a full `scripts/gates.sh` run shows no new path under those folder names. tauri/built-apps.ts already holds the delete-then-forget step for built apps.
 
 Touches: web/playwright-webkit.js, testing/playwright-dock.js, web/playwright-offline-audio.js, test/playwright-dock.test.ts, test/playwright-offline-audio.test.ts.
+
+## sweep-other-xcode-folders · The build-folder sweep also deletes Xcode build folders of gone checkouts that are not Tauri apps
+Written by: app-kit/app-copies
+
+An idea, from the app-copies thread on 2026-11-20. Since v0.71.2, `iphone run`, the TestFlight upload and the Mac release each start by deleting Xcode's build folders (`~/Library/Developer/Xcode/DerivedData/`) whose info.plist names a Tauri app's Xcode project in a checkout folder that no longer exists, and have macOS forget the apps in them (tauri/built-apps.ts `sweepGoneCheckouts`). Folders from other projects, such as the kit's Swift packages or an app's own native Xcode project built in a worktree or a temporary folder, are left, since the sweep only trusts the Tauri project path to know which checkout a folder belongs to.
+
+Goal: Xcode's build folders of any project whose folder is gone are deleted, and the apps in them forgotten, so DerivedData holds only live projects' folders.
+
+Done when: the sweep also takes a folder whose info.plist WorkspacePath is any project path that no longer exists, keeps folders with no info.plist (Xcode's shared caches such as ModuleCache.noindex), held by tests in test/built-apps.test.ts, and a sweep on the owner's Mac lists what it would delete before it first runs.
+
+Touches: tauri/built-apps.ts, test/built-apps.test.ts, README.md.
