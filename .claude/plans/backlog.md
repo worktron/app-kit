@@ -979,3 +979,10 @@ Written by: app-kit
 Goal: the Swift rules of the iPhone notifications, dictation and Health plugins are tested on the Mac only by scripts/gates.sh, which builds each Sources file with its Tests/main.swift through swiftc and runs the result (gates.sh:43-53). metamax's branch verifier reruns only plain `bun test` or `playwright test` calls over named files, so a landing whose evidence is one of those Swift tests reads "not checked" (the Health fix of v0.71.1 got 0 passed, 2 not checked). A bun test file per plugin that builds and runs the same swiftc command and fails on any line that is not `ok:` would let the verifier rerun it, with the gates calling those files instead of their own copy of the commands. Found by the iphone-health thread, 2026-11-19.
 
 Done when: `bun test test/<plugin>-swift-rules.test.ts` builds and runs each plugin's Swift rules tests and fails when one of them fails (shown with a rule taken out), scripts/gates.sh runs them through those files, and a branch whose evidence names one gets it rerun by the verifier.
+
+## health-send-headers · iPhone Health's send can carry a key or headers, for a server on the public internet
+Written by: app-kit
+
+Goal: startIphoneHealth takes only an endpoint (tauri/iphone-health/index.ts:52), and the plugin's POST sets only Content-Type (IphoneHealthPlugin.swift:89-91), so the server cannot tell the person's phone from anyone who learns the address. An app whose server is on the public internet needs the send to prove who it is: a bearer token or headers the page hands the plugin once, kept with the address in the protected file and sent with every background send, with a 401 or 403 kept as an earlier attempt like any refusal. Mosquito's iPhone app is the first that will want it. Found by the iphone-health thread, 2026-11-19.
+
+Done when: startIphoneHealth takes headers (or a token) beside the endpoint, the plugin keeps them with the address and sends them on every send, a new value replaces the old one without starting Health's history over, the Swift rules tests hold that a refusal keeps the place, and the README's iPhone Health section shows a server checking it.
