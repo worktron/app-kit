@@ -986,3 +986,10 @@ Written by: app-kit
 Goal: startIphoneHealth takes only an endpoint (tauri/iphone-health/index.ts:52), and the plugin's POST sets only Content-Type (IphoneHealthPlugin.swift:89-91), so the server cannot tell the person's phone from anyone who learns the address. An app whose server is on the public internet needs the send to prove who it is: a bearer token or headers the page hands the plugin once, kept with the address in the protected file and sent with every background send, with a 401 or 403 kept as an earlier attempt like any refusal. Mosquito's iPhone app is the first that will want it. Found by the iphone-health thread, 2026-11-19.
 
 Done when: startIphoneHealth takes headers (or a token) beside the endpoint, the plugin keeps them with the address and sends them on every send, a new value replaces the old one without starting Health's history over, the Swift rules tests hold that a refusal keeps the place, and the README's iPhone Health section shows a server checking it.
+
+## fake-clerk-telemetry · fakeClerkApi lets the Clerk SDK send telemetry from tests
+Written by: sightline/app-kit-v0-70-2
+
+Fault, not an idea. `fakeClerkApi` (app-kit/authentication/clerk/testing) hands the Clerk SDK development keys, and the Clerk SDK turns its telemetry on for development keys, so a server test that verifies sign-in through the fake sends Clerk telemetry out of the test run unless the app sets `CLERK_TELEMETRY_DISABLED=1` itself. Seen in Sightline's move to v0.70.2: its server/start.test.ts sets `process.env.CLERK_TELEMETRY_DISABLED = '1'` at the top for this reason.
+Goal: A test using app-kit's Clerk fake reaches nothing outside the machine, with no setting the app has to know about.
+Done when: `fakeClerkApi` (or the kit's server sign-in under it) switches Clerk's telemetry off itself, and a kit test shows a sign-in check through the fake makes no request to anything but the fake.
