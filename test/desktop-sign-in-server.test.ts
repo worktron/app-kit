@@ -177,10 +177,10 @@ test('a ticket maker that fails, as the provider out of reach, answers 502 and s
 
 test("the iPhone's page saying why it stopped for a tap is logged as one line, cut to what the log takes", async () => {
   const { post } = server('p1');
-  const why = 'iOS 26.1, build 24: Application with identifier X is not associated with domain Y.\nSecond\u2028third\u2029fourth';
+  const why = 'iOS 26.1, build 24: Application with identifier X is not associated with domain Y.\nSecond\u2028third\u2029fourth\u0085fifth';
   expect((await post('/stopped-for-a-tap', { reason: why })).status).toBe(204);
-  expect(lines).toEqual([`${LOG_PREFIX} the iPhone's sign-in stopped for a tap: ${why.replace(/[\n\u2028\u2029]/g, ' ')}`]);
-  expect(lines[0]).not.toMatch(/[\n\u2028\u2029]/);
+  expect(lines).toEqual([`${LOG_PREFIX} the iPhone's sign-in stopped for a tap: ${why.replace(/[\n\u2028\u2029\u0085]/g, ' ')}`]);
+  expect(lines[0]).not.toMatch(/[\n\u2028\u2029\u0085]/);
 
   lines = [];
   await post('/stopped-for-a-tap', { reason: 'x'.repeat(REASON_LOGGED_CHARACTERS + 50) });
