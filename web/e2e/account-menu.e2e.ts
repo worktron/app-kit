@@ -69,7 +69,8 @@ test('a row under a resting pointer paints nothing until the pointer moves with 
   await page.keyboard.press('Enter');
   await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
   await grown(page);
-  expect(await signOut.evaluate((row) => row.matches(':hover'))).toBe(true);
+  // Chrome moves the hover to a row that appears under a still pointer a frame after it is drawn, so wait for it.
+  await expect.poll(() => signOut.evaluate((row) => row.matches(':hover'))).toBe(true);
   const paint = () => signOut.evaluate((row) => getComputedStyle(row).backgroundColor);
   // A nudge of a few pixels is still a resting hand.
   await page.mouse.move(at.x + 3, at.y);
