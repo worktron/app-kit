@@ -80,6 +80,21 @@ fn bundles_settings_page<R: Runtime>(app: &AppHandle<R>) -> bool {
     app.asset_resolver().iter().any(|(key, _)| key == page)
 }
 
+/// Opens the Settings window once Tauri has finished handing out the event it was chosen in. Tauri calls each plugin's
+/// event handler while it holds its list of plugins, and building a window takes that list again, so a window built
+/// inside the handler waits on itself and the app freezes for good, as Settings… did in 0.71.0. A task sent to the
+/// event loop from another thread runs after the handler returns; sent from the main thread, Tauri runs it at once,
+/// still inside the handler, so it is sent from a thread of its own.
+pub(crate) fn open_after_event<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let opener = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || open(&opener)) {
+            log::warn!("Settings chosen from the menu, but its window could not be sent to the main thread to open: {error}");
+        }
+    });
+}
+
 /// Opens the Settings window, or brings it forward when it is open already. An app whose frontendDist is not the kit's
 /// start folder has no settings page, and is told so in the log rather than shown a window with nothing in it.
 pub(crate) fn open<R: Runtime>(app: &AppHandle<R>) {
@@ -151,6 +166,7 @@ pub(crate) fn open_login_items() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{plugin_authority, Bundled, OWN_FOLDER, START_FOLDER};
     use tauri::window::Color;
 
     #[test]
@@ -186,19 +202,6 @@ mod tests {
         }
     }
 
-    /// Tauri's permission check as an app's build makes it, from the permission files this plugin's build wrote, as
-    /// the app's build reads them: the plugin's commands, and no other plugin's.
-    fn plugin_authority() -> tauri::ipc::RuntimeAuthority {
-        use tauri::utils::acl::manifest::{Manifest, PermissionFile};
-        use tauri::utils::acl::resolved::Resolved;
-        let listed = concat!(env!("OUT_DIR"), "/tauri-plugin-app-kit-window-permission-files");
-        let paths: Vec<String> = serde_json::from_str(&std::fs::read_to_string(listed).unwrap()).unwrap();
-        let files: Vec<PermissionFile> =
-            paths.iter().map(|path| toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()).collect();
-        let acl = [("app-kit-window".to_string(), Manifest::new(files, None))].into_iter().collect();
-        tauri::ipc::RuntimeAuthority::new(acl, Resolved::default())
-    }
-
     // The hosted site, the main window and any other window are refused by Tauri itself; only the Settings window, on
     // a page bundled in the app, may read or change the login item.
     #[test]
@@ -222,31 +225,6 @@ mod tests {
         assert!(by_default
             .resolve_access("plugin:app-kit-window|open_at_login_set", crate::MAIN, crate::MAIN, &Origin::Local)
             .is_none());
-    }
-
-    /// The app's bundle as Tauri serves it, holding the settings page.
-    /// The app's bundle as Tauri serves it: the kit's start folder, or a folder of the app's own holding only its
-    /// index.html, which Tauri's lookup hands out for any page it does not have.
-    struct Bundled(&'static [(&'static str, &'static [u8])]);
-
-    const START_FOLDER: Bundled = Bundled(&[
-        ("/index.html", include_bytes!("../../start/index.html")),
-        ("/settings.html", include_bytes!("../../start/settings.html")),
-    ]);
-    const OWN_FOLDER: Bundled = Bundled(&[("/index.html", b"<p>The app's own page</p>")]);
-
-    impl<R: Runtime> tauri::Assets<R> for Bundled {
-        fn get(&self, key: &tauri::utils::assets::AssetKey) -> Option<std::borrow::Cow<'_, [u8]>> {
-            self.0.iter().find(|(path, _)| *path == key.as_ref()).map(|(_, bytes)| (*bytes).into())
-        }
-
-        fn iter(&self) -> Box<tauri::utils::assets::AssetsIter<'_>> {
-            Box::new(self.0.iter().map(|(path, bytes)| ((*path).into(), (*bytes).into())))
-        }
-
-        fn csp_hashes(&self, _: &tauri::utils::assets::AssetKey) -> Box<dyn Iterator<Item = tauri::utils::assets::CspHash<'_>> + '_> {
-            Box::new(std::iter::empty())
-        }
     }
 
     fn app(assets: impl tauri::Assets<tauri::test::MockRuntime>) -> tauri::App<tauri::test::MockRuntime> {

@@ -162,10 +162,11 @@ pub(crate) fn page_script(command: &str) -> String {
 
 /// Carries out the window's own menu items: Reload, the kit's Settings window, and Settings and Sign Out handed to the
 /// page, with the window brought forward, since either can be chosen with it closed. The zoom is `change_zoom`'s.
+/// It runs inside the plugin's event handler, where no window may be built (`settings::open_after_event`).
 pub(crate) fn menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     if id == SETTINGS_WINDOW_ITEM {
         log::info!("Settings chosen from the menu, opening the kit's Settings window");
-        crate::settings::open(app);
+        crate::settings::open_after_event(app);
         return;
     }
     let Some(window) = app.get_webview_window(crate::MAIN) else { return };
@@ -209,6 +210,84 @@ mod tests {
         assert_eq!(AppMenu::new().settings_window().settings().settings_item(), Some(SETTINGS_ITEM));
         // The kit's window is the plugin's to open, never handed to the page.
         assert_eq!(page_command(SETTINGS_WINDOW_ITEM), None);
+    }
+
+    // Each item the plugin carries out, chosen the way Tauri hands a choice out: inside its run loop, under its lock on
+    // the plugins, through the plugin's own event handler. A window built there waits on that lock forever, which is how
+    // Settings… froze the app in 0.71.0. About, Services, Hide, Quit, Close Window, the Edit items, Enter Full Screen and
+    // Window's items are macOS's own, which send Tauri no event at all (tests/menu.rs holds that they are there).
+
+    use crate::test_support::{choose_from_menu, Folder};
+    use tauri::Manager;
+
+    /// Whether the app's thread logged `line`.
+    fn logged(lines: &[String], line: &str) -> bool {
+        lines.iter().any(|logged| logged == line)
+    }
+
+    #[test]
+    fn settings_from_the_menu_opens_the_kits_settings_window_without_freezing_the_app() {
+        let opened = choose_from_menu(SETTINGS_WINDOW_ITEM, |_| {}, |app, lines| {
+            let window = app.get_webview_window(crate::SETTINGS_WINDOW)?;
+            logged(lines, "Settings opened").then(|| window.url().unwrap().to_string())
+        });
+        assert_eq!(opened, "tauri://localhost/settings.html");
+    }
+
+    #[test]
+    fn settings_and_sign_out_from_the_menu_are_handed_to_the_page() {
+        for (item, command) in [(SETTINGS_ITEM, SETTINGS), (SIGN_OUT_ITEM, SIGN_OUT)] {
+            let line = format!("{command} chosen from the menu, bringing the window forward and handing it to the page");
+            choose_from_menu(item, |_| {}, move |_, lines| logged(lines, &line).then_some(()));
+        }
+    }
+
+    #[test]
+    fn reload_from_the_menu_reloads_the_page() {
+        choose_from_menu(RELOAD_ITEM, |_| {}, |_, lines| logged(lines, "Reload chosen, reloading the page").then_some(()));
+    }
+
+    /// Chooses a zoom item in an app whose saved zoom is `saved`, and answers the zoom the window keeps and the one
+    /// saved for the next launch.
+    fn zoom_from_the_menu(item: &'static str, saved: f64, name: &str) -> (f64, f64) {
+        let folder = Folder::new(name);
+        crate::mac::save_zoom(&folder.0, saved).unwrap();
+        let data = folder.0.clone();
+        choose_from_menu(
+            item,
+            move |context| {
+                context.config_mut().app.app_directories_override =
+                    Some(tauri::utils::config::AppDirectoriesOverride::Root(data));
+            },
+            |app, lines| {
+                let zoom = (*app.state::<crate::MacWindow>().zoom.lock().unwrap())?;
+                let saved = crate::mac::saved_zoom(&app.path().app_data_dir().unwrap());
+                logged(lines, &format!("zoomed to {zoom}, saved for the next launch")).then_some((zoom, saved))
+            },
+        )
+    }
+
+    #[test]
+    fn the_zoom_items_from_the_menu_zoom_the_page_and_keep_it_for_the_next_launch() {
+        assert_eq!(zoom_from_the_menu(crate::mac::ZOOM_IN, 1.0, "zoom-in"), (1.15, 1.15));
+        assert_eq!(zoom_from_the_menu(crate::mac::ZOOM_OUT, 1.0, "zoom-out"), (0.85, 0.85));
+        assert_eq!(zoom_from_the_menu(crate::mac::ACTUAL_SIZE, 1.5, "actual-size"), (1.0, 1.0));
+    }
+
+    #[test]
+    fn check_for_updates_from_the_menu_answers_in_a_build_that_is_not_the_installed_app() {
+        // A test is never the installed app, which is the only build that asks the releases (updates.rs).
+        let line = "Check for Updates chosen, but this build is not the installed app, so it never asks the releases";
+        choose_from_menu(crate::updates::UPDATE_ITEM, |_| {}, move |_, lines| logged(lines, line).then_some(()));
+    }
+
+    #[test]
+    fn an_item_the_app_adds_itself_passes_through_the_plugin_untouched() {
+        let lines = choose_from_menu("example-own-item", |_| {}, |app, lines| {
+            Some((app.webview_windows().into_keys().collect::<Vec<_>>(), lines.to_vec()))
+        });
+        assert_eq!(lines.0, [crate::MAIN.to_string()]);
+        assert!(!lines.1.iter().any(|line| line.contains("chosen") || line.contains("zoomed")), "{:?}", lines.1);
     }
 
     #[test]

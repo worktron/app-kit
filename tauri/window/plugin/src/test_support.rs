@@ -1,0 +1,178 @@
+//! What the plugin's Mac tests share: the app's bundle as Tauri serves it, the plugin's permission check as an app's
+//! build makes it, a folder of a test's own, the lines the plugin logs, and a menu choice handed out the way Tauri hands
+//! one out, inside its own run loop and under its lock on the plugins.
+
+use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Mutex, Once};
+use std::thread::ThreadId;
+use std::time::Duration;
+use tauri::menu::{MenuEvent, MenuId};
+use tauri::plugin::Plugin;
+use tauri::test::MockRuntime;
+use tauri::window::Color;
+use tauri::{AppHandle, Context, RunEvent};
+
+/// The app's bundle as Tauri serves it: the kit's start folder, or a folder of the app's own holding only its
+/// index.html, which Tauri's lookup hands out for any page it does not have.
+pub(crate) struct Bundled(pub(crate) &'static [(&'static str, &'static [u8])]);
+
+pub(crate) const START_FOLDER: Bundled = Bundled(&[
+    ("/index.html", include_bytes!("../../start/index.html")),
+    ("/settings.html", include_bytes!("../../start/settings.html")),
+]);
+pub(crate) const OWN_FOLDER: Bundled = Bundled(&[("/index.html", b"<p>The app's own page</p>")]);
+
+impl<R: tauri::Runtime> tauri::Assets<R> for Bundled {
+    fn get(&self, key: &tauri::utils::assets::AssetKey) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.0.iter().find(|(path, _)| *path == key.as_ref()).map(|(_, bytes)| (*bytes).into())
+    }
+
+    fn iter(&self) -> Box<tauri::utils::assets::AssetsIter<'_>> {
+        Box::new(self.0.iter().map(|(path, bytes)| ((*path).into(), (*bytes).into())))
+    }
+
+    fn csp_hashes(&self, _: &tauri::utils::assets::AssetKey) -> Box<dyn Iterator<Item = tauri::utils::assets::CspHash<'_>> + '_> {
+        Box::new(std::iter::empty())
+    }
+}
+
+/// Tauri's permission check as an app's build makes it, from the permission files this plugin's build wrote, as the
+/// app's build reads them: the plugin's commands, and no other plugin's.
+pub(crate) fn plugin_authority() -> tauri::ipc::RuntimeAuthority {
+    use tauri::utils::acl::manifest::{Manifest, PermissionFile};
+    use tauri::utils::acl::resolved::Resolved;
+    let listed = concat!(env!("OUT_DIR"), "/tauri-plugin-app-kit-window-permission-files");
+    let paths: Vec<String> = serde_json::from_str(&std::fs::read_to_string(listed).unwrap()).unwrap();
+    let files: Vec<PermissionFile> = paths.iter().map(|path| toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()).collect();
+    let acl = [("app-kit-window".to_string(), Manifest::new(files, None))].into_iter().collect();
+    tauri::ipc::RuntimeAuthority::new(acl, Resolved::default())
+}
+
+/// A folder of this test's own, in this test process's folder outside the system's temporary folder, removed when the
+/// test ends however it ends.
+pub(crate) struct Folder(pub(crate) PathBuf);
+
+impl Folder {
+    pub(crate) fn new(name: &str) -> Self {
+        let path = Path::new("/tmp/app-kit-tests").join(std::process::id().to_string()).join(name);
+        let _ = std::fs::remove_dir_all(&path);
+        Folder(path)
+    }
+}
+
+impl Drop for Folder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+        // The process's folder goes too once no other test of it has a folder there.
+        if let Some(process) = self.0.parent() {
+            let _ = std::fs::remove_dir(process);
+        }
+    }
+}
+
+/// Every line logged at info or above, with the thread that logged it, so a test reads its own app's lines alone.
+struct Lines(Mutex<Vec<(ThreadId, String)>>);
+
+static LINES: Lines = Lines(Mutex::new(Vec::new()));
+
+impl log::Log for Lines {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            self.0.lock().unwrap().push((std::thread::current().id(), record.args().to_string()));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn listen() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::set_logger(&LINES).expect("no other logger in the plugin's tests");
+        log::set_max_level(log::LevelFilter::Info);
+    });
+}
+
+fn logged_on(thread: ThreadId) -> Vec<String> {
+    LINES.0.lock().unwrap().iter().filter(|(logged, _)| *logged == thread).map(|(_, line)| line.clone()).collect()
+}
+
+/// How long a menu choice may take before the test says the app froze or did nothing. A choice that works is seen in
+/// two turns of the mock run loop, which waits a second between turns; one that freezes never returns at all.
+const WAIT: Duration = Duration::from_secs(30);
+
+/// Where a choice stands, as the app's thread reports it.
+enum Report<T> {
+    /// Tauri's handler of the choice returned, so the run loop goes on.
+    Returned,
+    Seen(T),
+}
+
+/// Chooses the menu item `id` in a mock app on the window plugin, opened on the start page as an app opens it, the way
+/// Tauri hands a choice out: from inside its run loop, under its lock on the plugins, through the plugin's own event
+/// handler. Tauri's mock runtime hands plugins no menu events, so a second plugin passes the choice on from inside
+/// Tauri's dispatch of Ready, which holds the same lock, to the window plugin's handler as `Site::plugin` builds it.
+/// `configure` changes the app's tauri.conf.json first. On each turn of the run loop after the choice, `seen` is asked
+/// what it made of the app and the lines it logged on its thread; the first answer is returned. The test fails if the
+/// choice never returns, as a window built under that lock never does, or if `seen` never answers, as for a choice that
+/// does nothing.
+pub(crate) fn choose_from_menu<T: Send + 'static>(
+    id: &'static str,
+    configure: impl FnOnce(&mut Context<MockRuntime>) + Send + 'static,
+    seen: impl Fn(&AppHandle<MockRuntime>, &[String]) -> Option<T> + Send + 'static,
+) -> T {
+    listen();
+    let (report, reports) = mpsc::channel();
+    let app_thread = std::thread::spawn(move || {
+        let thread = std::thread::current().id();
+        let site = crate::Site::new("https://app.example.com".parse().unwrap()).scheme("com.example.app");
+        let mut handler = site.plugin::<MockRuntime>();
+        let mut chosen = false;
+        let mut answered = false;
+        let chooser = tauri::plugin::Builder::<MockRuntime>::new("menu-choice")
+            .on_event(move |app, event| match event {
+                RunEvent::Ready => {
+                    handler.on_event(app, &RunEvent::MenuEvent(MenuEvent { id: MenuId::new(id) }));
+                    chosen = true;
+                    let _ = report.send(Report::Returned);
+                }
+                RunEvent::MainEventsCleared if chosen && !answered => {
+                    if let Some(found) = seen(app, &logged_on(thread)) {
+                        answered = true;
+                        let _ = report.send(Report::Seen(found));
+                        // With no window left the mock run loop ends.
+                        for window in tauri::Manager::webview_windows(app).into_values() {
+                            let _ = window.destroy();
+                        }
+                    }
+                }
+                _ => {}
+            })
+            .build();
+        let mut context = tauri::test::mock_context(START_FOLDER);
+        *context.runtime_authority_mut() = plugin_authority();
+        configure(&mut context);
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_opener::init())
+            .plugin(site.plugin())
+            .plugin(chooser)
+            .build(context)
+            .unwrap();
+        let page = crate::StartPage::new(Color(10, 14, 31, 255), Color(224, 226, 235, 255));
+        site.start_page_window(&app, page).build().unwrap();
+        app.run_return(|_, _| {});
+    });
+    let thread = app_thread.thread().id();
+    match reports.recv_timeout(WAIT) {
+        Ok(Report::Returned) => {}
+        _ => panic!("choosing {id} froze the app: Tauri's handler of the choice never returned; logged: {:?}", logged_on(thread)),
+    }
+    match reports.recv_timeout(WAIT) {
+        Ok(Report::Seen(found)) => found,
+        _ => panic!("choosing {id} did not do what it promises; logged: {:?}", logged_on(thread)),
+    }
+}

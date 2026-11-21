@@ -109,28 +109,7 @@ pub(crate) fn save_zoom(folder: &Path, zoom: f64) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A folder of this test's own, in this test process's folder outside the system's temporary folder, removed when
-    /// the test ends however it ends.
-    struct Folder(PathBuf);
-
-    impl Folder {
-        fn new(name: &str) -> Self {
-            let path = Path::new("/tmp/app-kit-tests").join(std::process::id().to_string()).join(name);
-            let _ = std::fs::remove_dir_all(&path);
-            Folder(path)
-        }
-    }
-
-    impl Drop for Folder {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-            // The process's folder goes too once no other test of it has a folder there.
-            if let Some(process) = self.0.parent() {
-                let _ = std::fs::remove_dir(process);
-            }
-        }
-    }
+    use crate::test_support::Folder;
 
     fn file(inode: u64, modified: i64) -> Option<ProgramFile> {
         Some(ProgramFile { device: 1, inode, modified })

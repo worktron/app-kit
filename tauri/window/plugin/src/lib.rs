@@ -35,6 +35,8 @@ mod relaunch;
 mod settings;
 #[cfg(target_os = "macos")]
 mod updates;
+#[cfg(all(test, target_os = "macos"))]
+mod test_support;
 
 #[cfg(target_os = "macos")]
 pub use menu::{update_item, AppMenu, FILE_MENU, VIEW_MENU};
@@ -351,6 +353,10 @@ fn settings_navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
     false
 }
 
+/// The plugin's event handler. Tauri calls it, as it calls `navigation` and the page-load hook, while it holds its lock
+/// on the plugins, which building a window or webview, registering a plugin or running a plugin's command takes again:
+/// none of those is done here, only sent to the event loop to run after (`settings::open_after_event`), or the app
+/// freezes for good. Exit and restart are sent there by Tauri itself. menu.rs's tests choose each item through it.
 fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
     match event {
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
