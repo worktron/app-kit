@@ -387,26 +387,154 @@ export const FEATURES: Feature[] = [
   TOOLBAR_ICON,
 ]
 
-/** An app's files at `ref` in the checkout `dir`, through git. */
-export function landedAt(dir: string, ref: string): Landed {
-  const git = (args: string[]) => {
-    const p = Bun.spawnSync(['git', '-C', dir, ...args], { stdout: 'pipe', stderr: 'pipe' })
-    return { ok: p.exitCode === 0, out: p.stdout.toString() }
+/**
+ * An app's files at `ref` in the checkout `dir`. One git process lists them, the first question reads every file's text
+ * in one more, and every question is answered in memory: a git process per question took the entries' tests past bun's
+ * 5 seconds on a busy Mac, where starting a process costs 10 to 100 ms. `grep` answers as `git grep -l -E` does in the
+ * C locale, which test/kit-features-landed.test.ts holds for every search the entries make. `env` is git's environment;
+ * the tests pass one with git itself first on the path, since Xcode's /usr/bin/git looks git up again on every call,
+ * three times git's own cost.
+ */
+export function landedAt(dir: string, ref: string, env: Record<string, string | undefined> = process.env): Landed {
+  const git = (args: string[], stdin?: string) =>
+    Bun.spawnSync(['git', '-C', dir, ...args], { env, stdin: stdin === undefined ? undefined : Buffer.from(stdin), stdout: 'pipe', stderr: 'pipe' })
+  const listed = git(['ls-tree', '-r', '-z', ref])
+  const entries = (listed.exitCode === 0 ? listed.stdout.toString() : '')
+    .split('\0')
+    .filter(Boolean)
+    .map((record) => {
+      const tab = record.indexOf('\t')
+      const [mode = '', type = '', id = ''] = record.slice(0, tab).split(' ')
+      return { path: record.slice(tab + 1), mode, type, id }
+    })
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+  let read: Map<string, Buffer> | undefined
+  // Every blob's bytes by its id, read in one git process the first time any is asked for.
+  const bytes = (id: string): Buffer => {
+    if (!read) {
+      read = new Map()
+      const ids = [...new Set(entries.filter((entry) => entry.type === 'blob').map((entry) => entry.id))]
+      if (ids.length) {
+        const p = git(['cat-file', '--batch'], `${ids.join('\n')}\n`)
+        if (p.exitCode !== 0) throw new Error(`git cat-file in ${dir}: ${p.stderr.toString()}`)
+        const out = p.stdout
+        for (let at = 0; at < out.length; ) {
+          const end = out.indexOf(10, at)
+          const [each = '', type = '', size = '0'] = out.subarray(at, end).toString().split(' ')
+          const body = type === 'missing' ? Buffer.alloc(0) : out.subarray(end + 1, end + 1 + Number(size))
+          read.set(each, body)
+          at = type === 'missing' ? end + 1 : end + 1 + Number(size) + 1
+        }
+      }
+    }
+    return read.get(id) ?? Buffer.alloc(0)
   }
-  const tracked = git(['ls-tree', '-r', '--name-only', ref]).out.split('\n').filter(Boolean)
   return {
-    tracked,
+    tracked: entries.map((entry) => entry.path),
     show: (file) => {
-      const shown = git(['show', `${ref}:${file}`])
-      return shown.ok ? shown.out : ''
+      const entry = byPath.get(file)
+      return entry?.type === 'blob' ? bytes(entry.id).toString('utf8') : ''
     },
-    // git grep exits 1 for no match, which is an answer, not a failure.
-    grep: (pattern, pathspecs) =>
-      git(['grep', '-l', '-E', pattern, ref, '--', ...pathspecs])
-        .out.split('\n')
-        .filter(Boolean)
-        .map((line) => line.slice(ref.length + 1)),
+    grep: (pattern, pathspecs) => {
+      const matches = pathspecMatcher(pathspecs)
+      const expression = ereToRegExp(pattern)
+      // git grep searches regular files only: never a symlink's target or a submodule.
+      const candidates = entries.filter((entry) => (entry.mode === '100644' || entry.mode === '100755') && matches(entry.path))
+      return candidates
+        .filter((entry) => {
+          // Byte for character, as git reads them in the C locale. Lines end at \n alone, so a \r stays on its line, and the
+          // end after a file's last \n is one more, empty line, as git's search of the whole file finds `^$` there.
+          return bytes(entry.id)
+            .toString('latin1')
+            .split('\n')
+            .some((line) => expression.test(line))
+        })
+        .map((entry) => entry.path)
+    },
   }
+}
+
+/**
+ * Whether a path is among those `pathspecs` name, as git reads `:(glob)` and `:(exclude,glob)` pathspecs, the only forms
+ * the entries use: kept when it matches any include (or there is none) and no exclude.
+ */
+export function pathspecMatcher(pathspecs: string[]): (path: string) => boolean {
+  const includes: RegExp[] = []
+  const excludes: RegExp[] = []
+  for (const pathspec of pathspecs) {
+    const form = /^:\((glob|exclude,glob)\)(.+)$/.exec(pathspec)
+    if (!form) throw new Error(`landedAt reads only :(glob) and :(exclude,glob) pathspecs, not ${pathspec}`)
+    ;(form[1] === 'glob' ? includes : excludes).push(globToRegExp(form[2]!))
+  }
+  return (path) => (includes.length === 0 || includes.some((glob) => glob.test(path))) && !excludes.some((glob) => glob.test(path))
+}
+
+/**
+ * git's glob pathspec as a regular expression over the whole path: a double star as a whole folder name matches no
+ * folder or any, one at the end everything inside, and `*` and `?` stop at a slash. Any other double star or a bracket
+ * throws.
+ */
+function globToRegExp(glob: string): RegExp {
+  let source = ''
+  for (let at = 0; at < glob.length; at++) {
+    if (glob.startsWith('**/', at) && (at === 0 || glob[at - 1] === '/')) {
+      source += '(?:.*/)?'
+      at += 2
+    } else if (glob.startsWith('/**', at) && at + 3 === glob.length) {
+      source += '/.*'
+      at += 2
+    } else if (glob[at] === '*') {
+      if (glob[at + 1] === '*') throw new Error(`landedAt reads ** only as a whole folder name, not in ${glob}`)
+      source += '[^/]*'
+    } else if (glob[at] === '?') source += '[^/]'
+    else if (glob[at] === '[' || glob[at] === '\\') throw new Error(`landedAt reads no brackets or backslashes in a pathspec, as in ${glob}`)
+    else source += glob[at]!.replace(/[.+^$(){}|\]]/, '\\$&')
+  }
+  return new RegExp(`^${source}$`)
+}
+
+// The POSIX classes in the C locale, ASCII only.
+const CLASSES: Record<string, string> = { space: ' \\t\\n\\r\\f\\v', alnum: 'A-Za-z0-9', alpha: 'A-Za-z', digit: '0-9', upper: 'A-Z', lower: 'a-z' }
+
+/**
+ * A POSIX extended regular expression as JavaScript reads it the same way, line by line. What the two read differently
+ * throws rather than answering wrong: a class it does not know, a backslash before a letter or digit (`\s` is git's
+ * own extension under -E, `\b` and `\w` differ), a bracket opening with `]`, and any character outside ASCII.
+ */
+export function ereToRegExp(pattern: string): RegExp {
+  const refuse = (why: string) => new Error(`landedAt cannot read ${pattern} as git does: ${why}`)
+  let source = ''
+  for (let at = 0; at < pattern.length; at++) {
+    const c = pattern[at]!
+    if (c.charCodeAt(0) > 0x7e || c.charCodeAt(0) < 0x20) throw refuse('a character outside printable ASCII')
+    if (c === '\\') {
+      const next = pattern[at + 1]
+      if (next === undefined || /[A-Za-z0-9]/.test(next)) throw refuse(`\\${next ?? ''}`)
+      source += `\\${next}`
+      at++
+    } else if (c === '[') {
+      let end = at + 1
+      let body = ''
+      if (pattern[end] === '^') body += pattern[end++]
+      if (pattern[end] === ']') throw refuse('a bracket opening with ]')
+      for (; end < pattern.length && pattern[end] !== ']'; end++) {
+        if (pattern.startsWith('[:', end)) {
+          const close = pattern.indexOf(':]', end + 2)
+          const name = close < 0 ? '' : pattern.slice(end + 2, close)
+          if (!CLASSES[name]) throw refuse(`the class [:${name}:]`)
+          body += CLASSES[name]
+          end = close + 1
+        } else if (pattern.startsWith('[.', end) || pattern.startsWith('[=', end)) throw refuse('a collating element')
+        else if (pattern[end] === '[' || pattern[end] === '\\') body += `\\${pattern[end]}`
+        else body += pattern[end]
+      }
+      if (end >= pattern.length) throw refuse('a bracket that never closes')
+      source += `[${body}]`
+      at = end
+    } else source += c
+  }
+  // `s`, since in git's expressions `.` matches a \r, and the lines searched never hold a \n.
+  return new RegExp(source, 's')
 }
 
 /** Apple's servers, which iOS reads a site's association file from (README, "Sign-in with one tap", step 2). */

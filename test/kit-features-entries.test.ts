@@ -36,7 +36,7 @@ async function verdict(feature: string, files: Record<string, string>) {
   const branch = `app-${++made}`;
   const written = Object.entries(files).map(([path, text]) => `M 100644 inline ${path}\n${data(text)}`);
   git(`commit refs/heads/${branch}\ncommitter Worktron <kit@example.com> 0 +0000\n${data('App')}${written.join('')}`, 'fast-import', '--quiet');
-  const landed = landedAt(root, branch);
+  const landed = landedAt(root, branch, env);
   return entry.appliesTo(landed) ? await entry.present(landed, async () => ({ failed: 'these entries never ask Apple' })) : 'not asked';
 }
 

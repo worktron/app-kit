@@ -1,9 +1,10 @@
 // The kit's features an app should have (scripts/kit-features.ts), read from made-up apps laid out as the kit's apps
-// are, each a scratch repository under node_modules/.cache as test/apps.test.ts makes them, with Apple's answers from
-// recorded ones (test/fixtures/apple-app-site-association, ids replaced), never the network.
+// are, each a branch of one scratch repository under node_modules/.cache written by a single git process, as
+// test/kit-features-entries.test.ts makes them, with Apple's answers from recorded ones
+// (test/fixtures/apple-app-site-association, ids replaced), never the network.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { join } from 'path';
 import { FEATURES, featuresOf, landedAt, type AppleLookup } from '../scripts/kit-features.ts';
 import { GIT_IDENTITY_ENV, pathWithGitItself } from './testflight-stand-in.ts';
 
@@ -21,27 +22,27 @@ beforeAll(() => {
   const cache = join(kit, 'node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   root = mkdtempSync(join(cache, 'app-kit-features-'));
+  git('', 'init', '-q', '--bare');
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const git = (cwd: string, ...args: string[]) => {
-  const p = Bun.spawnSync(['git', ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' });
+/** git in `cwd`, given `stdin`, answering its output. */
+const gitIn = (cwd: string, stdin: string, ...args: string[]) => {
+  const p = Bun.spawnSync(['git', ...args], { cwd, env, stdin: Buffer.from(stdin), stdout: 'pipe', stderr: 'pipe' });
   if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr}`);
   return p.stdout.toString();
 };
+const git = (stdin: string, ...args: string[]) => gitIn(root, stdin, ...args);
 
-/** A checkout holding these files, committed, read at HEAD. */
+// One block of git fast-import's stream: its length in bytes, then the text.
+const data = (text: string) => `data ${Buffer.byteLength(text)}\n${text}\n`;
+
+/** An app holding these files, committed as its own branch by one git process, read as it landed. */
 function app(name: string, files: Record<string, string>) {
-  const dir = join(root, name);
-  for (const [path, text] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
-    writeFileSync(join(dir, path), text);
-  }
-  git(dir, 'init', '-q', '-b', 'main');
-  git(dir, 'add', '-A');
-  git(dir, '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'App');
-  return landedAt(dir, 'HEAD');
+  const written = Object.entries(files).map(([path, text]) => `M 100644 inline ${path}\n${data(text)}`);
+  git(`commit refs/heads/${name}\ncommitter Worktron <kit@example.com> 0 +0000\n${data('App')}${written.join('')}`, 'fast-import', '--quiet');
+  return landedAt(root, name, env);
 }
 
 const appleAnswering =
@@ -138,7 +139,7 @@ test("every feature names a README heading and only names the kit still has, so 
   const names = [...new Set(FEATURES.flatMap((entry) => entry.names).filter((name) => !name.startsWith('app-kit/')))];
   // The kit's own code, outside this list and the tests that read it, searched once for every name: one search each ran
   // past the test's limit while a landing's gates loaded the machine.
-  const found = new Set(git(kit, 'grep', '-h', '-o', '-w', '-F', ...names.flatMap((name) => ['-e', name]), '--', ':(exclude)scripts/**', ':(exclude)test/**').split('\n'));
+  const found = new Set(gitIn(kit, '', 'grep', '-h', '-o', '-w', '-F', ...names.flatMap((name) => ['-e', name]), '--', ':(exclude)scripts/**', ':(exclude)test/**').split('\n'));
   expect(names.filter((name) => !found.has(name))).toEqual([]);
   for (const entry of FEATURES) {
     expect(readme).toMatch(new RegExp(`^#+ ${entry.readme.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));

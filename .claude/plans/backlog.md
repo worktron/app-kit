@@ -850,13 +850,6 @@ Goal: web/e2e/first-frame.e2e.ts reloads the fixture with its scripts held to wa
 
 Done when: the cause is known and written down with a recorded sample, and either WebKit's cases hold the first frame as Chromium's do or the test says, from that sample, why WebKit cannot.
 
-## test-stalls · Find why app-kit's unit tests freeze for seconds during landings, so a landing stops only on its own faults
-Written by: app-kit/dock-keeps-app
-
-Goal: a landing of an unrelated change (the window plugin's Mac restart, 2026-11-16) stopped twice on Bun's 5-second test limit, each time in a test that normally takes under a second, in a different place each time: test/kit-features-entries.test.ts "a server on the kit's listen and on Railway sets the draining time..." (killed at 5.05 s inside `git init`, a gates run) and "a project with bun tests names the kit's start-up file..." (killed at 5.28 s inside `git init`, the landing's gates), then extension/test/host.test.ts "an answer bigger than the socket buffer arrives whole, every character intact" (5.37 s, a plain `bun test` run, no git). What was ruled out: the feature-entry file's own cost. Six copies of it run at once at load average 108 kept every git call under 55 ms (mean 9 to 19 ms by kind) and none timed out, and a recorder of every slow spawn across two whole-suite runs found no call over 350 ms. The Mac had 7.7 GB of swap in use, which could freeze a process for seconds; unproven. Cutting the feature-entry file's git work (one `git fast-import` per made-up app, about a third fewer processes) was planned and dropped: it would not reach the cause. The recorder preload that wraps `Bun.spawnSync` with timings is a quick way to see whether a stall is inside a child process or in the test process itself.
-
-Done when: the cause of the multi-second stalls is traced (what freezes, and why: the test process, its children, or the machine) and fixed where it lives, never by a longer limit or a rerun, and the unit suite passes 10 runs in a row inside a landing's gates with no test over 2 seconds.
-
 ## gates-reinstall-browsers · app-kit's gates install their test browsers when another project's cleanup deleted them
 Written by: app-kit/dock-keeps-app
 
