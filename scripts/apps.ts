@@ -205,13 +205,23 @@ export async function olderThan(version: string, folder: string, apart?: string,
   const fetched = await Promise.all(
     checkoutsIn(folder, apart).map(async (dir) => {
       if (!git(dir, ['remote', 'get-url', 'origin']).ok) return { dir, failed: null }
-      const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'ignore', stderr: 'pipe', timeout: limitMs })
+      // Its own process group, so a fetch past its limit is stopped with everything it started (an ssh, the remote's
+      // side), not git alone.
+      const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'ignore', stderr: 'pipe', detached: true })
+      let stopped = false
+      const timer = setTimeout(() => {
+        stopped = true
+        try {
+          process.kill(-child.pid, 'SIGKILL')
+        } catch {
+          // The group has already ended.
+        }
+      }, limitMs)
       const err = new Response(child.stderr).text()
       const status = await child.exited
+      clearTimeout(timer)
       if (status === 0) return { dir, failed: null }
-      // A child git started (such as the remote's side) can keep stderr open after git is stopped, so a stopped fetch is
-      // not waited on for its message.
-      if (child.signalCode) return { dir, failed: `fetch did not finish within ${limitMs / 1000} seconds` }
+      if (stopped) return { dir, failed: `fetch did not finish within ${limitMs / 1000} seconds` }
       return { dir, failed: `fetch failed: ${(await err).trim().split('\n')[0] || `git exited ${status}`}` }
     }),
   )
