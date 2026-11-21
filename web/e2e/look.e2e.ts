@@ -83,6 +83,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 460, height: 900 });
     await page.goto('/look.html');
     await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
+    // A menu tells its label it has a value only once it has mounted, so that label starts at rest and moves up: every
+    // filled field's label has risen and stopped moving before anything is measured.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[data-field] .MuiInputLabel-root')].every(
+        (label) => label.getAnimations().length === 0 && (!label.closest('[data-field$="filled"]') || label.classList.contains('MuiInputLabel-shrink')),
+      ),
+    );
     for (const kind of ['small', 'default', 'multi-line', 'menu', 'suggestions']) {
       for (const state of ['empty', 'filled'] as const) {
         const name = `${kind} ${state}`;
