@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.71.3
+
+Urgency: next round
+
+- an app on the plain look with labeled text fields takes this, with nothing to change: a resting label sits where the text starts and a multi-line field pads once; an app that set its own field padding or size (Friends and Family, Checkpoint) checks its risen labels, which now start 10 pixels in at the compact size.
+
 ## v0.71.1
 
 Urgency: next round
