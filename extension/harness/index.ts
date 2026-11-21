@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { chromium, type BrowserContext, type CDPSession, type Worker } from 'playwright'
 import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install'
 import { withoutDockIcon } from '../../testing/playwright-dock.js'
+import { pageMessages } from './page-messages'
 
 export type HarnessOptions = {
   /** The folder whose tracked and untracked-but-not-ignored files become the checkout's root, where manifest.json is. */
@@ -134,27 +135,7 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
   // One DevTools session for the browser, kept open: a page's emulated mode lasts only while the session attached to it does.
   let browserSession: CDPSession | null = null
   const attached = new Map<string, string>()
-  let nextMessage = 0
-  const answers = new Map<number, (answer: { error?: { message: string } }) => void>()
-  const toPage = async (sessionId: string, method: string, params: Record<string, unknown>) => {
-    const id = ++nextMessage
-    // A page that closes before it answers, as on a reload, never answers: that is an error naming it, not a hang.
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const answered = new Promise<{ error?: { message: string } }>((resolve, reject) => {
-      answers.set(id, resolve)
-      timer = setTimeout(() => reject(new Error(`The extension's hidden page did not answer ${method} within ten seconds; it may have closed, as a reload closes it`)), 10_000)
-    })
-    let answer: { error?: { message: string } }
-    try {
-      // Both in one try, so a send Chromium refuses leaves no timer behind to reject with nobody listening.
-      await browserSession!.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) })
-      answer = await answered
-    } finally {
-      clearTimeout(timer)
-      answers.delete(id)
-    }
-    if (answer.error) throw new Error(`${method} on the extension's hidden page: ${answer.error.message}`)
-  }
+  let messages: ReturnType<typeof pageMessages> | null = null
 
   const loaded: LoadedExtension = {
     context,
@@ -230,10 +211,7 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
         const browser = context.browser()
         if (!browser) throw new Error('Playwright gave no browser for the context, so the hidden page cannot be reached')
         browserSession = await browser.newBrowserCDPSession()
-        browserSession.on('Target.receivedMessageFromTarget', ({ message }) => {
-          const answer = JSON.parse(message) as { id?: number; error?: { message: string } }
-          if (answer.id !== undefined) answers.get(answer.id)?.(answer)
-        })
+        messages = pageMessages(browserSession)
       }
       // Chromium lists an offscreen document as a background page. A worker that has just started may not have opened it yet.
       const session = browserSession
@@ -248,7 +226,7 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
           sessionId = (await browserSession.send('Target.attachToTarget', { targetId: target.targetId, flatten: false })).sessionId
           attached.set(target.targetId, sessionId)
         }
-        await toPage(sessionId, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] })
+        await messages!.send(sessionId, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] })
       }
     },
     pages: () => context.pages().length,
