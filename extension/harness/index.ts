@@ -144,11 +144,15 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
       answers.set(id, resolve)
       timer = setTimeout(() => reject(new Error(`The extension's hidden page did not answer ${method} within ten seconds; it may have closed, as a reload closes it`)), 10_000)
     })
-    await browserSession!.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) })
-    const answer = await answered.finally(() => {
+    let answer: { error?: { message: string } }
+    try {
+      // Both in one try, so a send Chromium refuses leaves no timer behind to reject with nobody listening.
+      await browserSession!.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) })
+      answer = await answered
+    } finally {
       clearTimeout(timer)
       answers.delete(id)
-    })
+    }
     if (answer.error) throw new Error(`${method} on the extension's hidden page: ${answer.error.message}`)
   }
 
