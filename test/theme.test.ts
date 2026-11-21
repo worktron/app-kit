@@ -70,7 +70,10 @@ test("the app's own options merge into the kit's before MUI computes the theme",
     { name: 'plain' },
     { components: { ...fieldsNeverZoom, MuiButton: { styleOverrides: { root: { letterSpacing: '0.01em' } } } }, spacing: 4 },
   );
-  expect(theme.components?.MuiInputBase?.styleOverrides?.root).toEqual({ fontSize: FIELD_FONT_SIZE });
+  expect(theme.components?.MuiInputBase?.styleOverrides?.root).toEqual({ fontSize: FIELD_FONT_SIZE, '&.MuiOutlinedInput-root': { fontSize: FIELD_FONT_SIZE } });
+  expect(theme.components?.MuiFormControl?.styleOverrides?.root).toEqual({ '& .MuiInputLabel-outlined': { fontSize: FIELD_FONT_SIZE } });
+  // The plain look's label placement is a function of the label's state, which the setting's label size leaves whole.
+  expect(typeof theme.components?.MuiInputLabel?.styleOverrides?.root).toBe('function');
   // The app's button setting joins the kit's, rather than replacing it.
   expect(theme.components?.MuiButton?.styleOverrides?.root).toMatchObject({ letterSpacing: '0.01em', padding: 0 });
   expect(theme.components?.MuiButton?.defaultProps).toMatchObject({ variant: 'text', disableRipple: true });

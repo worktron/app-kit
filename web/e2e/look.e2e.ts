@@ -68,6 +68,8 @@ async function fieldBoxes(page: Page, name: string) {
     const inputBox = box(input);
     return {
       root: box(root),
+      fontSize: parseFloat(style.fontSize),
+      labelFontSize: parseFloat(getComputedStyle(field.querySelector('.MuiInputLabel-root')!).fontSize),
       line,
       text: { left: inputBox.left + parseFloat(style.paddingLeft), top: inputBox.top + parseFloat(style.paddingTop) },
       label: box(field.querySelector('.MuiInputLabel-root')!),
@@ -77,45 +79,72 @@ async function fieldBoxes(page: Page, name: string) {
   });
 }
 
+/**
+ * Every labeled field on the page, empty and filled, at its expected text size and fitting its label: the box is the
+ * text's lines with 6 above and below, the resting label sits where the text starts, and the risen label is centered on
+ * the top line inside the gap cut for it.
+ */
+async function expectLabeledFieldsFit(page: Page, fontSize: number) {
+  // A menu tells its label it has a value only once it has mounted, so that label starts at rest and moves up: every
+  // filled field's label has risen and stopped moving before anything is measured.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('[data-field] .MuiInputLabel-root')].every(
+      (label) => label.getAnimations().length === 0 && (!label.closest('[data-field$="filled"]') || label.classList.contains('MuiInputLabel-shrink')),
+    ),
+  );
+  for (const kind of ['small', 'default', 'multi-line', 'menu', 'suggestions']) {
+    for (const state of ['empty', 'filled'] as const) {
+      const name = `${kind} ${state}`;
+      const field = await fieldBoxes(page, name);
+      expect(field.fontSize, `${name}: text size`).toBe(fontSize);
+      // The label is the text's size, so it rests on the text and its risen size matches the gap the outline cuts.
+      expect(field.labelFontSize, `${name}: label size`).toBe(fontSize);
+      // A multi-line field is MUI's growing text area, which sizes its rows by a measured row's whole-pixel height.
+      const lines = kind === 'multi-line' ? 3 * Math.round(field.line) : field.line;
+      expect(Math.abs(field.root.height - (lines + 12)), `${name}: height`).toBeLessThanOrEqual(0.5);
+      if (state === 'empty') {
+        // At rest the label sits on the first line, where the typed text will start.
+        expect(Math.abs(field.label.top - field.text.top), `${name}: label top`).toBeLessThanOrEqual(1);
+        expect(Math.abs(field.label.left - field.text.left), `${name}: label left`).toBeLessThanOrEqual(1);
+      } else {
+        // Risen, the label is centered on the top line, inside the gap cut for it.
+        const middle = (field.label.top + field.label.bottom) / 2;
+        expect(Math.abs(middle - (field.root.top + field.border / 2)), `${name}: risen label on the line`).toBeLessThanOrEqual(1);
+        expect(field.label.left, `${name}: label inside its gap`).toBeGreaterThanOrEqual(field.gap.left - 0.5);
+        expect(field.label.right, `${name}: label inside its gap`).toBeLessThanOrEqual(field.gap.right + 0.5);
+        expect(Math.abs(field.label.left - field.text.left), `${name}: risen label starts over the text`).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+}
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`the plain theme's labeled fields fit their label: resting where the text starts, risen into its gap (${scheme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width: 460, height: 900 });
     await page.goto('/look.html');
     await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
-    // A menu tells its label it has a value only once it has mounted, so that label starts at rest and moves up: every
-    // filled field's label has risen and stopped moving before anything is measured.
-    await page.waitForFunction(() =>
-      [...document.querySelectorAll('[data-field] .MuiInputLabel-root')].every(
-        (label) => label.getAnimations().length === 0 && (!label.closest('[data-field$="filled"]') || label.classList.contains('MuiInputLabel-shrink')),
-      ),
-    );
-    for (const kind of ['small', 'default', 'multi-line', 'menu', 'suggestions']) {
-      for (const state of ['empty', 'filled'] as const) {
-        const name = `${kind} ${state}`;
-        const field = await fieldBoxes(page, name);
-        // The compact box: the text's lines with 6 above and below. A multi-line field is MUI's growing text area,
-        // which sizes its rows by a measured row's whole-pixel height.
-        const lines = kind === 'multi-line' ? 3 * Math.round(field.line) : field.line;
-        expect(Math.abs(field.root.height - (lines + 12)), `${name}: height`).toBeLessThanOrEqual(0.5);
-        if (state === 'empty') {
-          // At rest the label sits on the first line, where the typed text will start.
-          expect(Math.abs(field.label.top - field.text.top), `${name}: label top`).toBeLessThanOrEqual(1);
-          expect(Math.abs(field.label.left - field.text.left), `${name}: label left`).toBeLessThanOrEqual(1);
-        } else {
-          // Risen, the label is centered on the top line, inside the gap cut for it.
-          const middle = (field.label.top + field.label.bottom) / 2;
-          expect(Math.abs(middle - (field.root.top + field.border / 2)), `${name}: risen label on the line`).toBeLessThanOrEqual(1);
-          expect(field.label.left, `${name}: label inside its gap`).toBeGreaterThanOrEqual(field.gap.left - 0.5);
-          expect(field.label.right, `${name}: label inside its gap`).toBeLessThanOrEqual(field.gap.right + 0.5);
-          expect(Math.abs(field.label.left - field.text.left), `${name}: risen label starts over the text`).toBeLessThanOrEqual(1);
-        }
-      }
-    }
+    await expectLabeledFieldsFit(page, 12);
     await page.locator('[data-field="small empty"]').scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`web-plain-fields-${scheme}.png`), fullPage: true, animations: 'disabled' });
   });
 }
+
+test.describe('with fields that never zoom, on a phone', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`the plain theme's labeled fields are 16 pixels and still fit their label (${scheme})`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      // Built as the apps build it: the setting spread into the components, then the app's own outlined field padding.
+      await page.goto('/look.html?fields=never-zoom');
+      await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
+      await expectLabeledFieldsFit(page, 16);
+      await page.locator('[data-field="small empty"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`web-plain-fields-never-zoom-${scheme}.png`), fullPage: true, animations: 'disabled' });
+    });
+  }
+});
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`the console theme draws the page in the console look's ${scheme} colors in JetBrains Mono, and its role variables follow`, async ({ page }, testInfo) => {

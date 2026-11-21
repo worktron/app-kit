@@ -12,7 +12,9 @@ test("passed as createTheme's second argument, the field size merges with the ap
     { components: fieldsNeverZoom },
   );
   expect(theme.components?.MuiInputBase?.styleOverrides).toEqual({
-    root: { letterSpacing: '0.01em', fontSize: FIELD_FONT_SIZE },
+    root: { letterSpacing: '0.01em', fontSize: FIELD_FONT_SIZE, '&.MuiOutlinedInput-root': { fontSize: FIELD_FONT_SIZE } },
     input: { padding: 4 },
   });
+  // An outlined field's label takes the field's size, so it still rests where the text starts.
+  expect(theme.components?.MuiFormControl?.styleOverrides?.root).toEqual({ '& .MuiInputLabel-outlined': { fontSize: FIELD_FONT_SIZE } });
 });

@@ -2,17 +2,24 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Autocomplete, Box, Button, CssBaseline, List, ListItem, ListItemText, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import { followTextSize, lookTheme, TextSizeSetting } from '../..';
+import { fieldsNeverZoom, followTextSize, lookTheme, TextSizeSetting } from '../..';
 
 // The kit's MUI themes drawn on a settings page, the Plain Look Studies page's General and Profiles tabs as a web page
 // draws them: section labels, rows between hairlines, status in colored words, a switch, a menu that reads as text, a
 // field, actions as words and a removal in the error color, the kit's Text size row, labeled fields of each kind, once
 // empty and once filled, and the build at the foot.
-// ?look=console draws the console theme. Both follow the system's light or dark setting, which the test sets, and the
+// ?look=console draws the console theme. ?fields=never-zoom builds the plain theme as an app that turns on fields that
+// never zoom builds it: the setting spread into its components, then its own outlined field padding after it. Both follow the system's light or dark setting, which the test sets, and the
 // page's text follows the size chosen in the Text size row.
 
-const look = new URLSearchParams(location.search).get('look') === 'console' ? 'console' : 'plain';
-const theme = lookTheme(look === 'console' ? { name: 'console' } : { name: 'plain' });
+const search = new URLSearchParams(location.search);
+const look = search.get('look') === 'console' ? 'console' : 'plain';
+const theme =
+  look === 'console'
+    ? lookTheme({ name: 'console' })
+    : search.get('fields') === 'never-zoom'
+      ? lookTheme({ name: 'plain' }, { components: { ...fieldsNeverZoom, MuiOutlinedInput: { styleOverrides: { input: { padding: '6px 10px' } } } } })
+      : lookTheme({ name: 'plain' });
 
 function Settings() {
   const [login, setLogin] = useState(true);
