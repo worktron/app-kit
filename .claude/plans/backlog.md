@@ -459,12 +459,6 @@ Goal: CHANGES.md's v0.48.0 line reads "add @electric-sql/pglite-prepopulatedfs a
 
 Done when: the landing that writes CHANGES.md from Urgency and Apps lines names the apps a line concerns ("an app that opens PGlite or openDb: …"), v0.48.0's line and the README sentence say so, and a duplicated line in one version is refused by the writer, with a test.
 
-## plain-look-field-zoom · The plain look's text fields stay at the size that keeps iPhone Safari from zooming
-
-Goal: with lookTheme({ name: 'plain' }, { components: fieldsNeverZoom }), every outlined field computes to 12px, so iPhone Safari zooms the page when one takes focus. web/theme.ts sets MuiOutlinedInput's root fontSize to rem(size.small), and that wins over fieldsNeverZoom's MuiInputBase root fontSize (web/fields.ts), since OutlinedInput's root is a more specific rule. Seen by the neighbors app: 12px in Playwright WebKit at 390 wide, and the page zoomed as its chat box took focus in iOS Safari on an iPhone Simulator. Neighbors works around it in its own theme with MuiOutlinedInput root fontSize FIELD_FONT_SIZE, held by its browser test "every field a neighbor types in is at least 16px". Found by the sign-up-send-code thread, 2026-11-08.
-
-Done when: an outlined field under the plain look with fieldsNeverZoom computes to FIELD_FONT_SIZE in a WebKit browser test at a phone's width, either because fieldsNeverZoom also covers MuiOutlinedInput or because the plain look no longer sets a smaller field size, and the README's fields section says which; apps that worked around it are named in the Apps line.
-
 ## clerk-transfer-recorded · Record Clerk's answer to the right code for a new address, which the kit only knows from Clerk's docs
 
 Goal: test/fixtures/clerk-sign-up.json and the README's sign-up paragraph say the right code's answer for an address with no account was never recorded, so test/clerk.test.ts uses Clerk's documented sign_up_if_missing_transfer. On app-kit v0.52.2 the neighbors app's sign-in test against its Clerk development instance saw it for a new +clerk_test address with code 424242: POST /v1/client/sign_ins 200 needs_first_factor; prepare_first_factor 200; attempt_first_factor 404 with code sign_up_if_missing_transfer and verification status transferable; POST /v1/client/sign_ups 200 complete, verified. Clerk's own SignIn component checks the verification's status transferable (SignInFuture.isTransferable) rather than the error code. Found by the sign-up-send-code thread, 2026-11-08.
