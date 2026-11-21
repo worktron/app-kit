@@ -182,11 +182,22 @@ test('the urgent list fetches every checkout first, so an app that took up the k
 test('a fetch that runs past its limit names the app unread rather than holding the landing open', async () => {
   const folder = join(root, 'stalled');
   const { checkout } = appIn(folder, 'slow', 'v0.9.0');
-  // The origin's side of the fetch waits longer than the limit, as a remote that never answers would.
-  git(checkout, 'config', 'remote.origin.uploadpack', 'sleep 3; git-upload-pack');
-  const started = Date.now();
+  // The origin's side of the fetch waits longer than the limit, as a remote that never answers would, and says its pid.
+  const pidFile = join(folder, 'remote-side.pid');
+  // It starts a process of its own, as an ssh does, which git does not stop when it is stopped.
+  git(checkout, 'config', 'remote.origin.uploadpack', `sh -c 'sleep 30 & echo $! > ${pidFile}; wait' upload-pack`);
   expect(await olderThan('0.10.0', folder, undefined, 300)).toEqual({ older: [], unread: [{ project: 'slow', unread: 'fetch did not finish within 0.3 seconds' }] });
-  expect(Date.now() - started).toBeLessThan(2_500);
+  // What the remote's side started is stopped with git, not left running: it is gone once it has been reaped.
+  const remoteSide = Number(readFileSync(pidFile, 'utf8'));
+  const running = () => {
+    try {
+      return Bun.spawnSync(['ps', '-o', 'stat=', '-p', String(remoteSide)]).stdout.toString().trim().replace(/^Z.*/, '') !== '';
+    } catch {
+      return false;
+    }
+  };
+  for (let check = 0; check < 200 && running(); check++) await Bun.sleep(10);
+  expect(running()).toBe(false);
 });
 
 test('the guides say apps own their upgrades, and the apps report starts an upgrade only in an app the owner names', () => {
