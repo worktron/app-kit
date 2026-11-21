@@ -40,12 +40,16 @@ beforeEach(() => {
   window.close = () => void closed++;
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   globalThis.fetch = realFetch;
   window.close = realClose;
   setSystemTime();
   inBrowser(realNavigator.userAgent, realNavigator.maxTouchPoints);
+  // A click that hands over sends the page to the app's link, which the simulated page reaches after the test ends:
+  // left there, the next file's page has no origin, and a server that checks it refuses that file's websocket.
+  await (window as unknown as { happyDOM: { waitUntilComplete(): Promise<void> } }).happyDOM.waitUntilComplete();
+  goTo('/');
 });
 
 /** The app's signed-out sign-in screen on the browser page: straight to Google for the account the window asked for. */
