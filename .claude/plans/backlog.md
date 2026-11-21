@@ -1104,3 +1104,15 @@ Goal: this is a fault, the part of test-stalls that did not land. That thread tr
 The per-test recorder that found the cause wraps Bun.spawn and Bun.spawnSync and logs each test's wall time, own CPU, children and the load. It ran as an extra `--preload` on bare `bun test`, with `--reporter=junit` for the names.
 
 Done when: the land tests take under 2 seconds at a landing's load without a longer limit, a line says where a slow test's time went, the next single-process stall is traced with it and fixed where it lives, and 10 whole-suite runs in a row, run as a landing runs them, pass with no test held to bun's 5-second limit over 2 seconds, each run's load recorded.
+
+## flaky-web-browser-tests · Two web browser tests fail now and then, stopping landings that never touched the web code
+Written by: app-kit/test-stalls
+
+Goal: this is a fault. While test-stalls landed (2026-11-21), the web browser suite (scripts/e2e.sh, which scripts/gates.sh runs) went red in 3 of 6 runs, each time with one test and never the same run, though the change touched no web code:
+
+- **web/e2e/first-frame.e2e.ts "WebKit: opening signed out starts on the name, with no mark and no empty frame".** It failed in two landings' gates in a row, on main at 4f627bf with no web code changed since the try before, where it passed. The failure is `expectSteady` in web/playwright.js: "frames noted; was watchFrames called before the page loaded?", Expected > 0, Received 0, so WebKit noted no frames at all across the held reload. It then passed 10 of 10 alone (`bash scripts/e2e.sh first-frame.e2e.ts --repeat-each=10 -g "WebKit: opening signed out"`) and 3 of 3 in whole-suite runs. Related tickets: webkit-held-paint (WebKit paints no frame while scripts are held) and steady-frames-first-blank.
+- **web/e2e/offline-audio.e2e.ts "with startsOnTap a context starts only on a tap until it has started once, and reports each state" (Chromium).** It failed once in 3 whole-suite runs of `bash scripts/e2e.sh`, at 1.7 s. That run's failure text was not kept.
+
+Both failure counts come from the test-stalls landing logs and three whole-suite runs made through heavy-run.sh, at load about 15 to 50. Neither cause is known.
+
+Done when: each test's failure is reproduced, its race traced and fixed where it lives, never by a retry or a longer limit, and the web browser suite passes 20 whole-suite runs in a row on a busy Mac.
