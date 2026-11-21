@@ -14,6 +14,8 @@ const TODAY = new Date('2026-11-21T12:00:00');
 const DAYS = new Map([
   ['v0.12.0', '2026-11-21'],
   ['v0.11.0', '2026-11-18'],
+  ['v0.10.2', '2026-11-07'],
+  ['v0.10.1', '2026-11-06'],
   ['v0.10.0', '2026-11-01'],
   ['v0.9.1', '2026-10-30'],
 ]);
@@ -57,6 +59,21 @@ test(`a release asking something of an app is listed while young and holds once 
     { version: 'v0.10.0', days: 20, holds: true },
   ]);
   expect(owing.holds).toBe(true);
+});
+
+test(`the hold starts the day after a release has been out ${HOLD_AFTER_DAYS} days`, () => {
+  const owing = owedBy(
+    app([
+      { version: 'v0.10.2', urgency: 'next round', lines: ['Fourteen days old'] },
+      { version: 'v0.10.1', urgency: 'next round', lines: ['Fifteen days old'] },
+    ]),
+    DAYS,
+    TODAY,
+  );
+  expect(owing.releases.map(({ version, days, holds }) => ({ version, days, holds }))).toEqual([
+    { version: 'v0.10.2', days: 14, holds: false },
+    { version: 'v0.10.1', days: 15, holds: true },
+  ]);
 });
 
 test('an urgent release is listed at once but holds on the same clock, since the kit cannot tell which apps it concerns', () => {
