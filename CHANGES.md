@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.72.2
+
+Urgency: next round
+
+- an app on the plain look that turns on fieldsNeverZoom (Assay, Friends and Family, Lifeform) now gets 16-pixel fields with labels at the same size, so iPhone Safari no longer zooms into them; fields are about 6 pixels taller on every screen. Nothing to change in the app; Neighbors can drop its own MuiOutlinedInput fontSize.
+
 ## v0.72.1
 
 Urgency: rides along
