@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
-import { announceUrgent, appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, URGENT_EVENT, urgencyOf, withChanges, type LandOptions } from '../scripts/land.ts';
+import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, urgencyOf, urgentLine, withChanges, type LandOptions } from '../scripts/land.ts';
 
 // git found through PATH on a Mac is Apple's launcher, which looks up the developer tools on every call before it starts
 // the real git, about half again the time of each of the hundreds of git processes here; the folder `git --exec-path`
@@ -169,20 +169,13 @@ test('a minor or patch change must say how soon apps take it, the most urgent wi
   expect(urgencyOf([said([], `The change\n\nUrgency: now\n\nRelease: patch\n${TRAILER}\n`)], 'patch', ['x'])).toEqual({ refused: expect.stringContaining('an Urgency: line is in a commit message but not in its last paragraph') });
 });
 
-test('a release apps take now asks metamax for the same-day round, and says to start it by hand when none started', async () => {
-  const asked: string[][] = [];
-  const answering = (ok: boolean, out: string) => async (args: string[]) => {
-    asked.push(args);
-    return { ok, out };
-  };
-  expect(await announceUrgent('0.6.1', ['sign in with Google again'], answering(true, `${URGENT_EVENT} in app-kit: a1b2: started\n`))).toBe(`the same-day apps round started: ${URGENT_EVENT} in app-kit: a1b2: started`);
-  expect(asked[0]).toEqual([URGENT_EVENT, 'app-kit', 'v0.6.1: sign in with Google again']);
-  // Metamax exits 0 on a skip and when no automation runs on the event; only a started run counts.
-  for (const out of [`${URGENT_EVENT} in app-kit: a1b2: skipped: its last thread (apps-round) is still open`, `${URGENT_EVENT} in app-kit: no automation in app-kit runs on ${URGENT_EVENT}`, '']) {
-    expect(await announceUrgent('0.6.1', ['x'], answering(true, out))).toStartWith('the same-day apps round did not start: ');
-  }
-  expect(await announceUrgent('0.6.1', ['x'], answering(false, 'not recorded: metamax is not answering on port 6201'))).toContain('did not start: not recorded: metamax is not answering on port 6201; hand v0.6.1 to the open apps round or start one');
-  expect(await announceUrgent('0.6.1', ['x'], null)).toContain('did not start: metamax is not here to tell');
+test("an urgent release's line names each app on an older version by its tag, says none when there is none, and names what it could not read", () => {
+  expect(urgentLine('0.6.1', { older: [{ project: 'assay', tag: 'v0.45.4' }, { project: 'beeline', tag: 'v0.6.0' }], unread: [] })).toBe(
+    'v0.6.1 is urgent; apps on an older version: assay (v0.45.4), beeline (v0.6.0)',
+  );
+  expect(urgentLine('0.6.1', { older: [], unread: [{ project: 'broken', unread: 'reading what landed: not a git repository' }] })).toBe(
+    'v0.6.1 is urgent; apps on an older version: none; could not read: broken (reading what landed: not a git repository)',
+  );
 });
 
 test('CHANGES.md takes each version above the newest, under the heading Dependabot and Renovate read release notes by', () => {
@@ -292,7 +285,7 @@ test.concurrent('a patch that says nothing of urgency is refused before anything
   await commit(work, release('Say how soon', 'patch', '', 'Urgency: now\n'), 'soon.txt');
   const { outcome, lines } = await landIn(work);
   expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now', apps: ['sign in with Google again'] });
-  expect(lines).toContain('change: apps take it now');
+  expect(lines).toContain('change: urgent: apps take it first');
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.5.1\n\nUrgency: now\n\n- sign in with Google again`);
 }, TWO_LANDINGS);
 
@@ -421,3 +414,44 @@ test("the README's install lines name the version in package.json, which the lan
   expect(named.length).toBeGreaterThan(0);
   expect(new Set(named)).toEqual(new Set([packageJson.version]));
 });
+
+/** An app beside the kit: a checkout cloned from its own origin, whose landed package.json files install these tags. */
+async function appBeside(dir: string, name: string, installs: Record<string, string>) {
+  const origin = join(dir, `${name}-origin.git`);
+  const seed = join(dir, `${name}-seed`);
+  await gitIn(dir)('init', '-q', '--bare', '-b', 'main', origin);
+  mkdirSync(seed);
+  await gitIn(seed)('init', '-q', '-b', 'main');
+  for (const [file, tag] of Object.entries(installs)) {
+    mkdirSync(join(seed, file, '..'), { recursive: true });
+    writeFileSync(join(seed, file), JSON.stringify({ dependencies: tag ? { 'app-kit': `github:worktron/app-kit#${tag}` } : {} }));
+  }
+  await gitIn(seed)('add', '-A');
+  await gitIn(seed)('-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'The app');
+  await gitIn(seed)('push', '-q', origin, 'main');
+  rmSync(join(seed, '.git'), { recursive: true, force: true });
+  rmSync(seed, { recursive: true, force: true });
+  await gitIn(dir)('clone', '-q', origin, name);
+}
+
+test.concurrent('an urgent landing names the apps on an older version and any checkout it could not read, and starts nothing', async () => {
+  const { dir, work } = await scratch();
+  const apps = join(dir, 'apps');
+  mkdirSync(apps);
+  await appBeside(apps, 'behind', { 'package.json': 'v0.5.0' });
+  await appBeside(apps, 'current', { 'package.json': 'v0.5.1' });
+  // Two installs on different versions: the app is on the older.
+  await appBeside(apps, 'split', { 'package.json': 'v0.5.1', 'client/package.json': 'v0.5.0' });
+  await appBeside(apps, 'plain', { 'package.json': '' });
+  // A checkout whose landed tree cannot be read is named, never read as one with no kit.
+  mkdirSync(join(apps, 'broken', '.git'), { recursive: true });
+  await branch(work, 'fix', release('Sign in again', 'patch', 'Apps: sign in with Google again\n', 'Urgency: now\n'));
+  const { outcome, lines } = await landIn(work, { appsFolder: apps });
+  expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now' });
+  expect(lines.filter((line) => line.includes('is urgent'))).toEqual([
+    expect.stringMatching(/^v0\.5\.1 is urgent; apps on an older version: behind \(v0\.5\.0\), split \(v0\.5\.0\); could not read: broken \(not a git checkout of its own: .+\)$/),
+  ]);
+  // A release that is not urgent reads no apps.
+  await branch(work, 'later', release('Later', 'patch', 'Apps: nothing to change\n', 'Urgency: next round\n'), 'later.txt');
+  expect((await landIn(work, { appsFolder: apps })).lines.some((line) => line.includes('is urgent'))).toBe(false);
+}, TWO_LANDINGS);

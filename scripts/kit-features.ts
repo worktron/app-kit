@@ -1,4 +1,4 @@
-// The kit's features an app should have once it takes the piece they belong to, for the apps round
+// The kit's features an app should have once it takes the piece they belong to, for the apps report
 // (.claude/skills/apps-round): each says which apps it is for and what in their landed code shows it, so an app that
 // took a version but never turned an option on is found, as Argon was with one-tap iPhone sign-in. A change that adds a
 // piece or option apps should have adds its entry here (AGENTS.md). test/kit-features.test.ts holds every entry to the
@@ -22,7 +22,7 @@ export type AppleLookup = (host: string) => Promise<{ status: number; body: stri
 export type Verdict = 'has' | 'lacks' | { unknown: string }
 
 export type Feature = {
-  /** What the app has, in the words the round's brief and page show. */
+  /** What the app has, in the words the report's page and an upgrade brief show. */
   feature: string
   /** The README heading that says how. */
   readme: string

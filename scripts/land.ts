@@ -10,16 +10,16 @@
 //   4. refuse a hand edit to the version, and a missing or unknown Release line; a branch touching only
 //      .claude/plans is none and skips the gates, so ticket landings keep working. A minor change must also say what
 //      an app does about it, in an `Apps:` line beside the Release line; a patch may. A minor or patch change also says
-//      how soon apps must take it, in an `Urgency:` line: now, next round or rides along
+//      what it asks of an app, in an `Urgency:` line: now, next round or rides along
 //   5. rebase on the pinned commit, then, on a detached head so a stopped run never leaves it on the branch, commit
 //      the new version, the README's install lines and the Urgency and Apps lines under the version in CHANGES.md,
-//      which app-kit's apps round reads to start each app's upgrade
+//      which each app reads from its own version up when it is next worked on
 //   6. the gates, then one push of main and the tag, never forced, so it only moves main forward and adds no commit:
 //      every commit keeps Worktron as author and committer. Refused because another landing moved main: start again,
 //      up to three tries
 //   7. push the branch
-//   8. a release whose urgency is now: report it to metamax, whose automation starts the apps round that day, and say
-//      when no round started
+//   8. a release whose urgency is now: name the apps on this machine on an older version, and any checkout it could not
+//      read, in one line the landed reply quotes for the owner, who decides which to fix; it starts nothing
 //
 // Tags are made only on GitHub, never in the local repository: every worktree shares one set, so a tag made in one
 // and never pushed would hide a missing tag from the next landing.
@@ -27,7 +27,8 @@
 // Exit codes: 0 landed; 1 stopped, the last line says why.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { olderThan, type Unread } from './apps.ts'
 
 export type Kind = 'minor' | 'patch' | 'none'
 export type Outcome = { landed: true; sha: string; version?: string; urgency?: Urgency; apps?: string[] } | { landed: false; reason: string }
@@ -42,12 +43,18 @@ export interface LandOptions {
   /** Where each decision is said; the command prints it as a land-main: line. */
   log?: (line: string) => void
   env?: Record<string, string | undefined>
+  /** The folder of checkouts read for apps on an older version when a release is urgent; none reads nothing. */
+  appsFolder?: string
 }
 
 /** The exact trailer the version commit ends with. */
 export const TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>'
 const KINDS: Kind[] = ['none', 'patch', 'minor']
-/** How soon apps take a release, least to most: picked up by the next upgrade, the Monday round, a round that day. */
+/**
+ * What a release asks of an app, least to most: nothing to do; something an app must change or will want, taken when it
+ * is next worked on; take it first (a security hole, lost data, something broken people hit). The kit starts no
+ * upgrades: each app reads CHANGES.md from its own version up when it is next worked on.
+ */
 export const URGENCIES = ['rides along', 'next round', 'now'] as const
 export type Urgency = (typeof URGENCIES)[number]
 const PLANS = '.claude/plans/'
@@ -91,9 +98,9 @@ export function appsOf(commits: { apps: string[]; message: string }[], kind: Kin
 }
 
 /**
- * How soon apps must take the change, from each commit's Urgency trailer; the most urgent wins. A minor or patch change
+ * What the change asks of apps, from each commit's Urgency trailer; the most urgent wins. A minor or patch change
  * must say; a none change never reaches an app, so it has no urgency. A change apps must take (now or next round) must
- * also say what an app does, so the round has an Apps line to brief from. An Urgency line git did not read as a
+ * also say what an app does, so an app reading CHANGES.md knows what to change. An Urgency line git did not read as a
  * trailer is refused rather than dropped.
  */
 export function urgencyOf(commits: { urgencies: string[]; message: string }[], kind: Kind, apps: string[]): { urgency: Urgency | null } | { refused: string } {
@@ -105,10 +112,10 @@ export function urgencyOf(commits: { urgencies: string[]; message: string }[], k
   if (unknown.length) return { refused: `Urgency: ${unknown.join(', ')} is not an urgency; write now, next round or rides along` }
   if (kind === 'none') return { urgency: null }
   if (!found.length) {
-    return { refused: `a ${kind} change must say how soon apps take it; add an Urgency: line beside the Release line: now (a security hole, lost data, or something broken people hit, such as sign-in failing), next round (something an app must change or will want) or rides along (nothing an app needs to do)` }
+    return { refused: `a ${kind} change must say how soon apps take it; add an Urgency: line beside the Release line: now (a security hole, lost data, or something broken people hit, such as sign-in failing; the landing names the apps on an older version), next round (something an app must change or will want, taken when it is next worked on) or rides along (nothing an app needs to do)` }
   }
   const urgency = URGENCIES[Math.max(...found.map((value) => URGENCIES.indexOf(value as Urgency)))]
-  if (urgency !== 'rides along' && !apps.length) return { refused: `a change apps take ${urgency === 'now' ? 'now' : 'at the next round'} must say what an app does about it; add an Apps: line beside the Urgency line` }
+  if (urgency !== 'rides along' && !apps.length) return { refused: `a change marked ${urgency} must say what an app does about it; add an Apps: line beside the Urgency line` }
   return { urgency }
 }
 
@@ -123,7 +130,7 @@ export function withChanges(text: string | null, version: string, urgency: Urgen
 /** The start of CHANGES.md, when a landing makes it. */
 export const CHANGES_HEADING = `# Changes
 
-What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).`
+What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do).`
 
 /** The version after a change of this kind; while the version is 0.x, minor raises the middle number. */
 export function nextVersion(version: string, kind: Exclude<Kind, 'none'>): string {
@@ -131,29 +138,15 @@ export function nextVersion(version: string, kind: Exclude<Kind, 'none'>): strin
   return kind === 'minor' ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`
 }
 
-/** Runs metamax's report-event with these arguments, and what it printed. */
-export type ReportEvent = (args: string[]) => Promise<{ ok: boolean; out: string }>
-
-/** The event metamax's automation for the same-day apps round runs on. */
-export const URGENT_EVENT = 'app-kit-urgent-release'
-
-/**
- * Tells metamax a release apps take now landed, so its automation starts the apps round that day. Metamax answers
- * with one line per automation, `<id>: started` when it started one; a round still open, no automation, or no metamax
- * answers otherwise, and the line returned then says the round must be started by hand.
- */
-export async function announceUrgent(version: string, apps: string[], report: ReportEvent | null): Promise<string> {
-  const byHand = `hand v${version} to the open apps round or start one (.claude/skills/apps-round)`
-  if (!report) return `the same-day apps round did not start: metamax is not here to tell; ${byHand}`
-  const done = await report([URGENT_EVENT, 'app-kit', `v${version}: ${apps[0] ?? 'a release apps take now'}`])
-  const answer = done.out.trim().replace(/\s*\n\s*/g, '; ') || 'no answer'
-  if (done.ok && /: started\b/.test(done.out)) return `the same-day apps round started: ${answer}`
-  return `the same-day apps round did not start: ${answer}; ${byHand}`
+/** The landing's line for an urgent release: the apps on an older version, each by its oldest tag, and any unread. */
+export function urgentLine(version: string, { older, unread }: { older: { project: string; tag: string }[]; unread: Unread[] }): string {
+  const listed = older.length ? older.map(({ project, tag }) => `${project} (${tag})`).join(', ') : 'none'
+  return `v${version} is urgent; apps on an older version: ${listed}${unread.length ? `; could not read: ${unread.map(({ project, unread: why }) => `${project} (${why})`).join(', ')}` : ''}`
 }
 
 const runGatesScript = async (cwd: string) => (await Bun.spawn(['bash', 'scripts/gates.sh'], { cwd, stdio: ['inherit', 'inherit', 'inherit'] }).exited) === 0
 
-export async function land({ cwd, runGates = runGatesScript, tries = 3, log = () => {}, env = process.env }: LandOptions): Promise<Outcome> {
+export async function land({ cwd, runGates = runGatesScript, tries = 3, log = () => {}, env = process.env, appsFolder }: LandOptions): Promise<Outcome> {
   const run = async (command: string, ...args: string[]) => {
     const child = Bun.spawn([command, ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' })
     const [out, err, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
@@ -224,7 +217,7 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
     const soon = urgencyOf(commits, kind, forApps.lines)
     if ('refused' in soon) return stop(soon.refused)
     const urgency = soon.urgency ?? undefined
-    if (urgency) log(`${branch}: apps take it ${urgency === 'now' ? 'now' : urgency === 'next round' ? 'at the next round' : 'when they next upgrade'}`)
+    if (urgency) log(`${branch}: ${urgency === 'now' ? 'urgent: apps take it first' : urgency === 'next round' ? 'apps take it when next worked on, with something to do' : 'apps take it when next worked on, with nothing to do'}`)
 
     if (!(await git('rebase', '-q', pin)).ok) {
       const conflicts = (await git('diff', '--name-only', '--diff-filter=U')).out.split('\n').filter(Boolean)
@@ -294,29 +287,31 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
       outcome = stop(landedAt ? `main moved to ${landedAt.slice(0, 7)} and ${branch} is there, but ${reason}; the next landing pushes the missing tag first` : reason)
     }
     await must('checkout', '-q', '-f', '-B', branch, landedAt ?? original)
-    if (outcome !== 'again') return outcome
+    if (outcome !== 'again') {
+      // Main and the tag are pushed, so reading the apps never stops the landing: a failure is said, not thrown.
+      if (outcome.landed && outcome.version && outcome.urgency === 'now' && appsFolder) {
+        try {
+          log(urgentLine(outcome.version, await olderThan(outcome.version, appsFolder)))
+        } catch (error) {
+          log(`v${outcome.version} is urgent; could not read the apps in ${appsFolder}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      return outcome
+    }
   }
   return stop(`main moved under each of ${tries} tries; land again`)
 }
 
 if (import.meta.main) {
   const top = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], { stdout: 'pipe' }).stdout.toString().trim()
-  const outcome = await land({ cwd: top || process.cwd(), log: (line) => console.log(`land-main: ${line}`) }).catch(
+  // The apps are the checkouts beside the kit's main checkout, the folder the apps page reads.
+  const common = Bun.spawnSync(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], { stdout: 'pipe' }).stdout.toString().trim()
+  const appsFolder = common ? dirname(dirname(common)) : undefined
+  const outcome = await land({ cwd: top || process.cwd(), log: (line) => console.log(`land-main: ${line}`), appsFolder }).catch(
     (error): Outcome => ({ landed: false, reason: error instanceof Error ? error.message : String(error) }),
   )
   if (outcome.landed) {
     console.log(outcome.version ? `land-main: released v${outcome.version}` : 'land-main: no release, the change is none')
-    if (outcome.version && outcome.urgency === 'now') {
-      const home = process.env.METAMAX_HOME
-      const report: ReportEvent | null = home
-        ? async (args) => {
-            // Main and the tag are already pushed, so a metamax that never answers must not hold the landing open.
-            const child = Bun.spawnSync(['bun', join(home, 'scripts/report-event.ts'), ...args], { stdout: 'pipe', stderr: 'pipe', timeout: 60_000 })
-            return { ok: child.exitCode === 0, out: `${child.stdout.toString()}${child.stderr.toString()}` }
-          }
-        : null
-      console.log(`land-main: ${await announceUrgent(outcome.version, outcome.apps ?? [], report)}`)
-    }
     console.log(`land-main: main is at ${outcome.sha.slice(0, 7)}`)
   } else {
     console.error(`land-main: stopped: ${outcome.reason}`)

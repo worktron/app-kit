@@ -1,4 +1,4 @@
-// The apps round's reader (scripts/apps.ts): which version an app is on, what CHANGES.md asks of it since, and which
+// The apps page's reader (scripts/apps.ts): which version an app is on, what CHANGES.md asks of it since, and which
 // of its tickets name the kit, read from what landed on its origin, never its working files. The checkout is a scratch
 // repository under node_modules/.cache, as test/land.test.ts makes them, with git reading no global settings.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -118,14 +118,17 @@ test('an app is read as it landed on origin: the oldest tag it names, the lock c
   const skill = readFileSync(join(import.meta.dir, '../.claude/skills/apps-round/SKILL.md'), 'utf8');
   const described = skill.slice(skill.indexOf('`scripts/apps.ts` stops'), skill.indexOf('The checklist exits'));
   const named = [...described.matchAll(/`([a-z][A-Za-z]*(?:\.[a-zA-Z]+)?)`/g)].map((match) => match[1]);
-  const read = (await readApp(app, tags, CHANGES, false, neverApple))!;
+  const read = await readApp(app, tags, CHANGES, false, neverApple);
+  if (!read || 'unread' in read) throw new Error('the app should be read');
   const keys = new Set([...Object.keys(read), ...Object.keys(read.installs[0]), ...Object.keys(read.installs[0].locked!), ...Object.keys(read.changes[0])]);
   for (const name of named) for (const part of name.split('.')) expect(keys).toContain(part);
   for (const key of Object.keys(read).filter((key) => key !== 'project')) expect(named.map((name) => name.split('.')[0])).toContain(key);
   expect(skill).toContain('bun scripts/apps.ts "$WORKSPACE"');
   expect(skill).not.toMatch(/updateTicketOpen|app-kit-update/);
   // A lock that names another commit than the tag is flagged.
-  expect((await readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false, neverApple))?.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
+  const mismatched = await readApp(app, new Map([['v0.9.0', 'ddddddd'], ['v0.10.0', 'eeeeeee']]), CHANGES, false, neverApple);
+  if (!mismatched || 'unread' in mismatched) throw new Error('the app should be read');
+  expect(mismatched.installs.map((install) => install.locked?.matchesTag)).toEqual([false, false, false]);
 });
 
 test('a checkout that installs no kit is not an app', async () => {
@@ -136,6 +139,12 @@ test('a checkout that installs no kit is not an app', async () => {
   git(plain, 'add', '-A');
   git(plain, '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'Plain');
   expect(await readApp(plain, new Map(), CHANGES, false, neverApple)).toBeNull();
+});
+
+test('a checkout whose landed tree cannot be read is reported as unread, never as one that installs no kit', async () => {
+  const broken = join(root, 'broken');
+  mkdirSync(join(broken, '.git'), { recursive: true });
+  expect(await readApp(broken, new Map(), CHANGES, false, neverApple)).toEqual({ project: 'broken', unread: expect.stringMatching(/^not a git checkout of its own: /) });
 });
 
 test("the kit's tags unread from GitHub stop the round rather than read as none", () => {
