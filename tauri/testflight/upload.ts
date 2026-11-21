@@ -28,6 +28,8 @@
  *   the icon's pixels are read before the build, and the refusal names `app-kit icons render`, which draws them opaque.
  * - Tauri writes the export method and the build number into tracked files; only the values it wrote are put back,
  *   so an edit made to either file during the build survives.
+ * - Tauri's deep-link plugin before 2.6.3 deletes the sign-in domain from the iPhone entitlements when its build script
+ *   runs, as it does in a new clone, so such a build is refused with the update that fixes it (../deep-link-entitlements.ts).
  * - The apps the build made (the archive's, and Xcode's copy) are deleted once the upload is done with them, worked or
  *   not, and macOS told to forget them, and the upload starts by deleting Xcode's build folders of Tauri checkouts that
  *   are gone (../built-apps.ts): macOS registers the archive's app hours after the upload, and keeps it registered.
@@ -62,6 +64,7 @@ import {
   type XcodeTargets,
 } from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
+import { deepLinkProblem } from '../deep-link-entitlements.ts';
 import { iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
@@ -395,6 +398,9 @@ async function uploadSteps(options: UploadOptions, started: BuildStarted): Promi
   if (!identifier) return fail('src-tauri/tauri.conf.json names no identifier, the bundle id the App Store profile is for');
   // The app's target and its app extensions, from the committed Xcode project, which Tauri keeps as it is.
   const projectFile = xcodeProjectFile(cwd);
+  const project = projectFile?.match(/([^/]+)\.xcodeproj\/project\.pbxproj$/)?.[1];
+  const erasing = project ? deepLinkProblem(cwd, project) : null;
+  if (erasing) return fail(erasing);
   const targetsRead: XcodeTargets | { error: string } = projectFile ? await xcodeTargets(cwd, projectFile, run, env) : { app: null, extensions: [] };
   if ('error' in targetsRead) return fail(targetsRead.error);
   const targets = targetsRead;

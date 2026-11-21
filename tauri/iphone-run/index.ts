@@ -5,6 +5,8 @@
  * - Every build and Xcode call runs in the shared build environment (../build-env.ts), which drops a terminal's
  *   FORCE_COLOR; and since an Xcode project regenerated outside the kit can already have the value written into its
  *   Rust build step, a project holding one is refused before the build, with the line to fix.
+ * - Tauri's deep-link plugin before 2.6.3 deletes the sign-in domain from the iPhone entitlements on a checkout's first
+ *   build, so a build with such a plugin and such a domain is refused with the update (../deep-link-entitlements.ts).
  * - A new Simulator is made with no runtime named, so simctl takes the newest runtime that can run an iPhone 17: the
  *   newest runtime itself can be one made for a single new model, and naming it failed with "Incompatible device".
  * - Each checkout has its own Simulator, named after the app and, in a linked worktree, the worktree's folder, so two
@@ -35,6 +37,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
+import { deepLinkProblem } from '../deep-link-entitlements.ts';
 import { iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { quietSimulator, type Outcome } from '../iphone-simulator/index.ts';
 import { servicesLine, servicesOff } from '../iphone-simulator/services.ts';
@@ -216,6 +219,8 @@ async function runSteps(options: IphoneRunOptions, holding: Holding, started: Bu
       `${APPLE}/${app.project}.xcodeproj/project.pbxproj's Rust build step passes "${written}" where it should say \${FORCE_COLOR}: a terminal's FORCE_COLOR was written in when the project was made again, and Tauri reads it as a chip architecture. Put \${FORCE_COLOR} back before \${ARCHS:?} and commit it.`,
     );
   }
+  const erasing = deepLinkProblem(cwd, app.project);
+  if (erasing) return fail(erasing);
   const build = async (...args: string[]) => {
     started.started = true;
     const done = await run(['bunx', 'tauri', 'ios', 'build', ...args], { cwd, env, output });

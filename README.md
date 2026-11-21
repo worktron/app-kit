@@ -1766,6 +1766,8 @@ In this order, since Apple's servers keep a failed fetch of the file and a phone
    <array><string>webcredentials:<site's host></string></array>
    ```
 
+   Tauri's deep-link plugin before 2.6.3 deletes this entry whenever its build script runs, which is a checkout's first iPhone build, so an app with that plugin locks 2.6.3 or later (`cargo update -p tauri-plugin-deep-link` in src-tauri); `app-kit iphone run` and `app-kit testflight upload` refuse to build until it does.
+
 5. A build with them is installed, then the page passes `handBackOverHttps: true`. A page that asks before then costs only the click.
 
 ### iPhone dictation

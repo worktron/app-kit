@@ -563,6 +563,25 @@ describe('the pure parts', () => {
     ]);
     expect(stand.calls).toEqual([]);
   });
+
+  test("a deep-link plugin that would delete the sign-in domain is refused before anything runs, and the entitlements file is left as committed", async () => {
+    const file = 'src-tauri/gen/apple/sample-shell_iOS/sample-shell_iOS.entitlements';
+    const committed = `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>com.apple.developer.associated-domains</key>\n\t<array>\n\t\t<string>webcredentials:app.example.com</string>\n\t</array>\n</dict>\n</plist>\n`;
+    const lock = (version: string) => `version = 4\n\n[[package]]\nname = "tauri-plugin-deep-link"\nversion = "${version}"\n`;
+    write(app, { [file]: committed, 'src-tauri/Cargo.lock': lock('2.5.0') });
+    const stand = apple();
+    const { code, printed } = await runIn(app, stand, { target: 'sim' });
+    expect(code).toBe(1);
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toStartWith(`! src-tauri/Cargo.lock locks tauri-plugin-deep-link 2.5.0, whose build script deletes webcredentials:app.example.com from ${file}`);
+    expect(stand.calls).toEqual([]);
+    expect(readFileSync(join(app, file), 'utf8')).toBe(committed);
+    // The plugin that keeps the entry builds as before.
+    write(app, { 'src-tauri/Cargo.lock': lock('2.6.3') });
+    const kept = apple();
+    expect((await runIn(app, kept, { target: 'sim' })).code).toBe(0);
+    expect(kept.calls.some((call) => call.command.join(' ').startsWith('bunx tauri ios build'))).toBe(true);
+  });
 });
 
 test('stopped by a signal, as Ctrl-C stops it, the command stops the build it started', async () => {

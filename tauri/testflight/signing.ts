@@ -45,6 +45,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path';
 import type { Certificate } from './key.ts';
 import type { Env } from '../build-env.ts';
+import { belowFloor } from '../version.ts';
 import type { Run } from '../../command-line/run.ts';
 
 /** The oldest Tauri CLI that writes the profile setting into the iPhone target. */
@@ -75,15 +76,9 @@ export function tauriCliProblem(cwd: string): string | null {
   } catch {
     return `${file} is not JSON`;
   }
-  const parts = version.split(/[.-]/).slice(0, 3).map(Number);
-  for (const [at, floor] of TAURI_CLI_FLOOR.entries()) {
-    const part = parts[at] ?? 0;
-    if (part > floor) return null;
-    if (part < floor || Number.isNaN(part)) {
-      return `the app's Tauri CLI is ${version}, and signing with the certificate needs ${TAURI_CLI_FLOOR.join('.')} or later (earlier ones put the profile outside the iPhone target): update @tauri-apps/cli`;
-    }
-  }
-  return null;
+  return belowFloor(version, TAURI_CLI_FLOOR)
+    ? `the app's Tauri CLI is ${version}, and signing with the certificate needs ${TAURI_CLI_FLOOR.join('.')} or later (earlier ones put the profile outside the iPhone target): update @tauri-apps/cli`
+    : null;
 }
 
 /** The iPhone app's bundle id: tauri.conf.json's identifier, or tauri.ios.conf.json's when it sets one, as Tauri merges them. */

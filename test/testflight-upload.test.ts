@@ -500,6 +500,26 @@ describe('signing with the certificate from 1Password', () => {
     expect((await runUpload(apple())).code).toBe(0);
   });
 
+  test('a deep-link plugin that would delete the sign-in domain is refused before anything is read or built', async () => {
+    const lock = (version: string) => `version = 4\n\n[[package]]\nname = "tauri-plugin-deep-link"\nversion = "${version}"\n`;
+    // At the path the project's name gives, which the upload reads from the Xcode project's file path.
+    commit(origin, {
+      [XCODE_PROJECT_FILE]: XCODE_PROJECT,
+      'src-tauri/gen/apple/past-the-break_iOS/past-the-break_iOS.entitlements': plist('\t<key>com.apple.developer.associated-domains</key>\n\t<array>\n\t\t<string>webcredentials:app.example.com</string>\n\t</array>\n'),
+      'src-tauri/Cargo.lock': lock('2.6.2'),
+    });
+    git(app, 'pull', '-q');
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed[0]).toStartWith('! src-tauri/Cargo.lock locks tauri-plugin-deep-link 2.6.2, whose build script deletes webcredentials:app.example.com');
+    expect(stand.named('op')).toEqual([]);
+    expect(stand.named('bunx')).toEqual([]);
+    commit(origin, { 'src-tauri/Cargo.lock': lock('2.6.3') });
+    git(app, 'pull', '-q');
+    expect((await runUpload(apple())).code).toBe(0);
+  });
+
   test('a second signing build on the Mac is refused while the first holds the lock', async () => {
     const lockFile = join(place.folder, 'Library/Caches/app-kit/testflight-signing.lock');
     mkdirSync(dirname(lockFile), { recursive: true });
