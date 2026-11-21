@@ -87,6 +87,8 @@ test('a package.json moved without its lock still holds, as does one whose lock 
   );
   expect(owing.locks).toEqual(['package.json names v0.12.0, but its bun.lock installs aaaaaaa', 'client/package.json names v0.12.0, but no bun.lock installs it']);
   expect(owing.holds).toBe(true);
+  // The hold says its own cause, not an old release.
+  expect(owedLines(owing, 'v0.12.0').at(-1)).toStartWith('app-kit owed: held: a package.json names a version its bun.lock does not install. Move');
 });
 
 test('an app is on the oldest version any package.json names, so moving one of two leaves the old releases owed', () => {

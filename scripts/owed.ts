@@ -77,7 +77,10 @@ export function owedLines(owing: Owing, newest: string): string[] {
   if (owing.catchUp) lines.push(`  its backlog holds the ${CATCH_UP} ticket; once this catch-up lands, drop it`)
   lines.push(
     owing.holds
-      ? `app-kit owed: held: a release asking something of this app has been out more than ${HOLD_AFTER_DAYS} days. Move every package.json to github:worktron/app-kit#${newest} with its bun.lock, taking in what each release above asks; one thread takes this catch-up, after checking the app's threads for one already under way.`
+      ? `app-kit owed: held: ${[
+          ...(owing.releases.some((release) => release.holds) ? [`a release asking something of this app has been out more than ${HOLD_AFTER_DAYS} days`] : []),
+          ...(owing.locks.length ? ['a package.json names a version its bun.lock does not install'] : []),
+        ].join(', and ')}. Move every package.json to github:worktron/app-kit#${newest} with its bun.lock, taking in what each release above asks; one thread takes this catch-up, after checking the app's threads for one already under way.`
       : owing.releases.length || owing.lacks.length
         ? `app-kit owed: not held; take these with this work, or within ${HOLD_AFTER_DAYS} days of each release.`
         : 'app-kit owed: nothing owed.',
