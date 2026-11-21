@@ -2,7 +2,7 @@
 // of its tickets name the kit, read from what landed on its origin, never its working files. The checkout is a scratch
 // repository under node_modules/.cache, as test/land.test.ts makes them, with git reading no global settings.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { changesSince, compareVersions, kitTickets, olderThan, readApp, tagsOnGitHub } from '../scripts/apps.ts';
 
@@ -186,7 +186,11 @@ test('a fetch that runs past its limit names the app unread rather than holding 
   const pidFile = join(folder, 'remote-side.pid');
   // It starts a process of its own, as an ssh does, which git does not stop when it is stopped.
   git(checkout, 'config', 'remote.origin.uploadpack', `sh -c 'sleep 30 & echo $! > ${pidFile}; wait' upload-pack`);
-  expect(await olderThan('0.10.0', folder, undefined, 300)).toEqual({ older: [], unread: [{ project: 'slow', unread: 'fetch did not finish within 0.3 seconds' }] });
+  // The limit ends once the remote side has started and said its pid, never after a guessed time.
+  const started = (async () => {
+    while (!existsSync(pidFile) || !readFileSync(pidFile, 'utf8').trim()) await Bun.sleep(10);
+  })();
+  expect(await olderThan('0.10.0', folder, undefined, started)).toEqual({ older: [], unread: [{ project: 'slow', unread: 'fetch did not finish within its limit' }] });
   // What the remote's side started is stopped with git, not left running: it is gone once it has been reaped.
   const remoteSide = Number(readFileSync(pidFile, 'utf8'));
   const running = () => {

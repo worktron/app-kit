@@ -197,9 +197,10 @@ export const FETCH_LIMIT_MS = 60_000
  * not be read, for the landing of an urgent release. Every checkout with an origin is fetched first, all at once and
  * each within `limitMs`, so an app that took up the kit since its last fetch is read too, and the list is of what each
  * app has landed now. One whose fetch fails or runs out of time is named unread, never listed by a tree that may be
- * stale; a checkout with no origin is read as it is.
+ * stale; a checkout with no origin is read as it is. `limit` is the time each fetch may take, or a promise whose end
+ * stops every fetch still running, as a test holds one until the fetch it stalls has started.
  */
-export async function olderThan(version: string, folder: string, apart?: string, limitMs = FETCH_LIMIT_MS): Promise<{ older: { project: string; tag: string }[]; unread: Unread[] }> {
+export async function olderThan(version: string, folder: string, apart?: string, limit: number | Promise<unknown> = FETCH_LIMIT_MS): Promise<{ older: { project: string; tag: string }[]; unread: Unread[] }> {
   const older: { project: string; tag: string }[] = []
   const unread: Unread[] = []
   const fetched = await Promise.all(
@@ -209,19 +210,24 @@ export async function olderThan(version: string, folder: string, apart?: string,
       // side), not git alone.
       const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'ignore', stderr: 'pipe', detached: true })
       let stopped = false
-      const timer = setTimeout(() => {
+      let ended = false
+      const stop = () => {
+        if (ended) return
         stopped = true
         try {
           process.kill(-child.pid, 'SIGKILL')
         } catch {
           // The group has already ended.
         }
-      }, limitMs)
+      }
+      const timer = typeof limit === 'number' ? setTimeout(stop, limit) : undefined
+      if (typeof limit !== 'number') void limit.then(stop)
       const err = new Response(child.stderr).text()
       const status = await child.exited
+      ended = true
       clearTimeout(timer)
       if (status === 0) return { dir, failed: null }
-      if (stopped) return { dir, failed: `fetch did not finish within ${limitMs / 1000} seconds` }
+      if (stopped) return { dir, failed: typeof limit === 'number' ? `fetch did not finish within ${limit / 1000} seconds` : 'fetch did not finish within its limit' }
       return { dir, failed: `fetch failed: ${(await err).trim().split('\n')[0] || `git exited ${status}`}` }
     }),
   )
