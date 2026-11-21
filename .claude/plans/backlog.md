@@ -1125,3 +1125,10 @@ Goal: `readCart` in server/amazon-cart throws `NotTheCart` with kind `signed-out
 Done when: readCart throws `NotTheCart` with kind `may-be-empty` for such a page and `not-this-cart` for a page without the frame or with the store's lines, tested on made-up pages; CHANGES.md says so; amazon-connector can drop its own check.
 Do not touch: what readCart accepts as a cart.
 Touches: server/amazon-cart/index.ts, its tests and fixtures, CHANGES.md.
+
+## kit-features-bypass-comment · The hosted sign-in check's comment names a switch no app has any more
+Written by: app-kit/app-clients
+
+Goal: the comment above the hosted sign-in check in `scripts/kit-features.ts` gives a reason that is true today, so a reader deciding whether the check still earns its place is not sent looking for a switch that is gone.
+Today: the comment says an app whose server decides for itself whether sign-in is on, "as Getter's and Sightline's DEV_BYPASS_AUTH switch does", can come up open on Railway. On 2026-11-21 neither Getter's nor Sightline's main has `DEV_BYPASS_AUTH` (`git grep` on origin/main finds nothing); both moved to the kit's sign-in during the apps round.
+Done when: the comment states the risk without naming an app that no longer has it (or names one that does, checked on its main), and the change lands as `Release: none`.
