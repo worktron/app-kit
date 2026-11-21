@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { changesSince, compareVersions, kitTickets, readApp, tagsOnGitHub } from '../scripts/apps.ts';
+import { changesSince, compareVersions, kitTickets, olderThan, readApp, tagsOnGitHub } from '../scripts/apps.ts';
 
 /** A ticket an app's backlog holds that names the kit. */
 const UPDATE_TICKET = 'kit-update';
@@ -152,4 +152,49 @@ test("the kit's tags unread from GitHub stop the round rather than read as none"
   mkdirSync(lone);
   git(lone, 'init', '-q', '-b', 'main');
   expect(() => tagsOnGitHub(lone)).toThrow("reading the kit's tags from GitHub");
+});
+
+/** A checkout cloned from its own origin, whose package.json installs this tag ('' for none), in its own folder. */
+function appIn(folder: string, name: string, tag: string) {
+  const origin = join(folder, `${name}.git`);
+  const seed = join(root, `${name}-seed-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(folder, { recursive: true });
+  git(root, 'init', '-q', '--bare', '-b', 'main', origin);
+  mkdirSync(seed);
+  git(seed, 'init', '-q', '-b', 'main');
+  writeFileSync(join(seed, 'package.json'), JSON.stringify({ dependencies: tag ? { 'app-kit': `github:worktron/app-kit#${tag}` } : {} }));
+  git(seed, 'add', '-A');
+  git(seed, 'commit', '-q', '-m', 'The app');
+  git(seed, 'push', '-q', origin, 'main');
+  git(folder, 'clone', '-q', origin, name);
+  return { origin, seed, checkout: join(folder, name) };
+}
+
+test('the urgent list fetches every checkout first, so an app that took up the kit since its last fetch is listed', async () => {
+  const folder = join(root, 'adopted');
+  const { origin, seed } = appIn(folder, 'late', '');
+  writeFileSync(join(seed, 'package.json'), JSON.stringify({ dependencies: { 'app-kit': 'github:worktron/app-kit#v0.9.0' } }));
+  git(seed, 'commit', '-q', '-am', 'Take the kit');
+  git(seed, 'push', '-q', origin, 'main');
+  expect(await olderThan('0.10.0', folder)).toEqual({ older: [{ project: 'late', tag: 'v0.9.0' }], unread: [] });
+});
+
+test('a fetch that runs past its limit names the app unread rather than holding the landing open', async () => {
+  const folder = join(root, 'stalled');
+  const { checkout } = appIn(folder, 'slow', 'v0.9.0');
+  // The origin's side of the fetch waits longer than the limit, as a remote that never answers would.
+  git(checkout, 'config', 'remote.origin.uploadpack', 'sleep 3; git-upload-pack');
+  const started = Date.now();
+  expect(await olderThan('0.10.0', folder, undefined, 300)).toEqual({ older: [], unread: [{ project: 'slow', unread: 'fetch did not finish within 0.3 seconds' }] });
+  expect(Date.now() - started).toBeLessThan(2_500);
+});
+
+test('the guides say apps own their upgrades, and the apps report starts an upgrade only in an app the owner names', () => {
+  const read = (file: string) => readFileSync(join(import.meta.dir, '..', file), 'utf8');
+  for (const text of [read('AGENTS.md'), read('CHANGES.md'), CHANGES_HEADING]) expect(text).toContain('The kit starts no upgrades');
+  const skill = read('.claude/skills/apps-round/SKILL.md');
+  expect(skill).toContain('starts an upgrade thread only in an app the owner names');
+  expect(skill).toContain('## 4. Upgrade an app the owner names\n\nOnly for an app the owner names.');
+  // Nothing in the kit asks metamax to start a round or a thread.
+  expect(read('scripts/land.ts')).not.toMatch(/report-event|spawn\.ts|METAMAX_HOME/);
 });
