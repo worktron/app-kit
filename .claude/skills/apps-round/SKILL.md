@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # The apps report
 
-Each app on the kit keeps itself current: when its own thread plans work, it reads CHANGES.md from the oldest version it installs and takes in what that work needs (the owner's instructions say so in every project). The kit starts no upgrades. An urgent release (`Urgency: now`) is no exception: its landing names the apps on an older version to the owner, who decides which to fix.
+Each app on the kit keeps itself current: when its own thread plans work, it reads CHANGES.md from the oldest version it installs and takes in what that work needs (the owner's instructions say so in every project). The kit starts no upgrades. An urgent release (`Urgency: now`) is no exception: its landing names the apps on an older version to the owner, who decides which to fix, and files one `app-kit-catch-up` ticket in each. Metamax's landing of an app's code runs `scripts/owed.ts`, which lists what the app owes and holds the landing once a release asking something of it is more than 14 days old.
 
 This report is for the owner's view, run when they ask: it reads every app on the kit and publishes one page of where each stands. It changes no app's files and starts no thread, except an upgrade thread in an app the owner names (step 4).
 

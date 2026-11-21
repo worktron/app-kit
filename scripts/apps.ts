@@ -95,12 +95,12 @@ function projectOf(dir: string): string {
   return dir.split('/').pop() ?? dir
 }
 
-/** The tree a checkout landed on its origin (origin/HEAD, else HEAD), or why it could not be read. */
-function landedTree(dir: string, fetched: string): Tree | { unread: string } {
+/** The tree a checkout landed on its origin (origin/HEAD, else HEAD), or the commit asked for, or why it could not be read. */
+function landedTree(dir: string, fetched: string, at?: string): Tree | { unread: string } {
   // A broken .git makes git look in the folders above, which would read another repository's tree as this one's.
   const top = git(dir, ['rev-parse', '--show-toplevel'])
   if (!top.ok || realpathSync(top.out) !== realpathSync(dir)) return { unread: `not a git checkout of its own: ${top.ok ? `git reads ${top.out}` : top.out.split('\n')[0]}` }
-  const ref = git(dir, ['rev-parse', '-q', '--verify', 'refs/remotes/origin/HEAD']).ok ? 'origin/HEAD' : 'HEAD'
+  const ref = at ?? (git(dir, ['rev-parse', '-q', '--verify', 'refs/remotes/origin/HEAD']).ok ? 'origin/HEAD' : 'HEAD')
   const listed = git(dir, ['ls-tree', '-r', '--name-only', ref])
   if (!listed.ok) return { unread: `reading what landed: ${listed.out.split('\n')[0] || 'git ls-tree failed'}` }
   const show = (file: string) => {
@@ -144,10 +144,11 @@ function fetchOrigin(dir: string): string {
 }
 
 /**
- * One checkout as it landed; unread when its landed tree cannot be read; null when nothing it landed installs the kit.
+ * One checkout as it landed, or at the commit `at` names (a branch's HEAD, for what a landing would land); unread when
+ * that tree cannot be read; null when nothing in it installs the kit.
  */
-export async function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean, apple: AppleLookup = appleServers): Promise<App | Unread | null> {
-  const tree = landedTree(dir, fetch ? fetchOrigin(dir) : 'not fetched')
+export async function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean, apple: AppleLookup = appleServers, at?: string): Promise<App | Unread | null> {
+  const tree = landedTree(dir, fetch ? fetchOrigin(dir) : 'not fetched', at)
   if ('unread' in tree) return { project: projectOf(dir), unread: tree.unread }
   const { ref, files, show, fetched } = tree
   const installs = installsIn(tree, kitTags)
