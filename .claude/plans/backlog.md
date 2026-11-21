@@ -1110,3 +1110,10 @@ Goal: this is a fault. While test-stalls landed (2026-11-21), the web browser su
 Both failure counts come from the test-stalls landing logs and three whole-suite runs made through heavy-run.sh, at load about 15 to 50. Neither cause is known.
 
 Done when: each test's failure is reproduced, its race traced and fixed where it lives, never by a retry or a longer limit, and the web browser suite passes 20 whole-suite runs in a row on a busy Mac.
+
+## gates-browser-check · The gates say a Playwright browser build is missing before the browser tests, instead of failing all of them
+Written by: app-kit/weekly-releases
+
+Goal: an idea, not a fault. When the shared Playwright cache lacks a browser build the kit's Playwright version needs (on 2026-11-21 it lacked chromium-headless-shell 1248 for Playwright 1.64.1), `scripts/gates.sh` runs the web fixture anyway and all 127 browser tests fail with the same "Executable doesn't exist ... npx playwright install" message, which stopped the weekly-releases landing after its unit tests had passed. The gates could check, before the browser tests, that the builds `node_modules/playwright-core/browsers.json` names for Chromium, its headless shell and WebKit exist, and stop at once with one line naming the missing build and the install command (`bunx playwright install chromium webkit`, as `scripts/e2e.sh` says). Found by the weekly-releases thread.
+
+Done when: a gates run with a missing browser build stops before the browser tests with one line naming the build and the install command, and a test holds that line.
