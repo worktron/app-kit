@@ -10,7 +10,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import packageJson from '../package.json';
-import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, urgencyOf, urgentLine, withChanges, type LandOptions } from '../scripts/land.ts';
+import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, urgencyOf, urgentLine, urgentReadFailure, withChanges, type LandOptions } from '../scripts/land.ts';
 
 // git found through PATH on a Mac is Apple's launcher, which looks up the developer tools on every call before it starts
 // the real git, about half again the time of each of the hundreds of git processes here; the folder `git --exec-path`
@@ -176,6 +176,14 @@ test("an urgent release's line names each app on an older version by its tag, sa
   expect(urgentLine('0.6.1', { older: [], unread: [{ project: 'broken', unread: 'reading what landed: not a git repository' }] })).toBe(
     'v0.6.1 is urgent; apps on an older version: none; could not read: broken (reading what landed: not a git repository)',
   );
+});
+
+test("both urgent lines keep what metamax's landed reply matches on: they start with v and hold 'is urgent;'", () => {
+  // The landing prints each through its land-main: prefix; metamax quotes every such line that starts `land-main: v`.
+  for (const line of [urgentLine('0.6.1', { older: [{ project: 'assay', tag: 'v0.45.4' }], unread: [] }), urgentLine('0.6.1', { older: [], unread: [] }), urgentReadFailure('0.6.1', 'apps', 'no such folder')]) {
+    expect(line).toStartWith('v');
+    expect(line).toContain('is urgent;');
+  }
 });
 
 test('CHANGES.md takes each version above the newest, under the heading Dependabot and Renovate read release notes by', () => {

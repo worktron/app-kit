@@ -138,7 +138,15 @@ export function nextVersion(version: string, kind: Exclude<Kind, 'none'>): strin
   return kind === 'minor' ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`
 }
 
-/** The landing's line for an urgent release: the apps on an older version, each by its oldest tag, and any unread. */
+/**
+ * The landing's line for an urgent release: the apps on an older version, each by its oldest tag, and any unread.
+ * Metamax's landed reply quotes every landing line that starts `land-main: v` and holds `is urgent;`, so both urgent
+ * lines keep those two pieces (test/land.test.ts holds them).
+ */
+export function urgentReadFailure(version: string, folder: string, why: string): string {
+  return `v${version} is urgent; could not read the apps in ${folder}: ${why}`
+}
+
 export function urgentLine(version: string, { older, unread }: { older: { project: string; tag: string }[]; unread: Unread[] }): string {
   const listed = older.length ? older.map(({ project, tag }) => `${project} (${tag})`).join(', ') : 'none'
   return `v${version} is urgent; apps on an older version: ${listed}${unread.length ? `; could not read: ${unread.map(({ project, unread: why }) => `${project} (${why})`).join(', ')}` : ''}`
@@ -293,7 +301,7 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
         try {
           log(urgentLine(outcome.version, await olderThan(outcome.version, appsFolder)))
         } catch (error) {
-          log(`v${outcome.version} is urgent; could not read the apps in ${appsFolder}: ${error instanceof Error ? error.message : String(error)}`)
+          log(urgentReadFailure(outcome.version, appsFolder, error instanceof Error ? error.message : String(error)))
         }
       }
       return outcome
