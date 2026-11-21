@@ -1,17 +1,20 @@
 #!/usr/bin/env bun
-// The apps on the kit, for the apps round (.claude/skills/apps-round): each git checkout directly inside the folders
-// given whose landed package.json files install the kit from GitHub, with the tag it names, what its bun.lock installs,
-// how many releases it is behind, what CHANGES.md asks of it since its tag with each release's urgency, the most urgent
-// of those, its open backlog tickets that name the kit, and the kit's features it should have and lacks
-// (scripts/kit-features.ts). It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and
-// reads what landed there (origin/HEAD, else HEAD).
+// The apps on the kit, read for the apps page (.claude/skills/apps-round, a report the owner asks for; each app keeps
+// itself current by reading CHANGES.md when it is next worked on): each git checkout directly inside the folders given
+// whose landed package.json files install the kit from GitHub, with the tag it names, what its bun.lock installs, how
+// many releases it is behind, what CHANGES.md asks of it since its tag with each release's urgency, the most urgent of
+// those, its open backlog tickets that name the kit, and the kit's features it should have and lacks
+// (scripts/kit-features.ts). A checkout whose landed tree cannot be read is listed as unread, never as one with no kit.
+// It changes no app: it fetches each checkout's origin, which moves only that checkout's remote branches, and reads
+// what landed there (origin/HEAD, else HEAD).
 //
 //   bun scripts/apps.ts <folder>... [--no-fetch]
 //
-// Prints one JSON object: the kit's newest version, when it read, and the apps. The kit's tags are read from GitHub
-// (git ls-remote), never made or fetched into the local repository, which every worktree shares.
+// Prints one JSON object: the kit's newest version, when it read, the apps and the checkouts it could not read. The
+// kit's tags are read from GitHub (git ls-remote), never made or fetched into the local repository, which every
+// worktree shares. olderThan, the landing's list of apps on a version before an urgent release, reads the same way.
 
-import { readdirSync, existsSync } from 'node:fs'
+import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { URGENCIES, type Urgency } from './land.ts'
 import { appleServers, featuresOf, landedAt, type AppleLookup } from './kit-features.ts'
@@ -82,19 +85,33 @@ function git(dir: string, args: string[]): { ok: boolean; out: string } {
   return { ok: p.exitCode === 0, out: p.stdout.toString().trim() || p.stderr.toString().trim() }
 }
 
-/** One checkout as it landed, or null when nothing it landed installs the kit. */
-export async function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean, apple: AppleLookup = appleServers): Promise<App | null> {
-  let fetched = 'not fetched'
-  if (fetch) {
-    const done = git(dir, ['fetch', '-q', 'origin'])
-    fetched = done.ok ? new Date().toISOString() : `fetch failed: ${done.out.split('\n')[0]}`
-  }
+/** A checkout whose landed tree could not be read, and why: never read as one that installs no kit. */
+export type Unread = { project: string; unread: string }
+
+/** What a checkout landed: the ref read, its files, one file's text ('' when absent), and when its origin was fetched. */
+type Tree = { ref: string; files: string[]; show: (file: string) => string; fetched: string }
+
+function projectOf(dir: string): string {
+  return dir.split('/').pop() ?? dir
+}
+
+/** The tree a checkout landed on its origin (origin/HEAD, else HEAD), or why it could not be read. */
+function landedTree(dir: string, fetched: string): Tree | { unread: string } {
+  // A broken .git makes git look in the folders above, which would read another repository's tree as this one's.
+  const top = git(dir, ['rev-parse', '--show-toplevel'])
+  if (!top.ok || realpathSync(top.out) !== realpathSync(dir)) return { unread: `not a git checkout of its own: ${top.ok ? `git reads ${top.out}` : top.out.split('\n')[0]}` }
   const ref = git(dir, ['rev-parse', '-q', '--verify', 'refs/remotes/origin/HEAD']).ok ? 'origin/HEAD' : 'HEAD'
-  const files = git(dir, ['ls-tree', '-r', '--name-only', ref]).out.split('\n')
+  const listed = git(dir, ['ls-tree', '-r', '--name-only', ref])
+  if (!listed.ok) return { unread: `reading what landed: ${listed.out.split('\n')[0] || 'git ls-tree failed'}` }
   const show = (file: string) => {
     const done = git(dir, ['show', `${ref}:${file}`])
     return done.ok ? done.out : ''
   }
+  return { ref, files: listed.out.split('\n').filter(Boolean), show, fetched }
+}
+
+/** Each landed package.json that installs the kit, with its tag and the bun.lock commit that serves it. */
+function installsIn({ files, show }: Tree, kitTags: Map<string, string>): App['installs'] {
   const tracked = new Set(files)
   /** The commit app-kit is locked to for a package.json: its folder's bun.lock, else the nearest one above. */
   const lockFor = (file: string, tag: string) => {
@@ -107,19 +124,40 @@ export async function readApp(dir: string, kitTags: Map<string, string>, changes
     }
     return null
   }
-  const installs = files
+  return files
     .filter((file) => (file === 'package.json' || file.endsWith('/package.json')) && !file.includes('node_modules/'))
     .flatMap((file) => {
       const tag = show(file).match(INSTALL)?.[1]
       return tag ? [{ file, tag, locked: lockFor(file, tag) }] : []
     })
+}
+
+/** The oldest tag any of these installs names: an app with installs on two versions is on the older. */
+function oldestOf(installs: App['installs']): string {
+  return installs.map((install) => install.tag).sort(compareVersions)[0]
+}
+
+/** Fetches a checkout's origin, which moves only its remote branches; when, or why it failed. */
+function fetchOrigin(dir: string): string {
+  const done = git(dir, ['fetch', '-q', 'origin'])
+  return done.ok ? new Date().toISOString() : `fetch failed: ${done.out.split('\n')[0]}`
+}
+
+/**
+ * One checkout as it landed; unread when its landed tree cannot be read; null when nothing it landed installs the kit.
+ */
+export async function readApp(dir: string, kitTags: Map<string, string>, changes: string, fetch: boolean, apple: AppleLookup = appleServers): Promise<App | Unread | null> {
+  const tree = landedTree(dir, fetch ? fetchOrigin(dir) : 'not fetched')
+  if ('unread' in tree) return { project: projectOf(dir), unread: tree.unread }
+  const { ref, files, show, fetched } = tree
+  const installs = installsIn(tree, kitTags)
   if (!installs.length) return null
-  const oldest = installs.map((install) => install.tag).sort(compareVersions)[0]
+  const oldest = oldestOf(installs)
   const backlog = files.includes('.claude/plans/backlog.md') ? show('.claude/plans/backlog.md') : ''
   const pending = changesSince(changes, oldest)
   const levels = pending.flatMap((change) => (change.urgency ? [URGENCIES.indexOf(change.urgency)] : []))
   return {
-    project: dir.split('/').pop() ?? dir,
+    project: projectOf(dir),
     installs,
     behind: [...kitTags.keys()].filter((tag) => compareVersions(tag, oldest) > 0).length,
     changes: pending,
@@ -143,6 +181,51 @@ export function tagsOnGitHub(kit: string): Map<string, string> {
   return tags
 }
 
+/** The git checkouts directly inside a folder, apart from the one given. */
+export function checkoutsIn(folder: string, apart?: string): string[] {
+  return readdirSync(folder, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(folder, entry.name))
+    .filter((dir) => existsSync(join(dir, '.git')) && (!apart || resolve(dir) !== resolve(apart)))
+}
+
+/**
+ * The apps in a folder on a version before `version`, each by the oldest tag it installs, and the checkouts that could
+ * not be read, for the landing of an urgent release. A checkout that installs the kit at its last fetch is fetched
+ * first, all at once, so the list is of what each app has landed now; one whose fetch fails is unread, never listed by
+ * a version that may be stale.
+ */
+export async function olderThan(version: string, folder: string, apart?: string): Promise<{ older: { project: string; tag: string }[]; unread: Unread[] }> {
+  const older: { project: string; tag: string }[] = []
+  const unread: Unread[] = []
+  const kitApps = checkoutsIn(folder, apart).flatMap((dir) => {
+    const tree = landedTree(dir, 'not fetched')
+    if ('unread' in tree) {
+      unread.push({ project: projectOf(dir), unread: tree.unread })
+      return []
+    }
+    return installsIn(tree, new Map()).length ? [dir] : []
+  })
+  const fetched = await Promise.all(
+    kitApps.map(async (dir) => {
+      const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
+      const [err, status] = await Promise.all([new Response(child.stderr).text(), child.exited])
+      return { dir, failed: status === 0 ? null : `fetch failed: ${err.trim().split('\n')[0] || `git exited ${status}`}` }
+    }),
+  )
+  for (const { dir, failed } of fetched) {
+    const tree = failed ? { unread: failed } : landedTree(dir, 'fetched')
+    if ('unread' in tree) {
+      unread.push({ project: projectOf(dir), unread: tree.unread })
+      continue
+    }
+    const installs = installsIn(tree, new Map())
+    if (installs.length && compareVersions(oldestOf(installs), `v${version.replace(/^v/, '')}`) < 0) older.push({ project: projectOf(dir), tag: oldestOf(installs) })
+  }
+  const byName = (a: { project: string }, b: { project: string }) => a.project.localeCompare(b.project)
+  return { older: older.sort(byName), unread: unread.sort(byName) }
+}
+
 if (import.meta.main) {
   const args = Bun.argv.slice(2)
   const fetch = !args.includes('--no-fetch')
@@ -152,7 +235,7 @@ if (import.meta.main) {
     process.exit(2)
   }
   const kit = resolve(import.meta.dir, '..')
-  // A round must never read missing data as an app being up to date, so the kit's tags and CHANGES.md are required.
+  // A report must never read missing data as an app being up to date, so the kit's tags and CHANGES.md are required.
   const kitTags = tagsOnGitHub(kit)
   if (!kitTags.size) throw new Error('GitHub lists no version tags for the kit')
   const fetched = git(kit, ['fetch', '-q', '--no-tags', 'origin', 'main'])
@@ -161,9 +244,9 @@ if (import.meta.main) {
   if (!shown.ok) throw new Error(`reading CHANGES.md on the kit's main: ${shown.out}`)
   const changes = shown.out
   const newest = [...kitTags.keys()].sort(compareVersions).pop() ?? null
-  const dirs = folders
-    .flatMap((folder) => readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => join(folder, entry.name)))
-    .filter((dir) => existsSync(join(dir, '.git')) && resolve(dir) !== kit)
-  const apps = (await Promise.all(dirs.map((dir) => readApp(dir, kitTags, changes, fetch)))).filter((app): app is App => app !== null)
-  console.log(JSON.stringify({ newest, read: new Date().toISOString(), apps }, null, 2))
+  const dirs = folders.flatMap((folder) => checkoutsIn(folder, kit))
+  const read = (await Promise.all(dirs.map((dir) => readApp(dir, kitTags, changes, fetch)))).filter((app) => app !== null)
+  const apps = read.filter((app): app is App => !('unread' in app))
+  const unread = read.filter((app): app is Unread => 'unread' in app)
+  console.log(JSON.stringify({ newest, read: new Date().toISOString(), apps, unread }, null, 2))
 }
