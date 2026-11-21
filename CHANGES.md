@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. Urgency says how soon apps take it: now (app-kit's apps round starts the upgrades that day), next round (the Monday round) or rides along (the app's next upgrade).
 
+## v0.71.4
+
+Urgency: now
+
+- an app whose AppMenu takes .settings_window() moves to this version at once: on 0.71.0 to 0.71.2, choosing Settings… freezes the app. Nothing in the app changes.
+
 ## v0.71.3
 
 Urgency: next round
