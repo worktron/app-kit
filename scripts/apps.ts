@@ -189,28 +189,30 @@ export function checkoutsIn(folder: string, apart?: string): string[] {
     .filter((dir) => existsSync(join(dir, '.git')) && (!apart || resolve(dir) !== resolve(apart)))
 }
 
+/** How long one app's fetch may take before the urgent list names it unread: main and the tag are pushed by then. */
+export const FETCH_LIMIT_MS = 60_000
+
 /**
  * The apps in a folder on a version before `version`, each by the oldest tag it installs, and the checkouts that could
- * not be read, for the landing of an urgent release. A checkout that installs the kit at its last fetch is fetched
- * first, all at once, so the list is of what each app has landed now; one whose fetch fails is unread, never listed by
- * a version that may be stale.
+ * not be read, for the landing of an urgent release. Every checkout with an origin is fetched first, all at once and
+ * each within `limitMs`, so an app that took up the kit since its last fetch is read too, and the list is of what each
+ * app has landed now. One whose fetch fails or runs out of time is named unread, never listed by a tree that may be
+ * stale; a checkout with no origin is read as it is.
  */
-export async function olderThan(version: string, folder: string, apart?: string): Promise<{ older: { project: string; tag: string }[]; unread: Unread[] }> {
+export async function olderThan(version: string, folder: string, apart?: string, limitMs = FETCH_LIMIT_MS): Promise<{ older: { project: string; tag: string }[]; unread: Unread[] }> {
   const older: { project: string; tag: string }[] = []
   const unread: Unread[] = []
-  const kitApps = checkoutsIn(folder, apart).flatMap((dir) => {
-    const tree = landedTree(dir, 'not fetched')
-    if ('unread' in tree) {
-      unread.push({ project: projectOf(dir), unread: tree.unread })
-      return []
-    }
-    return installsIn(tree, new Map()).length ? [dir] : []
-  })
   const fetched = await Promise.all(
-    kitApps.map(async (dir) => {
-      const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
-      const [err, status] = await Promise.all([new Response(child.stderr).text(), child.exited])
-      return { dir, failed: status === 0 ? null : `fetch failed: ${err.trim().split('\n')[0] || `git exited ${status}`}` }
+    checkoutsIn(folder, apart).map(async (dir) => {
+      if (!git(dir, ['remote', 'get-url', 'origin']).ok) return { dir, failed: null }
+      const child = Bun.spawn(['git', '-C', dir, 'fetch', '-q', 'origin'], { stdout: 'ignore', stderr: 'pipe', timeout: limitMs })
+      const err = new Response(child.stderr).text()
+      const status = await child.exited
+      if (status === 0) return { dir, failed: null }
+      // A child git started (such as the remote's side) can keep stderr open after git is stopped, so a stopped fetch is
+      // not waited on for its message.
+      if (child.signalCode) return { dir, failed: `fetch did not finish within ${limitMs / 1000} seconds` }
+      return { dir, failed: `fetch failed: ${(await err).trim().split('\n')[0] || `git exited ${status}`}` }
     }),
   )
   for (const { dir, failed } of fetched) {
