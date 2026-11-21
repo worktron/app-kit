@@ -1073,3 +1073,10 @@ Goal: Xcode's build folders of any project whose folder is gone are deleted, and
 Done when: the sweep also takes a folder whose info.plist WorkspacePath is any project path that no longer exists, keeps folders with no info.plist (Xcode's shared caches such as ModuleCache.noindex), held by tests in test/built-apps.test.ts, and a sweep on the owner's Mac lists what it would delete before it first runs.
 
 Touches: tauri/built-apps.ts, test/built-apps.test.ts, README.md.
+
+## start-page-drag · The kit's start page lets a window with no title bar be dragged while it waits for the site
+Written by: timescale/app-kit-v0-70-2
+
+Goal: a Tauri window with no title bar, such as Timescale's Mac app (its buttons sit over the page's top bar), can be moved only by a page region marked `data-tauri-drag-region`. app-kit's start page (tauri/window/start in v0.70.2) marks none, so while it waits offline the window cannot be moved. Timescale's own start page marks its body (desktop/start/index.html:54, `<body data-tauri-drag-region>`), which is why the app-kit v0.70.2 upgrade (worktron/timescale pull request 112, 2026-11-20) kept Timescale's page instead of the kit's. It also follows the hour's light from the app's palette.
+
+Done when: the kit's start page is a drag region in a window with no title bar, held by a test, and the README says so, so an app like Timescale can drop its own start page.
