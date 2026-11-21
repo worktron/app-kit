@@ -194,14 +194,20 @@ test('each app behind gets the ticket once: one already holding it is said, and 
   expect(asked[0].section).toBe(catchUpSection('v0.12.0', ['A fix.']));
 });
 
-test("an urgent release's landing starts the ticket filer detached, to a log of its own, or says it filed none without metamax", () => {
+test("only a landing that released an urgent version starts the ticket filer, detached, to a log of its own, or says it filed none without metamax", () => {
   const started: { command: string[]; log: string }[] = [];
   const start = (command: string[], log: string) => started.push({ command, log });
-  const line = startUrgentTickets('0.12.0', { metamax: '/opt/metamax', kit: '/kit', gitFolder: '/kit/.git', start });
+  const urgent = { landed: true, sha: 'abc', version: '0.12.0', urgency: 'now' } as const;
+  // A landing that released nothing urgent, or did not land, starts nothing.
+  for (const other of [{ ...urgent, urgency: 'next round' } as const, { landed: true, sha: 'abc' } as const, { landed: false, reason: 'red' } as const]) {
+    expect(startUrgentTickets(other, { metamax: '/opt/metamax', kit: '/kit', gitFolder: '/kit/.git', start })).toBeNull();
+  }
+  expect(started).toEqual([]);
+  const line = startUrgentTickets(urgent, { metamax: '/opt/metamax', kit: '/kit', gitFolder: '/kit/.git', start });
   expect(started).toEqual([{ command: ['bun', '/kit/scripts/urgent-tickets.ts', 'v0.12.0'], log: '/kit/.git/urgent-tickets-v0.12.0.log' }]);
   expect(line).toBe('urgent tickets: filing a catch-up ticket in each app behind v0.12.0 after this landing; results in /kit/.git/urgent-tickets-v0.12.0.log, again with bun scripts/urgent-tickets.ts v0.12.0');
   started.length = 0;
-  expect(startUrgentTickets('0.12.0', { metamax: undefined, kit: '/kit', gitFolder: '/kit/.git', start })).toBe(
+  expect(startUrgentTickets(urgent, { metamax: undefined, kit: '/kit', gitFolder: '/kit/.git', start })).toBe(
     "urgent tickets: not filed, since METAMAX_HOME is not set; file them with METAMAX_HOME set to metamax's checkout: bun scripts/urgent-tickets.ts v0.12.0",
   );
   expect(started).toEqual([]);

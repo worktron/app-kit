@@ -155,10 +155,13 @@ export function urgentLine(version: string, { older, unread }: { older: { projec
 }
 
 /**
- * After an urgent release lands: start scripts/urgent-tickets.ts detached, its output to a log in the kit's git folder,
- * and say so; or, with METAMAX_HOME unset, say no tickets were filed and how to file them. Returns the landing's line.
+ * After a landing: when it released a version marked now, start scripts/urgent-tickets.ts detached, its output to a log
+ * in the kit's git folder, and say so; or, with METAMAX_HOME unset, say no tickets were filed and how to file them.
+ * Returns the landing's line, or null for any other outcome.
  */
-export function startUrgentTickets(version: string, { metamax, kit, gitFolder, start }: { metamax: string | undefined; kit: string; gitFolder: string; start: (command: string[], log: string) => void }): string {
+export function startUrgentTickets(outcome: Outcome, { metamax, kit, gitFolder, start }: { metamax: string | undefined; kit: string; gitFolder: string; start: (command: string[], log: string) => void }): string | null {
+  if (!outcome.landed || !outcome.version || outcome.urgency !== 'now') return null
+  const { version } = outcome
   const again = `bun scripts/urgent-tickets.ts v${version}`
   if (!metamax) return `urgent tickets: not filed, since METAMAX_HOME is not set; file them with METAMAX_HOME set to metamax's checkout: ${again}`
   // Detached, to a log of its own: a ticket in an app that lands through a pull request waits on that app's checks,
@@ -337,11 +340,10 @@ if (import.meta.main) {
   if (outcome.landed) {
     console.log(outcome.version ? `land-main: released v${outcome.version}` : 'land-main: no release, the change is none')
     console.log(`land-main: main is at ${outcome.sha.slice(0, 7)}`)
-    if (outcome.version && outcome.urgency === 'now') {
-      const kit = top || process.cwd()
-      const start = (command: string[], log: string) => Bun.spawn(command, { cwd: kit, stdin: 'ignore', stdout: Bun.file(log), stderr: Bun.file(log), detached: true }).unref()
-      console.log(`land-main: ${startUrgentTickets(outcome.version, { metamax: process.env.METAMAX_HOME, kit, gitFolder: common || join(kit, '.git'), start })}`)
-    }
+    const kit = top || process.cwd()
+    const start = (command: string[], log: string) => Bun.spawn(command, { cwd: kit, stdin: 'ignore', stdout: Bun.file(log), stderr: Bun.file(log), detached: true }).unref()
+    const urgent = startUrgentTickets(outcome, { metamax: process.env.METAMAX_HOME, kit, gitFolder: common || join(kit, '.git'), start })
+    if (urgent) console.log(`land-main: ${urgent}`)
   } else {
     console.error(`land-main: stopped: ${outcome.reason}`)
     process.exit(1)
