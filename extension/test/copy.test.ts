@@ -193,6 +193,17 @@ test('every file the fixture worker loads is in its list for self-reload, and on
   expect(unlistedImports(folder, ['worker.js', 'lib/a.js'])).toEqual(['c.js', 'lib/b.js'])
 })
 
+test("a page the worker opens beside a module, and that page's script, are files it loads too", () => {
+  const folder = join(dir, 'hidden-page')
+  mkdirSync(join(folder, 'kit'), { recursive: true })
+  writeFileSync(join(folder, 'manifest.json'), JSON.stringify({ background: { service_worker: 'worker.js', type: 'module' } }))
+  writeFileSync(join(folder, 'worker.js'), 'import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";\n')
+  writeFileSync(join(folder, 'kit', 'toolbar-icon.js'), 'const PAGE = new URL("./color-scheme.html", import.meta.url).href;\n')
+  writeFileSync(join(folder, 'kit', 'color-scheme.html'), '<!doctype html>\n<script type="module" src="color-scheme.js"></script>\n')
+  writeFileSync(join(folder, 'kit', 'color-scheme.js'), 'import { CHECK_MS } from "./toolbar-icon.js";\n')
+  expect(unlistedImports(folder, ['worker.js', 'kit/toolbar-icon.js'])).toEqual(['kit/color-scheme.html', 'kit/color-scheme.js'])
+})
+
 test("the kit's own fixture extension carries the current copy", () => {
   expect(workerCopyDiffers(join(import.meta.dir, 'fixture/kit'))).toEqual([])
   expect(cli('check', join(import.meta.dir, 'fixture/kit')).exitCode).toBe(0)

@@ -17,7 +17,7 @@ import { showLink } from "./kit/show.js";
 import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";
 
 export const HOST = "com.example.extension_kit_fixture";
-export const LOADED_FILES = ["worker.js", "kit/account.js", "kit/alarms.js", "kit/build.js", "kit/errors.js", "kit/port.js", "kit/self-reload.js", "kit/show.js", "kit/toolbar-icon.js"];
+export const LOADED_FILES = ["worker.js", "kit/account.js", "kit/alarms.js", "kit/build.js", "kit/errors.js", "kit/port.js", "kit/self-reload.js", "kit/show.js", "kit/toolbar-icon.js", "kit/color-scheme.html", "kit/color-scheme.js"];
 
 const REQUEST_KEY = "fixtureRequest";
 
