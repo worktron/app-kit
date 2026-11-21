@@ -66,7 +66,7 @@ Urgency: next round
 
 Urgency: now
 
-- an app whose AppMenu takes .settings_window() moves to this version at once: on 0.71.0 to 0.71.2, choosing Settings… freezes the app. Nothing in the app changes.
+- an app whose AppMenu takes .settings_window() moves to this version at once: on 0.71.0 to 0.71.3, choosing Settings… freezes the app. Nothing in the app changes.
 
 ## v0.71.3
 
