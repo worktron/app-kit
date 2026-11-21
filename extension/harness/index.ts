@@ -138,9 +138,17 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
   const answers = new Map<number, (answer: { error?: { message: string } }) => void>()
   const toPage = async (sessionId: string, method: string, params: Record<string, unknown>) => {
     const id = ++nextMessage
-    const answered = new Promise<{ error?: { message: string } }>((resolve) => answers.set(id, resolve))
+    // A page that closes before it answers, as on a reload, never answers: that is an error naming it, not a hang.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const answered = new Promise<{ error?: { message: string } }>((resolve, reject) => {
+      answers.set(id, resolve)
+      timer = setTimeout(() => reject(new Error(`The extension's hidden page did not answer ${method} within ten seconds; it may have closed, as a reload closes it`)), 10_000)
+    })
     await browserSession!.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) })
-    const answer = await answered
+    const answer = await answered.finally(() => {
+      clearTimeout(timer)
+      answers.delete(id)
+    })
     if (answer.error) throw new Error(`${method} on the extension's hidden page: ${answer.error.message}`)
   }
 
@@ -221,7 +229,6 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
         browserSession.on('Target.receivedMessageFromTarget', ({ message }) => {
           const answer = JSON.parse(message) as { id?: number; error?: { message: string } }
           if (answer.id !== undefined) answers.get(answer.id)?.(answer)
-          if (answer.id !== undefined) answers.delete(answer.id)
         })
       }
       // Chromium lists an offscreen document as a background page. A worker that has just started may not have opened it yet.

@@ -86,6 +86,16 @@ describe('toolbarIconFollowsMode', () => {
     expect(piece.toolbarIconPaths()).toEqual({ light: { 16: '/icons/icon-16.png' }, dark: { 16: '/icons/icon-16-dark-mode.png' } })
   })
 
+  test('an icon that is not a .png, which has no dark-mode copy, is recorded as an error, never as dark mode shown', async () => {
+    shim.manifest = { ...MANIFEST, icons: { 16: 'icons/Icon16.PNG' } }
+    shim.files['icons/Icon16.PNG'] = 'png'
+    await start()
+    expect(await fromPage(true)).toEqual({ shown: false })
+    expect(held.icons).toEqual([])
+    expect(recorded()).toBeUndefined()
+    expect((await getWorkerErrors())[0]?.message).toContain('icons/Icon16.PNG is not a .png')
+  })
+
   test('two switches in quick succession end on the later one', async () => {
     await start()
     await Promise.all([fromPage(true), fromPage(false)])

@@ -60,6 +60,8 @@ export function toolbarIconPaths() {
   const icons = typeof given === "object" && given ? given : (manifest.icons ?? {});
   const sizes = SIZES.filter((size) => typeof icons[size] === "string");
   if (!sizes.length) throw new Error("toolbarIconFollowsMode: the manifest lists no 16 or 32 pixel icon under action.default_icon or icons");
+  const notPng = sizes.map((size) => icons[size]).find((path) => !path.endsWith(".png"));
+  if (notPng) throw new Error(`toolbarIconFollowsMode: the toolbar icon ${notPng} is not a .png, so it has no -dark-mode.png copy; draw the icons with app-kit icons render`);
   const fromRoot = (/** @type {string} */ path) => (path.startsWith("/") ? path : `/${path}`);
   const light = Object.fromEntries(sizes.map((size) => [size, fromRoot(icons[size])]));
   const dark = Object.fromEntries(sizes.map((size) => [size, light[size].replace(/\.png$/, "-dark-mode.png")]));
