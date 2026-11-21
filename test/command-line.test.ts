@@ -286,6 +286,19 @@ test('input reaches a program through a pipe, which 1Password reads a template f
   expect(missing.stderr).toContain('no-such-program-anywhere');
 });
 
+test("a file's bytes reach a program as its standard input, as a git bundle reaches the worker door", async () => {
+  const place = scratch('command-line-input-file-');
+  try {
+    const file = join(place.folder, 'bundle');
+    writeFileSync(file, Buffer.from([0, 1, 2, 255, 10]));
+    const read = await runCommand(['od', '-An', '-tu1'], { inputFile: file });
+    expect(read.code).toBe(0);
+    expect(read.stdout.trim().split(/\s+/)).toEqual(['0', '1', '2', '255', '10']);
+  } finally {
+    place.done();
+  }
+});
+
 test('a character whose bytes arrive in two reads comes through whole', async () => {
   const place = scratch('command-line-split-');
   try {

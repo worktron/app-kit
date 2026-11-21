@@ -37,6 +37,18 @@ import {
   useWindowMenu,
 } from '../tauri/window';
 import {
+  MENU_CHECK_ANSWERED,
+  MENU_CHECK_CHOOSING,
+  MENU_CHECK_HOLDS,
+  MENU_CHECK_KIT_ITEMS,
+  MENU_CHECK_KIT_TARGET,
+  MENU_CHECK_LEFT_ALONE,
+  MENU_CHECK_LINE,
+  MENU_CHECK_NEVER_ANSWERED,
+  MENU_CHECK_STARTING,
+  MENU_CHECK_STOPPED,
+  MENU_CHECK_STOPPED_END,
+  MENU_CHECK_VARIABLE,
   OPEN_AT_LOGIN_COMMANDS,
   OPEN_AT_LOGIN_STATES,
   SETTINGS_PAGE,
@@ -93,6 +105,31 @@ test("the Mac menu hands the page Settings and Sign Out under the names its hook
   expect(constant(rust, 'MENU_EVENT')).toBe(MENU_EVENT);
   expect(constant(rust, 'SETTINGS')).toBe(MENU_SETTINGS);
   expect(constant(rust, 'SIGN_OUT')).toBe(MENU_SIGN_OUT);
+});
+
+test("the menu check's lines are the words the release's judge reads, and each kit item's line is one the kit logs", () => {
+  const rust = read('src/menu_check.rs');
+  expect(constant(rust, 'MENU_CHECK_VARIABLE')).toBe(MENU_CHECK_VARIABLE);
+  expect(constant(rust, 'MENU_CHECK_LINE')).toBe(MENU_CHECK_LINE);
+  expect(constant(rust, 'STARTING')).toBe(MENU_CHECK_STARTING);
+  expect(constant(rust, 'HOLDS')).toBe(MENU_CHECK_HOLDS);
+  expect(constant(rust, 'CHOOSING')).toBe(MENU_CHECK_CHOOSING);
+  expect(constant(rust, 'ANSWERED')).toBe(MENU_CHECK_ANSWERED);
+  expect(constant(rust, 'LEFT_ALONE')).toBe(MENU_CHECK_LEFT_ALONE);
+  expect(constant(rust, 'STOPPED')).toBe(MENU_CHECK_STOPPED);
+  expect(constant(rust, 'STOPPED_END')).toBe(MENU_CHECK_STOPPED_END);
+  expect(constant(rust, 'NEVER_ANSWERED')).toBe(MENU_CHECK_NEVER_ANSWERED);
+  // The crate's name, which the log plugin writes as each line's target.
+  expect(read('Cargo.toml')).toContain(`name = "${MENU_CHECK_KIT_TARGET.replaceAll('_', '-')}"`);
+  const sources = readdirSync(join(plugin, 'src'))
+    .filter((name) => name.endsWith('.rs'))
+    .map((name) => read(join('src', name)))
+    .join('\n');
+  for (const item of MENU_CHECK_KIT_ITEMS) {
+    // The menu's title, as Rust writes it: whole in a string, or the end of a format string.
+    expect(sources).toContain(item.end ? `${item.title}"` : `"${item.title}"`);
+    for (const words of item.lines) expect(sources).toContain(words);
+  }
 });
 
 test('the window hands the start page its settings under the name the page reads, with the health route every kit server answers', () => {

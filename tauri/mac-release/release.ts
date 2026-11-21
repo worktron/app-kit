@@ -32,6 +32,12 @@
  *   the archive about to go up, with its bundled page, is searched for any left before anything is published
  *   (build-paths.ts says what the rewrite reaches and what it cannot).
  *
+ * - The built app is tried before it is published: the archive about to go up is sent to a worker Mac, where the app
+ *   chooses every item in its own menu bar and must answer after each, the kit's items must log what they did, and Quit
+ *   must end it (menu-check.ts). Every test passed for Matter 0.1.4, whose Settings… froze the app the first time it
+ *   was chosen, since none chose a menu item the way macOS delivers a click. Nothing runs on this Mac, whose screen is
+ *   the owner's, and a release no worker could try is not published.
+ *
  * The app the build made in the Tauri folder, and the copy unpacked to check the archive, are deleted once the release is
  * done with them, worked or not, and macOS told to forget them, since macOS registers each within a minute and a copy
  * left in the watcher's folder took links meant for the installed app; and the release starts by deleting Xcode's build
@@ -41,8 +47,8 @@
  * Connect key is the one exception: Tauri reads it only from a file, so it is written readable by this user alone into
  * a folder of its own, named for this process, removed however the build ends; a release that notarizes also removes
  * such folders of releases no longer running, which a hard kill left. Exit codes: 0 published; 3 the app did not
- * compile; 4 the build holds this Mac's folder paths; 1 anything else. The watcher holds 3 and 4 until main moves,
- * since building the same code again gives the same answer.
+ * compile; 4 the build holds this Mac's folder paths; 5 the built app failed its menu check on a worker Mac; 1 anything
+ * else. The watcher holds 3, 4 and 5 until main moves, since building the same code again gives the same answer.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -55,6 +61,7 @@ import { buildEnv, type Env } from '../build-env.ts';
 import { MAC_BUNDLE_FOLDER, macApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { foundPathsMessage, pathRewriteEnv, searchForPaths, unrewritable } from './build-paths.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunResult } from '../../command-line/run.ts';
+import { menuCheck } from './menu-check.ts';
 
 export type ReleaseOptions = {
   /** The app's Tauri folder, the one holding src-tauri. */
@@ -70,6 +77,8 @@ export type ReleaseOptions = {
   fail?: (line: string) => void;
   /** The build's own output as it comes. */
   output?: (chunk: string) => void;
+  /** Waits between asks for a free worker Mac for the menu check; tests pass one that moves a clock. */
+  wait?: (ms: number) => Promise<void>;
 };
 
 /** Where `tauri build` puts the Mac app and its update archive. */
@@ -139,7 +148,7 @@ export function removeLeftKeyFolders(folder = tmpdir()): void {
  * Releases, as the module's comment says. Stopped by a signal, it stops the build, removes its temporary folder and
  * deletes the apps it built.
  */
-export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4> {
+export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4 | 5> {
   const folders = new Set<string>();
   /** The apps unpacked to check the archive, inside a folder of `folders`, for macOS to forget once it is removed. */
   const checkCopies = new Set<string>();
@@ -174,7 +183,7 @@ export async function release(options: ReleaseOptions): Promise<0 | 1 | 3 | 4> {
  * The steps; every folder made goes into `folders`, which `release` removes however the steps end, and every app
  * unpacked to check goes into `checkCopies`.
  */
-async function releaseSteps(options: ReleaseOptions, folders: Set<string>, checkCopies: Set<string>, started: BuildStarted): Promise<0 | 1 | 3 | 4> {
+async function releaseSteps(options: ReleaseOptions, folders: Set<string>, checkCopies: Set<string>, started: BuildStarted): Promise<0 | 1 | 3 | 4 | 5> {
   const madeFolder = (prefix: string) => {
     const folder = mkdtempSync(join(tmpdir(), prefix));
     folders.add(folder);
@@ -399,6 +408,14 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>, check
     print(`the update archive's app is notarized and stapled`);
   }
   rmSync(unpacked, { recursive: true, force: true });
+  print(`trying ${config.productName} ${version} on a worker Mac: every menu item, then Quit`);
+  const checked = await menuCheck({ run, env, archive: join(folder, name), folder, print, output, wait: options.wait });
+  if (checked.code === 5) {
+    say(`${config.productName} ${version} failed its menu check, so it is not published: ${checked.line}`);
+    return 5;
+  }
+  if (checked.code !== 0) return fail(checked.line);
+  print(checked.line);
   const url = `https://github.com/${repository}/releases/download/v${version}/${name}`;
   writeFileSync(join(folder, 'latest.json'), latestJson({ version, date: (options.now ?? (() => new Date()))(), signature, url }));
   // gh makes a draft, uploads to it and only then publishes it as the latest, so no installed copy sees half a release.

@@ -1,7 +1,7 @@
 // What the Mac release tests share: a Tauri app's checkout cloned from an origin of its own over file://, and a runner
-// that runs git and tar for real and answers for gh, op, security, codesign, bun install, Tauri's build, stapler and
-// Gatekeeper, recording what each was given. gh's answers are recorded from the real gh (2026-11-05): a repository with
-// no releases, and one gh cannot see, both answer "release not found" and exit 1. stapler's and spctl's are the real
+// that runs git and tar for real and answers for gh, op, security, codesign, bun install, Tauri's build, stapler,
+// Gatekeeper and fleet's worker-run, recording what each was given. gh's answers are recorded from the real gh
+// (2026-11-05): a repository with no releases, and one gh cannot see, both answer "release not found" and exit 1. stapler's and spctl's are the real
 // ones' shapes on macOS 27 (2026-11-07), spctl's on standard error as it writes them.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -117,7 +117,12 @@ export type MacWorld = {
   publish?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
   /** The TestFlight vault's service account token the login keychain holds; none by default. */
   token?: string;
+  /** fleet's worker-run, which runs the menu check on a worker Mac: a pass by default. */
+  workerRun?: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
 };
+
+/** What the worker door prints of a check that passed, its last line the verdict. */
+export const CHECK_PASSED = ok('menu check: starting Example App.app on worker-a\nmenu check: passed on worker-a: every one of the 18 menu items answered, and Quit ended the app\n');
 
 export const releaseNotFound = exit(1, 'release not found\n');
 
@@ -177,6 +182,12 @@ export function macRunner(app: string, world: MacWorld = {}) {
       if (tar.exitCode !== 0) throw new Error(`tar: ${tar.stderr.toString()}`);
       writeFileSync(join(bundle, 'Example App.app.tar.gz.sig'), signatureFile(world.signedVersion === undefined ? version : world.signedVersion));
       return ok('Finished 1 updater bundle\n');
+    }
+    if (program === 'worker-run') {
+      // The real runner streams what the door prints to the release's output as it comes, then returns it.
+      const done = await (world.workerRun ? world.workerRun(command, options) : CHECK_PASSED);
+      options.output?.(done.out, 'stdout');
+      return done;
     }
     if (program === 'codesign' && args[1]?.startsWith('--extract-certificates=')) {
       writeFileSync(`${args[1].slice('--extract-certificates='.length)}0`, world.certificate ?? CERTIFICATE);

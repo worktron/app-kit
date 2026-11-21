@@ -38,6 +38,76 @@ fn main() {
     let windows = mac.windowsMenu().map(|menu| menu.title().to_string());
     assert_eq!(windows.as_deref(), Some("Window"), "macOS lists the windows in the Window menu");
     println!("ok: macOS lists the open windows in the Window menu");
+    menu_check_walk(mtm);
+}
+
+/// The menu check's walk (src/menu_walk.rs), included by its path since it is the plugin's own, over a menu bar built
+/// here and never set as the app's: an item two submenus deep is reached, macOS's Hide items, Services and Writing Tools
+/// are left out while the app's own Hide item is not, and a greyed-out item is left out only of what a person could
+/// choose.
+#[cfg(target_os = "macos")]
+#[path = "../src/menu_walk.rs"]
+#[allow(dead_code)]
+mod menu_walk;
+
+#[cfg(target_os = "macos")]
+fn menu_check_walk(mtm: objc2::MainThreadMarker) {
+    use objc2::rc::Retained;
+    use objc2::{runtime::Sel, sel, MainThreadOnly};
+    use objc2_app_kit::{NSMenu, NSMenuItem};
+    use objc2_foundation::NSString;
+
+    let menu = |title: &str| {
+        let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title));
+        menu.setAutoenablesItems(false);
+        menu
+    };
+    let item = |title: &str, action: Option<Sel>| unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &NSString::from_str(title), action, &NSString::from_str(""))
+    };
+    let holding = |title: &str, submenu: &NSMenu| {
+        let holder = item(title, None);
+        holder.setSubmenu(Some(submenu));
+        holder
+    };
+    let bar = menu("");
+    let services = menu("Services");
+    services.addItem(&item("Example Service", Some(sel!(copy:))));
+    let app_menu = menu("Example");
+    for each in [item("Hide Example", Some(sel!(hide:))), item("Hide Others", Some(sel!(hideOtherApplications:))), item("Hide Sidebar", Some(sel!(copy:)))] {
+        app_menu.addItem(&each);
+    }
+    app_menu.addItem(&holding("Services", &services));
+    let inner = menu("Example Inner");
+    inner.addItem(&item("Example Nested Item", Some(sel!(copy:))));
+    let outer = menu("Example Submenu");
+    outer.addItem(&holding("Example Inner", &inner));
+    let writing = menu("Writing Tools");
+    writing.addItem(&item("Proofread", Some(sel!(copy:))));
+    let file = menu("File");
+    file.addItem(&holding("Example Submenu", &outer));
+    let greyed = item("Greyed Item", Some(sel!(copy:)));
+    greyed.setEnabled(false);
+    file.addItem(&greyed);
+    file.addItem(&NSMenuItem::separatorItem(mtm));
+    file.addItem(&holding("Writing Tools", &writing));
+    file.addItem(&item("Close Window", Some(sel!(performClose:))));
+    bar.addItem(&holding("Example", &app_menu));
+    bar.addItem(&holding("File", &file));
+
+    let walked = |choosable| -> Vec<(Vec<isize>, String)> {
+        menu_walk::walk_bar(&bar, Some(&services), choosable).into_iter().map(|item| (item.path, item.title)).collect()
+    };
+    let choosable = walked(true);
+    let expected: Vec<(Vec<isize>, String)> =
+        vec![(vec![0, 2], "Hide Sidebar".into()), (vec![1, 0, 0, 0], "Example Nested Item".into()), (vec![1, 4], "Close Window".into())];
+    assert_eq!(choosable, expected, "the items the menu check chooses");
+    let every: Vec<String> = walked(false).into_iter().map(|(_, title)| title).collect();
+    assert_eq!(every, ["Hide Sidebar", "Example Nested Item", "Greyed Item", "Close Window"], "every titled item");
+    let bar: Retained<NSMenu> = bar;
+    let (found, index) = menu_walk::menu_at(bar, &[1, 0, 0, 0]).expect("the path leads to its submenu");
+    assert_eq!(found.itemAtIndex(index).map(|item| item.title().to_string()).as_deref(), Some("Example Nested Item"));
+    println!("ok: the menu check reaches an item two submenus deep and leaves out macOS's own items, by what they do");
 }
 
 /// Each menu's title, then its items indented, a separator as "-", each item's shortcut after it as macOS shows it.

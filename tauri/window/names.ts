@@ -54,3 +54,50 @@ export const SETTINGS_PAGE_SETTINGS = '__APP_KIT_SETTINGS_PAGE__';
 export const OPEN_AT_LOGIN_COMMANDS = ['open_at_login_status', 'open_at_login_set', 'open_login_items'] as const;
 /** What the switch is told the login item is, as macOS reports it (plugin/src/login_item.rs). */
 export const OPEN_AT_LOGIN_STATES = ['enabled', 'requires-approval', 'off', 'not-available'] as const;
+
+/**
+ * The menu check a Mac release runs on a worker Mac before it publishes (plugin/src/menu_check.rs, and the judge,
+ * tauri/mac-release/menu-check-entry.ts): the variable that starts it in the app, and the words of its log lines,
+ * `menu check: ` and then one of `starting`, `left alone, greyed out or hidden: ["Undo", …]`,
+ * `the menu holds ["About Example", …, "Quit Example"]`,
+ * `choosing <title> (<n> of <total>)`, `<title> (<n> of <total>) answered`,
+ * `the app stopped answering after <title> (<n> of <total>) was chosen`, or that the app did not answer before any
+ * item was chosen.
+ */
+export const MENU_CHECK_VARIABLE = 'APP_KIT_MENU_CHECK';
+export const MENU_CHECK_LINE = 'menu check: ';
+export const MENU_CHECK_STARTING = 'starting';
+export const MENU_CHECK_HOLDS = 'the menu holds ';
+export const MENU_CHECK_CHOOSING = 'choosing ';
+export const MENU_CHECK_ANSWERED = ' answered';
+export const MENU_CHECK_LEFT_ALONE = 'left alone, greyed out or hidden: ';
+export const MENU_CHECK_STOPPED = 'the app stopped answering after ';
+export const MENU_CHECK_STOPPED_END = ' was chosen';
+export const MENU_CHECK_NEVER_ANSWERED = 'the app did not answer before any item was chosen';
+
+/**
+ * What the kit logs for each of its own menu items once it is chosen, which the menu check requires after choosing it:
+ * the item's title as the kit's menu writes it (the whole title, or with `end`, how it ends), and words any one of
+ * which in a later line of the kit's says it acted. The update item's title follows the update (plugin/src/updates.rs):
+ * the check sees it as Check for Updates…, as up to date, or as failed to check, and it answers once the releases
+ * answer, so its line may come after later items.
+ */
+/** What the kit logs, after the item's name, of Settings… or Sign Out handed to the page (plugin/src/menu.rs). */
+const HANDED_TO_PAGE = 'chosen from the menu, bringing the window forward and handing it to the page';
+
+export const MENU_CHECK_KIT_ITEMS: readonly { title: string; end?: true; lines: readonly string[] }[] = [
+  ...['Check for Updates…', 'Could Not Check for Updates, Try Again', ' Is Up to Date'].map((title) => ({
+    title,
+    ...(title.startsWith(' ') ? { end: true as const } : {}),
+    lines: ['no newer version is released', 'is released', 'is still the newest released', 'could not ask the releases', 'Check for Updates chosen, but'],
+  })),
+  { title: 'Settings…', lines: ['Settings opened', 'Settings chosen from the menu with the window open', HANDED_TO_PAGE] },
+  { title: 'Sign Out', lines: [HANDED_TO_PAGE] },
+  { title: 'Actual Size', lines: ['zoomed to'] },
+  { title: 'Zoom In', lines: ['zoomed to'] },
+  { title: 'Zoom Out', lines: ['zoomed to'] },
+  { title: 'Reload', lines: ['Reload chosen'] },
+];
+
+/** The log target of the kit's window plugin: a warning or error under it during the menu check fails the check. */
+export const MENU_CHECK_KIT_TARGET = 'tauri_plugin_app_kit_window';

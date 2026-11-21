@@ -225,6 +225,22 @@ test("a build that holds this Mac's folder paths is held until main moves, not b
   expect((await pass()).named('mac release')).toHaveLength(1);
 });
 
+test('a build that failed its menu check on a worker Mac is held until main moves, not built and tried again every hour', async () => {
+  commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
+  releaseAnswer = () =>
+    exit(5, '[mac release] Example App 0.1.4 failed its menu check, so it is not published: menu check: failed on worker-a: the app stopped answering after Settings… (2 of 9) was chosen\n');
+  await pass();
+  const count = git(origin, 'rev-list', '--count', 'HEAD');
+  expect(logLines()[1]).toBe(
+    `${at(START)} held: ${short(head())}'s built app failed its menu check: Example App 0.1.4 failed its menu check, so it is not published: menu check: failed on worker-a: the app stopped answering after Settings… (2 of 9) was chosen; held until main moves (build-${count}.log)`,
+  );
+  clock += 2 * 60 * MINUTE;
+  expect((await pass()).named('mac release')).toEqual([]);
+  commit(origin, { 'src/app.ts': 'export const changed = false;\n' });
+  releaseAnswer = () => ok('[mac release] published Example App 0.1.4: https://example.com\n');
+  expect((await pass()).named('mac release')).toHaveLength(1);
+});
+
 test('any other failure is tried again after an hour, and not before', async () => {
   commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
   releaseAnswer = () => exit(1, '[mac release] gh could not publish v0.1.4 in example/example-releases: HTTP 502\n');

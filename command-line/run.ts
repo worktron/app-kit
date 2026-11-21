@@ -7,6 +7,7 @@
  * time limit stops it.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
+import { closeSync, openSync } from 'node:fs';
 
 export type RunOptions = {
   cwd?: string;
@@ -14,6 +15,8 @@ export type RunOptions = {
   env?: Record<string, string | undefined>;
   /** Text written to its standard input. */
   input?: string;
+  /** A file whose bytes are its standard input, for input that is not text, such as a git bundle; `input` wins. */
+  inputFile?: string;
   /** How long it may run before its process group is stopped, in milliseconds; no limit when left out. */
   timeoutMs?: number;
   /**
@@ -62,12 +65,16 @@ export const runCommand: Run = ([program = '', ...args], options = {}) =>
     // op ignores a template on anything else and asks for a category. With input, the program is the end of a shell
     // pipeline, whose standard input is a pipe; exec keeps its exit code and its place in the group.
     const [file, argv] = options.input === undefined ? [program, args] : ['/bin/sh', ['-c', 'cat | exec "$0" "$@"', program, ...args]];
+    // A file is opened here and handed over as the program's standard input, then closed in this process, which the
+    // program's own copy outlives.
+    const inputFile = options.input === undefined && options.inputFile !== undefined ? openSync(options.inputFile, 'r') : undefined;
     const child = spawn(file, argv, {
       cwd: options.cwd,
       env: options.env ?? process.env,
       detached: true,
-      stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      stdio: [options.input !== undefined ? 'pipe' : (inputFile ?? 'ignore'), 'pipe', 'pipe'],
     });
+    if (inputFile !== undefined) closeSync(inputFile);
     running.add(child);
     const stopGroup = () => {
       timedOut = true;

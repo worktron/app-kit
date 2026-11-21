@@ -30,6 +30,10 @@ mod mac;
 #[cfg(target_os = "macos")]
 mod menu;
 #[cfg(target_os = "macos")]
+mod menu_check;
+#[cfg(target_os = "macos")]
+mod menu_walk;
+#[cfg(target_os = "macos")]
 mod relaunch;
 #[cfg(target_os = "macos")]
 mod settings;
@@ -228,6 +232,7 @@ impl Site {
                     app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
                     app.manage(settings::SettingsState::default());
                     updates::start(app);
+                    menu_check::start_if_asked(app);
                 }
                 Ok(())
             })

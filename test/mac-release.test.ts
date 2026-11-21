@@ -54,6 +54,7 @@ async function runRelease(app: string, world: MacWorld = {}, overrides: Partial<
   const stand = macRunner(app, world);
   const printed: string[] = [];
   const failed: string[] = [];
+  let streamed = '';
   const code = await release({
     cwd: app,
     run: stand.run,
@@ -62,10 +63,10 @@ async function runRelease(app: string, world: MacWorld = {}, overrides: Partial<
     now: () => DATE,
     print: (line) => printed.push(line),
     fail: (line) => failed.push(line),
-    output: () => {},
+    output: (chunk) => void (streamed += chunk),
     ...overrides,
   });
-  return { code, printed, failed, ...stand };
+  return { code, printed, failed, streamed, ...stand };
 }
 
 test("the release's git in these tests has an identity and is git itself, so its fetch never looks up the machine's name", () => {
@@ -504,6 +505,93 @@ test('a build that compiled but failed, as a notarization can, exits 1 so the wa
   const compile = await runRelease(app, { buildFails: true });
   expect(compile.code).toBe(3);
   expect(compile.failed).toEqual(['the build of 0.1.9 did not compile: error: could not compile `example`']);
+});
+
+// The menu check (tauri/mac-release/menu-check.ts): the archive about to go up is tried on a worker Mac through fleet's
+// worker-run before anything is published, whose answers here are the door's exit codes (fleet's bin/worker-run.ts).
+
+test('the archive about to go up is sent to a worker Mac as a one-commit job, after every other check and before gh publishes', async () => {
+  const { app } = developerIdApp('app');
+  let job: { files: string[]; entry: string; archive: string } | null = null;
+  const result = await runRelease(app, {
+    ...DEVELOPER_ID,
+    workerRun: (command, options) => {
+      // The door takes the bundle on standard input and checks out the commit named; nothing else is passed.
+      expect(command.length).toBe(3);
+      expect(command.slice(0, 2)).toEqual(['worker-run', 'app-kit-menu-check']);
+      const copy = join(place.folder, 'job-copy');
+      git(place.folder, 'clone', '-q', options.inputFile!, copy);
+      expect(git(copy, 'rev-parse', 'HEAD')).toBe(command[2]!);
+      job = {
+        files: git(copy, 'ls-files').split('\n'),
+        entry: git(copy, 'ls-files', '-s', 'scripts/worker-entry'),
+        archive: readFileSync(join(copy, 'Example.App.app.tar.gz'), 'utf8'),
+      };
+      return ok('menu check: passed on worker-a: every one of the 18 menu items answered, and Quit ended the app\n');
+    },
+  });
+  expect(result.failed).toEqual([]);
+  expect(result.code).toBe(0);
+  expect(job!.files.sort()).toEqual(['Example.App.app.tar.gz', 'scripts/worker-entry', 'tauri/mac-release/menu-check-entry.ts', 'tauri/window/names.ts']);
+  expect(job!.entry).toStartWith('100755 ');
+  expect(job!.archive).toBe(result.published[0]!.files['Example.App.app.tar.gz']!);
+  const order = result.calls.map((call) => call.command[0] === 'gh' ? `gh ${call.command[1]} ${call.command[2]}` : call.command[0]);
+  expect(order.indexOf('spctl')).toBeLessThan(order.indexOf('worker-run'));
+  expect(order.indexOf('worker-run')).toBeLessThan(order.indexOf('gh release create'));
+  expect(result.printed).toContain('trying Example App 0.1.9 on a worker Mac: every menu item, then Quit');
+  expect(result.printed).toContain('menu check: passed on worker-a: every one of the 18 menu items answered, and Quit ended the app');
+});
+
+test('a build that failed its menu check exits 5 and publishes nothing, naming what the worker saw', async () => {
+  const { app } = macApp(place.folder);
+  // The door's lines of a freeze on a worker Mac (2026-11-21): the stuck main thread, the verdict, then the door's own.
+  const frames = 'menu check: the main thread, innermost last:\n  tauri_plugin_app_kit_window::settings::open\n  tauri::manager::webview::WebviewManager$LT$R$GT$::prepare_webview\n  __psynch_mutexwait\n';
+  const result = await runRelease(app, {
+    workerRun: () => exit(5, `menu check: choosing Settings… (3 of 18)\n${frames}menu check: failed on worker-a: the app stopped answering after Settings… (3 of 18) was chosen\nfleet worker: paused while the job ran, resumed now: photolibraryd 1\n`),
+  });
+  expect(result.streamed).toContain(frames);
+  expect(result.code).toBe(5);
+  expect(result.published).toEqual([]);
+  expect(result.failed).toEqual(['Example App 0.1.9 failed its menu check, so it is not published: menu check: failed on worker-a: the app stopped answering after Settings… (3 of 18) was chosen']);
+});
+
+test('while every worker is busy the release asks again every 30 s for 15 minutes, then publishes nothing', async () => {
+  const { app } = macApp(place.folder);
+  let asked = 0;
+  const waited: number[] = [];
+  const busyThenFree = await runRelease(app, { workerRun: () => (++asked < 3 ? exit(75, 'fleet worker: busy\n') : ok('menu check: passed on worker-b: every one of the 18 menu items answered, and Quit ended the app\n')) }, { wait: async (ms) => void waited.push(ms) });
+  expect(busyThenFree.code).toBe(0);
+  expect(waited).toEqual([30_000, 30_000]);
+  expect(busyThenFree.published).toHaveLength(1);
+
+  // A clock moved by each wait, so the fifteen minutes run out without anyone waiting for them.
+  let clock = 0;
+  const realNow = Date.now;
+  Date.now = () => realNow() + clock;
+  try {
+    const alwaysBusy = await runRelease(app, { workerRun: () => exit(75, 'fleet worker: busy\n') }, { wait: async (ms) => void (clock += ms) });
+    expect(alwaysBusy.code).toBe(1);
+    expect(alwaysBusy.failed).toEqual(['every worker Mac stayed busy for 15 minutes, so the built app was not tried and nothing is published']);
+    expect(alwaysBusy.published).toEqual([]);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('no worker reachable, a worker that refused, an app that never started there, and no worker-run on this Mac each stop the release as a failure to try again', async () => {
+  const { app } = macApp(place.folder);
+  const cases: [number, string, string][] = [
+    [68, 'worker-run: no worker could be reached\n', 'no worker Mac could be reached, so the built app was not tried and nothing is published: worker-run: no worker could be reached'],
+    [6, "menu check: refused: worker-a holds com.example.app's own data; the check never touches a real copy's\n", "the worker Mac refused the check: menu check: refused: worker-a holds com.example.app's own data; the check never touches a real copy's"],
+    [1, 'menu check: starting Example App.app on worker-a\nmenu check: Example App.app did not start within 30 s on worker-a\nfleet worker: paused while the job ran, resumed now: photolibraryd 1\n', 'the menu check could not run on a worker Mac (worker-run exited 1): menu check: Example App.app did not start within 30 s on worker-a'],
+    [127, 'spawn worker-run ENOENT', "this Mac has no worker-run, fleet's command that runs a job on a worker Mac, which a release tries the built app through"],
+  ];
+  for (const [code, out, failed] of cases) {
+    const result = await runRelease(app, { workerRun: () => exit(code, out) });
+    expect(result.code).toBe(1);
+    expect(result.failed).toEqual([failed]);
+    expect(result.published).toEqual([]);
+  }
 });
 
 // This Mac's folder paths: the build rewrites them and the release refuses a build that still holds one

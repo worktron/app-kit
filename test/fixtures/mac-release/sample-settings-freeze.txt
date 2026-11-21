@@ -1,0 +1,77 @@
+Analysis of sampling smoke-proof (pid 26749) every 1 millisecond
+Process:         smoke-proof [26749]
+Path:            /private/tmp/*/Menu Check Example.app/Contents/MacOS/smoke-proof
+Load Address:    0x102d08000
+Identifier:      com.example.menucheck
+Version:         0.0.1 (0.0.1)
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  launchd [1]
+Target Type:     live task
+
+Date/Time:       2026-11-21 08:53:12.173 +0000
+Launch Time:     2026-11-21 08:52:57.048 +0000
+OS Version:      macOS 27.2.1 (26B131)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         28.7M
+Physical footprint (peak):  29.6M
+Idle exit:                  untracked
+----
+
+Call graph:
+    1490 Thread_102684060   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 1490 start  (in dyld) + 6652  [0x181618d7c]
+    +   1490 main  (in smoke-proof) + 52  [0x10301ab00]
+    +     1490 _RNvNtCsg55jX0GwzBC_3std2rt19lang_start_internal  (in smoke-proof) + 952  [0x10340c44c]
+    +       1490 std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::ha7e4b3b199bd5101  (in smoke-proof) + 16  [0x102fbf200]
+    +         1490 std::sys::backtrace::__rust_begin_short_backtrace::h0c6d066fc492e339  (in smoke-proof) + 12  [0x102e0c9e4]
+    +           1490 smoke_proof::main::hc04ae8dd0e9e902e  (in smoke-proof) + 6728  [0x102fe8fd0]
+    +             1490 _$LT$tauri_runtime_wry..Wry$LT$T$GT$$u20$as$u20$tauri_runtime..Runtime$LT$T$GT$$GT$::run::he8bc32dc5a9469b7  (in smoke-proof) + 304  [0x102f1dd18]
+    +               1490 tao::platform_impl::platform::event_loop::EventLoop$LT$T$GT$::run::h1d2ebdc9f21c11e3  (in smoke-proof) + 488  [0x102fc0188]
+    +                 1490 -[NSApplication run]  (in AppKit) + 396  [0x18b54e920]
+    +                   1490 -[NSApplication(NSEventRouting) nextEventMatchingMask:untilDate:inMode:dequeue:]  (in AppKit) + 344  [0x18bcf20e8]
+    +                     1490 -[NSApplication(NSEventRouting) _nextEventMatchingEventMask:untilDate:inMode:dequeue:]  (in AppKit) + 832  [0x18bcf25f8]
+    +                       1490 _DPSNextEvent  (in AppKit) + 576  [0x18b55b59c]
+    +                         1490 _DPSBlockUntilNextEventMatchingListInMode  (in AppKit) + 292  [0x18b89c8c0]
+    +                           1490 _BlockUntilNextEventMatchingListInMode  (in HIToolbox) + 48  [0x1901f1db8]
+    +                             1490 ReceiveNextEventCommon  (in HIToolbox) + 492  [0x19006b96c]
+    +                               1490 RunCurrentEventLoopInMode  (in HIToolbox) + 320  [0x1900685e0]
+    +                                 1490 _CFRunLoopRunSpecificWithOptions  (in CoreFoundation) + 536  [0x18598ac10]
+    +                                   1490 __CFRunLoopRun  (in CoreFoundation) + 908  [0x1858b0208]
+    +                                     1490 __CFRunLoopDoObservers  (in CoreFoundation) + 648  [0x1858b0b98]
+    +                                       1490 __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__  (in CoreFoundation) + 36  [0x1858b0ca0]
+    +                                         1490 tao::platform_impl::platform::observer::control_flow_end_handler::h266d65a5a999d7d1  (in smoke-proof) + 136  [0x10324f158]
+    +                                           1490 tao::platform_impl::platform::app_state::AppState::cleared::hd9185ef7339ac6f5  (in smoke-proof) + 396  [0x103259314]
+    +                                             1490 _$LT$tao..platform_impl..platform..app_state..EventLoopHandler$LT$T$GT$$u20$as$u20$tao..platform_impl..platform..app_state..EventHandler$GT$::handle_user_events::h462d4e7eb76e1e90  (in smoke-proof) + 1364  [0x102fbb34c]
+    +                                               1490 tauri_runtime_wry::make_event_handler::_$u7b$$u7b$closure$u7d$$u7d$::h38892492395d027c  (in smoke-proof) + 484  [0x102fbc2bc]
+    +                                                 1490 tauri_runtime_wry::handle_event_loop::h5745ab5ff6f84de0  (in smoke-proof) + 860  [0x102ef567c]
+    +                                                   1490 tauri::app::App$LT$R$GT$::make_run_event_loop_callback::_$u7b$$u7b$closure$u7d$$u7d$::hdd12c9ca03a84431  (in smoke-proof) + 320  [0x102fd0700]
+    +                                                     1490 tauri::app::on_event_loop_event::h1450d6dc67646816  (in smoke-proof) + 840  [0x102fff64c]
+    +                                                       1490 tauri_plugin_app_kit_window::run_event::hb09c9aade9a6b9b2  (in smoke-proof) + 2124  [0x102f84c00]
+    +                                                         1490 tauri_plugin_app_kit_window::menu::menu_event::h2171285c74a8690a  (in smoke-proof) + 452  [0x102f5300c]
+    +                                                           1490 tauri_plugin_app_kit_window::settings::open::h68264f9f75b74b3f  (in smoke-proof) + 2684  [0x102e1dbbc]
+    +                                                             1490 tauri::window::WindowBuilder$LT$R$C$M$GT$::with_webview::hb07071204f8ac358  (in smoke-proof) + 1692  [0x102f716f4]
+    +                                                               1490 tauri::manager::webview::WebviewManager$LT$R$GT$::prepare_webview::h3f0c34d270b1e064  (in smoke-proof) + 1748  [0x102e5842c]
+    +                                                                 1490 _RNvMNtNtNtNtNtCsg55jX0GwzBC_3std3sys3pal4unix4sync5mutexNtB2_5Mutex4lock  (in smoke-proof) + 12  [0x1033fc05c]
+    +                                                                   1490 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x1816e799c]
+    +                                                                     1490 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x1816e9f60]
+    +                                                                       1490 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x1816aa9dc]
+    1490 Thread_102684114   DispatchQueue_19: com.apple.root.user-interactive-qos  (concurrent)
+    + 1490 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x1816e7cc4]
+    +   1490 _pthread_wqthread  (in libsystem_pthread.dylib) + 232  [0x1816e8f44]
+    +     1490 _dispatch_worker_thread2  (in libdispatch.dylib) + 184  [0x18667f248]
+    +       1490 _dispatch_root_queue_drain  (in libdispatch.dylib) + 708  [0x18667ec08]
+    +         1490 <deduplicated_symbol>  (in libdispatch.dylib) + 28  [0x1866a4348]
+    +           1490 _dispatch_client_callout  (in libdispatch.dylib) + 16  [0x1866865a0]
+    +             1490 _dispatch_call_block_and_release  (in libdispatch.dylib) + 32  [0x18666ca34]
+    +               1490 -[NSAnimation _runBlocking]  (in AppKit) + 416  [0x18b8e47a0]
+    +                 1490 -[NSRunLoop(NSRunLoop) runMode:beforeDate:]  (in Foundation) + 212  [0x181d7bd6c]
+    +                   1490 _CFRunLoopRunSpecificWithOptions  (in CoreFoundation) + 536  [0x18598ac10]
+    +                     1490 __CFRunLoopRun  (in CoreFoundation) + 1172  [0x1858b0310]
+    +                       1490 __CFRunLoopServiceMachPort  (in CoreFoundation) + 160  [0x1858b1ac8]
+    +                         1490 mach_msg  (in libsystem_kernel.dylib) + 24  [0x1816a7fac]
+    +                           1490 mach_msg_overwrite  (in libsystem_kernel.dylib) + 480  [0x1816b0a28]
+    +                             1490 mach_msg2_internal  (in libsystem_kernel.dylib) + 76  [0x1816ba8e0]
+    +                               1490 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x1816a7c20]

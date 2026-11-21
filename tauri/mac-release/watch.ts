@@ -314,5 +314,7 @@ async function watchApp(url: string, state: string, options: WatchOptions, known
   if (released.code === 3) return failed('release', `held: ${short} did not compile: ${said}; held until main moves (${buildOutput.name})`, true);
   // The same code builds to the same paths, so it is not built and notarized again every hour.
   if (released.code === 4) return failed('release', `held: ${short} holds this Mac's folder paths: ${said}; held until main moves (${buildOutput.name})`, true);
+  // A build that froze on a worker freezes again from the same code.
+  if (released.code === 5) return failed('release', `held: ${short}'s built app failed its menu check: ${said}; held until main moves (${buildOutput.name})`, true);
   return failed('release', `failed: the release of ${short} exited ${released.code}: ${said}; ${retry} (${buildOutput.name})`);
 }
