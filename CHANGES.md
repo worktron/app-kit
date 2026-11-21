@@ -193,7 +193,7 @@ Urgency: rides along
 
 Urgency: next round
 
-- An app whose own tests start Playwright's full Chromium (launchPersistentContext with the chromium channel, as extension tests do) spreads withoutDockIcon(chromium) from app-kit/testing/playwright-dock into its launch options; apps on the extension harness or openInBrowser change nothing.
+- An app whose own tests start Playwright's full Chromium (launchPersistentContext with the chromium channel, as extension tests do) spreads withoutDockIcon(chromium) from app-kit/testing/playwright-dock into its launch options; apps on the extension harness change nothing in their code: from this version the harness starts its Chromium from a copy kept out of the Dock, so taking it is the fix; apps on openInBrowser change nothing.
 
 ## v0.56.1
 
