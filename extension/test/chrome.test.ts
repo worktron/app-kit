@@ -380,4 +380,13 @@ describe('extend', () => {
   test('it refuses to replace what the stand-in has, so a test never runs against two versions of one call', () => {
     expect(() => extend({ tabs: { query: async () => [] } })).toThrow('chrome.tabs.query is the stand-in')
   })
+
+  test('what it added it replaces, as when a test file runs again in one process; the stand-in stays refused beside it', async () => {
+    const kit = chrome as unknown as Record<string, Record<string, (...args: never[]) => Promise<unknown>>>
+    extend({ tabs: { discardAll: async () => 'first' }, sidePanel: { open: async () => 'first' } })
+    extend({ tabs: { discardAll: async () => 'second' }, sidePanel: { open: async () => 'second' } })
+    expect(await kit.tabs!.discardAll!()).toBe('second')
+    expect(await kit.sidePanel!.open!()).toBe('second')
+    expect(() => extend({ tabs: { query: async () => [] } })).toThrow('chrome.tabs.query is the stand-in')
+  })
 })

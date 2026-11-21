@@ -42,10 +42,12 @@ beforeAll(() => {
   })
 })
 
-let loads = 0
-/** A worker start: the module fresh, as Chrome loads it each time it starts the worker. */
+/**
+ * A worker start: the module fresh, as Chrome loads it each time it starts the worker. The address is new on every
+ * load: a count kept in this file starts again when the file runs again in one process, and would get an old copy.
+ */
 async function start() {
-  const piece = await import(`../worker/toolbar-icon.js?start=${++loads}`)
+  const piece = await import(`../worker/toolbar-icon.js?start=${crypto.randomUUID()}`)
   await piece.toolbarIconFollowsMode()
   return piece
 }

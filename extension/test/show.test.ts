@@ -83,6 +83,9 @@ describe('showLink', () => {
   })
 
   test("without tabs or access to the site, no tab's address is readable: the answer says so, the worker logs it once, and the link opens in a new tab", async () => {
+    // The worker logs once per start, so this loads it fresh, as Chrome does on each start, at an address new on every
+    // load: the file's own top import may have logged already when the file runs again in one process.
+    const { showLink } = (await import(`../worker/show.js?start=${crypto.randomUUID()}`)) as typeof import('../worker/show.js')
     reset({}, { version: '1.0.0' })
     addTab({ url: 'https://example.com/inbox', active: true })
     const warn = spyOn(console, 'warn').mockImplementation(() => {})

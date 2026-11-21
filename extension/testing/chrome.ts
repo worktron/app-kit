@@ -607,17 +607,23 @@ async function focus(window: ChromeWindow) {
  * or a method the kit's lacks on one it has (`identity.getAuthToken`). Call it once, at the top of a test file or in
  * the test start-up file; what it adds stays across reset(), and its events, made with ChromeEvent, are cleared by it.
  * It refuses to replace what the stand-in already has, so a test never quietly runs against two versions of one call.
+ * What extend itself added it replaces, as when a test file runs again in the same process (`bun test --rerun-each`).
  */
 export function extend(additions: Record<string, Record<string, unknown>>) {
   const target = chrome as unknown as Record<string, Record<string, unknown>>
   for (const [name, members] of Object.entries(additions)) {
     const existing = (target[name] ??= {})
     for (const [member, value] of Object.entries(members)) {
-      if (member in existing) throw new Error(`chrome.${name}.${member} is the stand-in's own; extend adds only what it lacks`)
+      const key = `${name}.${member}`
+      if (member in existing && !extended.has(key)) throw new Error(`chrome.${key} is the stand-in's own; extend adds only what it lacks`)
       existing[member] = value
+      extended.add(key)
     }
   }
 }
+
+/** Every member extend added, as namespace.member. */
+const extended = new Set<string>()
 
 ;(globalThis as any).chrome = chrome
 
