@@ -1117,3 +1117,11 @@ Written by: app-kit/weekly-releases
 Goal: an idea, not a fault. When the shared Playwright cache lacks a browser build the kit's Playwright version needs (on 2026-11-21 it lacked chromium-headless-shell 1248 for Playwright 1.64.1), `scripts/gates.sh` runs the web fixture anyway and all 127 browser tests fail with the same "Executable doesn't exist ... npx playwright install" message, which stopped the weekly-releases landing after its unit tests had passed. The gates could check, before the browser tests, that the builds `node_modules/playwright-core/browsers.json` names for Chromium, its headless shell and WebKit exist, and stop at once with one line naming the missing build and the install command (`bunx playwright install chromium webkit`, as `scripts/e2e.sh` says). Found by the weekly-releases thread.
 
 Done when: a gates run with a missing browser build stops before the browser tests with one line naming the build and the install command, and a test holds that line.
+
+## cart-may-be-empty · amazon-cart's readCart says when a grocery page may be an empty cart
+Written by: amazon-connector/replay-and-cart-check
+
+Goal: `readCart` in server/amazon-cart throws `NotTheCart` with kind `signed-out` or `not-this-cart`. A signed-in grocery cart page with the cart frame (`#sc-cart-above-actions`) but no grocery checkout box for the store comes back as `not-this-cart`, though it may be an empty grocery cart. Nobody has recorded one, so the kit can't tell. amazon-connector (src/amazon/cart.ts `readCartPage`, since its pull request 26 on 2026-11-21) works this out itself from the page's marks: the frame, no `#sc-expanded-cart-localmarket [data-brand-id]`, and no active line with `data-localmarket-brand` of the store. Its first add after a checkout then still posts, while a cart read answers an error that the cart may be empty. A kind of its own (`may-be-empty`) would let every app on the kit make that choice without repeating the page checks.
+Done when: readCart throws `NotTheCart` with kind `may-be-empty` for such a page and `not-this-cart` for a page without the frame or with the store's lines, tested on made-up pages; CHANGES.md says so; amazon-connector can drop its own check.
+Do not touch: what readCart accepts as a cart.
+Touches: server/amazon-cart/index.ts, its tests and fixtures, CHANGES.md.
