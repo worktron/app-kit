@@ -7,6 +7,7 @@ import { join } from 'path';
 import { readApp, type App } from '../scripts/apps.ts';
 import { CATCH_UP, HOLD_AFTER_DAYS, owedLines, owedBy, releaseDays } from '../scripts/owed.ts';
 import { catchUpSection, fileCatchUps, type Landed } from '../scripts/urgent-tickets.ts';
+import { startUrgentTickets } from '../scripts/land.ts';
 import { GIT_IDENTITY_ENV, pathWithGitItself } from './testflight-stand-in.ts';
 
 const TODAY = new Date('2026-11-21T12:00:00');
@@ -86,6 +87,20 @@ test('a package.json moved without its lock still holds, as does one whose lock 
   );
   expect(owing.locks).toEqual(['package.json names v0.12.0, but its bun.lock installs aaaaaaa', 'client/package.json names v0.12.0, but no bun.lock installs it']);
   expect(owing.holds).toBe(true);
+});
+
+test('an app is on the oldest version any package.json names, so moving one of two leaves the old releases owed', () => {
+  const owing = owedBy(
+    app([{ version: 'v0.10.0', urgency: 'next round', lines: ['Old'] }], {
+      installs: [
+        { file: 'package.json', tag: 'v0.12.0', locked: { commit: 'ccccccc', matchesTag: true } },
+        { file: 'client/package.json', tag: 'v0.9.0', locked: { commit: 'aaaaaaa', matchesTag: true } },
+      ],
+    }),
+    DAYS,
+    TODAY,
+  );
+  expect(owing).toMatchObject({ on: 'v0.9.0', holds: true });
 });
 
 test('features the app lacks are listed and never hold it', () => {
@@ -177,4 +192,17 @@ test('each app behind gets the ticket once: one already holding it is said, and 
   ]);
   expect(asked.map(({ project }) => project)).toEqual(['garden', 'meadow', 'orchard']);
   expect(asked[0].section).toBe(catchUpSection('v0.12.0', ['A fix.']));
+});
+
+test("an urgent release's landing starts the ticket filer detached, to a log of its own, or says it filed none without metamax", () => {
+  const started: { command: string[]; log: string }[] = [];
+  const start = (command: string[], log: string) => started.push({ command, log });
+  const line = startUrgentTickets('0.12.0', { metamax: '/opt/metamax', kit: '/kit', gitFolder: '/kit/.git', start });
+  expect(started).toEqual([{ command: ['bun', '/kit/scripts/urgent-tickets.ts', 'v0.12.0'], log: '/kit/.git/urgent-tickets-v0.12.0.log' }]);
+  expect(line).toBe('urgent tickets: filing a catch-up ticket in each app behind v0.12.0 after this landing; results in /kit/.git/urgent-tickets-v0.12.0.log, again with bun scripts/urgent-tickets.ts v0.12.0');
+  started.length = 0;
+  expect(startUrgentTickets('0.12.0', { metamax: undefined, kit: '/kit', gitFolder: '/kit/.git', start })).toBe(
+    "urgent tickets: not filed, since METAMAX_HOME is not set; file them with METAMAX_HOME set to metamax's checkout: bun scripts/urgent-tickets.ts v0.12.0",
+  );
+  expect(started).toEqual([]);
 });
