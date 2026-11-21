@@ -1080,3 +1080,13 @@ Written by: timescale/app-kit-v0-70-2
 Goal: a Tauri window with no title bar, such as Timescale's Mac app (its buttons sit over the page's top bar), can be moved only by a page region marked `data-tauri-drag-region`. app-kit's start page (tauri/window/start in v0.70.2) marks none, so while it waits offline the window cannot be moved. Timescale's own start page marks its body (desktop/start/index.html:54, `<body data-tauri-drag-region>`), which is why the app-kit v0.70.2 upgrade (worktron/timescale pull request 112, 2026-11-20) kept Timescale's page instead of the kit's. It also follows the hour's light from the app's palette.
 
 Done when: the kit's start page is a drag region in a window with no title bar, held by a test, and the README says so, so an app like Timescale can drop its own start page.
+
+## first-paint-look-colors · Vite configs take the look's first-frame colors from the kit instead of typing them
+Written by: disk-buddy/app-kit-v0-71-1
+
+Project: app-kit.
+Source: Disk Buddy's app-kit v0.71.1 upgrade (2026-11-21, https://github.com/worktron/disk-buddy/pull/35). Its client/vite.config.ts passes firstPaint the console look's bg and text written out by hand, because the tokens live in look/index.ts, TypeScript that Node refuses inside node_modules when Vite loads its config. ai-buddy, perf-buddy, buddy-system and others do the same, each a second copy of the tokens held equal only by an app's own browser test, if any. The user said to ticket it.
+Goal: the kit gives the looks' first-frame schemes as plain JavaScript a Vite config can import (for example a `lookSchemes({ name: 'console' })` or `{ name: 'plain', accent, background }` beside first-paint.js), generated from or tested against look/index.ts so the two never drift, and the README's "The first frame and the fonts" shows it.
+Done when: a kit test holds the plain-JS schemes equal to CONSOLE and plainColors in light and dark; a fixture vite.config imports them under Node with no TypeScript loader.
+Do not touch: firstPaint's options as they are today; apps that pass their own colors keep working.
+Touches: look/, web/first-paint.js and .d.ts, README.md, test/.
