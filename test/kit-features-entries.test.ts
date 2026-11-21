@@ -279,8 +279,38 @@ test("an extension drawn in one toolbar colour turns on the toolbar icon for dar
     'extension/kit/color-scheme.js': '// Copied from app-kit\nimport { CHECK_MS, COLOR_SCHEME_MESSAGE } from "./toolbar-icon.js";\n',
   };
   const worker = 'import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";\n\ntoolbarIconFollowsMode();\n';
-  expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, 'extension/background.js': worker })).toBe('has');
+  const manifest = { 'manifest.json': JSON.stringify({ manifest_version: 3, permissions: ['offscreen'] }) };
+  expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, ...manifest, 'extension/background.js': worker })).toBe('has');
+  // No extension manifest to hold its pages and permissions to.
+  expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, 'extension/background.js': worker })).toBe('lacks');
   expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, 'extension/background.js': 'import { every } from "./kit/alarms.js";\n' })).toBe('lacks');
   // Icons in the mark's own colours have no dark one-colour icon to swap.
   expect(await verdict(TOOLBAR_ICON, { 'package.json': JSON.stringify({ scripts: { icons: 'app-kit icons render --extension extension/icons' } }), ...copies })).toBe('not asked');
+});
+
+test("the toolbar icon hears Chrome's own mode: each page the manifest names loads color-scheme.js, and site access comes with scripting", async () => {
+  const TOOLBAR_ICON = 'toolbar icon that follows dark mode';
+  const base = {
+    'package.json': JSON.stringify({ scripts: { icons: "app-kit icons render --extension extension/icons --toolbar-color '#1f1f1f'" } }),
+    'extension/kit/toolbar-icon.js': '// Copied from app-kit\nexport function toolbarIconFollowsMode() {}\n',
+    'extension/worker.js': 'import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";\ntoolbarIconFollowsMode();\n',
+  };
+  const manifest = (more: Record<string, unknown>) => JSON.stringify({ manifest_version: 3, permissions: ['offscreen'], action: { default_popup: 'extension/popup.html' }, ...more });
+  const tagged = '<script type="module" src="kit/color-scheme.js"></script>\n<script type="module" src="popup.js"></script>\n';
+  const plain = '<script type="module" src="popup.js"></script>\n';
+  // Loaded by a tag of its own, or imported by the page's script.
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({}), 'extension/popup.html': tagged })).toBe('has');
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({}), 'extension/popup.html': plain, 'extension/popup.js': 'import "./kit/color-scheme.js";\n' })).toBe('has');
+  // A popup that never loads it, or an options page that does not while the popup does.
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({}), 'extension/popup.html': plain, 'extension/popup.js': 'import "./kit/show.js";\n' })).toBe('lacks');
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({ options_page: 'extension/options.html' }), 'extension/popup.html': tagged, 'extension/options.html': plain })).toBe('lacks');
+  // Access to websites without "scripting", and with it.
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({ host_permissions: ['https://*/*'] }), 'extension/popup.html': tagged })).toBe('lacks');
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({ host_permissions: ['https://*/*'], permissions: ['offscreen', 'scripting'] }), 'extension/popup.html': tagged })).toBe('has');
+  // A test's fixture extension is no part of what the app ships.
+  const fixture = { 'test/fixture/manifest.json': manifest({}), 'test/fixture/extension/popup.html': plain };
+  expect(await verdict(TOOLBAR_ICON, { ...base, ...fixture, 'manifest.json': manifest({}), 'extension/popup.html': tagged })).toBe('has');
+  // Access it may ask for later counts the same.
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({ optional_host_permissions: ['https://*/*'] }), 'extension/popup.html': tagged })).toBe('lacks');
+  expect(await verdict(TOOLBAR_ICON, { ...base, 'manifest.json': manifest({ optional_host_permissions: ['https://*/*'], permissions: ['offscreen', 'scripting'] }), 'extension/popup.html': tagged })).toBe('has');
 });

@@ -3,7 +3,8 @@
 // answers what a unit test with a stand-in `chrome` cannot: that the worker
 // starts, that Chrome starts the native host and the port carries messages,
 // that no tab or window opens, and that a new commit in the checkout reloads
-// the worker, and that a toolbar icon follows light and dark mode. Chromium runs headless, so no window shows. Extensions load only
+// the worker, and that a toolbar icon follows light and dark mode, Chrome's own setting and the Mac's. Chromium runs
+// headless, so no window shows. Extensions load only
 // in Playwright's full Chromium (Google Chrome for Testing), a Mac app macOS
 // would put in the Dock for a moment each time it starts, so it runs from a
 // copy marked a background app (testing/playwright-dock.js), and no Dock icon
@@ -32,6 +33,14 @@ export type HarnessOptions = {
   ignoreHTTPSErrors?: boolean
   /** Where the copy of Chromium kept out of the Dock is made: app-kit's folder under ~/Library/Caches unless a test names its own. */
   chromiumCopyFolder?: string
+  /**
+   * Lets every page show the light or dark mode Chromium gives it, which follows Chrome's own Light, Dark or Device
+   * setting (setChromeMode) as the toolbar does. Without it Playwright paints every page it watches light, whatever
+   * Chrome is set to, so a test reads the same page whatever the Mac's appearance.
+   */
+  followChromeMode?: boolean
+  /** Has Chromium take the Mac's appearance as dark (`--force-dark-mode`), for a test of a dark Mac on a light one. */
+  macDark?: boolean
 }
 
 export type LoadedExtension = {
@@ -63,14 +72,21 @@ export type LoadedExtension = {
   /**
    * Sets the light or dark mode the extension's hidden pages (chrome.offscreen) see, through the DevTools protocol, and
    * resolves once Chromium has taken it; a page made later, as after a reload, sees the Mac's own until it is set again.
-   * Playwright's colorScheme reaches tabs only, and headless Chromium has no light or dark setting of its own to flip.
+   * It stands in for a change of the Mac's appearance as the hidden page sees it, and reaches no other page.
    * Waits up to ten seconds for a worker that has just started to open its hidden page, then rejects when there is none.
    */
   setColorScheme: (scheme: 'light' | 'dark') => Promise<void>
+  /**
+   * Sets Chrome's own Mode (Settings, Appearance) to Light, Dark or Device, as the person would, from its settings page,
+   * opened and closed for it. Pages Chrome draws follow it, and show it to a test started with followChromeMode.
+   */
+  setChromeMode: (mode: 'light' | 'dark' | 'device') => Promise<void>
   /** The tabs open now, not counting the ones the harness opened and closed. */
   pages: () => number
   close: () => Promise<void>
 }
+
+const CHROME_MODES = { light: '1', dark: '2', device: '0' } as const
 
 /** Reads until `done` holds or `ms` pass, and returns the last value read. */
 export async function until<T>(read: () => T | Promise<T>, done: (value: T) => boolean, ms = 20_000): Promise<T> {
@@ -123,7 +139,8 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
     ...withoutDockIcon(chromium, options.chromiumCopyFolder),
     headless: true,
     ignoreHTTPSErrors: options.ignoreHTTPSErrors ?? false,
-    args: [`--disable-extensions-except=${checkout}`, `--load-extension=${checkout}`, ...(options.args ?? [])],
+    ...(options.followChromeMode ? { colorScheme: null } : {}),
+    args: [`--disable-extensions-except=${checkout}`, `--load-extension=${checkout}`, ...(options.macDark ? ['--force-dark-mode'] : []), ...(options.args ?? [])],
   })
   let worker = context.serviceWorkers().find((w) => w.url().startsWith(`chrome-extension://${id}/`)) ?? (await context.waitForEvent('serviceworker', { timeout: 30_000 }))
   // Chrome brings an unpacked install back from a reload only in Developer mode, which Load unpacked needs anyway.
@@ -227,6 +244,22 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
           attached.set(target.targetId, sessionId)
         }
         await messages!.send(sessionId, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] })
+      }
+    },
+    async setChromeMode(mode) {
+      const page = await context.newPage()
+      try {
+        await page.goto('chrome://settings/appearance')
+        // The Mode menu's values in Chromium 156's settings page: Light 1, Dark 2, Device 0.
+        await page.locator('#colorSchemeModeSelect').selectOption(CHROME_MODES[mode])
+        const dark = () => page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)
+        // Without followChromeMode Playwright paints the settings page light too, so there is nothing to wait for.
+        if (mode !== 'device' && options.followChromeMode) {
+          const taken = await until(dark, (value) => value === (mode === 'dark'), 10_000)
+          if (taken !== (mode === 'dark')) throw new Error(`Chrome's settings page still shows ${taken ? 'dark' : 'light'} after Mode was set to ${mode}`)
+        }
+      } finally {
+        await page.close()
       }
     },
     pages: () => context.pages().length,

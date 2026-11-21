@@ -6,6 +6,8 @@
 //
 // It reads what landed (the ref scripts/apps.ts reads) and Apple's copy of a site's association file; it changes nothing.
 
+import { posix } from 'node:path'
+
 /** An app's files as they landed at one ref. */
 export type Landed = {
   /** Every tracked path. */
@@ -357,15 +359,65 @@ const OPEN_AT_LOGIN: Feature = {
 
 // An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on
 // a dark toolbar unless its worker turns on toolbar-icon.js. The kit's copy of that file defines the function and the
-// copied hidden page imports from it, so what counts is a file that imports it and calls it.
+// copied hidden page imports from it, so what counts is a file that imports it and calls it. Chrome's own Light or Dark
+// setting reaches the worker only from pages Chrome draws: each of the extension's own pages its manifest names (popup,
+// options, side panel) loads color-scheme.js, and an extension with access to websites, or one it may ask for, holds
+// "scripting", which lets the worker read its tabs.
 const TOOLBAR_ICON_CALL = 'toolbarIconFollowsMode'
+const TOOLBAR_ICON_PAGE_SCRIPT = 'color-scheme.js'
 const TOOLBAR_ICON: Feature = {
   feature: 'toolbar icon that follows dark mode',
   readme: 'Toolbar icon in dark mode',
-  names: [TOOLBAR_ICON_CALL, '--toolbar-color', 'toolbar-icon.js'],
+  names: [TOOLBAR_ICON_CALL, '--toolbar-color', 'toolbar-icon.js', TOOLBAR_ICON_PAGE_SCRIPT],
   appliesTo: (app) => app.tracked.some((path) => /(^|\/)package\.json$/.test(path) && !path.includes('node_modules/') && app.show(path).includes('--toolbar-color')),
-  present: async (app) =>
-    has(app.grep(importing(`[^'"]*/toolbar-icon\\.js`), SHIPPED).some((path) => new RegExp(`\\b${TOOLBAR_ICON_CALL}\\s*\\(`).test(app.show(path)))),
+  present: async (app) => {
+    const calls = app.grep(importing(`[^'"]*/toolbar-icon\\.js`), SHIPPED).some((path) => new RegExp(`\\b${TOOLBAR_ICON_CALL}\\s*\\(`).test(app.show(path)))
+    const manifests = extensionManifests(app)
+    return has(calls && manifests.length > 0 && manifests.every(({ folder, manifest }) => toolbarIconWired(app, folder, manifest)))
+  },
+}
+
+type ExtensionManifest = {
+  permissions?: string[]
+  host_permissions?: string[]
+  optional_host_permissions?: string[]
+  action?: { default_popup?: string }
+  options_page?: string
+  options_ui?: { page?: string }
+  side_panel?: { default_path?: string }
+}
+
+/** Each extension manifest the app tracks, with the folder its paths start from. */
+function extensionManifests(app: Landed): { folder: string; manifest: ExtensionManifest }[] {
+  return app.tracked
+    // The manifests an app ships, never a test's fixture extension, as SHIPPED leaves out tests.
+    .filter((path) => /(^|\/)manifest\.json$/.test(path) && !/(^|\/)(node_modules|test|tests|e2e|\.[^/]+)\//.test(path))
+    .flatMap((path) => {
+      try {
+        const manifest = JSON.parse(app.show(path)) as ExtensionManifest & { manifest_version?: number }
+        return manifest.manifest_version ? [{ folder: path.slice(0, path.length - 'manifest.json'.length), manifest }] : []
+      } catch {
+        return []
+      }
+    })
+}
+
+/**
+ * Whether every page the manifest names loads color-scheme.js, by a script tag or from a script of its own that imports
+ * it, and an extension reaching websites holds "scripting".
+ */
+function toolbarIconWired(app: Landed, folder: string, manifest: ExtensionManifest) {
+  const pages = [manifest.action?.default_popup, manifest.options_page, manifest.options_ui?.page, manifest.side_panel?.default_path].filter((page): page is string => typeof page === 'string')
+  const named = new RegExp(`(^|/)${TOOLBAR_ICON_PAGE_SCRIPT.replace('.', '\\.')}$`)
+  const imported = new RegExp(`(import|from)\\s*\\(?\\s*["'][^"']*/${TOOLBAR_ICON_PAGE_SCRIPT.replace('.', '\\.')}["']`)
+  const loadsScript = pages.every((page) => {
+    const path = posix.normalize(folder + page.replace(/^\//, ''))
+    const sources = [...app.show(path).matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/g)].map((match) => match[1]!)
+    return sources.some((source) => named.test(source) || imported.test(app.show(posix.normalize(source.startsWith('/') ? folder + source.slice(1) : posix.join(posix.dirname(path), source)))))
+  })
+  // Access it may be granted later counts too: the worker registers its tab script once it is.
+  const reachesWebsites = [...(manifest.host_permissions ?? []), ...(manifest.optional_host_permissions ?? [])].some((origin) => /^(<all_urls>|(\*|https?):\/\/)/.test(origin))
+  return loadsScript && (!reachesWebsites || (manifest.permissions ?? []).includes('scripting'))
 }
 
 export const FEATURES: Feature[] = [

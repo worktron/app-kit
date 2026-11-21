@@ -150,6 +150,11 @@ export function deliverAlarm(alarm: { name: string; periodInMinutes?: number; sc
   return chrome.alarms.onAlarm.emit(alarm)
 }
 
+/** Fires runtime.onInstalled, as Chrome does once the extension is installed, updated or reloaded, and waits for its listeners. */
+export function installed(reason: 'install' | 'update' = 'install') {
+  return chrome.runtime.onInstalled.emit({ reason })
+}
+
 /** Grants permissions and origins, as the person would in Chrome's prompt, firing permissions.onAdded. */
 export function grant({ permissions = [], origins = [] }: { permissions?: string[]; origins?: string[] }) {
   for (const p of permissions) shim.granted.add(p)

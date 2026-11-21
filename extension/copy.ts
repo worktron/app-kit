@@ -165,8 +165,9 @@ export function copyWorker(folder: string): string[] {
 /**
  * The files the extension's worker loads, from the manifest's
  * background.service_worker through every static relative import, and every
- * page it opens by `new URL("./page.html", import.meta.url)` with the scripts
- * that page loads (toolbar-icon.js's hidden page), that
+ * page or script it names by `new URL("./page.html", import.meta.url)` with the
+ * scripts that page loads (toolbar-icon.js's hidden page and the script it puts
+ * in tabs), that
  * `loadedFiles` leaves out, as paths from `extensionFolder`. Self-reload
  * checks only the files it is given (worker/self-reload.js), so one left out
  * can be deleted under a running worker unnoticed. For a test in the extension.
@@ -186,7 +187,7 @@ export function unlistedImports(extensionFolder: string, loadedFiles: string[]):
       ? [...source.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']((?:\.{1,2}\/)?[\w./-]+\.js)["']/g)].map((match) => match[1]!)
       : [
           ...[...source.matchAll(/(?:import|export)\s[^'"]*?from\s*["'](\.{1,2}\/[^"']+)["']|import\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)].map((match) => (match[1] ?? match[2])!),
-          ...[...source.matchAll(/new URL\(\s*["'](\.{1,2}\/[^"']+\.html)["']\s*,\s*import\.meta\.url\s*\)/g)].map((match) => match[1]!),
+          ...[...source.matchAll(/new URL\(\s*["'](\.{1,2}\/[^"']+\.(?:html|js))["']\s*,\s*import\.meta\.url\s*\)/g)].map((match) => match[1]!),
         ]
     for (const path of found) queue.push(relative(extensionFolder, join(extensionFolder, dirname(file), path)))
   }
