@@ -3,7 +3,7 @@
 // answers what a unit test with a stand-in `chrome` cannot: that the worker
 // starts, that Chrome starts the native host and the port carries messages,
 // that no tab or window opens, and that a new commit in the checkout reloads
-// the worker. Chromium runs headless, so no window shows. Extensions load only
+// the worker, and that a toolbar icon follows light and dark mode. Chromium runs headless, so no window shows. Extensions load only
 // in Playwright's full Chromium (Google Chrome for Testing), a Mac app macOS
 // would put in the Dock for a moment each time it starts, so it runs from a
 // copy marked a background app (testing/playwright-dock.js), and no Dock icon
@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromium, type BrowserContext, type Worker } from 'playwright'
+import { chromium, type BrowserContext, type CDPSession, type Worker } from 'playwright'
 import { extensionId, writeHostLauncher, writeHostManifest } from '../host/install'
 import { withoutDockIcon } from '../../testing/playwright-dock.js'
 
@@ -59,6 +59,13 @@ export type LoadedExtension = {
   stopWorker: () => Promise<void>
   /** Resolves once Chrome has started a new worker, which it then holds in `worker`. Call it before whatever reloads the worker, and await it after. */
   nextWorker: (timeoutMs?: number) => Promise<Worker>
+  /**
+   * Sets the light or dark mode the extension's hidden pages (chrome.offscreen) see, through the DevTools protocol, and
+   * resolves once Chromium has taken it; a page made later, as after a reload, sees the Mac's own until it is set again.
+   * Playwright's colorScheme reaches tabs only, and headless Chromium has no light or dark setting of its own to flip.
+   * Waits up to ten seconds for a worker that has just started to open its hidden page, then rejects when there is none.
+   */
+  setColorScheme: (scheme: 'light' | 'dark') => Promise<void>
   /** The tabs open now, not counting the ones the harness opened and closed. */
   pages: () => number
   close: () => Promise<void>
@@ -123,6 +130,19 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
   await extensions.goto('chrome://extensions')
   await extensions.evaluate(() => (globalThis as any).chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }))
   await extensions.close()
+
+  // One DevTools session for the browser, kept open: a page's emulated mode lasts only while the session attached to it does.
+  let browserSession: CDPSession | null = null
+  const attached = new Map<string, string>()
+  let nextMessage = 0
+  const answers = new Map<number, (answer: { error?: { message: string } }) => void>()
+  const toPage = async (sessionId: string, method: string, params: Record<string, unknown>) => {
+    const id = ++nextMessage
+    const answered = new Promise<{ error?: { message: string } }>((resolve) => answers.set(id, resolve))
+    await browserSession!.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) })
+    const answer = await answered
+    if (answer.error) throw new Error(`${method} on the extension's hidden page: ${answer.error.message}`)
+  }
 
   const loaded: LoadedExtension = {
     context,
@@ -193,8 +213,36 @@ export async function launchExtension(options: HarnessOptions): Promise<LoadedEx
       worker = await context.waitForEvent('serviceworker', { timeout: timeoutMs })
       return worker
     },
+    async setColorScheme(scheme) {
+      if (!browserSession) {
+        const browser = context.browser()
+        if (!browser) throw new Error('Playwright gave no browser for the context, so the hidden page cannot be reached')
+        browserSession = await browser.newBrowserCDPSession()
+        browserSession.on('Target.receivedMessageFromTarget', ({ message }) => {
+          const answer = JSON.parse(message) as { id?: number; error?: { message: string } }
+          if (answer.id !== undefined) answers.get(answer.id)?.(answer)
+          if (answer.id !== undefined) answers.delete(answer.id)
+        })
+      }
+      // Chromium lists an offscreen document as a background page. A worker that has just started may not have opened it yet.
+      const session = browserSession
+      const targets = async () => (await session.send('Target.getTargets')).targetInfos
+      const isHidden = (target: { type: string; url: string }) => target.type === 'background_page' && target.url.startsWith(`chrome-extension://${id}/`)
+      const listed = await until(targets, (found) => found.some(isHidden), 10_000)
+      const hidden = listed.filter(isHidden)
+      if (!hidden.length) throw new Error(`The extension keeps no hidden page; Chromium lists ${listed.map((target) => `${target.type} ${target.url}`).join(', ')}`)
+      for (const target of hidden) {
+        let sessionId = attached.get(target.targetId)
+        if (!sessionId) {
+          sessionId = (await browserSession.send('Target.attachToTarget', { targetId: target.targetId, flatten: false })).sessionId
+          attached.set(target.targetId, sessionId)
+        }
+        await toPage(sessionId, 'Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] })
+      }
+    },
     pages: () => context.pages().length,
     async close() {
+      await browserSession?.detach().catch(() => {})
       await context.close()
       rmSync(scratch, { recursive: true, force: true })
     },

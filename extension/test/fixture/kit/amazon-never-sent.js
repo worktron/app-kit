@@ -1,4 +1,4 @@
-// Copied from app-kit 0.41.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.71.2 by `app-kit extension copy`. Change it in the kit.
 // The Amazon requests no extension of ours ever sends: checkout, placing an
 // order, payment, addresses, sign-in and changes to subscriptions, in the path,
 // the query or the body. Each extension that reaches Amazon keeps its own short

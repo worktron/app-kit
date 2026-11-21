@@ -1,4 +1,4 @@
-// Copied from app-kit 0.47.0 by `app-kit extension copy`. Change it in the kit.
+// Copied from app-kit 0.71.2 by `app-kit extension copy`. Change it in the kit.
 // Background work on a clock, on chrome.alarms, with a record of every run.
 //
 // Chrome stops an idle service worker after about thirty seconds, and its

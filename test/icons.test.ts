@@ -58,7 +58,7 @@ const snapshot = (folder: string): Record<string, string> =>
 describe('icons render', () => {
   test('draws every icon an app ships from its drawings, and the same bytes again on a second run', async () => {
     const { root, sets, options, printed } = app();
-    expect((await renderIcons(options)).length).toBe(10 + 18 + 3 + 5 + 2 + 4 + 4);
+    expect((await renderIcons(options)).length).toBe(10 + 18 + 3 + 5 + 2 + 6 + 4);
 
     // The Mac's: the app icon as drawn, its margins see-through and its tile solid.
     const mac = JSON.parse(readFileSync(join(sets.mac, 'Contents.json'), 'utf8')).images as { filename: string; size: string; scale: string }[];
@@ -112,6 +112,16 @@ describe('icons render', () => {
       // Where two shades meet, their soft edges leave a pixel partly see-through; its colour is still the one.
       for (let y = 0; y < side; y++) {
         for (let x = 0; x < side; x++) for (const channel of icon.at(x, y).slice(0, 3)) expect(Math.abs(channel - 0x1f)).toBeLessThanOrEqual(1);
+      }
+      // The same shape for Chrome's dark mode in its light grey: every pixel's transparency the same as the light mode's.
+      const dark = await pixels(join(options.extension, `icon-${side}-dark-mode.png`));
+      expect(dark.width).toBe(side);
+      for (let y = 0; y < side; y++) {
+        for (let x = 0; x < side; x++) {
+          const [r, g, b, alpha] = dark.at(x, y);
+          for (const channel of [r!, g!, b!]) expect(Math.abs(channel - 0xe3)).toBeLessThanOrEqual(1);
+          expect(alpha).toBe(icon.at(x, y)[3]!);
+        }
       }
     }
     for (const [side, edge] of [[48, 4], [128, 16]] as const) {
@@ -213,8 +223,16 @@ describe('icons render', () => {
       expect(icon.width).toBe(side);
       // Each pixel in the one colour, a band's soft edge keeping only its own transparency.
       for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) expect(icon.at(x, y).slice(0, 3)).toEqual([0x1f, 0x1f, 0x1f]);
+      const dark = await pixels(join(options.extension, `icon-${side}-dark-mode.png`));
+      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) expect(dark.at(x, y).slice(0, 3)).toEqual([0xe3, 0xe3, 0xe3]);
     }
     expect((await pixels(join(options.extension, 'icon-128.png'))).at(64, 20)).toEqual([0x2a, 0x2c, 0x30, 255]);
+  });
+
+  test('with no toolbar colour, the mark keeps its own colours and no dark-mode icons are drawn', async () => {
+    const { options } = app();
+    await renderIcons({ ...options, iconSets: [], tauri: undefined, menuBar: undefined, web: undefined, toolbarColor: undefined });
+    expect(readdirSync(options.extension).sort()).toEqual(['icon-128.png', 'icon-16.png', 'icon-32.png', 'icon-48.png']);
   });
 
   test('writes each icon under a name of its own, never through a link left where that name goes', async () => {

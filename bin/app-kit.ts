@@ -80,7 +80,9 @@ const USAGE = `app-kit <part> <command>
                               iPhone's from its tile; --tauri the icons tauri.conf.json
                               lists; --menu-bar copies glyph.svg into a template image
                               set; --extension writes icon-16, -32, -48 and -128 from
-                              the mark, the 16 and 32 in --toolbar-color when given;
+                              the mark, the 16 and 32 in --toolbar-color when given,
+                              and then icon-16-dark-mode and icon-32-dark-mode for
+                              Chrome's dark mode in #e3e3e3;
                               --web writes favicon.ico, apple-touch-icon.png, icon-192.png
                               and icon-512.png. Needs sharp: bun add -d sharp
   iphone run sim [<udid>]     from a Tauri app's checkout: build its iPhone app and start

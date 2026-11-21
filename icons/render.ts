@@ -4,7 +4,9 @@
  *   they are, and, cut to the tile with its corners filled in the tile's own colour and no alpha channel, the iPhone
  *   icons and the Apple touch icon. The favicon is the same cut keeping its rounded corners.
  * - mark.svg, square, the drawing with no tile: the extension's icons, 16 and 32 at full size (in one colour with
- *   --toolbar-color), 48 drawn at 40 and 128 at 96, the inset Chrome's icon guidelines ask for.
+ *   --toolbar-color, and then again in DARK_MODE_TOOLBAR_COLOR as icon-16-dark-mode and icon-32-dark-mode, which the
+ *   extension kit's toolbar-icon.js shows while Chrome is in dark mode), 48 drawn at 40 and 128 at 96, the inset Chrome's
+ *   icon guidelines ask for.
  * - glyph.svg: copied into the menu bar's template image set, which keeps it as a vector.
  * An Xcode icon set is filled from its own Contents.json, each entry from the drawing for its kind of device; a Tauri
  * app's icons are the files its tauri.conf.json lists.
@@ -37,7 +39,7 @@ export type IconsOptions = {
   menuBar?: string;
   /** The extension's icons folder: icon-16, icon-32, icon-48 and icon-128. */
   extension?: string;
-  /** The one colour the extension's 16 and 32 draw every fill and stroke in, as #rgb or #rrggbb. */
+  /** The one colour the extension's 16 and 32 draw every fill and stroke in, as #rgb or #rrggbb; given, the dark-mode 16 and 32 are drawn too. */
   toolbarColor?: string;
   /** The folder a web app serves as its root: favicon.ico, apple-touch-icon.png, icon-192.png and icon-512.png. */
   web?: string;
@@ -51,6 +53,11 @@ export type IconsOptions = {
 const CANVAS = 1024;
 const TILE = 824;
 const TILE_AT = 100;
+/**
+ * The one colour of the extension's toolbar icons for dark mode: Chrome's text grey there, the mirror of the #1f1f1f its
+ * text is in light mode, which is the toolbar colour the kit's extensions draw with.
+ */
+export const DARK_MODE_TOOLBAR_COLOR = '#e3e3e3';
 /** The Mac icon set iconutil turns into an .icns: each size at 1x and 2x. */
 const ICNS_SIZES = [16, 32, 128, 256, 512];
 
@@ -171,6 +178,7 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
     const color = options.toolbarColor;
     for (const size of [16, 32]) {
       add(options.extension, `icon-${size}.png`, color ? await oneColour(sharp, draw(size), color) : await draw(size).png().toBuffer());
+      if (color) add(options.extension, `icon-${size}-dark-mode.png`, await oneColour(sharp, draw(size), DARK_MODE_TOOLBAR_COLOR));
     }
     for (const [page, art] of [[48, 40], [128, 96]] as const) {
       const edge = (page - art) / 2;

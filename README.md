@@ -782,6 +782,7 @@ It goes in Apple's declarative form, which Safari on iOS 18.4 and later shows wi
 | Account identity | `extension/worker/account.js` | The profile's signed-in account from `chrome.identity.getProfileUserInfo`, with `identity.email` an optional permission asked for when a feature needs it. |
 | Jobs on a clock | `extension/worker/alarms.js` | Work on a clock runs on `chrome.alarms`, which survive Chrome stopping the worker, unlike `setInterval`, one run at a time, with a record of each run in `storage.local`, a time limit on the run and on each request, and an error kept when the job has gone quiet. See below. |
 | Recorded errors | `extension/worker/errors.js` | The worker's uncaught errors, each with its time and build, kept in `storage.local`. |
+| Toolbar icon in dark mode | `extension/worker/toolbar-icon.js`, with `color-scheme.html` and `color-scheme.js` | `toolbarIconFollowsMode()` shows the light copies of the toolbar icons, which `app-kit icons render --toolbar-color` draws, while Chrome is in dark mode, and the manifest's own in light mode. Needs the `offscreen` permission, which Chrome installs without a warning. See below. |
 | Showing a link | `extension/worker/show.js` | `showLink(url)` brings forward a tab already showing the address, raising its window, before it opens a new tab, as the extensions rule asks. Needs the `tabs` permission or access to the sites it shows. See below. |
 | Native port | `extension/worker/port.js` | The worker's port to a native host, which reconnects, says hello with its build, answers the host's status question with its build, commit and errors, and answers every other request: with the extension's reply, a refusal when it has none, or the error it threw, so no caller waits out the host's timeout. |
 | Never-sent Amazon requests | `extension/worker/amazon-never-sent.js` | `refusal(method, path, body)` gives the reason a request to www.amazon.com is never sent, or null: checkout, placing an order, payment, addresses, sign-in and changes to subscriptions, in the path, the query or the body, however the body is encoded. See below. |
@@ -789,7 +790,7 @@ It goes in Apple's declarative form, which Safari on iOS 18.4 and later shows wi
 | Install command | `app-kit extension install-host` | Tells Chrome about the native host: a launcher that runs it with Bun's absolute path, and the manifest Chrome reads, naming the extension's ID from its key. |
 | Status command | `app-kit extension status <socket>` | Prints what the host says: whether the extension is connected, its build, its commit and its kept errors; when nothing is connected, why and the fix. |
 | Plain look | `extension/look.css`, copied as `look.css` | The plain look for a popup or an options page, plain CSS with no build step: the look's colors as CSS variables, light and dark by the system's setting, written from the tokens file as it is copied, and the kit's rules for its pieces and controls. |
-| Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, whether the worker is running or stopped, commit, wait for the reload, stop the worker as Chrome does when it is idle, count tabs. Its Chromium runs from a copy kept out of the Dock (`app-kit/testing/playwright-dock`), so a test run flashes no icon. |
+| Harness | `app-kit/extension/harness` | Loads the real extension in a hidden Chromium from a scratch git checkout, with its native host, for the extension's own tests: fire an alarm, whether the worker is running or stopped, commit, wait for the reload, stop the worker as Chrome does when it is idle, set the light or dark mode its hidden page sees, count tabs. Its Chromium runs from a copy kept out of the Dock (`app-kit/testing/playwright-dock`), so a test run flashes no icon. |
 | Chrome stand-in | `app-kit/extension/testing/chrome` | An in-memory `chrome` for an extension's unit tests, with the network refused unless the test answers it. See below. |
 | Host test helper | `app-kit/extension/testing/host` | Runs a native host the way Chrome does, with the test as the extension answering as the kit's port does, for the host's own tests. |
 | Layout check | `app-kit/extension/layout` | `layoutProblems(folder)` says what is wrong with where the extension's manifest sits, and is empty when it is at the root of its git checkout. See below. |
@@ -981,6 +982,26 @@ bun extension/e2e/reload-alarms.ts --browser chrome-for-testing --reloads 200
 ```
 
 The harness's test "after a self-reload, an alarm starts the stopped worker and its job runs" holds one such reload in the gates. It stops the worker with `stopWorker()`, sets the alarm from an extension page, and reads the job's record from that page, never through the worker, because DevTools attached to a worker starts it and keeps it from stopping.
+
+### Toolbar icon in dark mode
+
+Chrome draws an extension's toolbar icon as the extension gave it, in either mode, so a dark one-colour icon nearly disappears on a dark toolbar, and Chrome's `theme_icons` key works only in Firefox. `app-kit icons render --toolbar-color` draws a light copy of the 16 and 32 beside them (below, under icons), and the worker shows it in dark mode:
+
+```js
+import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";
+
+// At the top of the worker, as it starts, so the hidden page's message reaches it.
+toolbarIconFollowsMode();
+```
+
+and the manifest asks for `offscreen`, which Chrome installs without a warning, and names the icons the command drew, under `icons` or `action.default_icon`; the dark-mode copies are found beside them (`icon-16.png` and `icon-16-dark-mode.png`). `store-listing.md` gives the permission its reason, such as: "`offscreen`: reads whether Chrome is in light or dark mode, so the toolbar icon stays visible on a dark toolbar."
+
+- **How it sees the mode.** A worker has no `matchMedia`, so the worker keeps one hidden page open, `chrome.offscreen` for the reason `MATCH_MEDIA`, which reads `(prefers-color-scheme: dark)`. Chrome never draws that page, so the query's change event never fires there, though what it matches does change: the page reads it every two seconds and messages the worker when it changes, which starts a stopped worker. The page lasts until Chrome closes or the extension reloads; the worker opens it again at each start, and listens for Chrome's start, which Chrome starts a worker for only when it has a listener.
+- **What it records.** Chrome gives no way to read the toolbar icon back, so each icon Chrome accepted (it loads the images, and refuses a file that is not there) is kept in `storage.session` under `toolbarIcon`, `{ mode, path, at }`, for a test or a status to read. The manifest's paths are passed from the extension's root, since Chrome reads one without a leading `/` from the worker's own folder.
+- **What it cannot see.** The page sees the mode a web page sees, which on a Mac follows the system's appearance; by Chromium's source a hidden page gets the system's theme and not Chrome's own Light or Dark setting, so with the two set differently the icon follows the Mac. A custom theme's colours are never seen: a light-mode Chrome with a very dark theme keeps the dark icon.
+- **One hidden page.** Chrome allows an extension one hidden page. An extension that keeps its own for something else cannot use this; the worker's errors say so, as they do for a missing permission or a missing dark-mode icon.
+
+The harness's `setColorScheme('light' | 'dark')` sets the mode the hidden page sees, through the DevTools protocol, since headless Chromium has no setting of its own to flip and Playwright's `colorScheme` reaches tabs only; its test "the toolbar icon follows light and dark mode" switches light, dark, light, and dark again with the worker stopped.
 
 ### Amazon requests never sent
 
@@ -2800,7 +2821,7 @@ The command names where each set goes, so an app keeps it as a script in `packag
 - `--icon-set <AppIcon.appiconset>`, as often as the app has sets: every image its `Contents.json` lists, at its size and scale, to its file name, a Mac entry from the app icon and an iPhone, iPad or App Store entry from the tile. Dark and tinted entries are left to the system, which makes them from the light one. A set with no `Contents.json` is refused: Xcode makes the set, and for a Tauri iPhone app `bunx tauri ios init` makes `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset`. An Icon Composer icon (`AppIcon.icon`) beside a set is what macOS and iOS 26 and later show; the command says so, and the set covers older systems.
 - `--tauri <src-tauri>`: the icons `tauri.conf.json` lists under `bundle.icon`, from the app icon: `NxN.png`, `NxN@2x.png`, `icon.png` at 512, and `icon.icns`, made by macOS's `iconutil`. A Windows `.ico` and a Liquid Glass `.icon` or `Assets.car` are left as they are.
 - `--menu-bar <MenuBarIcon.imageset>`: `glyph.svg`, under the `.svg` name the set's `Contents.json` gives, with a template `Contents.json` written when it has none.
-- `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws the 16 and 32 in one colour, every pixel keeping its own transparency, however the mark's shapes are coloured, where a mark's shades blur together at toolbar size.
+- `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws the 16 and 32 in one colour, every pixel keeping its own transparency, however the mark's shapes are coloured, where a mark's shades blur together at toolbar size, and then `icon-16-dark-mode.png` and `icon-32-dark-mode.png` in `#e3e3e3`, Chrome's text grey in dark mode and the mirror of the `#1f1f1f` of its text in light mode, which the extension kit's toolbar icon in dark mode shows (above).
 - `--web <folder>`, the folder the app serves as its root: `favicon.ico` (16, 32 and 48), `apple-touch-icon.png` (180), and `icon-192.png` and `icon-512.png` for the manifest, the app icon as it is, which Chrome on the Mac shows in the Mac's own shape. The page and the manifest name them:
 
 ```html

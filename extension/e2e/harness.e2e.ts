@@ -5,7 +5,7 @@
 // the port carries messages both ways, that the worker's errors reach the
 // status, that a new commit in the checkout reloads the worker and restarts the
 // host, that after a reload an alarm still starts the stopped worker, that the plain look's stylesheet draws a page light and dark, that a
-// link shown twice opens one tab, and that nothing else opens a tab.
+// link shown twice opens one tab, that the toolbar icon follows light and dark mode, and that nothing else opens a tab.
 // Run with `bun test ./extension/e2e/harness.e2e.ts`, which scripts/gates.sh does.
 
 import { afterAll, beforeAll, expect, test } from 'bun:test'
@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ask, extensionId, hostStatus, type HostStatus } from '../host/index.ts'
 import { launchExtension, until, type LoadedExtension } from '../harness/index.ts'
+import sharp from 'sharp'
 import { plainColors } from '../../look/index.ts'
 import { withoutPage } from '../../test/dom.ts'
 
@@ -245,6 +246,54 @@ test('a link shown twice opens one tab, and the second time brings that tab forw
   expect(ext.pages()).toBe(before + 1)
   await Promise.all(ext.context.pages().filter((page) => page.url() === link).map((page) => page.close()))
 }, 30_000)
+
+/** The toolbar icon the worker last set and Chrome accepted, as toolbar-icon.js records it. */
+type ToolbarIcon = { mode: 'light' | 'dark'; path: Record<string, string>; at: string }
+
+/** Whether every pixel of the icon at `path` (from the extension's root) that shows at all is `channel` grey. */
+async function drawnIn(path: string, channel: number) {
+  const { data } = await sharp(join(ext.checkout, path)).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  let shown = 0
+  for (let at = 0; at < data.length; at += 4) {
+    if (data[at + 3] === 0) continue
+    shown++
+    if ([0, 1, 2].some((offset) => Math.abs(data[at + offset]! - channel) > 1)) return false
+  }
+  return shown > 0
+}
+
+// Chrome gives no way to read the toolbar icon itself, so this reads what the worker recorded once Chrome had loaded and
+// accepted the images (setIcon refuses a file it cannot load), and looks at those images.
+test('the toolbar icon follows light and dark mode, and a switch while the worker is stopped starts it to set the icon', async () => {
+  const page = await ext.context.newPage()
+  try {
+    await page.goto(`chrome-extension://${ext.extensionId}/look.html`)
+    const shown = () => page.evaluate(async () => ((await (globalThis as any).chrome.storage.session.get('toolbarIcon')).toolbarIcon ?? null) as ToolbarIcon | null)
+    let last = ''
+    const switchTo = async (scheme: 'light' | 'dark') => {
+      await ext.setColorScheme(scheme)
+      const icon = await until(shown, (found) => found?.mode === scheme && found.at > last, 10_000)
+      expect(icon?.mode).toBe(scheme)
+      last = icon!.at
+      return icon!
+    }
+
+    const light = await switchTo('light')
+    expect(light.path).toEqual({ 16: '/icons/icon-16.png', 32: '/icons/icon-32.png' })
+    for (const path of Object.values(light.path)) expect(await drawnIn(path, 0x1f)).toBe(true)
+    const dark = await switchTo('dark')
+    expect(dark.path).toEqual({ 16: '/icons/icon-16-dark-mode.png', 32: '/icons/icon-32-dark-mode.png' })
+    for (const path of Object.values(dark.path)) expect(await drawnIn(path, 0xe3)).toBe(true)
+    expect((await switchTo('light')).path).toEqual(light.path)
+
+    // The hidden page outlives the worker, and its message starts it again.
+    await ext.stopWorker()
+    expect((await switchTo('dark')).path).toEqual(dark.path)
+    expect((await status())?.extension?.errors.filter((error) => error.message.includes('toolbarIconFollowsMode')) ?? []).toEqual([])
+  } finally {
+    await page.close()
+  }
+}, 60_000)
 
 test('nothing the extension did opened a tab', () => {
   expect(ext.pages()).toBe(pagesAtStart)

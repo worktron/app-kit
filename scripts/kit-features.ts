@@ -355,6 +355,19 @@ const OPEN_AT_LOGIN: Feature = {
   present: async (app) => has(app.grep(`\\.${OPEN_AT_LOGIN_CALL}\\(`, SHELL_RUST).length > 0),
 }
 
+// An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on
+// a dark toolbar unless its worker turns on toolbar-icon.js. The kit's copy of that file defines the function and the
+// copied hidden page imports from it, so what counts is a file that imports it and calls it.
+const TOOLBAR_ICON_CALL = 'toolbarIconFollowsMode'
+const TOOLBAR_ICON: Feature = {
+  feature: 'toolbar icon that follows dark mode',
+  readme: 'Toolbar icon in dark mode',
+  names: [TOOLBAR_ICON_CALL, '--toolbar-color', 'toolbar-icon.js'],
+  appliesTo: (app) => app.tracked.some((path) => /(^|\/)package\.json$/.test(path) && !path.includes('node_modules/') && app.show(path).includes('--toolbar-color')),
+  present: async (app) =>
+    has(app.grep(importing(`[^'"]*/toolbar-icon\\.js`), SHIPPED).some((path) => new RegExp(`\\b${TOOLBAR_ICON_CALL}\\s*\\(`).test(app.show(path)))),
+}
+
 export const FEATURES: Feature[] = [
   ONE_TAP,
   HOSTED_SIGN_IN,
@@ -371,6 +384,7 @@ export const FEATURES: Feature[] = [
   PUBLIC_PAGES,
   START_PAGE,
   OPEN_AT_LOGIN,
+  TOOLBAR_ICON,
 ]
 
 /** An app's files at `ref` in the checkout `dir`, through git. */
