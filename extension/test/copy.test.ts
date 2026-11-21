@@ -15,8 +15,22 @@ const cli = (...args: string[]) => Bun.spawnSync([process.execPath, join(import.
 test('copy writes every worker file and the stylesheet, each naming the kit version it came from', () => {
   const folder = join(dir, 'kit')
   expect(copyWorker(folder)).toEqual([...workerFiles(), 'look.css'])
-  expect(workerFiles()).toEqual(['account.js', 'alarms.js', 'amazon-never-sent.js', 'build.js', 'errors.js', 'port.js', 'self-reload.js', 'show.js'])
+  expect(workerFiles()).toEqual([
+    'account.js', 'alarms.js', 'amazon-never-sent.js', 'build.js', 'color-scheme.html', 'color-scheme.js', 'errors.js', 'port.js', 'self-reload.js', 'show.js', 'toolbar-icon.js',
+  ])
   expect(readFileSync(join(folder, 'port.js'), 'utf8').split('\n')[0]).toBe(`// Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit.`)
+  expect(workerCopyDiffers(folder)).toEqual([])
+})
+
+test('the hidden page opens with an HTML comment, and a second copy into the same folder takes it for a copy', () => {
+  const folder = join(dir, 'twice')
+  copyWorker(folder)
+  const page = readFileSync(join(folder, 'color-scheme.html'), 'utf8').split('\n')
+  expect(page[0]).toBe(`<!-- Copied from app-kit ${packageJson.version} by \`app-kit extension copy\`. Change it in the kit. -->`)
+  expect(page[1]).toBe('<!doctype html>')
+  appendFileSync(join(folder, 'color-scheme.html'), '<!-- changed in the extension -->\n')
+  expect(workerCopyDiffers(folder)).toEqual(['color-scheme.html'])
+  expect(copyWorker(folder)).toEqual(copiedFiles())
   expect(workerCopyDiffers(folder)).toEqual([])
 })
 

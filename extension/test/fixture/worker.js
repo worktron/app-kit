@@ -5,7 +5,7 @@
 // and `fail` by throwing an uncaught error a moment later, and `show` by
 // showing the link it names, and `request-address` by keeping the address its
 // `request` job asks, every half hour so only the test's alarms run it, with the
-// request's limit; the port refuses anything else. It starts only inside Chrome, so a unit test can import it.
+// request's limit; the port refuses anything else. Its toolbar icon follows Chrome's light and dark mode. It starts only inside Chrome, so a unit test can import it.
 
 import { account } from "./kit/account.js";
 import { every, within } from "./kit/alarms.js";
@@ -14,9 +14,10 @@ import { watchWorkerErrors } from "./kit/errors.js";
 import { nativePort } from "./kit/port.js";
 import { checkForNewCheckout } from "./kit/self-reload.js";
 import { showLink } from "./kit/show.js";
+import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";
 
 export const HOST = "com.example.extension_kit_fixture";
-export const LOADED_FILES = ["worker.js", "kit/account.js", "kit/alarms.js", "kit/build.js", "kit/errors.js", "kit/port.js", "kit/self-reload.js", "kit/show.js"];
+export const LOADED_FILES = ["worker.js", "kit/account.js", "kit/alarms.js", "kit/build.js", "kit/errors.js", "kit/port.js", "kit/self-reload.js", "kit/show.js", "kit/toolbar-icon.js"];
 
 const REQUEST_KEY = "fixtureRequest";
 
@@ -61,6 +62,7 @@ async function start() {
 if (globalThis.chrome?.runtime?.id) {
   // First, so an error anywhere below is kept for the status.
   watchWorkerErrors(self, () => buildName(commit));
+  toolbarIconFollowsMode();
   every("check", 1, start);
   every("request", 30, request, { limitMs: 30_000 });
   chrome.runtime.onStartup.addListener(start);

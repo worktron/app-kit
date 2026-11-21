@@ -270,3 +270,17 @@ test("a Mac app that opens on the kit's start page opens at login from the kit's
   // An iPhone shell on the start page, with no Mac menu.
   expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': 'let window = site.start_page_window(app, page).build()?;\n' })).toBe('not asked');
 });
+
+test("an extension drawn in one toolbar colour turns on the toolbar icon for dark mode in its worker; the kit's copies alone are not it", async () => {
+  const TOOLBAR_ICON = 'toolbar icon that follows dark mode';
+  const icons = { 'package.json': JSON.stringify({ scripts: { icons: "app-kit icons render --extension extension/icons --toolbar-color '#1f1f1f'" } }) };
+  const copies = {
+    'extension/kit/toolbar-icon.js': '// Copied from app-kit\nexport function toolbarIconFollowsMode() {}\n',
+    'extension/kit/color-scheme.js': '// Copied from app-kit\nimport { CHECK_MS, COLOR_SCHEME_MESSAGE } from "./toolbar-icon.js";\n',
+  };
+  const worker = 'import { toolbarIconFollowsMode } from "./kit/toolbar-icon.js";\n\ntoolbarIconFollowsMode();\n';
+  expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, 'extension/background.js': worker })).toBe('has');
+  expect(await verdict(TOOLBAR_ICON, { ...icons, ...copies, 'extension/background.js': 'import { every } from "./kit/alarms.js";\n' })).toBe('lacks');
+  // Icons in the mark's own colours have no dark one-colour icon to swap.
+  expect(await verdict(TOOLBAR_ICON, { 'package.json': JSON.stringify({ scripts: { icons: 'app-kit icons render --extension extension/icons' } }), ...copies })).toBe('not asked');
+});

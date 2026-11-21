@@ -7,7 +7,8 @@
 // whose code, below that line, differs from the installed kit, for a test in the
 // extension to fail on, and unlistedImports() the files the worker loads that
 // its list for self-reload leaves out. A release that changes no worker file, as most of
-// app-kit's releases are of another part, leaves every copy current. The stylesheet's copy, look.css, opens with a
+// app-kit's releases are of another part, leaves every copy current. The hidden page toolbar-icon.js opens,
+// color-scheme.html, opens with an HTML comment, the form a page takes. The stylesheet's copy, look.css, opens with a
 // CSS comment rather than a `//` line, which CSS would read as part of the rule after it, and holds the look's
 // variables, written from the tokens file as it is copied, above the kit's rules (extension/look.css), so the kit
 // keeps no generated file and no copy of the values. An extension that sets its own accent, or its paper with its
@@ -21,9 +22,9 @@ import { FONTS, PLAIN_SIZES, plainColors, type Colors, type LightDark, type Plai
 /** The kit's worker files, as shipped. */
 export const WORKER_DIR = join(import.meta.dir, 'worker')
 
-/** The worker files' names. */
+/** The worker files' names: its modules, and the hidden page toolbar-icon.js opens. */
 export function workerFiles(): string[] {
-  return readdirSync(WORKER_DIR).filter((name) => name.endsWith('.js')).sort()
+  return readdirSync(WORKER_DIR).filter((name) => name.endsWith('.js') || name.endsWith('.html')).sort()
 }
 
 /** The plain look's stylesheet, as copied into an extension beside the worker files. */
@@ -38,6 +39,7 @@ const header = `Copied from app-kit ${packageJson.version} by \`app-kit extensio
 
 function copied(name: string, folder: string): string {
   if (name === STYLESHEET) return `/* ${header} */\n${lookVariables(lookChoices(folder))}\n${readFileSync(join(import.meta.dir, STYLESHEET), 'utf8')}`
+  if (name.endsWith('.html')) return `<!-- ${header} -->\n${readFileSync(join(WORKER_DIR, name), 'utf8')}`
   return `// ${header}\n${readFileSync(join(WORKER_DIR, name), 'utf8')}`
 }
 
@@ -116,7 +118,7 @@ export function lookVariables(choices: PlainChoices = {}): string {
 const below = (copy: string) => copy.slice(copy.indexOf('\n') + 1)
 
 /** Whether a file is a copy: its first line names where it was copied from, as this kit's and the extension kit's before it did. */
-const isCopy = (path: string) => /^(\/\/|\/\*) Copied from /.test(readFileSync(path, 'utf8'))
+const isCopy = (path: string) => /^(\/\/|\/\*|<!--) Copied from /.test(readFileSync(path, 'utf8'))
 
 /** The first folder below `folder`, three deep at most, that holds a copy of a worker file; not node_modules or a dot folder. */
 function copiesBelow(folder: string, names: string[]): string | null {
