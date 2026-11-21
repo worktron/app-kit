@@ -1090,3 +1090,10 @@ Goal: the kit gives the looks' first-frame schemes as plain JavaScript a Vite co
 Done when: a kit test holds the plain-JS schemes equal to CONSOLE and plainColors in light and dark; a fixture vite.config imports them under Node with no TypeScript loader.
 Do not touch: firstPaint's options as they are today; apps that pass their own colors keep working.
 Touches: look/, web/first-paint.js and .d.ts, README.md, test/.
+
+## release-kit-version · The Mac release stops when the app-kit running it is not the one bun.lock names
+Written by: argon-watcher/release-missing-kit
+
+Goal: `app-kit mac release` already runs `bun install --frozen-lockfile` before it builds (tauri/mac-release/release.ts:303), so the build uses the packages bun.lock names. The release's own code, though, is whatever app-kit was installed when the command started. In an app's main checkout, metamax installs packages only after a pull that changes package.json or bun.lock (its commit 6d8fc5f2c, 2026-11-20), so a release started in the seconds between a landing that upgrades app-kit and that install finishing runs the old kit's release logic against the new app. On 2026-11-20 argon-watcher's main checkout had no app-kit at all (its packages dated from Aug 30) and the release failed loudly with `Script not found "app-kit"`; argon's AGENTS.md now says what to run then (c561cf9). The quiet case, an older app-kit present, is what this ticket covers. Found by argon-watcher's release-missing-kit thread, 2026-11-21. An idea, not a fault: nothing has failed this way yet.
+
+Done when: after its install, the release compares its own app-kit version with the one the app's bun.lock names, and when they differ stops before building with one line saying to run the release again; a test holds that line.
