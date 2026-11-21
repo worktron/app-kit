@@ -54,6 +54,62 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
+/** A labeled field's boxes, as drawn: its outlined box, where its text starts, its label, and the gap cut for the label. */
+async function fieldBoxes(page: Page, name: string) {
+  return page.locator(`[data-field="${name}"]`).evaluate((field) => {
+    const box = (element: Element) => {
+      const { left, top, right, bottom, height } = element.getBoundingClientRect();
+      return { left, top, right, bottom, height };
+    };
+    const root = field.querySelector('.MuiOutlinedInput-root')!;
+    const input = field.querySelector('input:not([aria-hidden]), textarea:not([aria-hidden]), .MuiSelect-select')!;
+    const style = getComputedStyle(input);
+    const line = parseFloat(style.fontSize) * 1.4375;
+    const inputBox = box(input);
+    return {
+      root: box(root),
+      line,
+      text: { left: inputBox.left + parseFloat(style.paddingLeft), top: inputBox.top + parseFloat(style.paddingTop) },
+      label: box(field.querySelector('.MuiInputLabel-root')!),
+      gap: box(field.querySelector('legend > span')!),
+      border: parseFloat(getComputedStyle(field.querySelector('fieldset')!).borderTopWidth),
+    };
+  });
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the plain theme's labeled fields fit their label: resting where the text starts, risen into its gap (${scheme})`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 460, height: 900 });
+    await page.goto('/look.html');
+    await expect(page.getByText('Beeline 1.0.0, 873623f')).toBeVisible();
+    for (const kind of ['small', 'default', 'multi-line', 'menu', 'suggestions']) {
+      for (const state of ['empty', 'filled'] as const) {
+        const name = `${kind} ${state}`;
+        const field = await fieldBoxes(page, name);
+        // The compact box: the text's lines with 6 above and below. A multi-line field is MUI's growing text area,
+        // which sizes its rows by a measured row's whole-pixel height.
+        const lines = kind === 'multi-line' ? 3 * Math.round(field.line) : field.line;
+        expect(Math.abs(field.root.height - (lines + 12)), `${name}: height`).toBeLessThanOrEqual(0.5);
+        if (state === 'empty') {
+          // At rest the label sits on the first line, where the typed text will start.
+          expect(Math.abs(field.label.top - field.text.top), `${name}: label top`).toBeLessThanOrEqual(1);
+          expect(Math.abs(field.label.left - field.text.left), `${name}: label left`).toBeLessThanOrEqual(1);
+        } else {
+          // Risen, the label is centered on the top line, inside the gap cut for it.
+          const middle = (field.label.top + field.label.bottom) / 2;
+          expect(Math.abs(middle - (field.root.top + field.border / 2)), `${name}: risen label on the line`).toBeLessThanOrEqual(1);
+          expect(field.label.left, `${name}: label inside its gap`).toBeGreaterThanOrEqual(field.gap.left - 0.5);
+          expect(field.label.right, `${name}: label inside its gap`).toBeLessThanOrEqual(field.gap.right + 0.5);
+          expect(Math.abs(field.label.left - field.text.left), `${name}: risen label starts over the text`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+    await page.locator('[data-field="small empty"]').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`web-plain-fields-${scheme}.png`), fullPage: true, animations: 'disabled' });
+  });
+}
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`the console theme draws the page in the console look's ${scheme} colors in JetBrains Mono, and its role variables follow`, async ({ page }, testInfo) => {
     const colors = CONSOLE[scheme];

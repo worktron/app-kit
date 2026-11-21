@@ -1,12 +1,13 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Box, Button, CssBaseline, List, ListItem, ListItemText, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, CssBaseline, List, ListItem, ListItemText, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import { followTextSize, lookTheme, TextSizeSetting } from '../..';
 
 // The kit's MUI themes drawn on a settings page, the Plain Look Studies page's General and Profiles tabs as a web page
 // draws them: section labels, rows between hairlines, status in colored words, a switch, a menu that reads as text, a
-// field, actions as words and a removal in the error color, the kit's Text size row, and the build at the foot.
+// field, actions as words and a removal in the error color, the kit's Text size row, labeled fields of each kind, once
+// empty and once filled, and the build at the foot.
 // ?look=console draws the console theme. Both follow the system's light or dark setting, which the test sets, and the
 // page's text follows the size chosen in the Text size row.
 
@@ -81,9 +82,45 @@ function Settings() {
       <List disablePadding sx={{ borderTop: 1, borderColor: 'divider' }}>
         <TextSizeSetting />
       </List>
+      <Typography variant="overline" component="h2" sx={{ display: 'block', mt: 3, mb: 1 }}>
+        Labeled fields
+      </Typography>
+      <LabeledFields />
       <Typography variant="body2" color="textSecondary" sx={{ mt: 3 }} id="build">
         Beeline 1.0.0, 873623f
       </Typography>
+    </Box>
+  );
+}
+
+const PROFILES = ['Personal', 'Work', 'Client'];
+
+/** Labeled fields of each kind, each once empty, its label at rest, and once filled, its label risen into the line. */
+function LabeledFields() {
+  return (
+    <Box sx={{ display: 'grid', gap: 2, pt: 1.5 }}>
+      {(['empty', 'filled'] as const).map((state) => {
+        const filled = state === 'filled';
+        return (
+          <Box key={state} sx={{ display: 'grid', gap: 2, alignContent: 'start' }}>
+            <TextField data-field={`small ${state}`} size="small" label="Name" defaultValue={filled ? 'Pat' : ''} />
+            <TextField data-field={`default ${state}`} label="Email" defaultValue={filled ? 'pat@example.com' : ''} />
+            <TextField data-field={`multi-line ${state}`} label="Notes" multiline minRows={3} defaultValue={filled ? 'Waters on Sundays.' : ''} />
+            <TextField data-field={`menu ${state}`} select label="Profile" defaultValue={filled ? 'Work' : ''}>
+              {PROFILES.map((name) => (
+                <MenuItem key={name} value={name}>
+                  {name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <Autocomplete
+              options={PROFILES}
+              defaultValue={filled ? 'Client' : null}
+              renderInput={(params) => <TextField {...params} data-field={`suggestions ${state}`} label="Search profiles" />}
+            />
+          </Box>
+        );
+      })}
     </Box>
   );
 }

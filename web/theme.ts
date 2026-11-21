@@ -5,6 +5,7 @@
  * typography and the color schemes only from createTheme's first argument and merges later ones raw, so a palette
  * passed after would never get its light, dark and contrast colors worked out.
  */
+import type { InputLabelOwnProps } from '@mui/material/InputLabel';
 import { createTheme, type CssVarsTheme, type Theme, type ThemeOptions } from '@mui/material/styles';
 import { BOOK_SIZES, CONSOLE, CONSOLE_SIZES, FONTS, PLAIN_SIZES, plainColors, type Colors, type Look, type PlainChoices, type Role } from '../look';
 import { rem } from './fields';
@@ -193,6 +194,46 @@ function plainOptions(choices: PlainChoices): Options {
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--mui-palette-primary-main)', borderWidth: size.line },
           },
           input: { padding: `${size.fieldPaddingVertical}px ${size.fieldPaddingHorizontal}px` },
+          // A multi-line field pads its text area as a one-line field pads its input, so MUI's own root padding goes.
+          multiline: { padding: 0 },
+          // The gap cut in the line for a risen label starts where the label does, 10 in, where MUI's starts at 14
+          // (its 8 of padding, the 1 of the line and the gap's own 5).
+          notchedOutline: { padding: `0 ${size.fieldPaddingHorizontal - 6}px` },
+        },
+      },
+      // A text field's label, at the field's text size: at rest it sits where the typed text will, and risen it sits
+      // centered on the top line in its gap, where MUI places it for its own taller field.
+      MuiInputLabel: {
+        styleOverrides: {
+          root: ({ ownerState }: { ownerState: Pick<InputLabelOwnProps, 'shrink' | 'variant'> }) =>
+            ownerState.variant === 'outlined'
+              ? {
+                  fontSize: rem(size.small),
+                  ...(ownerState.shrink
+                    ? {
+                        transform: `translate(${size.fieldPaddingHorizontal}px, -0.54em) scale(0.75)`,
+                        maxWidth: `calc((100% - ${2 * size.fieldPaddingHorizontal}px) / 0.75)`,
+                      }
+                    : {
+                        transform: `translate(${size.fieldPaddingHorizontal}px, ${size.fieldPaddingVertical}px) scale(1)`,
+                        maxWidth: `calc(100% - ${2 * size.fieldPaddingHorizontal}px)`,
+                      }),
+                }
+              : {},
+        },
+      },
+      // A search box with suggestions takes the same compact box as any field, so its label fits it too; the right
+      // side stays MUI's, room for its buttons.
+      MuiAutocomplete: {
+        styleOverrides: {
+          root: {
+            '& .MuiOutlinedInput-root, & .MuiOutlinedInput-root.MuiInputBase-sizeSmall': {
+              paddingTop: size.fieldPaddingVertical,
+              paddingBottom: size.fieldPaddingVertical,
+              paddingLeft: size.fieldPaddingHorizontal,
+              '& .MuiAutocomplete-input': { padding: 0 },
+            },
+          },
         },
       },
       // A menu that reads as text: <Select variant="standard">, its choice over a hairline.
