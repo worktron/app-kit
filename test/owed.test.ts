@@ -102,8 +102,10 @@ test('a held app is told to move every package.json with its lock in one catch-u
   expect(lines.at(-1)).toContain('one thread takes this catch-up');
 });
 
-test('a release with no day on the kit stops the check rather than reading as not owed', () => {
-  expect(() => owedBy(app([{ version: 'v0.13.0', urgency: 'next round', lines: ['Unknown day'] }]), DAYS, TODAY)).toThrow('no release day for v0.13.0');
+test('a release with no Version commit on the kit counts as old, so it holds rather than stopping the check', () => {
+  const owing = owedBy(app([{ version: 'v0.13.0', urgency: 'next round', lines: ['Released by hand'] }]), DAYS, TODAY);
+  expect(owing.releases[0]).toMatchObject({ version: 'v0.13.0', released: null, holds: true });
+  expect(owedLines(owing, 'v0.13.0')).toContain('  holds  v0.13.0 (next round, out on a day the kit has no record of): Released by hand');
 });
 
 const env = { ...process.env, PATH: pathWithGitItself(process.env.PATH), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_IDENTITY_ENV };

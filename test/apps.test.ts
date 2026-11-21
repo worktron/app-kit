@@ -212,7 +212,7 @@ test('the guides say apps own their upgrades, and the apps report starts an upgr
   expect(skill).toContain('## 4. Upgrade an app the owner names\n\nOnly for an app the owner names.');
   // Nothing in the kit asks metamax to start a round or a thread: an urgent release files tickets, through metamax's
   // ticket landing, and that is all.
-  expect(read('scripts/land.ts')).not.toMatch(/report-event|spawn\.ts|METAMAX_HOME/);
+  expect(read('scripts/land.ts')).not.toMatch(/report-event|spawn\.ts/);
   expect(read('scripts/urgent-tickets.ts')).not.toMatch(/report-event|spawn\.ts/);
   expect(read('scripts/urgent-tickets.ts')).toContain("'scripts/ticket-land.ts'");
 });

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // After an urgent release lands (Urgency: now), one catch-up ticket in the backlog of each app on this machine on an
 // older version, so the release is waiting where the app's next thread looks, not only in the landing's log. The
-// landing starts it detached once main and the tag are pushed (scripts/land.ts), since landing a ticket in an app that
-// lands through a pull request waits on that app's checks; run it again by hand for a release already out:
+// landing starts it detached once main and the tag are pushed (scripts/land.ts), its output to a log in the kit's git
+// folder, since landing a ticket in an app that lands through a pull request waits on that app's checks; run it again
+// by hand for a release already out:
 //
 //   bun scripts/urgent-tickets.ts v<x.y.z>
 //
@@ -57,8 +58,8 @@ if (import.meta.main) {
   }
   const metamax = process.env.METAMAX_HOME
   if (!metamax) {
-    say(`no METAMAX_HOME, so no tickets for ${version}`)
-    process.exit(0)
+    say(`not filed, since METAMAX_HOME is not set; run this again with it set to metamax's checkout`)
+    process.exit(1)
   }
   const kit = join(import.meta.dir, '..')
   const entry = changesSince(readFileSync(join(kit, 'CHANGES.md'), 'utf8'), 'v0.0.0').find((change) => compareVersions(change.version, version) === 0)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// What one app owes the kit, for metamax's landing of that app's code, run from the kit's own checkout so an app far
+// What one app owes the kit, made for metamax's landing of that app's code to run (exit 1 holds the landing), run from the kit's own checkout so an app far
 // behind is held to today's list, never its own old copy's. It reads the app's branch at HEAD (a landing refuses
 // uncommitted changes, so HEAD is what lands): the releases since the oldest version it installs that ask something of
 // it (urgency now or next round), each with the day it came out, and the kit's features it lacks.
@@ -25,7 +25,8 @@ export const HOLD_AFTER_DAYS = 14
 /** The one ticket an app keeps for catching up with the kit, which an urgent release files (scripts/urgent-tickets.ts). */
 export const CATCH_UP = 'app-kit-catch-up'
 
-export type Owed = { version: string; released: string; days: number; urgency: Urgency; lines: string[]; holds: boolean }
+/** A release asking something of an app; `released` is null when the kit's main has no `Version x.y.z` commit for it. */
+export type Owed = { version: string; released: string | null; days: number; urgency: Urgency; lines: string[]; holds: boolean }
 export type Owing = {
   project: string
   /** The oldest version any of its package.json files installs. */
@@ -50,9 +51,10 @@ export function owedBy(app: App, released: Map<string, string>, today: Date): Ow
   const releases = app.changes
     .filter((change): change is App['changes'][number] & { urgency: Urgency } => change.urgency === 'now' || change.urgency === 'next round')
     .map(({ version, urgency, lines }) => {
-      const day = released.get(version)
-      if (!day) throw new Error(`no release day for ${version}: the kit's main has no "Version ${version.slice(1)}" commit`)
-      const days = daysSince(day, today)
+      // A release with no Version commit on main (released by hand) is counted as old: it holds, and the app's move past
+      // it answers it, so it never stops the check for every app behind it.
+      const day = released.get(version) ?? null
+      const days = day ? daysSince(day, today) : Number.POSITIVE_INFINITY
       return { version, released: day, days, urgency, lines, holds: days > HOLD_AFTER_DAYS }
     })
   const locks = app.installs
@@ -66,7 +68,7 @@ export function owedBy(app: App, released: Map<string, string>, today: Date): Ow
 export function owedLines(owing: Owing, newest: string): string[] {
   const lines = [`app-kit owed: ${owing.project} is on ${owing.on}; the newest is ${newest}`]
   for (const release of owing.releases) {
-    const age = release.days === 1 ? '1 day' : `${release.days} days`
+    const age = release.released === null ? 'on a day the kit has no record of' : release.days === 1 ? '1 day' : `${release.days} days`
     lines.push(`  ${release.holds ? 'holds ' : 'listed'} ${release.version} (${release.urgency}, out ${age}): ${release.lines.join(' / ')}`)
   }
   for (const lock of owing.locks) lines.push(`  holds  ${lock}`)

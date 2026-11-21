@@ -132,7 +132,7 @@ export function withChanges(text: string | null, version: string, urgency: Urgen
 /** The start of CHANGES.md, when a landing makes it. */
 export const CHANGES_HEADING = `# Changes
 
-What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner and files a catch-up ticket in each), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do). Metamax's landing of an app's code lists the now and next round versions it has not taken and holds once one is more than 14 days old (scripts/owed.ts).`
+What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner and files a catch-up ticket in each), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do). scripts/owed.ts lists the now and next round versions an app has not taken, for metamax's landing of the app's code to hold on once one is more than 14 days old.`
 
 /** The version after a change of this kind; while the version is 0.x, minor raises the middle number. */
 export function nextVersion(version: string, kind: Exclude<Kind, 'none'>): string {
@@ -324,9 +324,16 @@ if (import.meta.main) {
     console.log(outcome.version ? `land-main: released v${outcome.version}` : 'land-main: no release, the change is none')
     console.log(`land-main: main is at ${outcome.sha.slice(0, 7)}`)
     if (outcome.version && outcome.urgency === 'now') {
-      // Detached, writing to the landing's log: a ticket in an app that lands through a pull request waits on its checks.
-      console.log(`land-main: urgent tickets: filing a catch-up ticket in each app behind v${outcome.version}, after this landing`)
-      Bun.spawn(['bun', join(import.meta.dir, 'urgent-tickets.ts'), `v${outcome.version}`], { cwd: top || process.cwd(), stdio: ['ignore', 'inherit', 'inherit'], detached: true }).unref()
+      const again = `bun scripts/urgent-tickets.ts v${outcome.version}`
+      if (!process.env.METAMAX_HOME) {
+        console.log(`land-main: urgent tickets: not filed, since METAMAX_HOME is not set; file them with METAMAX_HOME set to metamax's checkout: ${again}`)
+      } else {
+        // Detached, to a log of its own in the kit's git folder: a ticket in an app that lands through a pull request
+        // waits on that app's checks, and whoever reads this landing's output may stop once it ends.
+        const log = join(common || join(top || process.cwd(), '.git'), `urgent-tickets-v${outcome.version}.log`)
+        console.log(`land-main: urgent tickets: filing a catch-up ticket in each app behind v${outcome.version} after this landing; results in ${log}, again with ${again}`)
+        Bun.spawn(['bun', join(import.meta.dir, 'urgent-tickets.ts'), `v${outcome.version}`], { cwd: top || process.cwd(), stdin: 'ignore', stdout: Bun.file(log), stderr: Bun.file(log), detached: true }).unref()
+      }
     }
   } else {
     console.error(`land-main: stopped: ${outcome.reason}`)
