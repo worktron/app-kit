@@ -1144,3 +1144,13 @@ Written by: app-kit/test-stalls-load
 Goal: when a unit test runs long or times out, bun reports only its wall time, so a thread guesses between the test's own work, the processes it starts and the Mac's load. The test-stalls-load thread used a preload kept outside the repository, passed as an extra --preload only on request, with bun test --reporter=junit per-test times and GIT_TRACE2_EVENT process counts, to find that the landing tests' time was process starts and the Postgres folder test's was building a database. The earlier stalls ticket asked for such a recorder. Kept in the kit, every app's tests and every landing's failure report could show the cause. Found by the test-stalls-load thread, 2026-11-22.
 
 Done when: app-kit ships a preload, off unless asked for, that logs each test over a threshold with its wall time, its own processor time, the child processes it started and the load, a unit test proves the record for a test that sleeps and one that starts processes, and the README's testing section says how to turn it on.
+
+## owed-names-worktree · The owed check names the app, not the worktree folder it runs in
+
+A fault, found by the metamax thread that wired `scripts/owed.ts` into every app's code landing (2026-11-22). Metamax's own landing, run from its worktree `~/.metamax/worktrees/metamax/app-kit-owed-hold`, printed `app-kit owed: app-kit-owed-hold is on v0.71.1; the newest is v0.72.3`: the line names the worktree's folder, not metamax. Every thread's landing runs from a worktree, so every app's list reads that way.
+
+Cause: `projectOf` in `scripts/apps.ts:94` takes the last part of the folder path, which `owed.ts:69` prints as `owing.project`. In a linked worktree that is the worktree's name.
+
+Change: name the app by its main checkout's folder (the parent of `git rev-parse --git-common-dir`, which is the main checkout's `.git` in a worktree and `.git` itself in a main checkout), so a worktree and its main checkout give the same name. The apps report reads main checkouts and keeps the names it shows today.
+
+Done when: a test runs `owed.ts` on a linked worktree of a scratch app and its first line names the app's main checkout folder, and the same run on the main checkout prints the same name.
