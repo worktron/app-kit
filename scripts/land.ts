@@ -185,7 +185,24 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
     if (!done.ok) throw new Error(`git ${args.join(' ')}: ${done.err}`)
     return done.out
   }
-  const versionAt = async (commit: string) => (JSON.parse(await must('show', `${commit}:package.json`)) as { version: string }).version
+  // package.json's version at each commit, read by one git cat-file rather than a git show each. Each answer is cut by
+  // the byte count git gives, and a commit without the file stops the landing with git's answer, never a guessed version.
+  const versionsAt = async (commits: string[]) => {
+    const child = Bun.spawn(['git', 'cat-file', '--batch'], { cwd, env, stdin: new TextEncoder().encode(commits.map((commit) => `${commit}:package.json\n`).join('')), stdout: 'pipe', stderr: 'pipe' })
+    const [out, err, status] = await Promise.all([new Response(child.stdout).arrayBuffer(), new Response(child.stderr).text(), child.exited])
+    if (status !== 0) throw new Error(`git cat-file --batch: ${err.trim()}`)
+    const bytes = Buffer.from(out)
+    let at = 0
+    return commits.map((commit) => {
+      const end = bytes.indexOf(10, at)
+      const header = bytes.subarray(at, end === -1 ? bytes.length : end).toString()
+      const [, type, size] = header.split(' ')
+      if (end === -1 || type !== 'blob') throw new Error(`reading ${commit}:package.json: git answered ${header ? `"${header}"` : 'nothing'}`)
+      const text = bytes.subarray(end + 1, end + 1 + Number(size)).toString()
+      at = end + 1 + Number(size) + 1
+      return (JSON.parse(text) as { version: string }).version
+    })
+  }
   const tagOnGitHub = async (version: string) => (await must('ls-remote', '--tags', 'origin', `refs/tags/v${version}`)) !== ''
   const pushTag = async (commit: string, version: string) => {
     const done = await git('push', '-q', 'origin', `${commit}:refs/tags/v${version}`)
@@ -194,40 +211,53 @@ export async function land({ cwd, runGates = runGatesScript, tries = 3, log = ()
   }
   const stop = (reason: string): Outcome => ({ landed: false, reason })
 
-  const branch = (await git('symbolic-ref', '--short', '-q', 'HEAD')).out
+  // One rev-parse answers where a rebase would keep its folders, the branch's commit and the branch's name (HEAD when
+  // detached); the status runs beside it. The checks still stop in this order.
+  const [[rebaseMerge, rebaseApply, original, head], status] = await Promise.all([
+    must('rev-parse', '--git-path', 'rebase-merge', '--git-path', 'rebase-apply', 'HEAD', '--symbolic-full-name', 'HEAD').then((out) => out.split('\n')),
+    git('status', '--porcelain', '--untracked-files=no'),
+  ])
+  const branch = head?.startsWith('refs/heads/') ? head.slice('refs/heads/'.length) : ''
   if (!branch) {
     const last = (await must('reflog', '--format=%gs')).match(/^checkout: moving from (\S+) to /m)?.[1]
     return stop(`the checkout is on a detached head, as a landing that was killed leaves it; check out the branch first${last ? `: git checkout ${last}` : ''}`)
   }
   if (branch === 'main') return stop('this is main; land from the branch that holds the work')
-  const rebaseFolders = (await must('rev-parse', '--git-path', 'rebase-merge', '--git-path', 'rebase-apply')).split('\n')
-  if (rebaseFolders.some((path) => existsSync(resolve(cwd, path)))) return stop('a rebase is in progress here; finish it, or run git rebase --abort')
-  if (await must('status', '--porcelain', '--untracked-files=no')) return stop('there are uncommitted changes; commit them first')
-  const original = await must('rev-parse', 'HEAD')
+  if ([rebaseMerge, rebaseApply].some((path) => existsSync(resolve(cwd, path)))) return stop('a rebase is in progress here; finish it, or run git rebase --abort')
+  if (!status.ok) throw new Error(`git status --porcelain --untracked-files=no: ${status.err}`)
+  if (status.out) return stop('there are uncommitted changes; commit them first')
 
   for (let attempt = 1; attempt <= tries; attempt++) {
-    const fetched = await git('fetch', '-q', '--no-tags', 'origin', 'main')
+    // Not -q, which keeps the porcelain lines back too: the FETCH_HEAD line names the commit fetched as main, so no
+    // second git asks for it, and the pin is what this fetch saw even if another worktree's fetch moves the shared ref.
+    const fetched = await git('fetch', '--no-tags', '--porcelain', 'origin', 'main')
     if (!fetched.ok) return stop(`fetching main: ${fetched.err}`)
-    const pin = await must('rev-parse', 'refs/remotes/origin/main')
-    const mainVersion = await versionAt(pin)
+    const pin = fetched.out.match(/(?:^|\s)[0-9a-f]{40,64} ([0-9a-f]{40,64}) FETCH_HEAD$/m)?.[1]
+    if (!pin) return stop(`fetching main: git named no commit for main: ${fetched.err || 'it printed nothing'}`)
+    // At every try the branch is at the commit it started from, since a try that starts again puts it back there first.
+    // The branch is in main when the base it shares with main is that commit, so one merge-base answers both questions.
+    const base = await must('merge-base', pin, original)
+    const [[mainVersion, baseVersion, branchVersion], changedFiles, logged] = await Promise.all([
+      versionsAt([pin, base, original]),
+      must('diff', '--name-only', base, original),
+      must('log', `${base}..${original}`, '--format=%(trailers:key=Release,valueonly)%x00%(trailers:key=Apps,valueonly,unfold)%x00%(trailers:key=Urgency,valueonly,unfold)%x00%B%x01'),
+    ])
     log(`main is at ${pin.slice(0, 7)}, version ${mainVersion}${attempt > 1 ? `, try ${attempt} of ${tries}` : ''}`)
 
     if (!(await tagOnGitHub(mainVersion))) {
       log(`main's version ${mainVersion} has no tag on GitHub (released by hand, or a push whose answer was lost); tagging main`)
       await pushTag(pin, mainVersion)
     }
-    if ((await git('merge-base', '--is-ancestor', 'HEAD', pin)).ok) {
+    if (base === original) {
       log(`${branch} is already in main`)
       return { landed: true, sha: pin }
     }
 
-    const base = await must('merge-base', pin, 'HEAD')
-    const [baseVersion, branchVersion] = await Promise.all([versionAt(base), versionAt('HEAD')])
     if (baseVersion !== branchVersion) {
       return stop(`${branch} changes package.json's version from ${baseVersion} to ${branchVersion}; drop that edit, since the landing sets the version, and say the kind of change with a Release: line`)
     }
-    const changed = (await must('diff', '--name-only', base, 'HEAD')).split('\n').filter(Boolean)
-    const commits = (await must('log', `${base}..HEAD`, '--format=%(trailers:key=Release,valueonly)%x00%(trailers:key=Apps,valueonly,unfold)%x00%(trailers:key=Urgency,valueonly,unfold)%x00%B%x01'))
+    const changed = changedFiles.split('\n').filter(Boolean)
+    const commits = logged
       .split('\x01')
       .filter((commit) => commit.trim())
       .map((commit) => {

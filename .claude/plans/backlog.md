@@ -1131,13 +1131,6 @@ Goal: this is a fault, not an idea. Five whole-suite runs on 2026-11-22 (bun tes
 
 Done when: each of those tests runs under 2 seconds in several whole-suite runs in a row at the Mac's ordinary load (40 or more), or its time is proven to be the thing it tests and bounded well under 5 seconds, and the change lands on app-kit's main.
 
-## land-fewer-git · The landing script starts fewer git processes, so its own tests stay under 2 seconds on a very busy Mac
-Written by: app-kit/test-stalls-load
-
-Goal: each landing in scripts/land.ts starts some twenty-five git processes, and a process start is what a busy Mac slows most. After v0.72.3 cut the test setup (918 to 646 git processes per run of test/land.test.ts), about 70% of what is left is the script's own calls. In five whole-suite runs on 2026-11-22 the urgent landing that names out-of-date apps and the two branches landing at once took 1.7 to 1.8 s at load 48 to 87 but 2.1 to 2.4 s at load 81 to 137. Combining calls would remove about 6 per landing (about 14% of the file's processes). A plan review on 2026-11-21 set the guards for doing it: resolve origin/main to one id before reading its package.json, put HEAD first in a combined rev-parse and strip refs/heads/ from the branch name, and treat a "missing" line from cat-file --batch as an error. This is the only path to main, so it gets its own plan and review. Found by the test-stalls-load thread, 2026-11-22.
-
-Done when: a landing starts measurably fewer git processes (GIT_TRACE2_EVENT count before and after), test/land.test.ts passes whole-suite runs at load 80 or more with no test over 2 seconds, and the landing lands on main through itself.
-
 ## slow-test-recorder · A recorder that says where a slow unit test's time went: its wall time, its own processor time, the processes it started and the Mac's load
 Written by: app-kit/test-stalls-load
 

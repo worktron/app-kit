@@ -3,14 +3,16 @@
 // the kind of change is tested on its own, with no git. The landings run in scratch repositories whose origin is a bare
 // repository standing in for GitHub; a thread lands from a worktree of the clone, sharing its tags and refs as every
 // worktree here does. Scratch folders are under node_modules/.cache, never the system temp folder (test/command.test.ts
-// says why), and git reads no global settings, so the commits are the test's own. A landing runs some thirty-five git
+// says why), and git reads no global settings, so the commits are the test's own. A landing runs some thirty git
 // processes, and a process start is what a busy machine slows most, so the tests run side by side and start no git a
 // file copy, an import or one batched read can stand in for: each copies one seeded origin and its clone, makes a
 // branch's commit by import, reads the stand-in GitHub's refs from its folder rather than over a connection, moves main
 // as another thread's landing would with one import, not a landing, and reads what landed with one cat-file. On
 // 2026-11-22 these cuts took a run of the file from 731 git processes to 613, the two-landings test from 128 to 87 and
 // the urgent landing from 159 to 85; whole-suite runs at load 14 to 20 had the slowest test at 0.6 to 0.74 s, and one
-// at load 55, with the Mac slowed to a third of its pace, still had it at bun's 5-second limit.
+// at load 55, with the Mac slowed to a third of its pace, still had it at bun's 5-second limit. The landing script
+// then asked git its questions together (scripts/land.ts says how), taking one landing from 20 git processes started
+// one after another to 14, the file to 529 and the two-landings test to 77.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { appendFileSync, chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
@@ -115,11 +117,11 @@ async function commit(cwd: string, message: string, file: string, text = `${mess
 }
 
 /**
- * One commit on `ref` in the repository `repo` with these files, on top of the commit `from` names when given, by one
+ * One commit on `ref` in the repository `repo` with these files (null removes one), on top of the commit `from` names when given, by one
  * git fast-import, where add, commit and push take three processes and more; it moves `ref` only forward,
  * and `tag` to the same commit when given. Gives the commit.
  */
-async function importCommit(repo: string, ref: string, message: string, files: Record<string, string>, { from, tag }: { from?: string; tag?: string } = {}) {
+async function importCommit(repo: string, ref: string, message: string, files: Record<string, string | null>, { from, tag }: { from?: string; tag?: string } = {}) {
   const data = (body: string) => `data ${Buffer.byteLength(body)}\n${body}`;
   const when = `${Math.floor(Date.now() / 1000)} +0000`;
   const marks = join(repo, '..', `${basename(repo)}-marks`);
@@ -130,7 +132,7 @@ async function importCommit(repo: string, ref: string, message: string, files: R
     `committer Worktron <kit@example.com> ${when}`,
     data(message),
     ...(from ? [`from ${from}^0`] : []),
-    ...Object.entries(files).flatMap(([file, text]) => [`M 100644 inline ${file}`, data(text)]),
+    ...Object.entries(files).flatMap(([file, text]) => (text === null ? [`D ${file}`] : [`M 100644 inline ${file}`, data(text)])),
     '',
     ...(tag ? [`reset ${tag}`, 'from :1', ''] : []),
   ].join('\n'))('fast-import', '--quiet', `--export-marks=${marks}`);
@@ -153,8 +155,10 @@ function refuse(origin: string, pattern: string) {
  */
 const release = (subject: string, kind: string, apps = kind === 'minor' ? `Apps: ${subject}\n` : '', urgency = kind === 'none' ? '' : `Urgency: ${apps ? 'next round' : 'rides along'}\n`) =>
   `${subject}\n\nRelease: ${kind}\n${urgency}${apps}${TRAILER}`;
+// The description holds a letter outside ASCII, so a reader that cut git's answers by characters, not bytes, would
+// misread every version.
 function packageAt(version: string) {
-  return `${JSON.stringify({ name: 'kit', version }, null, 2)}\n`;
+  return `${JSON.stringify({ name: 'kit', description: 'The kit, déjà vu', version }, null, 2)}\n`;
 }
 
 async function landIn(cwd: string, options: Partial<LandOptions> = {}) {
@@ -365,6 +369,35 @@ test.concurrent('a patch that says nothing of urgency is refused before anything
   expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now', apps: ['sign in with Google again'] });
   expect(lines).toContain('change: urgent: apps take it first');
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.5.1\n\nUrgency: now\n\n- sign in with Google again`);
+});
+
+test.concurrent("a main whose package.json is gone stops the landing with git's answer before anything moves, never with a guessed version", async () => {
+  const { work, origin, git } = await scratch();
+  await branch(work, 'change', release('A change', 'patch'));
+  const [main, { sha: before }] = await Promise.all([importCommit(origin, 'refs/heads/main', 'Another thread drops the package\n', { 'package.json': null }, { from: 'refs/heads/main' }), headOf(work)]);
+  // Caught by hand, not with expect(...).rejects: under bun test 1.4.4 on macOS, that wait on a landing still running,
+  // beside the other tests' landings, left Bun never seeing the end of git processes other tests started, which then
+  // waited until bun's 5-second limit (17 timeouts in 8 runs of the file, 0 caught by hand).
+  const failure = await landIn(work).then(() => undefined, (error: Error) => error.message);
+  expect(failure).toBe(`reading ${main}:package.json: git answered "${main}:package.json missing"`);
+  const [head, mainAfter] = await Promise.all([headOf(work), mainOnGitHub(work)]);
+  expect(head).toEqual({ branch: 'change', sha: before });
+  expect(mainAfter).toBe(main);
+  expect(await git('status', '--porcelain')).toBe('');
+});
+
+test.concurrent('a fetch that names no commit for main stops the landing with what git said, before anything moves', async () => {
+  const { dir, work } = await scratch();
+  await branch(work, 'change', release('A change', 'patch'));
+  // A git that fetches as git does but prints nothing, as -q would make it, standing in for an answer the landing
+  // cannot read.
+  const quiet = join(dir, 'quiet-git');
+  mkdirSync(quiet);
+  writeFileSync(join(quiet, 'git'), `#!/bin/sh\nif [ "$1" = fetch ]; then "${gitFolder}/git" "$@" > /dev/null; else exec "${gitFolder}/git" "$@"; fi\n`);
+  chmodSync(join(quiet, 'git'), 0o755);
+  const { outcome } = await landIn(work, { env: { ...env, PATH: `${quiet}:${env.PATH}` } });
+  expect(outcome).toEqual({ landed: false, reason: 'fetching main: git named no commit for main: it printed nothing' });
+  expect(await mainOnGitHub(work)).toBe(Object.values(await tagsOnGitHub(work))[0]);
 });
 
 test.concurrent('none lands and releases nothing', async () => {
