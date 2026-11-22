@@ -42,7 +42,17 @@ export async function watchFrames(context, { root = '#root' } = {}) {
 
 /** @type {typeof import('./playwright').takeFrames} */
 export async function takeFrames(page) {
-  return page.evaluate(() => /** @type {{ __appKitFrames: Frame[] }} */ (/** @type {unknown} */ (window)).__appKitFrames.splice(0));
+  // A page can be loaded, laid out and visible to Playwright before the browser has painted it once, which on a busy
+  // Mac WebKit has not by the time a test takes its frames. With none noted yet, this waits for the page's next frame:
+  // a callback asked for now runs in that frame after watchFrames' own, which notes it.
+  return page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const frames = /** @type {{ __appKitFrames: Frame[] }} */ (/** @type {unknown} */ (window)).__appKitFrames;
+        if (frames.length > 0) resolve(frames.splice(0));
+        else requestAnimationFrame(() => resolve(frames.splice(0)));
+      }),
+  );
 }
 
 /** @type {typeof import('./playwright').expectSteady} */

@@ -110,6 +110,21 @@ test('frames are noted from the first, and a page drawn in one background throug
   expectSteady(await takeFrames(page), 'rgb(244, 239, 230)');
 });
 
+test('frames taken before the page has painted once wait for its next frame', async ({ page, context }) => {
+  // Playwright's paused clock holds the page's animation frames, as a busy Mac holds WebKit's first paint after a load:
+  // the page is loaded and its heading visible with no frame painted yet. Installed first, so the frames' own first
+  // request goes to the held clock too.
+  await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
+  await page.clock.pauseAt(new Date('2026-01-01T09:00:01'));
+  await watchFrames(context, { root: 'main' });
+  await page.goto(plainPage);
+  await expect(page.getByRole('heading', { name: 'Text size' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __appKitFrames: unknown[] }).__appKitFrames.length), 'frames painted before the clock moves').toBe(0);
+  const taken = takeFrames(page);
+  await page.clock.runFor(20);
+  expectSteady(await taken, 'rgb(244, 239, 230)');
+});
+
 test("a name the page draws before its code, as the root's ::before, is a drawn frame with that name as its text", async ({ page, context }) => {
   await watchFrames(context);
   // A page whose code never loads, so every frame is the name alone; then one with no name, which draws nothing.

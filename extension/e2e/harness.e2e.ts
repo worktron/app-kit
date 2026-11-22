@@ -174,8 +174,13 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
     const readRecord = () => page.evaluate(async (key) => ((await (globalThis as any).chrome.storage.local.get(key))[key] ?? null) as JobRecord | null, 'job:check')
     const session = await ext.context.newCDPSession(page)
     const starts: number[] = []
-    session.on('ServiceWorker.workerVersionUpdated', ({ versions }: { versions: { scriptURL: string; runningStatus: string }[] }) => {
-      if (versions.some((version) => version.scriptURL.startsWith(origin) && version.runningStatus === 'starting')) starts.push(Date.now())
+    // Every update Chrome sent for the extension's worker, for a failure to show.
+    const updates: string[] = []
+    session.on('ServiceWorker.workerVersionUpdated', ({ versions }: { versions: { versionId: string; scriptURL: string; runningStatus: string }[] }) => {
+      const at = Date.now()
+      const ours = versions.filter((version) => version.scriptURL.startsWith(origin))
+      for (const version of ours) updates.push(`${at} ${version.versionId} ${version.runningStatus}`)
+      if (ours.some((version) => version.runningStatus === 'starting')) starts.push(at)
     })
     await session.send('ServiceWorker.enable')
     // A reload deletes the alarm, so one here was made again by the reloaded worker's job, which the clock rests on.
@@ -195,6 +200,7 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
     expect(after).toMatchObject({ outcome: 'ok', error: null })
     // The worker started for the alarm, not for the page's reads before it was due.
     const firstStart = starts.find((at) => at >= stopped)
+    if (firstStart === undefined) throw new Error(`Chrome reported no start of the worker after it was stopped at ${stopped}, with the alarm due at ${due}; its updates were: ${updates.join(', ')}`)
     expect(firstStart).toBeGreaterThanOrEqual(due)
     await session.detach()
   } finally {

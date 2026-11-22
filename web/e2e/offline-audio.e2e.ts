@@ -208,17 +208,21 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
 
     test('a page plays its whole graph through the kit and no output device opens, which it does without the kit', async () => {
       test.skip(process.platform !== 'darwin', "the recorder reads macOS's audio service");
-      const recorder = await recordOutputs();
+      // Each wait is a step of its own, so a test that runs out of time says which wait it was in.
+      const recorder = await test.step("start the record of macOS's audio service", () => recordOutputs());
       try {
         // Through the kit: the browser is closed before the next starts.
-        const withKit = await launch();
-        const { page } = await openPage(withKit, { startsOnTap: true });
-        await page.getByRole('button', { name: 'Play' }).click();
-        await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
-        const played = await page.evaluate(() => window.play(window.contexts[0]!));
-        await withKit.close();
+        const played = await test.step('play the graph through the kit', async () => {
+          const withKit = await launch();
+          const { page } = await openPage(withKit, { startsOnTap: true });
+          await page.getByRole('button', { name: 'Play' }).click();
+          await expect.poll(() => page.evaluate(() => window.contexts[0]!.state)).toBe('running');
+          const played = await page.evaluate(() => window.play(window.contexts[0]!));
+          await withKit.close();
+          return played;
+        });
         // Everything the recorder saw while that browser ran is reported before the answer to a mark sent after it closed.
-        const before = await recorder.mark();
+        const before = await test.step('mark the record once that browser has closed', () => recorder.mark());
         // The graph ran: the analyser heard the sources through the filter at full swell, and the tone ended on time.
         expect(played.peak).toBeGreaterThan(0.1);
         expect(played.swell).toBe(1);
@@ -227,14 +231,16 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         expect(played.audio).toBeLessThan(played.clock + 0.03);
 
         // The same page with the browser's own audio, which opens the output device, and the record sees it.
-        const withoutKit = await launch();
-        try {
-          const plain = await openPage(withoutKit);
-          await plain.page.getByRole('button', { name: 'Play' }).click();
-          await recorder.next(before, ours);
-        } finally {
-          await withoutKit.close();
-        }
+        await test.step("play without the kit until the record sees this test's browser open an output", async () => {
+          const withoutKit = await launch();
+          try {
+            const plain = await openPage(withoutKit);
+            await plain.page.getByRole('button', { name: 'Play' }).click();
+            await recorder.next(before, ours);
+          } finally {
+            await withoutKit.close();
+          }
+        });
         expect(recorder.outputs.slice(0, before).filter(ours)).toEqual([]);
       } finally {
         recorder.stop();

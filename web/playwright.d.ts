@@ -23,7 +23,10 @@ export interface Frame {
  */
 export function watchFrames(context: BrowserContext, options?: { root?: string }): Promise<void>;
 
-/** The frames noted since the last call, on the page as it is now; a page load starts the list again. */
+/**
+ * The frames noted since the last call, on the page as it is now; a page load starts the list again. With none noted
+ * yet, as on a page the browser has not painted since it loaded, it waits for the page's next frame.
+ */
 export function takeFrames(page: Page): Promise<Frame[]>;
 
 /** Fails unless every frame has something drawn, all in the one background given, such as `rgb(244, 239, 230)`. */
