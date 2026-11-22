@@ -503,6 +503,16 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         const { page } = await openPage(browser, { startsOnTap: true });
         await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
         await page.clock.pauseAt(new Date('2026-01-01T09:00:10'));
+        // The kit's step sets a timer once each render has stopped, and that timer is what a jump fires: a jump before
+        // it is set fires nothing, and the sound stays where it was. So each jump waits for the timer.
+        await page.evaluate(() => {
+          const set = window.setTimeout;
+          window.timersSet = 0;
+          window.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+            window.timersSet++;
+            return set(...args);
+          }) as typeof setTimeout;
+        });
         await page.getByRole('button', { name: 'Play' }).click();
         await page.evaluate(() => {
           const context = window.contexts[0]!;
@@ -510,7 +520,7 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
           tone.connect(context.destination);
           tone.start();
         });
-        await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(0);
+        await expect.poll(() => page.evaluate(() => window.timersSet)).toBe(1);
         // suspend() and close() wait for the render the jump started, a minute of sound, then the rest of the kit's ten
         // minutes, past which the sound has ended: each settles once it is rendered, with the clock where it stopped.
         await page.clock.fastForward('01:00');
@@ -521,7 +531,11 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
         });
         expect(suspended.state).toBe('suspended');
         expect(suspended.at).toBeGreaterThan(60);
-        await page.evaluate(() => window.contexts[0]!.resume());
+        await page.evaluate(() => {
+          window.timersSet = 0;
+          return window.contexts[0]!.resume();
+        });
+        await expect.poll(() => page.evaluate(() => window.timersSet)).toBe(1);
         await page.clock.fastForward('10:00');
         const closed = await page.evaluate(async () => {
           const context = window.contexts[0]!;
