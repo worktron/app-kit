@@ -5,8 +5,9 @@
  * merging account; the commit trailers name Claude's address.
  */
 import { expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'fs';
-import { relative } from 'path';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, relative } from 'path';
 
 /**
  * An email address: a domain of letters ends it, so a package's name@1.2.3 is not one. Its name before the @ is at most
@@ -30,11 +31,82 @@ const COMMIT_NAMES = new Set(['Worktron']);
 const NAMES_NO_ONE = new Set(['a@b.co', 'x@y.co']);
 const THIS_FILE = relative(process.cwd(), import.meta.path);
 
-const git = (...args: string[]) => {
-  const run = Bun.spawnSync(['git', ...args], { stdout: 'pipe', stderr: 'pipe' });
-  if (run.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr.toString()}`);
-  return run.stdout.toString();
+/** A git command's exit code and output, for the calls where a failing exit is an answer. */
+const gitRun = (cwd: string, args: string[], env?: Record<string, string>, input?: string) => {
+  const run = Bun.spawnSync(['git', ...args], {
+    cwd,
+    env: env && { ...process.env, ...env },
+    stdin: input === undefined ? 'ignore' : new TextEncoder().encode(input),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  return { exitCode: run.exitCode, out: run.stdout.toString(), err: run.stderr.toString() };
 };
+const gitIn = (cwd: string, ...args: string[]) => {
+  const run = gitRun(cwd, args);
+  if (run.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${run.err}`);
+  return run.out;
+};
+const git = (...args: string[]) => gitIn(process.cwd(), ...args);
+
+/** What the history checks read: the commits named by revs, and with paths, only those that change them. */
+type HistoryPart = { revs: string[]; paths?: string[] };
+/** Plan files land on main with no gates run (scripts/land.ts skips them for a plans-only landing), so no landing has checked them. */
+const UNGATED = '.claude/plans';
+/** The patterns that find a personal fact, as written: a base whose copy lacks one found less than they find now. */
+const PATTERNS = [EMAIL, HOME_FOLDER, GOOGLE_PROJECT, ALLOWED_EMAIL].map(String);
+
+/**
+ * The history a landing adds, so another thread's unlanded branch is never read: the commits from where HEAD meets main
+ * (the commit a landing pins and rebases onto), and every commit to the plan files, which no gate checked. All of HEAD's
+ * history when there is no main to meet, or when main's copy of the patterns lacks one of today's, so a widened pattern
+ * is tried against everything already published.
+ */
+function historyToRead(cwd: string, patternsFile: string): HistoryPart[] {
+  const everything = [{ revs: ['HEAD'] }];
+  const base = gitRun(cwd, ['merge-base', 'HEAD', 'refs/remotes/origin/main']);
+  if (base.exitCode !== 0) return everything;
+  const sha = base.out.trim();
+  const patternsThen = gitRun(cwd, ['show', `${sha}:${patternsFile}`]);
+  if (patternsThen.exitCode !== 0 || PATTERNS.some((pattern) => !patternsThen.out.includes(pattern))) return everything;
+  return [{ revs: [`${sha}..HEAD`] }, { revs: ['HEAD'], paths: [UNGATED] }];
+}
+
+/** Every line the commits read added, in every file but the patterns file, whose patterns would match themselves. */
+function addedFacts(cwd: string, parts: HistoryPart[], patternsFile: string) {
+  const read = new Set<string>();
+  const found = new Set<string>();
+  const allowed = (e: string) => ALLOWED_EMAIL.test(e) || NAMES_NO_ONE.has(e);
+  for (const { revs, paths = ['.'] } of parts) {
+    for (const commit of gitIn(cwd, 'log', ...revs, '--format=%x01%H', '-p', '--no-color', '--', ...paths, `:!${patternsFile}`).split('\x01')) {
+      const [sha, ...lines] = commit.split('\n');
+      if (!sha) continue;
+      read.add(sha);
+      for (const line of lines) {
+        if (!line.startsWith('+') || line.startsWith('+++')) continue;
+        for (const fact of personalFacts(line.slice(1), allowed)) found.add(`${sha.slice(0, 7)}: ${fact}`);
+      }
+    }
+  }
+  return { read, found: [...found] };
+}
+
+/** Each commit read whose author or committer is not Worktron, or whose message names a personal fact. */
+function commitFacts(cwd: string, parts: HistoryPart[]) {
+  const read = new Set<string>();
+  const found = new Set<string>();
+  const allowed = (e: string) => ALLOWED_EMAIL.test(e);
+  for (const { revs, paths = [] } of parts) {
+    for (const commit of gitIn(cwd, 'log', ...revs, '--format=%H%x00%an%x00%cn%x00%ae %ce%n%B%x01', '--', ...paths).split('\x01')) {
+      const [sha, author, committer, text] = commit.trim().split('\0');
+      if (!sha) continue;
+      read.add(sha);
+      for (const name of [author, committer]) if (!COMMIT_NAMES.has(name)) found.add(`${sha.slice(0, 7)}: ${name}`);
+      for (const fact of personalFacts(text, allowed)) found.add(`${sha.slice(0, 7)}: ${fact}`);
+    }
+  }
+  return { read, found: [...found] };
+}
 
 /** The personal emails, home folders and Google Cloud projects in a text, each once. */
 function personalFacts(text: string, allowed: (email: string) => boolean = (e) => ALLOWED_EMAIL.test(e)): string[] {
@@ -83,27 +155,66 @@ test('no tracked file names a personal email or home folder', () => {
 });
 
 test('no file in any commit ever named a personal email or home folder, though a later commit took it out', () => {
-  // Every line each commit added, in every file but this one, whose patterns would match themselves.
-  const added = git('log', '--all', '--format=%x01%H', '-p', '--no-color', '--', '.', `:!${THIS_FILE}`)
-    .split('\x01')
-    .flatMap((commit) => {
-      const [sha, ...lines] = commit.split('\n');
-      return lines.filter((line) => line.startsWith('+') && !line.startsWith('+++')).map((line) => [sha.slice(0, 7), line.slice(1)] as const);
-    });
-  expect(added.length).toBeGreaterThan(0);
-  const allowed = (e: string) => ALLOWED_EMAIL.test(e) || NAMES_NO_ONE.has(e);
-  const found = added.flatMap(([sha, line]) => personalFacts(line, allowed).map((fact) => `${sha}: ${fact}`));
-  expect([...new Set(found)]).toEqual([]);
+  expect(addedFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE), THIS_FILE).found).toEqual([]);
 });
 
 test('no commit names a person, or a personal email or home folder, as author, committer or in its message', () => {
-  const allowed = (e: string) => ALLOWED_EMAIL.test(e);
-  const found: string[] = [];
-  for (const commit of git('log', '--all', '--format=%H%x00%an%x00%cn%x00%ae %ce%n%B%x01').split('\x01')) {
-    const [sha, author, committer, text] = commit.trim().split('\0');
-    if (!sha) continue;
-    for (const name of [author, committer]) if (!COMMIT_NAMES.has(name)) found.push(`${sha.slice(0, 7)}: ${name}`);
-    for (const fact of personalFacts(text, allowed)) found.push(`${sha.slice(0, 7)}: ${fact}`);
+  expect(commitFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE)).found).toEqual([]);
+});
+
+// Another thread's branch in the same repository, unlanded, once stopped a landing that had nothing to do with it, and
+// reading every thread's branches made the check slower with each one.
+test('a commit on another local branch is neither read nor reported by the history checks', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'public-history-'));
+  try {
+    // The machine's own git settings (a default branch, hooks, signing) stay out of the scratch repository.
+    const env = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const run = (args: string[], input?: string) => {
+      const done = gitRun(repo, args, env, input);
+      if (done.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${done.err}`);
+    };
+    // The whole history in one git process, since process starts are what a busy machine slows most.
+    const data = (text: string) => `data ${Buffer.byteLength(text)}\n${text}\n`;
+    const commit = (ref: string, mark: number, from: number | null, files: Record<string, string>, message: string, author = 'Worktron') =>
+      `commit ${ref}\nmark :${mark}\nauthor ${author} <kit@worktron.com> 1700000000 +0000\ncommitter Worktron <kit@worktron.com> 1700000000 +0000\n` +
+      `${data(message)}${from ? `from :${from}\n` : ''}${Object.entries(files).map(([path, text]) => `M 100644 inline ${path}\n${data(text)}`).join('')}`;
+    const patterns = 'patterns.ts';
+    run(['init', '-q', '-b', 'work']);
+    run(['fast-import', '--quiet', `--export-marks=${join(repo, 'marks')}`], [
+      // Main as it was before a pattern was added, then as it is, with a fact in a plan file no gate checked.
+      commit('refs/heads/main', 1, null, { [patterns]: PATTERNS.slice(1).join('\n'), 'README.md': 'kit@worktron.com\n' }, 'The kit'),
+      commit('refs/heads/main', 2, 1, { [patterns]: PATTERNS.join('\n'), [`${UNGATED}/backlog.md`]: 'from /Users/someone\n' }, 'A ticket'),
+      commit('refs/heads/other', 3, 2, { 'notes.md': 'someone@gmail.com\n' }, 'Notes from /Users/other', 'Someone'),
+      commit('refs/heads/work', 4, 2, { 'work.md': 'ana@example.com\n' }, 'The work'),
+      'reset refs/remotes/origin/main\nfrom :2\n',
+    ].join(''));
+    const [older, landed, other, work] = readFileSync(join(repo, 'marks'), 'utf8').trim().split('\n').map((line) => line.split(' ')[1]);
+
+    const parts = historyToRead(repo, patterns);
+    expect(parts).toEqual([{ revs: [`${landed}..HEAD`] }, { revs: ['HEAD'], paths: [UNGATED] }]);
+    const added = addedFacts(repo, parts, patterns);
+    expect([...added.read].sort()).toEqual([landed, work].sort());
+    expect(added.found).toEqual([`${landed.slice(0, 7)}: /Users/someone`]);
+    const commits = commitFacts(repo, parts);
+    expect([...commits.read].sort()).toEqual([landed, work].sort());
+    expect(commits.found).toEqual([]);
+
+    // Main's copy lacks today's email pattern, so all of HEAD's history is read, and still not the other branch.
+    run(['update-ref', 'refs/remotes/origin/main', older]);
+    expect(historyToRead(repo, patterns)).toEqual([{ revs: ['HEAD'] }]);
+    expect([...addedFacts(repo, [{ revs: ['HEAD'] }], patterns).read].sort()).toEqual([older, landed, work].sort());
+
+    // With no main to meet, all of HEAD's history.
+    run(['update-ref', '-d', 'refs/remotes/origin/main']);
+    expect(historyToRead(repo, patterns)).toEqual([{ revs: ['HEAD'] }]);
+
+    // Landing the other branch, its facts are found.
+    run(['update-ref', 'refs/remotes/origin/main', landed]);
+    run(['symbolic-ref', 'HEAD', 'refs/heads/other']);
+    const theirs = historyToRead(repo, patterns);
+    expect(addedFacts(repo, theirs, patterns).found.sort()).toEqual([`${landed.slice(0, 7)}: /Users/someone`, `${other.slice(0, 7)}: someone@gmail.com`].sort());
+    expect(commitFacts(repo, theirs).found.sort()).toEqual([`${other.slice(0, 7)}: Someone`, `${other.slice(0, 7)}: /Users/other`].sort());
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
-  expect(found).toEqual([]);
 });
