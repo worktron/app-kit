@@ -13,7 +13,7 @@ afterAll(() => rmSync(app, { recursive: true, force: true }));
 /** Every plain JavaScript steps file, by its import name, and what it exports. */
 const STEPS = {
   'app-kit/authentication/stand-in/playwright': 'STAND_IN_CODE hidePage lockFor serveNewerBuild showPage signInByCode',
-  'app-kit/web/playwright': 'countLoads expectFits expectQuietSignIn expectSteady finger largestTextSize noNewWindows takeFrames watchFrames',
+  'app-kit/web/playwright': 'countLoads expectFits expectQuietSignIn expectSteady finger holdBeforeRoot largestTextSize noNewWindows takeFrames watchFrames',
   'app-kit/tauri/playwright': 'IPHONE_USER_AGENT fakeTauri handOverSignIn launchedByTap loadWithSignIn tapNotification tauriCalls windowAsksForSignIn',
   'app-kit/authentication/clerk/playwright': 'removeThrowawayUsers signInWithTicket testSignedInPerWorker throwawayUser withClerkBackoff',
 };

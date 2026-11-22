@@ -1,14 +1,15 @@
 import { expect, test, webkit, type Browser, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { signInByCode } from '../../authentication/stand-in/playwright';
-import { expectSteady, takeFrames, watchFrames } from '../playwright';
+import { expectSteady, holdBeforeRoot, takeFrames, watchFrames } from '../playwright';
 import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 
 // What the fixture shows while it opens: the name its index.html draws before the code loads, in one of two pictures
 // (README, "The first frame and the fonts"). Signed out, where a home page draws its title. For a browser signed in last
 // time, which firstPaint marks before the first paint, where the signed-in bar draws it, so the name never jumps: the
 // gate's whileReturning draws it there while the list loads, and then the app's own bar. Each step of the load is held
-// until the test has looked at the one before. In Chromium and in WebKit, Safari's engine, where the jump was recorded
-// on a phone.
+// until the test has looked at the one before, the first of them just before the root, where a busy browser or a slow
+// network can stop the parser: the page has no body tags, so it has no body there to paint without the name. In Chromium
+// and in WebKit, Safari's engine, where the jump was recorded on a phone.
 
 const PAPER = 'rgb(244, 239, 230)';
 /** The fixture's built scripts, which draw everything after the name the page draws itself. */
@@ -73,9 +74,15 @@ for (const engine of engines) {
 
       await watchFrames(context);
       const scripts = await hold(page, SCRIPTS);
+      const beforeRoot = await holdBeforeRoot(page);
       const reloaded = page.reload();
       // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
       reloaded.catch(() => {});
+      try {
+        await beforeRoot.reached();
+      } finally {
+        beforeRoot.release();
+      }
       await scripts.seen();
       if (engine.paintsWhileHeld) await nameAlone(page);
       expect(await marked(page)).toBe(false);
@@ -116,9 +123,15 @@ for (const engine of engines) {
       await watchFrames(context);
       const scripts = await hold(page, SCRIPTS);
       const list = await hold(page, '**/api/**', answerApi);
+      const beforeRoot = await holdBeforeRoot(page);
       const reloaded = page.reload();
       // A check that fails first closes the page, which rejects the reload too; the check's failure is the one to see.
       reloaded.catch(() => {});
+      try {
+        await beforeRoot.reached();
+      } finally {
+        beforeRoot.release();
+      }
       await scripts.seen();
       if (engine.paintsWhileHeld) await nameAlone(page);
       expect(await marked(page)).toBe(true);

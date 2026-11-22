@@ -5,7 +5,7 @@ import { hidePage, lockFor, serveNewerBuild, showPage, signInByCode, STAND_IN_CO
 import { standInTicket } from '../../authentication/stand-in';
 import { NOT_FROM_THIS_WINDOW } from '../../tauri/sign-in';
 import { fakeTauri, handOverSignIn, IPHONE_USER_AGENT, launchedByTap, loadWithSignIn, tapNotification, tauriCalls, windowAsksForSignIn } from '../../tauri/playwright';
-import { countLoads, expectFits, expectSteady, finger, largestTextSize, noNewWindows, takeFrames, watchFrames } from '../playwright';
+import { countLoads, expectFits, expectSteady, finger, holdBeforeRoot, largestTextSize, noNewWindows, takeFrames, watchFrames } from '../playwright';
 
 // The Playwright steps' own behavior, each against a page of the fixture or a page the test writes; kit.e2e.ts drives
 // the steps against the fixture app.
@@ -141,6 +141,54 @@ test("a name the page draws before its code, as the root's ::before, is a drawn 
   const blank = await takeFrames(page);
   expect(blank.length).toBeGreaterThan(0);
   expect(blank.every((frame) => !frame.drawn && frame.text === '')).toBe(true);
+});
+
+test('a frame before the page has a body, or before its root is read, has nothing drawn and says which is missing', async ({ page, context }) => {
+  await watchFrames(context);
+  await page.route('**/no-body', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><style>html { background: #f4efe6; }</style><div id="root">App</div>' }));
+  await page.goto('/no-body');
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await takeFrames(page);
+  // A browser paints before the body exists only after its own wait, so the test takes the body and the root away.
+  await page.evaluate(() => document.getElementById('root')!.remove());
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  const withoutRoot = await takeFrames(page);
+  expect(withoutRoot.at(-1)).toEqual({ background: 'rgba(0, 0, 0, 0)', drawn: false, text: '', missing: 'root' });
+  await page.evaluate(() => document.body.remove());
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  const withoutBody = await takeFrames(page);
+  expect(withoutBody.at(-1)).toEqual({ background: 'rgb(244, 239, 230)', drawn: false, text: '', missing: 'body' });
+  expect(() => expectSteady(withoutBody, 'rgb(244, 239, 230)')).toThrow('frames with nothing drawn');
+});
+
+test('holding a load before the root holds a page with no body tags with no body, and fails a page with them', async ({ browser }) => {
+  // Served by a server of the test's own, since the step reads the page from the network, past the page's routes.
+  const shape = (body: boolean) => `<!doctype html><html><head><title>App</title></head>${body ? '<body>' : ''}\n<div id="root"></div></html>`;
+  const server = createServer((req, res) => res.writeHead(200, { 'content-type': 'text/html' }).end(shape(req.url === '/with-body')));
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const context = await browser.newContext({ baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
+  try {
+    const page = await context.newPage();
+    for (const [address, fails] of [['/without-body', false], ['/with-body', true]] as const) {
+      const held = await holdBeforeRoot(page);
+      const loaded = page.goto(address);
+      loaded.catch(() => {});
+      const reached = await held.reached().then(() => 'held with no body', (error: Error) => error.message);
+      expect(reached).toEqual(fails ? expect.stringContaining('leave the body tags out of the page') : 'held with no body');
+      held.release();
+      await loaded;
+      await expect(page.locator('#root')).toHaveCount(1);
+    }
+    const held = await holdBeforeRoot(page, { root: 'app' });
+    const loaded = page.goto('/without-body');
+    loaded.catch(() => {});
+    await expect(held.reached()).rejects.toThrow('no element with id="app"');
+    held.release();
+    await loaded;
+  } finally {
+    await context.close();
+    server.close();
+  }
 });
 
 test('a frame with nothing drawn, or in another background, is not steady', () => {

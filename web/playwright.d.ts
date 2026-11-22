@@ -9,12 +9,14 @@ export function countLoads(page: Page): { loads: number };
  * One frame as `watchFrames` noted it: the body's background, and whether the app's root had any text in it. A root
  * with no text of its own reads as the text of its `::before`, the name a page draws before its code loads. That is
  * the name as the page declares it: a face with `font-display: block` still loading holds it invisible, and the frame
- * still reads as drawn, as text the app draws itself does.
+ * still reads as drawn, as text the app draws itself does. A frame painted before the page has a body, or before its
+ * root is read, has nothing drawn, and `missing` says which: the background is then the html element's.
  */
 export interface Frame {
   background: string;
   drawn: boolean;
   text: string;
+  missing?: 'body' | 'root';
 }
 
 /**
@@ -28,6 +30,16 @@ export function watchFrames(context: BrowserContext, options?: { root?: string }
  * yet, as on a page the browser has not painted since it loaded, it waits for the page's next frame.
  */
 export function takeFrames(page: Page): Promise<Frame[]>;
+
+/**
+ * Holds the page's next load just before the element with id `root` (`'root'` unless given), with a script put in
+ * the page there and answered only on `release()`, so a test sees what the browser paints while the parser is stopped
+ * at that spot, as a busy browser or a slow network can stop it. `reached()` waits until the load is held there and
+ * fails if the page has a body by then: a body before the root is one the browser can paint with nothing in it, and a
+ * page that leaves its body tags out has its root's tag make the body (README, "The name before the code, in one
+ * picture or two"). Called before the load; the load is the test's own.
+ */
+export function holdBeforeRoot(page: Page, options?: { root?: string }): Promise<{ reached(): Promise<void>; release(): void }>;
 
 /** Fails unless every frame has something drawn, all in the one background given, such as `rgb(244, 239, 230)`. */
 export function expectSteady(frames: Frame[], background: string): void;

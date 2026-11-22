@@ -23,7 +23,11 @@ export async function watchFrames(context, { root = '#root' } = {}) {
     const frames = [];
     Object.assign(window, { __appKitFrames: frames });
     const look = () => {
-      if (document.body) {
+      // A frame before the body exists paints the page's own background with nothing on it, and says so, as does one
+      // before the root is read (README, "The name before the code, in one picture or two").
+      if (!document.body) {
+        frames.push({ background: getComputedStyle(document.documentElement).backgroundColor, drawn: false, text: '', missing: 'body' });
+      } else {
         const element = /** @type {HTMLElement | null} */ (document.querySelector(selector));
         let text = (element?.innerText ?? '').trim();
         // The name a page draws before its code loads, `#root:empty::before { content: 'Shop' }`, which innerText leaves
@@ -32,7 +36,10 @@ export async function watchFrames(context, { root = '#root' } = {}) {
           const content = getComputedStyle(element, '::before').content;
           if (/^["']/.test(content)) text = content.slice(1, -1).trim();
         }
-        frames.push({ background: getComputedStyle(document.body).backgroundColor, drawn: text.length > 0, text });
+        /** @type {Frame} */
+        const frame = { background: getComputedStyle(document.body).backgroundColor, drawn: text.length > 0, text };
+        if (!element) frame.missing = 'root';
+        frames.push(frame);
       }
       requestAnimationFrame(look);
     };
@@ -53,6 +60,55 @@ export async function takeFrames(page) {
         else requestAnimationFrame(() => resolve(frames.splice(0)));
       }),
   );
+}
+
+/** The script `holdBeforeRoot` puts before the root, held until the test lets it go. */
+const HOLD_BEFORE_ROOT = '/__app-kit-hold-before-root.js';
+
+/** @type {typeof import('./playwright').holdBeforeRoot} */
+export async function holdBeforeRoot(page, { root = 'root' } = {}) {
+  /** @type {() => void} */
+  let release = () => {};
+  const released = new Promise((resolve) => (release = () => resolve(undefined)));
+  let state = /** @type {'waiting' | 'held' | 'no root'} */ ('waiting');
+  await page.route(`**${HOLD_BEFORE_ROOT}`, async (route) => {
+    await released;
+    await route.fulfill({ contentType: 'text/javascript', body: '' });
+  });
+  // The opening tag of the element with that id, by a quoted or bare id attribute.
+  const id = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const opening = new RegExp(`<[a-zA-Z][^>]*\\sid=(["']?)${id}\\1[\\s/>]`);
+  await page.route('**/*', async (route) => {
+    if (state !== 'waiting' || !route.request().isNavigationRequest()) return route.fallback();
+    const response = await route.fetch();
+    const html = await response.text();
+    const at = html.search(opening);
+    if (at < 0) {
+      state = 'no root';
+      return route.fulfill({ response, body: html });
+    }
+    state = 'held';
+    // A script tag where the page has no body yet goes into the head, so the body stays unmade while it is held; after
+    // a body tag it goes into the body, and the browser can paint that body with nothing in it.
+    await route.fulfill({ response, body: `${html.slice(0, at)}<script src="${HOLD_BEFORE_ROOT}"></script>${html.slice(at)}` });
+  });
+  return {
+    async reached() {
+      // The script's tag in the document, not its request, which the browser's look-ahead sends before the parser is
+      // there. How soon the browser reads that far is not the test's to decide, so the wait is the test's own timeout.
+      for (;;) {
+        if (state === 'no root') throw new Error(`holdBeforeRoot: the page has no element with id="${root}" to hold its load before`);
+        const there = await page.evaluate((src) => document.querySelector(`script[src="${src}"]`) !== null, HOLD_BEFORE_ROOT).catch(() => false);
+        if (there) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(
+        await page.evaluate(() => document.body !== null),
+        `a body before the element with id="${root}", which the browser can paint with nothing in it: leave the body tags out of the page (README, "The name before the code, in one picture or two")`,
+      ).toBe(false);
+    },
+    release,
+  };
 }
 
 /** @type {typeof import('./playwright').expectSteady} */
