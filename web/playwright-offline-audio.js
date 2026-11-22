@@ -46,8 +46,9 @@ function installOfflineAudio({ startsOnTap }) {
   /**
    * What each context is as the page sees it, apart from the engine's own state, which goes from running to suspended
    * at every step.
-   * `stopped` settles once the engine has come to rest after the render it was last given, so its currentTime holds.
-   * @type {WeakMap<OfflineAudioContext, { state: AudioContextState, started: boolean, rendering: boolean, waiting: boolean, timer: ReturnType<typeof setTimeout> | undefined, clockAt: number, audioAt: number, event: Event | null, stopped: Promise<unknown>, ended: Promise<unknown> }>}
+   * `stopped` settles once the engine has come to rest after the render it was last given, so its currentTime holds;
+   * `changes`, once the last suspend, resume or close the page asked for has been made.
+   * @type {WeakMap<OfflineAudioContext, { state: AudioContextState, started: boolean, rendering: boolean, waiting: boolean, timer: ReturnType<typeof setTimeout> | undefined, clockAt: number, audioAt: number, event: Event | null, stopped: Promise<unknown>, ended: Promise<unknown>, changes: Promise<unknown> }>}
    */
   const contexts = new WeakMap();
 
@@ -133,30 +134,29 @@ function installOfflineAudio({ startsOnTap }) {
   };
 
   /**
-   * Settles soon after the call, with the state set before the page's own callbacks run. In a microtask, not a timer:
-   * a browser settles these whatever the page's timers do, and Playwright's clock, installed and paused, holds every
-   * timer the page sets.
-   * @param {() => void} change
-   */
-  const later = (change) => Promise.resolve().then(change);
-
-  /**
-   * Settles once the engine is at rest, as a browser's clock has stopped when suspend() or close() settles: a render
-   * already running goes on to its end, so the change waits for it. The engine's own stop, not a timer, so it settles
-   * under Playwright's paused clock too. Its next step, which the stop may have timed, the change then cancels.
-   * resume() waits the same way, so suspend() then resume() in one task end running, as in a browser: the changes
-   * settle in the order the page made them.
+   * Makes the change once the engine is at rest, with the state set before the page's own callbacks run, as a
+   * browser's clock has stopped when suspend() or close() settles: a render already running goes on to its end, so the
+   * change waits for it, and its next step, which the stop may have timed, the change then cancels. Each change waits
+   * for the one the page asked for before it, then for the engine's stop as that change left it, so resume() then
+   * suspend() in one task waits for the step resume() started, and suspend() then resume() ends running, as in a
+   * browser. Promises, not timers: a browser settles these whatever the page's timers do, and Playwright's clock,
+   * installed and paused, holds every timer the page sets.
    * @param {OfflineAudioContext} context
    * @param {() => void} change
    */
-  const atRest = (context, change) => later(() => record(context).stopped).then(change);
+  const atRest = (context, change) => {
+    const own = record(context);
+    const settled = own.changes.then(() => own.stopped).then(change);
+    own.changes = settled.catch(() => {});
+    return settled;
+  };
 
   const AudioContext = class AudioContext extends Offline {
     /** @param {AudioContextOptions} [options] */
     constructor(options = {}) {
       const sampleRate = options.sampleRate ?? 48000;
       super({ numberOfChannels: 2, length: Math.round(LENGTH * sampleRate), sampleRate });
-      contexts.set(this, { state: 'suspended', started: false, rendering: false, waiting: false, timer: undefined, clockAt: 0, audioAt: 0, event: null, stopped: Promise.resolve(), ended: Promise.resolve() });
+      contexts.set(this, { state: 'suspended', started: false, rendering: false, waiting: false, timer: undefined, clockAt: 0, audioAt: 0, event: null, stopped: Promise.resolve(), ended: Promise.resolve(), changes: Promise.resolve() });
       // The engine's own statechange, sent at every step, never reaches the page; registered first, it runs first.
       native.addEventListener.call(this, 'statechange', (event) => {
         if (event !== record(this).event) event.stopImmediatePropagation();

@@ -364,6 +364,30 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
             }),
         );
         expect(ended).toEqual({ state: 'running', states: ['running', 'suspended', 'running'] });
+
+        // The other way round, from suspended: resumed and suspended in one task, its clock holds from the moment suspend
+        // settles, past the step the resume started.
+        const clock = await page.evaluate(async () => {
+          const context = new AudioContext();
+          const engine = OfflineAudioContext.prototype;
+          const suspendAt = engine.suspend;
+          let lastStop: Promise<void> = Promise.resolve();
+          engine.suspend = function (this: OfflineAudioContext, at: number) {
+            lastStop = suspendAt.call(this, at);
+            return lastStop;
+          };
+          await new Promise<void>((resolve) => (function moved() {
+            if (context.state === 'running' && context.currentTime > 0.1) resolve();
+            else setTimeout(moved, 10);
+          })());
+          await context.suspend();
+          void context.resume();
+          const held = await context.suspend().then(() => context.currentTime);
+          // The engine has come to rest at the end of the last step it was given.
+          await lastStop.catch(() => {});
+          return { held, atRest: context.currentTime, state: context.state };
+        });
+        expect(clock).toEqual({ held: clock.held, atRest: clock.held, state: 'suspended' });
       } finally {
         await browser.close();
       }
