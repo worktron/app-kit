@@ -44,6 +44,8 @@ const RUST = 'let menu = AppMenu::new(app)?;\nlet url = WebviewUrl::External(sit
 const FILES: Record<string, { mode: string; text: string | Buffer } | { submodule: string }> = {
   // Shipped code, so every entry applies.
   'client/src/App.tsx': { mode: '100644', text: EVERY_KIND },
+  // The page that draws the name before the code, which the name's entries read.
+  'client/index.html': { mode: '100644', text: "<!doctype html><html><head><style>#root:empty::before { content: 'App'; }</style></head>\n<div id=\"root\"></div></html>\n" },
   'server/index.ts': { mode: '100644', text: EVERY_KIND },
   '.railway/railway.ts': { mode: '100644', text: "export default defineRailway(() => project('app', { env: { RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '10' } }));\n" },
   'apps/cloud/.railway/railway.ts': { mode: '100644', text: "env: { RAILWAY_DEPLOYMENT_DRAINING_SECONDS: '0' }\n" },
