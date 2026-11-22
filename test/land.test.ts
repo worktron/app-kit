@@ -1,14 +1,16 @@
 // The landing script (scripts/land.ts): the version is worked out from main when a branch lands, so two threads never
 // take the same number, and a stopped landing leaves nothing the next one refuses. How a branch's Release lines decide
 // the kind of change is tested on its own, with no git. The landings run in scratch repositories whose origin is a bare
-// repository standing in for GitHub; a second thread is a second worktree of the same repository, sharing its tags and
-// refs as every worktree here does. Scratch folders are under node_modules/.cache, never the system temp folder
-// (test/command.test.ts says why), and git reads no global settings, so the commits are the test's own. A landing runs
-// some twenty-five git processes, and a process start is what a busy machine slows most, so the tests run side by side
-// and start no git a file copy can stand in for: each copies one seeded origin and its clone, reads the stand-in
-// GitHub's refs from its folder rather than over a connection, and moves main with one import, not a push. The tests
-// that land twice carry bun's own 5-second limit: in five whole-suite runs on 2026-11-22 the slowest took 1.7 to 1.8
-// seconds at load 48 to 87 and 2.1 to 2.4 at load 81 to 137, where before these cuts they overran 5 seconds at load 50.
+// repository standing in for GitHub; a thread lands from a worktree of the clone, sharing its tags and refs as every
+// worktree here does. Scratch folders are under node_modules/.cache, never the system temp folder (test/command.test.ts
+// says why), and git reads no global settings, so the commits are the test's own. A landing runs some thirty-five git
+// processes, and a process start is what a busy machine slows most, so the tests run side by side and start no git a
+// file copy, an import or one batched read can stand in for: each copies one seeded origin and its clone, makes a
+// branch's commit by import, reads the stand-in GitHub's refs from its folder rather than over a connection, moves main
+// as another thread's landing would with one import, not a landing, and reads what landed with one cat-file. On
+// 2026-11-22 these cuts took a run of the file from 731 git processes to 613, the two-landings test from 128 to 87 and
+// the urgent landing from 159 to 85; whole-suite runs at load 14 to 20 had the slowest test at 0.6 to 0.74 s, and one
+// at load 55, with the Mac slowed to a third of its pace, still had it at bun's 5-second limit.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { appendFileSync, chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
@@ -69,12 +71,40 @@ async function scratch() {
   return { dir, work, origin: join(dir, 'origin.git'), git: gitIn(work) };
 }
 
-/** A branch off origin's main, in the clone or in a worktree of its own, with one commit. */
+/**
+ * A branch off origin's main with one commit, made by one import, then checked out in the clone or in a worktree of its
+ * own: checkout, add and commit would take three processes.
+ */
 async function branch(work: string, name: string, message: string, file = `${name}.txt`, folder = work) {
-  if (folder === work) await gitIn(work)('checkout', '-q', '-b', name, 'origin/main');
-  else await gitIn(work)('worktree', 'add', '-q', '-b', name, folder, 'origin/main');
-  await commit(folder, message, file);
+  const text = `${message.replace(/\n+$/, '')}\n`;
+  await importCommit(work, `refs/heads/${name}`, text, { [file]: text }, { from: 'refs/remotes/origin/main' });
+  if (folder === work) await gitIn(work)('checkout', '-q', name);
+  else await gitIn(work)('worktree', 'add', '-q', folder, name);
   return folder;
+}
+
+/** The branch a checkout is on (HEAD when detached) and its commit, read by one git. */
+async function headOf(cwd: string) {
+  const [sha, name] = (await gitIn(cwd)('rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD')).split('\n');
+  return { branch: name.replace(/^refs\/heads\//, ''), sha };
+}
+
+/** Each object named, read by one git cat-file: a file as its text, a commit in its raw form. */
+async function objects(cwd: string, names: string[]) {
+  const child = Bun.spawn(['git', 'cat-file', '--batch'], { cwd, env, stdin: new TextEncoder().encode(`${names.join('\n')}\n`), stdout: 'pipe', stderr: 'pipe' });
+  const [out, err, status] = await Promise.all([new Response(child.stdout).arrayBuffer(), new Response(child.stderr).text(), child.exited]);
+  if (status !== 0) throw new Error(`git cat-file --batch: ${err}`);
+  const bytes = Buffer.from(out);
+  let at = 0;
+  return names.map((name) => {
+    const end = bytes.indexOf(10, at);
+    const header = bytes.subarray(at, end).toString();
+    if (header.endsWith(' missing')) throw new Error(`${name} is not in ${cwd}`);
+    const size = Number(header.split(' ')[2]);
+    const text = bytes.subarray(end + 1, end + 1 + size).toString();
+    at = end + 1 + size + 1;
+    return text;
+  });
 }
 
 async function commit(cwd: string, message: string, file: string, text = `${message}\n`) {
@@ -85,10 +115,11 @@ async function commit(cwd: string, message: string, file: string, text = `${mess
 }
 
 /**
- * One commit on `ref` in the repository `repo` with these files, on top of what `ref` holds when `onTop`, by one git
- * fast-import, where add, commit and push take three processes and more; it moves `ref` only forward. Gives the commit.
+ * One commit on `ref` in the repository `repo` with these files, on top of the commit `from` names when given, by one
+ * git fast-import, where add, commit and push take three processes and more; it moves `ref` only forward,
+ * and `tag` to the same commit when given. Gives the commit.
  */
-async function importCommit(repo: string, ref: string, message: string, files: Record<string, string>, onTop: boolean) {
+async function importCommit(repo: string, ref: string, message: string, files: Record<string, string>, { from, tag }: { from?: string; tag?: string } = {}) {
   const data = (body: string) => `data ${Buffer.byteLength(body)}\n${body}`;
   const when = `${Math.floor(Date.now() / 1000)} +0000`;
   const marks = join(repo, '..', `${basename(repo)}-marks`);
@@ -98,15 +129,16 @@ async function importCommit(repo: string, ref: string, message: string, files: R
     `author Worktron <kit@example.com> ${when}`,
     `committer Worktron <kit@example.com> ${when}`,
     data(message),
-    ...(onTop ? [`from ${ref}^0`] : []),
+    ...(from ? [`from ${from}^0`] : []),
     ...Object.entries(files).flatMap(([file, text]) => [`M 100644 inline ${file}`, data(text)]),
     '',
+    ...(tag ? [`reset ${tag}`, 'from :1', ''] : []),
   ].join('\n'))('fast-import', '--quiet', `--export-marks=${marks}`);
   return readFileSync(marks, 'utf8').split(' ')[1].trim();
 }
 
 /** Moves origin's main forward by a commit, as another thread's landing would, without running one; the clone learns of it at its next fetch. */
-const moveMain = (work: string, file: string, text: string) => importCommit(join(work, '../origin.git'), 'refs/heads/main', 'Another thread lands\n', { [file]: text }, true);
+const moveMain = (work: string, file: string, text: string) => importCommit(join(work, '../origin.git'), 'refs/heads/main', 'Another thread lands\n', { [file]: text }, { from: 'refs/heads/main' });
 
 /** A stand-in for GitHub refusing every push that touches a ref matching the shell pattern. */
 function refuse(origin: string, pattern: string) {
@@ -131,14 +163,16 @@ async function landIn(cwd: string, options: Partial<LandOptions> = {}) {
   return { outcome, lines };
 }
 
-/** The stand-in GitHub's tags and main, read in its folder: ls-remote would start a second git to answer over a connection. */
-const tagsOnGitHub = async (work: string) =>
+/** The stand-in GitHub's refs and their commits, read in its folder: ls-remote would start a second git to answer over a connection. */
+const refsOnGitHub = async (work: string, ...patterns: string[]): Promise<Record<string, string>> =>
   Object.fromEntries(
-    (await gitIn(join(work, '../origin.git'))('for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags'))
+    (await gitIn(join(work, '../origin.git'))('for-each-ref', '--format=%(refname) %(objectname)', ...patterns))
       .split('\n')
       .filter(Boolean)
-      .map((line) => [line.split(/\s+/)[1].replace('refs/tags/', ''), line.split(/\s+/)[0]]),
+      .map((line) => line.split(' ')),
   );
+const tagsOf = (refs: Record<string, string>) => Object.fromEntries(Object.entries(refs).flatMap(([ref, sha]) => (ref.startsWith('refs/tags/') ? [[ref.slice('refs/tags/'.length), sha]] : [])));
+const tagsOnGitHub = async (work: string) => tagsOf(await refsOnGitHub(work, 'refs/tags'));
 const mainOnGitHub = (work: string) => gitIn(join(work, '../origin.git'))('rev-parse', 'refs/heads/main');
 
 test('the largest Release line wins whatever its case, and patch, minor and none each count', () => {
@@ -231,57 +265,70 @@ test('while the version is 0.x, minor raises the middle number and patch the las
   expect(nextVersion('0.9.0', 'minor')).toBe('0.10.0');
 });
 
+// The other thread's landing is stood in for by what it leaves: main moved to its version commit, that commit tagged on
+// GitHub, and the refs every worktree shares fetched, as its own fetch and push would leave them. The landing under test
+// runs from a worktree, as every thread's does.
 test.concurrent('two branches marked minor, the second landing while the first runs its gates, become 0.6.0 and 0.7.0, each tagged on main', async () => {
-  const { dir, work, git } = await scratch();
-  await branch(work, 'slow', release('The slow change', 'minor'));
-  const other = await branch(work, 'fast', release('The fast change', 'minor'), 'fast.txt', join(dir, 'other'));
+  const { dir, work, origin, git } = await scratch();
+  const tree = await branch(work, 'slow', release('The slow change', 'minor'), 'slow.txt', join(dir, 'slow'));
   let gateRuns = 0;
-  let fast: Awaited<ReturnType<typeof landIn>>['outcome'] | undefined;
-  const { outcome: slow, lines } = await landIn(work, {
+  let fast: string | undefined;
+  const { outcome: slow, lines } = await landIn(tree, {
     runGates: async () => {
-      if (gateRuns++ === 0) fast = (await landIn(other)).outcome;
+      if (gateRuns++ === 0) {
+        fast = await importCommit(
+          origin,
+          'refs/heads/main',
+          `Version 0.6.0\n\n${TRAILER}\n`,
+          { 'fast.txt': 'The fast change\n', 'package.json': packageAt('0.6.0'), 'README.md': 'bun add github:worktron/app-kit#v0.6.0\n', 'CHANGES.md': withChanges(null, '0.6.0', 'next round', ['The fast change']) },
+          { from: 'refs/heads/main', tag: 'refs/tags/v0.6.0' },
+        );
+        await git('fetch', '-q', 'origin', 'main');
+      }
       return true;
     },
   });
 
-  expect(fast).toMatchObject({ landed: true, version: '0.6.0' });
   expect(slow).toMatchObject({ landed: true, version: '0.7.0' });
-  if (!fast?.landed || !slow.landed) throw new Error('both should land');
+  if (!fast || !slow.landed) throw new Error('the slow change should land after the fast one');
   expect(gateRuns).toBe(2);
   expect(lines.some((line) => line.startsWith('another landing moved main'))).toBe(true);
-  const main = await mainOnGitHub(work);
-  expect(main).toBe(slow.sha);
-  expect(await tagsOnGitHub(work)).toEqual({ 'v0.5.0': expect.any(String), 'v0.6.0': fast.sha, 'v0.7.0': slow.sha });
-  expect(await git('merge-base', '--is-ancestor', fast.sha, main)).toBe('');
-  expect(await gitIn(other)('symbolic-ref', '--short', 'HEAD')).toBe('fast');
-  expect(await gitIn(other)('rev-parse', 'HEAD')).toBe(fast.sha);
-  expect(await git('symbolic-ref', '--short', 'HEAD')).toBe('slow');
-  expect(await git('rev-parse', 'HEAD')).toBe(main);
+  const main = slow.sha;
+  const [refs, head, [version, change, packageText, readme, changes], changed] = await Promise.all([
+    refsOnGitHub(work),
+    headOf(tree),
+    objects(work, [main, `${main}~1`, `${main}:package.json`, `${main}:README.md`, `${main}:CHANGES.md`]),
+    git('diff', '--name-only', `${main}~1`, main),
+  ]);
+  expect(refs['refs/heads/main']).toBe(main);
+  expect(tagsOf(refs)).toEqual({ 'v0.5.0': expect.any(String), 'v0.6.0': fast, 'v0.7.0': main });
+  // The slow change rebased onto the fast one's version commit, and the slow checkout on its branch at what landed.
+  expect(change).toContain(`\nparent ${fast}\n`);
+  expect(head).toEqual({ branch: 'slow', sha: main });
   // The version commit: exactly the Co-Authored-By line, as Worktron, package.json's formatting kept, and the README
   // naming the new tag.
-  expect(await git('log', '-1', '--format=%B', main)).toBe(`Version 0.7.0\n\n${TRAILER}`);
-  expect(await git('log', '-1', '--format=%an %cn', main)).toBe('Worktron Worktron');
-  expect(`${await git('show', `${main}:package.json`)}\n`).toBe(packageAt('0.7.0'));
-  expect(await git('show', `${main}:README.md`)).toBe('bun add github:worktron/app-kit#v0.7.0');
-  expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['CHANGES.md', 'README.md', 'package.json']);
+  expect(version.slice(version.indexOf('\n\n') + 2).trim()).toBe(`Version 0.7.0\n\n${TRAILER}`);
+  expect(version).toMatch(/^author Worktron </m);
+  expect(version).toMatch(/^committer Worktron </m);
+  expect(packageText).toBe(packageAt('0.7.0'));
+  expect(readme).toBe('bun add github:worktron/app-kit#v0.7.0\n');
+  expect(changed.split('\n').sort()).toEqual(['CHANGES.md', 'README.md', 'package.json']);
   // Each minor change's Apps line under its own version, the later one first.
-  expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\nUrgency: next round\n\n- The slow change\n\n## v0.6.0\n\nUrgency: next round\n\n- The fast change`);
+  expect(changes).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\nUrgency: next round\n\n- The slow change\n\n## v0.6.0\n\nUrgency: next round\n\n- The fast change\n`);
 });
 
 test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands, and riding along it is not listed in CHANGES.md', async () => {
   const { work, git } = await scratch();
   await branch(work, 'change', release('A change', 'patch'));
-  await moveMain(work, 'elsewhere.txt', "Another thread's file\n");
-  const before = await git('rev-parse', 'HEAD');
-  const mainBefore = await mainOnGitHub(work);
+  const [mainBefore, { sha: before }] = await Promise.all([moveMain(work, 'elsewhere.txt', "Another thread's file\n"), headOf(work)]);
 
   const red = (await landIn(work, { runGates: async () => false })).outcome;
   expect(red).toMatchObject({ landed: false });
   if (!red.landed) expect(red.reason).toContain('the gates failed');
-  expect(await git('symbolic-ref', '--short', 'HEAD')).toBe('change');
-  expect(await git('rev-parse', 'HEAD')).toBe(before);
-  expect(await git('status', '--porcelain')).toBe('');
-  expect(await mainOnGitHub(work)).toBe(mainBefore);
+  const [head, status, mainAfter] = await Promise.all([headOf(work), git('status', '--porcelain'), mainOnGitHub(work)]);
+  expect(head).toEqual({ branch: 'change', sha: before });
+  expect(status).toBe('');
+  expect(mainAfter).toBe(mainBefore);
 
   await commit(work, 'The fix', 'fix.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'rides along' });
@@ -289,8 +336,8 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
   expect((await git('ls-tree', '--name-only', await mainOnGitHub(work))).split('\n')).not.toContain('CHANGES.md');
 });
 
-test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry, listed once when two commits carry it', async () => {
-  const { work, git } = await scratch();
+test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry, listed once when two commits carry it, in a release that reads no apps since it is not urgent', async () => {
+  const { dir, work, git } = await scratch();
   await branch(work, 'change', release('A change', 'minor', ''));
   const before = await git('rev-parse', 'HEAD');
   const refused = (await landIn(work)).outcome;
@@ -298,7 +345,10 @@ test.concurrent('a minor change with no Apps line is refused before anything mov
   expect(await git('rev-parse', 'HEAD')).toBe(before);
   await commit(work, release('Say it', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'say.txt');
   await commit(work, release('Say it again', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'again.txt');
-  expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.6.0' });
+  // Read, the apps folder would give an "is urgent" line, whether it names apps or says it could not read them.
+  const { outcome, lines } = await landIn(work, { appsFolder: join(dir, 'apps') });
+  expect(outcome).toMatchObject({ landed: true, version: '0.6.0', urgency: 'next round' });
+  expect(lines.some((line) => line.includes('is urgent'))).toBe(false);
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\nUrgency: next round\n\n- move the manifest to the checkout root`);
 });
 
@@ -366,8 +416,7 @@ test.concurrent('a push of main that fails without main moving says so and does 
   if (!outcome.landed) expect(outcome.reason).toContain('refs/heads/main refused by the stand-in');
   expect(gateRuns).toBe(1);
   expect(lines.some((line) => line.startsWith('another landing'))).toBe(false);
-  expect(await git('symbolic-ref', '--short', 'HEAD')).toBe('change');
-  expect(await git('rev-parse', 'HEAD')).toBe(before);
+  expect(await headOf(work)).toEqual({ branch: 'change', sha: before });
 });
 
 test.concurrent('a refused tag leaves main where it was, since main and the tag move in one push', async () => {
@@ -455,27 +504,28 @@ async function appBeside(dir: string, name: string, installs: Record<string, str
   await Promise.all([gitIn(dir)('init', '-q', '--bare', '-b', 'main', origin), gitIn(dir)('init', '-q', '-b', 'main', app)]);
   const files = Object.fromEntries(Object.entries(installs).map(([file, tag]) => [file, JSON.stringify({ dependencies: tag ? { 'app-kit': `github:worktron/app-kit#${tag}` } : {} })]));
   appendFileSync(join(app, '.git/config'), `[remote "origin"]\n\turl = ${origin}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`);
-  await Promise.all([importCommit(origin, 'refs/heads/main', 'The app\n', files, false), gitIn(app)('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main')]);
+  await Promise.all([importCommit(origin, 'refs/heads/main', 'The app\n', files), gitIn(app)('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main')]);
 }
 
 test.concurrent('an urgent landing names the apps on an older version and any checkout it could not read, and starts nothing', async () => {
   const { dir, work } = await scratch();
   const apps = join(dir, 'apps');
   mkdirSync(apps);
-  await appBeside(apps, 'behind', { 'package.json': 'v0.5.0' });
-  await appBeside(apps, 'current', { 'package.json': 'v0.5.1' });
-  // Two installs on different versions: the app is on the older.
-  await appBeside(apps, 'split', { 'package.json': 'v0.5.1', 'client/package.json': 'v0.5.0' });
-  await appBeside(apps, 'plain', { 'package.json': '' });
-  // A checkout whose landed tree cannot be read is named, never read as one with no kit.
-  mkdirSync(join(apps, 'broken', '.git'), { recursive: true });
-  await branch(work, 'fix', release('Sign in again', 'patch', 'Apps: sign in with Google again\n', 'Urgency: now\n'));
+  // How an app with several installs, or none of the kit, is judged is held by test/apps.test.ts, reading the app
+  // without a landing.
+  await Promise.all([
+    appBeside(apps, 'behind', { 'package.json': 'v0.5.0' }),
+    appBeside(apps, 'current', { 'package.json': 'v0.5.1' }),
+    branch(work, 'fix', release('Sign in again', 'patch', 'Apps: sign in with Google again\n', 'Urgency: now\n')),
+  ]);
+  // A checkout whose landed tree cannot be read is named, never read as one with no kit. Its git folder names one that
+  // is not there, so git stops at once: an empty .git folder would send git up to the kit's own checkout, which would
+  // fetch the kit's real origin from GitHub.
+  mkdirSync(join(apps, 'broken'));
+  writeFileSync(join(apps, 'broken', '.git'), `gitdir: ${join(apps, 'broken', 'gone')}\n`);
   const { outcome, lines } = await landIn(work, { appsFolder: apps });
   expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now' });
   expect(lines.filter((line) => line.includes('is urgent'))).toEqual([
-    expect.stringMatching(/^v0\.5\.1 is urgent; apps on an older version: behind \(v0\.5\.0\), split \(v0\.5\.0\); could not read: broken \(not a git checkout of its own: .+\)$/),
+    expect.stringMatching(/^v0\.5\.1 is urgent; apps on an older version: behind \(v0\.5\.0\); could not read: broken \(not a git checkout of its own: .+\)$/),
   ]);
-  // A release that is not urgent reads no apps.
-  await branch(work, 'later', release('Later', 'patch', 'Apps: nothing to change\n', 'Urgency: next round\n'), 'later.txt');
-  expect((await landIn(work, { appsFolder: apps })).lines.some((line) => line.includes('is urgent'))).toBe(false);
 });
