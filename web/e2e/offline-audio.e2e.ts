@@ -298,8 +298,10 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
               const resume = engine.resume;
               let lastStop: Promise<void> = Promise.resolve();
               engine.suspend = function (this: OfflineAudioContext, at: number) {
-                lastStop = suspendAt.call(this, at);
-                return lastStop;
+                const stop = suspendAt.call(this, at);
+                // Only this context's: the page's own early context runs beside it.
+                if (this === (context as BaseAudioContext)) lastStop = stop;
+                return stop;
               };
               let armed = false;
               // The kit resumes the engine for its next step: the page suspends in that same task, while the step renders.
@@ -373,8 +375,10 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
           const suspendAt = engine.suspend;
           let lastStop: Promise<void> = Promise.resolve();
           engine.suspend = function (this: OfflineAudioContext, at: number) {
-            lastStop = suspendAt.call(this, at);
-            return lastStop;
+            const stop = suspendAt.call(this, at);
+            // Only this context's: the one before it, and the page's own early context, run beside it.
+            if (this === (context as BaseAudioContext)) lastStop = stop;
+            return stop;
           };
           await new Promise<void>((resolve) => (function moved() {
             if (context.state === 'running' && context.currentTime > 0.1) resolve();
