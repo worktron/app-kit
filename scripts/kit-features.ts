@@ -309,14 +309,19 @@ const NO_FRAME_BEFORE_THE_NAME: Feature = {
   readme: 'The name before the code, in one picture or two',
   names: ['holdBeforeRoot'],
   appliesTo: (app) => namePages(app).length > 0,
-  present: async (app) =>
-    has(
-      namePages(app).every((text) => {
-        const body = text.search(/<body[\s>]/i)
-        return body < 0 || body > text.search(/id=["']root["']/)
-      }),
-    ),
+  // Before the root, only what the parser puts in the head: a body tag, any other element or any text there makes the
+  // body before the root.
+  present: async (app) => has(namePages(app).every((text) => HEAD_ONLY.reduce((rest, tag) => rest.replace(tag, ''), text.slice(0, text.search(ROOT_TAG))).trim() === '')),
 }
+/** The root's opening tag. */
+const ROOT_TAG = /<[a-zA-Z][^>]*\sid=["']?root["'\s/>]/
+/** What a page may hold before its root and still have no body there: the doctype, the html and head tags, and the head's own elements. */
+const HEAD_ONLY = [
+  /<!doctype[^>]*>/gi,
+  /<(script|style|title|template|noscript)[\s>][\s\S]*?<\/\1\s*>/gi,
+  /<\/?(html|head)(\s[^>]*)?>/gi,
+  /<(meta|link|base)(\s[^>]*)?>/gi,
+]
 
 // Calls Google's APIs with a grant the app holds: Gmail, Calendar, Drive, Docs, Sheets, Tasks, People and the token
 // endpoint. A key-only API (Books) and Google's fonts are not, and a scope's address (www.googleapis.com/auth/…) is a

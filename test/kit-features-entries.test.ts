@@ -196,6 +196,10 @@ test('a page that draws the name before the code has no body tag before its root
   // The guide's page until now, with the gate or without: AI Buddy draws the name with no gate.
   expect(await verdict(NO_FRAME, { 'index.html': `${head}<body>\n${root}</body></html>\n`, 'src/main.tsx': "import { SignInGate } from 'app-kit/web';\n" })).toBe('lacks');
   expect(await verdict(NO_FRAME, { 'client/index.html': `${head}<BODY class="app">${root}</BODY></html>\n` })).toBe('lacks');
+  // Any other element, or text, before the root makes the body there too; a script or a style goes into the head.
+  expect(await verdict(NO_FRAME, { 'index.html': `${head}\n<div id="portal"></div>\n${root}</html>\n` })).toBe('lacks');
+  expect(await verdict(NO_FRAME, { 'index.html': `${head}\nLoading\n${root}</html>\n` })).toBe('lacks');
+  expect(await verdict(NO_FRAME, { 'index.html': `${head}\n<script>window.started = Date.now()</script>\n<link rel="preload" href="/a.js">\n${root}</html>\n` })).toBe('has');
   // A page that draws no name has nothing to paint between the body and it.
   expect(await verdict(NO_FRAME, { 'index.html': `<!doctype html><html><head></head><body>${root}</body></html>\n` })).toBe('not asked');
 });

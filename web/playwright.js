@@ -95,10 +95,13 @@ export async function holdBeforeRoot(page, { root = 'root' } = {}) {
   return {
     async reached() {
       // The script's tag in the document, not its request, which the browser's look-ahead sends before the parser is
-      // there. How soon the browser reads that far is not the test's to decide, so the wait is the test's own timeout.
+      // there, in a document still loading: the page before the load, held once before too, has the tag and a body.
+      // How soon the browser reads that far is not the test's to decide, so the wait is the test's own timeout.
       for (;;) {
         if (state === 'no root') throw new Error(`holdBeforeRoot: the page has no element with id="${root}" to hold its load before`);
-        const there = await page.evaluate((src) => document.querySelector(`script[src="${src}"]`) !== null, HOLD_BEFORE_ROOT).catch(() => false);
+        const there = await page
+          .evaluate((src) => document.readyState === 'loading' && document.querySelector(`script[src="${src}"]`) !== null, HOLD_BEFORE_ROOT)
+          .catch(() => false);
         if (there) break;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
