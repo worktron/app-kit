@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner and files a catch-up ticket in each), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do). scripts/owed.ts lists the now and next round versions an app has not taken, for metamax's landing of the app's code to hold on once one is more than 14 days old.
 
+## v0.73.0
+
+Urgency: next round
+
+- an app locking tauri-plugin-deep-link below 2.6.3 (or a 3.0.0 pre-release) with an associated domain other than applinks in its iPhone entitlements runs `cargo update -p tauri-plugin-deep-link` in src-tauri, runs one iPhone build, and commits Cargo.lock with the Info.plist change it makes (CFBundleURLName becomes `$(PRODUCT_BUNDLE_IDENTIFIER).<scheme>`); until then `app-kit iphone run` and `app-kit testflight upload` refuse to build.
+
 ## v0.72.4
 
 Urgency: next round
