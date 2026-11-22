@@ -4,11 +4,14 @@
 // repository standing in for GitHub; a second thread is a second worktree of the same repository, sharing its tags and
 // refs as every worktree here does. Scratch folders are under node_modules/.cache, never the system temp folder
 // (test/command.test.ts says why), and git reads no global settings, so the commits are the test's own. A landing runs
-// some twenty-five git processes, so the tests run side by side, only one of them lands twice, and every other state a
-// test needs is made with a plain commit or push.
+// some twenty-five git processes, and a process start is what a busy machine slows most, so the tests run side by side
+// and start no git a file copy can stand in for: each copies one seeded origin and its clone, reads the stand-in
+// GitHub's refs from its folder rather than over a connection, and moves main with one import, not a push. The tests
+// that land twice carry bun's own 5-second limit: in five whole-suite runs on 2026-11-22 the slowest took 1.7 to 1.8
+// seconds at load 48 to 87 and 2.1 to 2.4 at load 81 to 137, where before these cuts they overran 5 seconds at load 50.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { appendFileSync, chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { basename, join } from 'path';
 import packageJson from '../package.json';
 import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, urgencyOf, urgentLine, urgentReadFailure, withChanges, type LandOptions } from '../scripts/land.ts';
 
@@ -16,19 +19,15 @@ import { appsOf, CHANGES_HEADING, kindOf, land, nextVersion, TRAILER, urgencyOf,
 // the real git, about half again the time of each of the hundreds of git processes here; the folder `git --exec-path`
 // names holds the real one, on every system.
 const gitFolder = Bun.spawnSync(['git', '--exec-path'], { stdout: 'pipe' }).stdout.toString().trim();
-const env = { ...process.env, PATH: `${gitFolder}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+// git's housekeeping after a commit, fetch or push (`git maintenance run --auto`) is another process each time, a
+// tenth of all the processes here, with nothing to tidy in a repository that lives for one test.
+const noHousekeeping = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'gc.auto', GIT_CONFIG_VALUE_1: '0' };
+const env = { ...process.env, PATH: `${gitFolder}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...noHousekeeping };
 let root: string;
 let count = 0;
-/**
- * The bound on the two tests that run a landing twice, up to some fifty git processes: the fifteen seconds a test may take,
- * not Bun's default five. Running the real git brought the larger to 3.0 to 4.6 seconds beside three other runs of this file at load 30
- * (2026-10-24), but at load 50 to 60 it overran five seconds with no assertion failing (2026-10-25). Nothing here waits on
- * time; each step waits for its process to exit, so the bound only says how long a busy machine may take.
- */
-const TWO_LANDINGS = 15_000;
 
-const gitIn = (cwd: string) => async (...args: string[]) => {
-  const child = Bun.spawn(['git', ...args], { cwd, env, stdout: 'pipe', stderr: 'pipe' });
+const gitIn = (cwd: string, stdin?: string) => async (...args: string[]) => {
+  const child = Bun.spawn(['git', ...args], { cwd, env, stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin), stdout: 'pipe', stderr: 'pipe' });
   const [out, err, status] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (status !== 0) throw new Error(`git ${args.join(' ')}: ${err}`);
   return out.trim();
@@ -39,26 +38,34 @@ beforeAll(async () => {
   mkdirSync(cache, { recursive: true });
   root = mkdtempSync(join(cache, 'app-kit-land-'));
   const seed = join(root, 'seed');
+  const template = join(root, 'template');
   mkdirSync(seed);
-  await gitIn(root)('init', '-q', '--bare', '-b', 'main', 'origin.git');
+  mkdirSync(template);
+  await gitIn(template)('init', '-q', '--bare', '-b', 'main', 'origin.git');
+  // A push starts receive-pack in the origin without the settings above, which git keeps from the other side of a
+  // connection, so the origin turns its housekeeping off in its own settings.
+  appendFileSync(join(template, 'origin.git/config'), '[receive]\n\tautogc = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n');
   const git = gitIn(seed);
   await git('init', '-q', '-b', 'main');
   writeFileSync(join(seed, 'package.json'), packageAt('0.5.0'));
   writeFileSync(join(seed, 'README.md'), 'bun add github:worktron/app-kit#v0.5.0\n');
   await git('add', '-A');
   await git('-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'The kit');
-  await git('push', '-q', join(root, 'origin.git'), 'main', 'main:refs/tags/v0.5.0');
+  await git('push', '-q', join(template, 'origin.git'), 'main', 'main:refs/tags/v0.5.0');
+  await gitIn(template)('clone', '-q', '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', '-c', 'commit.gpgsign=false', 'origin.git', 'work');
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-/** A copy of the seeded origin and a clone of it, the first thread's checkout. */
+/** A copy of the seeded origin and of its clone, the first thread's checkout, which is told where its copy of origin is. */
 async function scratch() {
   const dir = join(root, `test-${++count}`);
-  mkdirSync(dir);
-  cpSync(join(root, 'origin.git'), join(dir, 'origin.git'), { recursive: true });
-  await gitIn(dir)('clone', '-q', '-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', '-c', 'commit.gpgsign=false', 'origin.git', 'work');
+  cpSync(join(root, 'template'), dir, { recursive: true });
   const work = join(dir, 'work');
+  const config = join(work, '.git/config');
+  const cloned = readFileSync(config, 'utf8');
+  if (!cloned.includes(join(root, 'template/origin.git'))) throw new Error(`the template clone's settings do not name its origin: ${cloned}`);
+  writeFileSync(config, cloned.replace(join(root, 'template/origin.git'), join(dir, 'origin.git')));
   return { dir, work, origin: join(dir, 'origin.git'), git: gitIn(work) };
 }
 
@@ -77,17 +84,29 @@ async function commit(cwd: string, message: string, file: string, text = `${mess
   await gitIn(cwd)('commit', '-q', '-m', message);
 }
 
-/** Moves origin's main by a plain commit, as another thread's landing would, without running one. */
-async function moveMain(work: string, file: string, text: string) {
-  const git = gitIn(work);
-  const branchName = await git('symbolic-ref', '--short', 'HEAD');
-  await git('checkout', '-q', '--detach', 'origin/main');
-  await commit(work, 'Another thread lands', file, text);
-  await git('push', '-q', 'origin', 'HEAD:refs/heads/main');
-  const moved = await git('rev-parse', 'HEAD');
-  await git('checkout', '-q', branchName);
-  return moved;
+/**
+ * One commit on `ref` in the repository `repo` with these files, on top of what `ref` holds when `onTop`, by one git
+ * fast-import, where add, commit and push take three processes and more; it moves `ref` only forward. Gives the commit.
+ */
+async function importCommit(repo: string, ref: string, message: string, files: Record<string, string>, onTop: boolean) {
+  const data = (body: string) => `data ${Buffer.byteLength(body)}\n${body}`;
+  const when = `${Math.floor(Date.now() / 1000)} +0000`;
+  const marks = join(repo, '..', `${basename(repo)}-marks`);
+  await gitIn(repo, [
+    `commit ${ref}`,
+    'mark :1',
+    `author Worktron <kit@example.com> ${when}`,
+    `committer Worktron <kit@example.com> ${when}`,
+    data(message),
+    ...(onTop ? [`from ${ref}^0`] : []),
+    ...Object.entries(files).flatMap(([file, text]) => [`M 100644 inline ${file}`, data(text)]),
+    '',
+  ].join('\n'))('fast-import', '--quiet', `--export-marks=${marks}`);
+  return readFileSync(marks, 'utf8').split(' ')[1].trim();
 }
+
+/** Moves origin's main forward by a commit, as another thread's landing would, without running one; the clone learns of it at its next fetch. */
+const moveMain = (work: string, file: string, text: string) => importCommit(join(work, '../origin.git'), 'refs/heads/main', 'Another thread lands\n', { [file]: text }, true);
 
 /** A stand-in for GitHub refusing every push that touches a ref matching the shell pattern. */
 function refuse(origin: string, pattern: string) {
@@ -112,14 +131,15 @@ async function landIn(cwd: string, options: Partial<LandOptions> = {}) {
   return { outcome, lines };
 }
 
+/** The stand-in GitHub's tags and main, read in its folder: ls-remote would start a second git to answer over a connection. */
 const tagsOnGitHub = async (work: string) =>
   Object.fromEntries(
-    (await gitIn(work)('ls-remote', '--tags', 'origin'))
+    (await gitIn(join(work, '../origin.git'))('for-each-ref', '--format=%(objectname) %(refname)', 'refs/tags'))
       .split('\n')
       .filter(Boolean)
       .map((line) => [line.split(/\s+/)[1].replace('refs/tags/', ''), line.split(/\s+/)[0]]),
   );
-const mainOnGitHub = async (work: string) => (await gitIn(work)('ls-remote', 'origin', 'refs/heads/main')).split(/\s/)[0];
+const mainOnGitHub = (work: string) => gitIn(join(work, '../origin.git'))('rev-parse', 'refs/heads/main');
 
 test('the largest Release line wins whatever its case, and patch, minor and none each count', () => {
   const commits = (...releases: string[][]) => releases.map((values) => ({ releases: values, message: '' }));
@@ -246,7 +266,7 @@ test.concurrent('two branches marked minor, the second landing while the first r
   expect((await git('diff', '--name-only', `${main}~1`, main)).split('\n').sort()).toEqual(['CHANGES.md', 'README.md', 'package.json']);
   // Each minor change's Apps line under its own version, the later one first.
   expect(await git('show', `${main}:CHANGES.md`)).toBe(`${CHANGES_HEADING}\n\n## v0.7.0\n\nUrgency: next round\n\n- The slow change\n\n## v0.6.0\n\nUrgency: next round\n\n- The fast change`);
-}, TWO_LANDINGS);
+});
 
 test.concurrent('gates red on a branch main has moved past: the branch is as it was, not rebased; a fix committed, the next run lands, and riding along it is not listed in CHANGES.md', async () => {
   const { work, git } = await scratch();
@@ -267,7 +287,7 @@ test.concurrent('gates red on a branch main has moved past: the branch is as it 
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'rides along' });
   // A release that rides along with no Apps line asks nothing of an app, so CHANGES.md does not list it.
   expect((await git('ls-tree', '--name-only', await mainOnGitHub(work))).split('\n')).not.toContain('CHANGES.md');
-}, TWO_LANDINGS);
+});
 
 test.concurrent('a minor change with no Apps line is refused before anything moves, and a wrapped Apps line is one entry, listed once when two commits carry it', async () => {
   const { work, git } = await scratch();
@@ -280,7 +300,7 @@ test.concurrent('a minor change with no Apps line is refused before anything mov
   await commit(work, release('Say it again', 'patch', 'Apps: move the manifest to the\n  checkout root\n'), 'again.txt');
   expect((await landIn(work)).outcome).toMatchObject({ landed: true, version: '0.6.0' });
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.6.0\n\nUrgency: next round\n\n- move the manifest to the checkout root`);
-}, TWO_LANDINGS);
+});
 
 test.concurrent('a patch that says nothing of urgency is refused before anything moves; marked now, it lands with its urgency in CHANGES.md', async () => {
   const { work, git } = await scratch();
@@ -295,7 +315,7 @@ test.concurrent('a patch that says nothing of urgency is refused before anything
   expect(outcome).toMatchObject({ landed: true, version: '0.5.1', urgency: 'now', apps: ['sign in with Google again'] });
   expect(lines).toContain('change: urgent: apps take it first');
   expect(await git('show', 'origin/main:CHANGES.md')).toBe(`${CHANGES_HEADING}\n\n## v0.5.1\n\nUrgency: now\n\n- sign in with Google again`);
-}, TWO_LANDINGS);
+});
 
 test.concurrent('none lands and releases nothing', async () => {
   const { work } = await scratch();
@@ -323,6 +343,7 @@ test.concurrent("main's version untagged on GitHub is tagged on main first, thou
   const seed = await git('rev-parse', 'HEAD');
   await git('checkout', '-q', '-b', 'change');
   const untagged = await moveMain(work, 'package.json', packageAt('0.6.0'));
+  await git('fetch', '-q', 'origin');
   await git('tag', 'v0.6.0', seed);
   await git('merge', '-q', '--ff-only', untagged);
 
@@ -423,23 +444,18 @@ test("the README's install lines name the version in package.json, which the lan
   expect(new Set(named)).toEqual(new Set([packageJson.version]));
 });
 
-/** An app beside the kit: a checkout cloned from its own origin, whose landed package.json files install these tags. */
+/**
+ * An app beside the kit: a checkout of its own origin, whose landed package.json files install these tags. The origin
+ * gets its commit by import; the checkout is a new repository told where its origin is and that origin's HEAD is main,
+ * as a clone would be, and learns the commit at the fetch the landing makes before it reads an app.
+ */
 async function appBeside(dir: string, name: string, installs: Record<string, string>) {
   const origin = join(dir, `${name}-origin.git`);
-  const seed = join(dir, `${name}-seed`);
-  await gitIn(dir)('init', '-q', '--bare', '-b', 'main', origin);
-  mkdirSync(seed);
-  await gitIn(seed)('init', '-q', '-b', 'main');
-  for (const [file, tag] of Object.entries(installs)) {
-    mkdirSync(join(seed, file, '..'), { recursive: true });
-    writeFileSync(join(seed, file), JSON.stringify({ dependencies: tag ? { 'app-kit': `github:worktron/app-kit#${tag}` } : {} }));
-  }
-  await gitIn(seed)('add', '-A');
-  await gitIn(seed)('-c', 'user.name=Worktron', '-c', 'user.email=kit@example.com', 'commit', '-q', '-m', 'The app');
-  await gitIn(seed)('push', '-q', origin, 'main');
-  rmSync(join(seed, '.git'), { recursive: true, force: true });
-  rmSync(seed, { recursive: true, force: true });
-  await gitIn(dir)('clone', '-q', origin, name);
+  const app = join(dir, name);
+  await Promise.all([gitIn(dir)('init', '-q', '--bare', '-b', 'main', origin), gitIn(dir)('init', '-q', '-b', 'main', app)]);
+  const files = Object.fromEntries(Object.entries(installs).map(([file, tag]) => [file, JSON.stringify({ dependencies: tag ? { 'app-kit': `github:worktron/app-kit#${tag}` } : {} })]));
+  appendFileSync(join(app, '.git/config'), `[remote "origin"]\n\turl = ${origin}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`);
+  await Promise.all([importCommit(origin, 'refs/heads/main', 'The app\n', files, false), gitIn(app)('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main')]);
 }
 
 test.concurrent('an urgent landing names the apps on an older version and any checkout it could not read, and starts nothing', async () => {
@@ -462,4 +478,4 @@ test.concurrent('an urgent landing names the apps on an older version and any ch
   // A release that is not urgent reads no apps.
   await branch(work, 'later', release('Later', 'patch', 'Apps: nothing to change\n', 'Urgency: next round\n'), 'later.txt');
   expect((await landIn(work, { appsFolder: apps })).lines.some((line) => line.includes('is urgent'))).toBe(false);
-}, TWO_LANDINGS);
+});

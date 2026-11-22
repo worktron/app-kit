@@ -30,16 +30,21 @@ const SYSTEM_ID = 'select system_identifier::text as id from pg_control_system()
 /**
  * The system identifier of PGlite's ready-made empty database. Postgres gives each database it makes a new one and
  * keeps it in the database's files, so a database started from the ready-made files has this one, and a made one not.
+ * Read once for the file: each read starts a database.
  */
-async function readyMadeSystemId() {
-  const found = await readyMadeEmptyDatabase();
-  if (!('files' in found)) throw new Error(found.reason);
-  const db = new PGlite({ loadDataDir: found.files });
-  try {
-    return (await db.query(SYSTEM_ID)).rows;
-  } finally {
-    await db.close();
-  }
+let readyMadeId: Promise<unknown[]> | undefined;
+function readyMadeSystemId() {
+  readyMadeId ??= (async () => {
+    const found = await readyMadeEmptyDatabase();
+    if (!('files' in found)) throw new Error(found.reason);
+    const db = new PGlite({ loadDataDir: found.files });
+    try {
+      return (await db.query(SYSTEM_ID)).rows;
+    } finally {
+      await db.close();
+    }
+  })();
+  return readyMadeId;
 }
 
 /** A database's system identifier, as PGlite answers the query. */
@@ -193,12 +198,13 @@ describe('openDb', () => {
     await db.close();
   });
 
-  // A real database folder: the first open writes 981 files and the second reads them back, so it is held to the
-  // fifteen seconds a test may take, not Bun's five.
-  test('keeps a PGlite folder across opens, migrating it only once', async () => {
+  // A real database folder: the first open writes some thousand files, starting from the ready-made database rather than
+  // making one, which took five times the processor time; the second reads them back, never loading files over them.
+  test('starts a new PGlite folder from the ready-made empty database and keeps it across opens, migrating it only once', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'app-kit-postgres-'));
     try {
       const first = await openDb(folder, options);
+      expect(await systemId(first)).toMatchObject({ rows: await readyMadeSystemId() });
       await first.insert(schema.notes).values({ body: 'kept', length: 4 });
       await first.close();
       const again = await openDb(folder, options);
@@ -208,7 +214,7 @@ describe('openDb', () => {
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
-  }, 15_000);
+  });
 
   test('opens a postgres:// URL through postgres-js, migrates it and says where, without the password', async () => {
     // PGlite served over Postgres's own wire protocol stands in for Railway's Postgres, on a port the system picks.

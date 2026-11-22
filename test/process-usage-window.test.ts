@@ -206,10 +206,11 @@ function readThisProcess(): MachineReading {
 
 describe.if(process.platform === 'darwin')('on this Mac', () => {
   test("every line of the real ps parses, a zombie's aside, by path and by name, and under a comma locale", () => {
+    // By path ps reads every process's arguments, ten to thirty times the time of by name on a busy machine, so the
+    // comma locale rides on the one run by path.
     const runs = [
-      { program: 'path', env: process.env },
-      { program: 'name', env: process.env },
       { program: 'path', env: { ...process.env, LC_ALL: 'de_DE.UTF-8' } },
+      { program: 'name', env: process.env },
     ] as const;
     for (const { program, env } of runs) {
       // One run of ps, counted and parsed: two runs list different processes on a machine that is starting and ending them.
