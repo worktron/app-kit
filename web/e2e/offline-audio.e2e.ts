@@ -491,6 +491,43 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
       }
     });
 
+    test('after the clock jumps while sound plays, suspend and close settle once the sound has caught up, past the end of the sound too', async () => {
+      const browser = await launch();
+      try {
+        const { page } = await openPage(browser, { startsOnTap: true });
+        await page.clock.install({ time: new Date('2026-01-01T09:00:00') });
+        await page.clock.pauseAt(new Date('2026-01-01T09:00:10'));
+        await page.getByRole('button', { name: 'Play' }).click();
+        await page.evaluate(() => {
+          const context = window.contexts[0]!;
+          const tone = context.createOscillator();
+          tone.connect(context.destination);
+          tone.start();
+        });
+        await expect.poll(() => page.evaluate(() => window.contexts[0]!.currentTime)).toBeGreaterThan(0);
+        // suspend() and close() wait for the render the jump started, a minute of sound, then the rest of the kit's ten
+        // minutes, past which the sound has ended: each settles once it is rendered, with the clock where it stopped.
+        await page.clock.fastForward('01:00');
+        const suspended = await page.evaluate(async () => {
+          const context = window.contexts[0]!;
+          await context.suspend();
+          return { state: context.state, at: context.currentTime };
+        });
+        expect(suspended.state).toBe('suspended');
+        expect(suspended.at).toBeGreaterThan(60);
+        await page.evaluate(() => window.contexts[0]!.resume());
+        await page.clock.fastForward('10:00');
+        const closed = await page.evaluate(async () => {
+          const context = window.contexts[0]!;
+          await context.close();
+          return { state: context.state, at: context.currentTime };
+        });
+        expect(closed).toEqual({ state: 'closed', at: 600 });
+      } finally {
+        await browser.close();
+      }
+    });
+
     test("a page left while its sound plays under Playwright's clock never crashes, and the next page plays", async () => {
       const browser = await launch();
       try {
