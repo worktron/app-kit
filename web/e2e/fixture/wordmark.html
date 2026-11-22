@@ -15,8 +15,8 @@
       }
     </style>
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/wordmark.ts"></script>
-  </body>
+  <!-- No body tags, on purpose: the root's own tag makes the body, in the same step as the root, so the browser has no
+       body to paint before the name (README, "The name before the code, in one picture or two"). -->
+  <div id="root"></div>
+  <script type="module" src="/wordmark.ts"></script>
 </html>

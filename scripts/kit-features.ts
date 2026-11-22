@@ -288,6 +288,36 @@ const NAME_BEFORE_THE_CODE: Feature = {
   },
 }
 
+// The page that draws the name has no body tags, so the root's own tag makes the body: with a body tag before the
+// root, Chromium can paint the body, the paper with no name on it, while it stops reading the page between the two
+// tags. For every app whose index.html draws a name before the code, with the sign-in gate or without, as AI Buddy draws
+// it. (README, "The name before the code, in one picture or two".)
+
+/** The index.html pages with a root that draw a name before the code, with their comments taken out. */
+function namePages(app: Landed): string[] {
+  return app.tracked
+    .filter((path) => /(^|\/)index\.html$/.test(path) && !path.includes('node_modules/'))
+    .map((path) => app.show(path).replace(/<!--[\s\S]*?-->/g, ''))
+    .filter((text) => /id=["']root["']/.test(text))
+    .filter((text) => {
+      const drawn = namesDrawn(text)
+      return drawn.signedIn || drawn.signedOut
+    })
+}
+const NO_FRAME_BEFORE_THE_NAME: Feature = {
+  feature: 'no blank frame between the body and the name',
+  readme: 'The name before the code, in one picture or two',
+  names: ['holdBeforeRoot'],
+  appliesTo: (app) => namePages(app).length > 0,
+  present: async (app) =>
+    has(
+      namePages(app).every((text) => {
+        const body = text.search(/<body[\s>]/i)
+        return body < 0 || body > text.search(/id=["']root["']/)
+      }),
+    ),
+}
+
 // Calls Google's APIs with a grant the app holds: Gmail, Calendar, Drive, Docs, Sheets, Tasks, People and the token
 // endpoint. A key-only API (Books) and Google's fonts are not, and a scope's address (www.googleapis.com/auth/…) is a
 // name, not a call. Only the server's code: the reader is for an app's server, and an extension's is left out.
@@ -431,6 +461,7 @@ export const FEATURES: Feature[] = [
   OPEN_DB,
   BOUNDARY_PLACEHOLDER,
   NAME_BEFORE_THE_CODE,
+  NO_FRAME_BEFORE_THE_NAME,
   GOOGLE_ANSWERS,
   FIELDS_NEVER_ZOOM,
   PUBLIC_PAGES,

@@ -185,6 +185,21 @@ describe('an app with the sign-in gate draws its name before the code, in one pi
   });
 });
 
+test('a page that draws the name before the code has no body tag before its root, with the gate or without', async () => {
+  const NO_FRAME = 'no blank frame between the body and the name';
+  const style = "<style>#root:empty::before { content: 'Shop'; }</style>";
+  const head = `<!doctype html><html><head>${style}</head>`;
+  const root = '<div id="root"></div><script type="module" src="/src/main.tsx"></script>';
+  // A comment that names the tag, as an app's saying why it left it out, is not one.
+  expect(await verdict(NO_FRAME, { 'client/index.html': `${head}\n<!-- the root's tag makes the body -->\n${root}</html>\n` })).toBe('has');
+  expect(await verdict(NO_FRAME, { 'client/index.html': `${head}\n<!-- no <body> here -->\n${root}</html>\n` })).toBe('has');
+  // The guide's page until now, with the gate or without: AI Buddy draws the name with no gate.
+  expect(await verdict(NO_FRAME, { 'index.html': `${head}<body>\n${root}</body></html>\n`, 'src/main.tsx': "import { SignInGate } from 'app-kit/web';\n" })).toBe('lacks');
+  expect(await verdict(NO_FRAME, { 'client/index.html': `${head}<BODY class="app">${root}</BODY></html>\n` })).toBe('lacks');
+  // A page that draws no name has nothing to paint between the body and it.
+  expect(await verdict(NO_FRAME, { 'index.html': `<!doctype html><html><head></head><body>${root}</body></html>\n` })).toBe('not asked');
+});
+
 test("a server calling Google's APIs with a grant reads the answers through the kit; fonts, Books and scope names are not calls", async () => {
   const GOOGLE = "Google's answers read by the kit";
   const gmail = "const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';\n";

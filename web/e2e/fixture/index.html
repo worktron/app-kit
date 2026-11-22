@@ -14,8 +14,8 @@
       html[data-signed-in-before] #root:empty::before { content: 'fixture'; display: block; padding: 12px 16px; font: 600 16px/20px sans-serif; }
     </style>
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/main.tsx"></script>
-  </body>
+  <!-- No body tags, on purpose: the root's own tag makes the body, in the same step as the root, so the browser has no
+       body to paint before the name (README, "The name before the code, in one picture or two"). -->
+  <div id="root"></div>
+  <script type="module" src="/main.tsx"></script>
 </html>
