@@ -155,11 +155,16 @@ test('no tracked file names a personal email or home folder', () => {
 });
 
 test('no file in any commit ever named a personal email or home folder, though a later commit took it out', () => {
-  expect(addedFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE), THIS_FILE).found).toEqual([]);
+  // The plan files' history is always read, so a read that found no commit read nothing it should have.
+  const { read, found } = addedFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE), THIS_FILE);
+  expect(read.size).toBeGreaterThan(0);
+  expect(found).toEqual([]);
 });
 
 test('no commit names a person, or a personal email or home folder, as author, committer or in its message', () => {
-  expect(commitFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE)).found).toEqual([]);
+  const { read, found } = commitFacts(process.cwd(), historyToRead(process.cwd(), THIS_FILE));
+  expect(read.size).toBeGreaterThan(0);
+  expect(found).toEqual([]);
 });
 
 // Another thread's branch in the same repository, unlanded, once stopped a landing that had nothing to do with it, and
