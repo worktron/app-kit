@@ -46,7 +46,8 @@ function installOfflineAudio({ startsOnTap }) {
   /**
    * What each context is as the page sees it, apart from the engine's own state, which goes from running to suspended
    * at every step.
-   * @type {WeakMap<OfflineAudioContext, { state: AudioContextState, started: boolean, rendering: boolean, waiting: boolean, timer: ReturnType<typeof setTimeout> | undefined, clockAt: number, audioAt: number, event: Event | null }>}
+   * `stopped` settles once the engine has come to rest after the render it was last given, so its currentTime holds.
+   * @type {WeakMap<OfflineAudioContext, { state: AudioContextState, started: boolean, rendering: boolean, waiting: boolean, timer: ReturnType<typeof setTimeout> | undefined, clockAt: number, audioAt: number, event: Event | null, stopped: Promise<unknown>, ended: Promise<unknown> }>}
    */
   const contexts = new WeakMap();
 
@@ -83,19 +84,21 @@ function installOfflineAudio({ startsOnTap }) {
     // under Playwright's clock. WebKit has torn its audio down by then, and its engine resumed there starts a render that
     // fails a release assertion, which crashes the page.
     if (!document.defaultView) return;
-    // Up to the clock, and past wherever the engine stopped: after Playwright's clock jumps, sound that fell behind
-    // catches up in this one step, never 20 ms at a time, each with a timer runFor follows with a real wait. A known
-    // limit: suspend() cannot stop a render already running, so a page that suspends while a jump's catch-up renders
-    // sees currentTime go on to the clock; past no jump, a step is AHEAD, and that is all it goes on.
+    // Up to the clock, and past wherever the engine stopped: after Playwright's clock jumps, or the page's timers run
+    // late on a busy machine, sound that fell behind catches up in this one step, never 20 ms at a time, each with a
+    // timer runFor follows with a real wait. A render once started runs to its end, so suspend() and close() wait for
+    // `stopped` before they settle, and the page then reads a currentTime that holds.
     const clock = own.audioAt + (performance.now() - own.clockAt) / 1000;
     const frame = Math.ceil(((Math.max(context.currentTime, clock) + AHEAD) * context.sampleRate) / QUANTUM) * QUANTUM;
-    // The last step renders to the end, which an engine cannot be suspended at.
-    if (frame < context.length) native.suspend.call(context, frame / context.sampleRate).then(() => arrived(context), () => {});
+    // The last step renders to the end, which an engine cannot be suspended at, and comes to rest when the render ends.
+    const last = frame >= context.length;
+    const stop = last ? null : native.suspend.call(context, frame / context.sampleRate).then(() => arrived(context), () => {});
     if (own.rendering) native.resume.call(context).catch(() => {});
     else {
       own.rendering = true;
-      native.startRendering.call(context).catch(() => {});
+      own.ended = native.startRendering.call(context).catch(() => {});
     }
+    own.stopped = stop ?? own.ended;
   };
 
   /**
@@ -137,12 +140,23 @@ function installOfflineAudio({ startsOnTap }) {
    */
   const later = (change) => Promise.resolve().then(change);
 
+  /**
+   * Settles once the engine is at rest, as a browser's clock has stopped when suspend() or close() settles: a render
+   * already running goes on to its end, so the change waits for it. The engine's own stop, not a timer, so it settles
+   * under Playwright's paused clock too. Its next step, which the stop may have timed, the change then cancels.
+   * resume() waits the same way, so suspend() then resume() in one task end running, as in a browser: the changes
+   * settle in the order the page made them.
+   * @param {OfflineAudioContext} context
+   * @param {() => void} change
+   */
+  const atRest = (context, change) => later(() => record(context).stopped).then(change);
+
   const AudioContext = class AudioContext extends Offline {
     /** @param {AudioContextOptions} [options] */
     constructor(options = {}) {
       const sampleRate = options.sampleRate ?? 48000;
       super({ numberOfChannels: 2, length: Math.round(LENGTH * sampleRate), sampleRate });
-      contexts.set(this, { state: 'suspended', started: false, rendering: false, waiting: false, timer: undefined, clockAt: 0, audioAt: 0, event: null });
+      contexts.set(this, { state: 'suspended', started: false, rendering: false, waiting: false, timer: undefined, clockAt: 0, audioAt: 0, event: null, stopped: Promise.resolve(), ended: Promise.resolve() });
       // The engine's own statechange, sent at every step, never reaches the page; registered first, it runs first.
       native.addEventListener.call(this, 'statechange', (event) => {
         if (event !== record(this).event) event.stopImmediatePropagation();
@@ -196,7 +210,7 @@ function installOfflineAudio({ startsOnTap }) {
         return Promise.reject(new DOMException('A tap is needed to start sound.', 'NotAllowedError'));
       }
       own.started = true;
-      return later(() => {
+      return atRest(this, () => {
         if (record(this).state !== 'suspended') return;
         become(this, 'running');
         play(this);
@@ -209,7 +223,7 @@ function installOfflineAudio({ startsOnTap }) {
      */
     suspend() {
       if (record(this).state === 'closed') return Promise.reject(new DOMException('The context is closed.', 'InvalidStateError'));
-      return later(() => {
+      return atRest(this, () => {
         if (record(this).state !== 'running') return;
         pause(this);
         become(this, 'suspended');
@@ -218,7 +232,7 @@ function installOfflineAudio({ startsOnTap }) {
 
     close() {
       if (record(this).state === 'closed') return Promise.reject(new DOMException('The context is closed.', 'InvalidStateError'));
-      return later(() => {
+      return atRest(this, () => {
         pause(this);
         become(this, 'closed');
       });

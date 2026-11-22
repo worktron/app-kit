@@ -30,19 +30,27 @@ const PAGE = `<!doctype html><button>Play</button><script>
   window.earlyStart = window.early.resume().then(() => 'started', (error) => error.name);
   window.contexts = [];
   window.states = [];
+  // When each context first ran, the moment its audio clock starts from 0.
+  window.runningAt = [];
   document.querySelector('button').addEventListener('click', () => {
     const context = new AudioContext();
     const states = [];
-    context.addEventListener('statechange', () => states.push(context.state));
+    const at = window.contexts.length;
+    context.addEventListener('statechange', () => {
+      states.push(context.state);
+      if (context.state === 'running' && window.runningAt[at] === undefined) window.runningAt[at] = performance.now();
+    });
     window.contexts.push(context);
     window.states.push(states);
     context.resume();
   });
   // Two sources through a filter, a gain on a scheduled ramp and an analyser, then a gain of zero before the speakers,
-  // and a tone that stops on its own. Resolves with what the graph did once the audio clock has run a second and a half.
+  // and a tone that stops on its own. Resolves with what the graph did once the audio clock has run a second and a half,
+  // and the audio clock beside the time since the context first ran, from where both start: a read of currentTime taken
+  // later can lag the engine, as it does when the page's timers run late, and would start the measure behind it.
   window.play = (context) => new Promise((resolve) => {
     const start = context.currentTime;
-    const clockAt = performance.now();
+    const ranAt = window.runningAt[window.contexts.indexOf(context)];
     const filter = new BiquadFilterNode(context, { type: 'lowpass', frequency: 2000 });
     const swell = context.createGain();
     swell.gain.setValueAtTime(0, start);
@@ -72,8 +80,8 @@ const PAGE = `<!doctype html><button>Play</button><script>
       const samples = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(samples);
       resolve({
-        audio: context.currentTime - start,
-        clock: (performance.now() - clockAt) / 1000,
+        audio: context.currentTime,
+        clock: (performance.now() - ranAt) / 1000,
         peak: Math.max(...samples.map(Math.abs)),
         swell: swell.gain.value,
         ended,
@@ -276,6 +284,91 @@ for (const [name, launch] of Object.entries(BROWSERS)) {
       }
     });
 
+    test("suspended while a late step's catch-up renders, a context's clock holds from the moment suspend settles", async () => {
+      const browser = await launch();
+      try {
+        const { page } = await openPage(browser, {});
+        const clock = await page.evaluate(
+          () =>
+            new Promise<{ held: number; atRest: number }>((resolve) => {
+              const context = new AudioContext();
+              // The engine's own stops and starts, which the kit calls through the browser's OfflineAudioContext.
+              const engine = OfflineAudioContext.prototype;
+              const suspendAt = engine.suspend;
+              const resume = engine.resume;
+              let lastStop: Promise<void> = Promise.resolve();
+              engine.suspend = function (this: OfflineAudioContext, at: number) {
+                lastStop = suspendAt.call(this, at);
+                return lastStop;
+              };
+              let armed = false;
+              // The kit resumes the engine for its next step: the page suspends in that same task, while the step renders.
+              engine.resume = function (this: OfflineAudioContext) {
+                const resumed = resume.call(this);
+                if (armed && this === (context as BaseAudioContext)) {
+                  armed = false;
+                  const stop = lastStop;
+                  void context.suspend().then(async () => {
+                    const held = context.currentTime;
+                    // The engine has come to rest at the end of the step it was rendering.
+                    await stop.catch(() => {});
+                    resolve({ held, atRest: context.currentTime });
+                  });
+                }
+                return resumed;
+              };
+              context.addEventListener(
+                'statechange',
+                () => {
+                  (function moved() {
+                    if (context.currentTime < 0.1) return void setTimeout(moved, 10);
+                    // The page's thread is busy, as on a loaded Mac, so the kit's next step is late and catches up a fifth
+                    // of a second at once.
+                    armed = true;
+                    const until = performance.now() + 200;
+                    while (performance.now() < until);
+                  })();
+                },
+                { once: true },
+              );
+            }),
+        );
+        expect(clock.atRest).toBe(clock.held);
+      } finally {
+        await browser.close();
+      }
+    });
+
+    test('suspended and resumed in one task while a step renders, a context ends running, as the page asked last', async () => {
+      const browser = await launch();
+      try {
+        const { page } = await openPage(browser, {});
+        const ended = await page.evaluate(
+          () =>
+            new Promise<{ state: AudioContextState; states: AudioContextState[] }>((resolve) => {
+              const context = new AudioContext();
+              const states: AudioContextState[] = [];
+              context.addEventListener('statechange', () => states.push(context.state));
+              const engine = OfflineAudioContext.prototype;
+              const resume = engine.resume;
+              let steps = 0;
+              // The kit resumes the engine for its next step: the page suspends and resumes in that same task.
+              engine.resume = function (this: OfflineAudioContext) {
+                const resumed = resume.call(this);
+                if (this === (context as BaseAudioContext) && ++steps === 2) {
+                  void context.suspend();
+                  void context.resume().then(() => resolve({ state: context.state, states }));
+                }
+                return resumed;
+              };
+            }),
+        );
+        expect(ended).toEqual({ state: 'running', states: ['running', 'suspended', 'running'] });
+      } finally {
+        await browser.close();
+      }
+    });
+
     test('without startsOnTap a context starts on its own, as in a browser that lets a page play sound', async () => {
       const browser = await launch();
       try {
@@ -463,6 +556,7 @@ declare global {
     earlyStart: Promise<string>;
     contexts: AudioContext[];
     states: AudioContextState[][];
+    runningAt: number[];
     settled: string[];
     timersSet: number;
     held: (() => void)[];
