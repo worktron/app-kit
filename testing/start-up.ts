@@ -1,74 +1,9 @@
 // The test start-up file every project names in bunfig.toml's preload, as `app-kit/testing/start-up`: every `bun test`
 // process keeps its temporary files in /tmp/<project>-tests/<pid>, outside the system temporary folder, which slows
 // every process started in it as it fills. <project> is the name in package.json where the tests run, or the folder's
-// name when it has none.
-import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
-import { removeAppsNow } from './forget-apps.js';
+// name when it has none. temporary-folder.ts does the work, which the kit's browser tests share.
+import { testsFolder, useOwnFolder } from './temporary-folder';
 
-/** The project's name as one folder name: `@perf-buddy/server` is `perf-buddy-server`, so its owner is checked once. */
-export function projectName(folder: string): string {
-  let name = '';
-  try {
-    name = (JSON.parse(readFileSync(join(folder, 'package.json'), 'utf8')) as { name?: unknown }).name as string;
-  } catch {
-    // No package.json, or none that reads: the folder's name.
-  }
-  if (typeof name !== 'string' || !name) name = basename(folder);
-  return name.replace(/^@/, '').replace(/[/\\]/g, '-');
-}
+export { folderProblem, projectName, sweepEnded } from './temporary-folder';
 
-// /tmp is shared by every account: use the folder only when it is a real folder this user owns that no one else can
-// write to, so no one can plant files in it.
-export function folderProblem(path: string, uid = process.getuid!()): string | null {
-  try {
-    mkdirSync(path, { mode: 0o700 });
-  } catch (e) {
-    if ((e as { code?: string }).code !== 'EEXIST') return `cannot make it: ${String(e)}`;
-  }
-  const s = lstatSync(path);
-  if (s.isSymbolicLink()) return 'it is a symlink';
-  if (!s.isDirectory()) return 'it is not a folder';
-  if (s.uid !== uid) return `it belongs to uid ${s.uid}, not ${uid}`;
-  if (s.mode & 0o022) return `others can write to it (mode ${(s.mode & 0o777).toString(8)})`;
-  return null;
-}
-
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as { code?: string }).code === 'EPERM';
-  }
-};
-
-// bun test runs no exit handler, so the folders of ended processes are removed by the next one, and macOS forgets any
-// app a test left in one (a copy of a browser, a stand-in), which it would otherwise keep in its list of apps for good.
-export function sweepEnded(root: string, run?: (command: string[]) => unknown): void {
-  for (const name of readdirSync(root)) {
-    if (!/^\d+$/.test(name) || alive(Number(name))) continue;
-    for (const { path, error } of removeAppsNow([join(root, name)], run)) {
-      // Another process removing it at once; anything else is said, and the next run tries again.
-      if ((error as { code?: string }).code !== 'ENOENT') console.warn(`could not remove ${path}, left by a test process that ended: ${String(error)}`);
-    }
-  }
-}
-
-const ROOT = `/tmp/${projectName(process.cwd())}-tests`;
-const problem = folderProblem(ROOT);
-if (problem) throw new Error(`the tests keep their temporary files in ${ROOT}, and ${problem}. Look at what is there, remove it if it is not yours, and run the tests again`);
-process.env.TEST_SHARED_TMPDIR ??= tmpdir(); // for what every test process shares, like port reservations
-const own = join(ROOT, String(process.pid));
-try {
-  mkdirSync(own, { mode: 0o700 }); // fails with EEXIST for every file after the first in this process
-  sweepEnded(ROOT);
-} catch (e) {
-  if ((e as { code?: string }).code !== 'EEXIST') throw e;
-  // Checked again when it was already there. A known limit: a process given the pid of an ended one whose folder no
-  // run swept takes that folder, and what it held, as its own.
-  const ownProblem = folderProblem(own);
-  if (ownProblem) throw new Error(`the tests keep this process's temporary files in ${own}, and ${ownProblem}. Look at what is there, remove it if it is not yours, and run the tests again`);
-}
-process.env.TMPDIR = own;
+useOwnFolder(testsFolder(process.cwd()));
