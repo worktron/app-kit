@@ -1183,3 +1183,11 @@ Goal: this is a fault in bun 1.4.4 on macOS, worked around in app-kit and not ye
 Done when: a minimal reproduction (a pending `.rejects` in one concurrent test, child processes in others) is written, checked against bun's latest release, and, on the owner's yes, filed on bun's issue tracker with the link added here; or the latest bun no longer shows it in 20 runs and this ticket is closed with that count.
 
 Touches: nothing in the kit unless a bun upgrade lets the hand-caught failure go back to `.rejects`.
+
+## extension-icons-from-mark · `icons render --extension` draws an extension's icons from mark.svg alone
+Written by: amazon-connector/app-kit-v0-48-0
+
+Goal: renderIcons (icons/render.ts) requires app-icon.svg for every target, so an extension that has only a mark.svg, such as amazon-connector's design/icon, cannot use `app-kit icons render --extension` and keeps its own rsvg-convert script (scripts/render-icons.sh) with Chrome's 96-of-128 inset done by hand. --extension draws only from the mark, so the app icon should be asked for only by the targets that draw from it.
+Done when: `app-kit icons render design/icon --extension extension/icons` writes icon-16, -32, -48 and -128 from a folder holding only mark.svg, a run for a Mac, iPhone or web target with no app-icon.svg still fails naming it, a test holds both, and the gates pass.
+Do not touch: the drawings' sizes and Apple's grid check for the app icon.
+Touches: icons/render.ts, its test, bin/app-kit.ts's usage.
