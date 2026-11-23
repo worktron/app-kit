@@ -1154,3 +1154,10 @@ Cause: `projectOf` in `scripts/apps.ts:94` takes the last part of the folder pat
 Change: name the app by its main checkout's folder (the parent of `git rev-parse --git-common-dir`, which is the main checkout's `.git` in a worktree and `.git` itself in a main checkout), so a worktree and its main checkout give the same name. The apps report reads main checkouts and keeps the names it shows today.
 
 Done when: a test runs `owed.ts` on a linked worktree of a scratch app and its first line names the app's main checkout folder, and the same run on the main checkout prints the same name.
+
+## toolbar-icon-light-mac · The toolbar icon's light-Mac browser cases run on a Mac in Dark mode too
+Written by: app-kit/toolbar-icon-chrome-mode
+
+Goal: extension/e2e/toolbar-icon.e2e.ts runs its site-access cases twice, for a light Mac and a dark Mac, and the dark Mac is Chromium's --force-dark-mode. Chromium has no switch for a light Mac on a dark one, and changing the Mac's appearance during a test is off-limits since it changes the owner's screen, so on a Mac in Dark mode the four light-Mac cases skip by name (macIsDark, read from `defaults read -g AppleInterfaceStyle`). The landing of v0.75.0 (20940d8) ran 5 and skipped 4 for that reason: on a dark Mac a regression that shows only on a light Mac lands unseen. Worth checking first: a Chromium feature or pref that sets the native theme's dark state (as --force-dark-mode does) to light, a headless mode that ignores the system appearance, or running that half on a machine kept in light mode. Found by the toolbar-icon-chrome-mode thread, 2026-11-22.
+
+Done when: on a Mac in Dark mode, `bun test ./extension/e2e/toolbar-icon.e2e.ts` runs all nine cases, the light-Mac ones with Chromium seeing a light system appearance, without changing the Mac's own appearance; or, if no way exists, the test says where the light-Mac half does run and the gates run it there.
