@@ -36,7 +36,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 tauri-plugin = { version = "2", features = ["build"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-# Turns on the iPhone web view's swipe back (src/iphone.rs), which Tauri has no setting for.
+# Turns on the iPhone web view's swipe back and turns off shake to undo (src/iphone.rs), which Tauri has no setting for.
 objc2 = "0.6"
 
 [dev-dependencies]

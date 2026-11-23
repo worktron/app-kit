@@ -288,6 +288,16 @@ test('the iPhone window turns on the swipe back for the main window only', () =>
   expect(iphone).toMatch(/#\[cfg\(target_os = "ios"\)\]\s*pub\(crate\) fn allow_swipe_back/);
 });
 
+// A shake after typing raised iOS's "Undo Typing" alert over the page, so the plugin turns shake to undo off for the
+// app as the main window's web view is made, on the main thread. Read from the Rust for the same reason as above.
+test('the iPhone app turns off shake to undo as the main window is made', () => {
+  const lib = read('src/lib.rs');
+  expect(lib).toMatch(/if on_main\(webview\.label\(\)\) \{\s*iphone::allow_swipe_back\(&webview\);\s*iphone::turn_off_shake_to_undo\(\);/);
+  const iphone = read('src/iphone.rs');
+  expect(iphone).toContain('msg_send![application, setApplicationSupportsShakeToEdit: false]');
+  expect(iphone).toMatch(/#\[cfg\(target_os = "ios"\)\]\s*pub\(crate\) fn turn_off_shake_to_undo/);
+});
+
 test('the README shows the shell that plugin/tests/readme.rs compiles', () => {
   const readme = readFileSync(join(import.meta.dir, '../README.md'), 'utf8');
   const section = readme.split('### A window onto the hosted site')[1]!.split('\n### ')[0]!;

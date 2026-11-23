@@ -28,6 +28,28 @@ pub(crate) fn allow_swipe_back<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
     }
 }
 
+/// Turns off iOS's shake to undo for the whole app: a shake after typing raised Apple's "Undo Typing" alert over the
+/// page, set off by a phone carried in a hand or a pocket far more often than on purpose. Typed text still undoes with
+/// three fingers swiped left, or a double tap with three fingers, which UIKit keeps on. Called on the main thread, which
+/// UIApplication needs, as the main window's web view is made.
+#[cfg(target_os = "ios")]
+pub(crate) fn turn_off_shake_to_undo() {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    let application: *mut AnyObject = unsafe { msg_send![class!(UIApplication), sharedApplication] };
+    let Some(application) = (unsafe { application.as_ref() }) else {
+        log::warn!("the app has no UIApplication yet to turn off shake to undo in");
+        return;
+    };
+    let () = unsafe { msg_send![application, setApplicationSupportsShakeToEdit: false] };
+    let on: bool = unsafe { msg_send![application, applicationSupportsShakeToEdit] };
+    if on {
+        log::warn!("the app kept shake to undo on after it was turned off");
+    } else {
+        log::info!("a shake no longer asks to undo typing");
+    }
+}
+
 /// The iPhone's web view drops a page's requests for a new window (wry answers them on the Mac only), so window.open
 /// would do nothing, as Google sign-in's trip to Safari or a link opened from a script. This hands each to the opener
 /// plugin, which opens it in Safari or the app for it; the opener's own script already does the same for a click on a
