@@ -272,9 +272,30 @@ export function listedKeychains(output: string): string[] {
     .filter(Boolean);
 }
 
-/** Deletes the keychain the build signed from, which takes it off the list too. Synchronous, for a signal's handler. */
-export function deleteKeychain(path: string) {
-  Bun.spawnSync(['/usr/bin/security', 'delete-keychain', path], { stdout: 'ignore', stderr: 'ignore' });
-  // One security could not delete is removed as a file; off the list, it is nothing more.
+/** `security` run with these arguments, synchronously, as a signal's handler must: its exit code and output. */
+export type Security = (args: string[]) => { code: number; out: string };
+const security: Security = (args) => {
+  const done = Bun.spawnSync(['/usr/bin/security', ...args], { stdout: 'pipe', stderr: 'pipe' });
+  return { code: done.exitCode ?? 1, out: `${done.stdout.toString()}${done.stderr.toString()}` };
+};
+
+/**
+ * Deletes the keychain the build signed from, which takes it off the user's keychain list too. When security cannot
+ * delete it, the file is removed and the list is set again without it; what is still wrong after that is returned, for
+ * the upload to say. Synchronous, for a signal's handler.
+ */
+export function deleteKeychain(path: string, run: Security = security): string | null {
+  const deleted = run(['delete-keychain', path]);
   rmSync(path, { force: true });
+  if (deleted.code === 0) return null;
+  const listed = run(['list-keychains', '-d', 'user']);
+  if (listed.code !== 0) return `security could not delete the build's keychain ${path} (${lastLine(deleted.out)}), nor list the keychains to check it is off the list: security list-keychains -d user shows them`;
+  const kept = listedKeychains(listed.out);
+  if (!kept.includes(path)) return null;
+  const others = kept.filter((keychain) => keychain !== path);
+  const set = run(['list-keychains', '-d', 'user', '-s', ...others]);
+  if (set.code === 0) return null;
+  return `the build's keychain ${path} is gone but still on the keychain list, and security could not take it off (${lastLine(set.out)}): security list-keychains -d user -s ${others.map((keychain) => JSON.stringify(keychain)).join(' ')} does`;
 }
+
+const lastLine = (text: string) => text.trim().split('\n').at(-1) ?? '';

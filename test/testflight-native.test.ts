@@ -10,7 +10,7 @@ import { runCommand } from '../command-line/run.ts';
 import { countsAsApp } from '../tauri/watch-main.ts';
 import { decide } from '../tauri/testflight/watch.ts';
 import { upload, type UploadOptions } from '../tauri/testflight/upload.ts';
-import { buildNumberProblem, isNativeFolder, nativeIconProblem, nativeProject, type NativeProject } from '../tauri/testflight/native.ts';
+import { buildNumberProblem, deleteKeychain, isNativeFolder, nativeIconProblem, nativeProject, type NativeProject } from '../tauri/testflight/native.ts';
 import { drawTvIcons, LISTED_KEYCHAIN, projectYml, tv as tvFor, TV_BUNDLE_ID, TV_TARGET, tvFixture, type Tv } from './testflight-native-stand-in.ts';
 import { appStoreConnect, CERTIFICATE, commit, git, GIT_IDENTITY_ENV, profileContent, scratch } from './testflight-stand-in.ts';
 
@@ -281,6 +281,32 @@ describe("the watcher's rule for a native app's files", () => {
     expect(judge([`tvos/${TV_TARGET}Tests/HomeTests.swift`, 'tvos/README.md'])).toEqual({ upload: false, reason: 'skipped: no app files changed since build 10' });
     expect(judge([`tvos/${TV_TARGET}/Home.swift`]).upload).toBe(true);
   });
+});
+
+test("a keychain security cannot delete is taken off the user's list, and one it cannot take off is named", () => {
+  const keychain = join(place.folder, 'signing.keychain-db');
+  const login = '/Library/Keychains/System.keychain';
+  const answer = (setCode: number) => {
+    const calls: string[][] = [];
+    const run = (args: string[]) => {
+      calls.push(args);
+      if (args[0] === 'delete-keychain') return { code: 50, out: 'security: SecKeychainDelete: The specified keychain could not be found.' };
+      if (args.includes('-s')) return { code: setCode, out: setCode ? 'security: SecKeychainSetSearchList: refused' : '' };
+      return { code: 0, out: `    "${keychain}"\n    "${login}"\n` };
+    };
+    return { calls, run };
+  };
+  writeFileSync(keychain, 'a keychain');
+  const taken = answer(0);
+  expect(deleteKeychain(keychain, taken.run)).toBeNull();
+  expect(existsSync(keychain)).toBe(false);
+  expect(taken.calls.at(-1)).toEqual(['list-keychains', '-d', 'user', '-s', login]);
+  const stuck = answer(1);
+  expect(deleteKeychain(keychain, stuck.run)).toBe(`the build's keychain ${keychain} is gone but still on the keychain list, and security could not take it off (security: SecKeychainSetSearchList: refused): security list-keychains -d user -s "${login}" does`);
+  // Deleted as asked, nothing more is done.
+  const fine = { calls: [] as string[][], run: (args: string[]) => (fine.calls.push(args), { code: 0, out: '' }) };
+  expect(deleteKeychain(keychain, fine.run)).toBeNull();
+  expect(fine.calls).toEqual([['delete-keychain', keychain]]);
 });
 
 test('the build number check passes the build setting and refuses anything else', () => {

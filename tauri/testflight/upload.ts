@@ -564,7 +564,10 @@ async function nativeUploadSteps(options: UploadOptions, started: BuildStarted):
   const keychain = join(folder, 'signing.keychain-db');
   let keychainMade = false;
   const putBack = cleanupOnStop(() => {
-    if (keychainMade) deleteKeychain(keychain);
+    if (keychainMade) {
+      const left = deleteKeychain(keychain);
+      if (left) say(left);
+    }
     // After the build is stopped for good, so it cannot write the app again.
     if (started.started) removeAppsNow(appsBelow(folder));
     rmSync(folder, { recursive: true, force: true });
