@@ -39,6 +39,23 @@ const record = (name: string) =>
 
 const status = () => hostStatus(socket).catch(() => null as HostStatus | null)
 
+/**
+ * Fires the worker's `check` alarm after a new commit, which reloads the extension, and resolves with the new worker.
+ * The reload closes every page of the extension, the one the harness sets the alarm from included, and on a busy Mac it
+ * can close it before the harness hears the alarm was set. So a page closed under the step is let go, and the new worker
+ * is the proof the alarm ran: with no alarm, no new worker comes and the wait for it fails.
+ */
+async function reloadByAlarm() {
+  const reloaded = ext.nextWorker()
+  reloaded.catch(() => {})
+  try {
+    await ext.fireAlarm('check')
+  } catch (error) {
+    if (!String(error).includes('Target page, context or browser has been closed')) throw error
+  }
+  return reloaded
+}
+
 beforeAll(async () => {
   // The server answers with Bun's own Response, not the unit tests' simulated page's.
   pageBack = await withoutPage()
@@ -91,9 +108,7 @@ test('a new commit in the checkout reloads the worker and restarts the host on i
   ext.git('pack-refs', '--all')
 
   // The worker's own one-minute alarm, brought forward; the rest is the worker.
-  const reloaded = ext.nextWorker()
-  await ext.fireAlarm('check')
-  await reloaded
+  await reloadByAlarm()
 
   const after = await until(status, (s) => s?.extension?.commit === second)
   expect(after?.extension).toMatchObject({ version: `0.1.0-second (${second.slice(0, 7)})`, commit: second })
@@ -164,9 +179,7 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
   const origin = `chrome-extension://${ext.extensionId}/`
   writeFileSync(join(ext.checkout, 'landing.txt'), 'a landing\n')
   ext.commit('a landing')
-  const reloaded = ext.nextWorker()
-  await ext.fireAlarm('check')
-  await reloaded
+  await reloadByAlarm()
 
   const page = await ext.context.newPage()
   try {
