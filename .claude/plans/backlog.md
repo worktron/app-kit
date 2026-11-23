@@ -1191,3 +1191,18 @@ Written by: app-kit/first-frame-body-gap
 Goal: scripts/kit-features.ts NO_FRAME_BEFORE_THE_NAME (v0.76.0) applies to an app only when a tracked index.html with a root draws a name in `#root:empty::before`, read from the source file. An app that puts the name into the page at build time, as Assay does through its Vite config (brand.ts), reads as not asked, so one built that way that still has a body tag before its root would go unflagged. Assay itself is fine: its index.html has no body tags. NAME_BEFORE_THE_CODE has the same reading. Found by the first-frame-body-gap thread, 2026-11-22.
 
 Done when: the line asks an app whose name before the code comes from its build, test/kit-features-entries.test.ts holds a made-up app that injects the name and keeps a body tag (lacks) and one without it (has), and Assay reads as has.
+
+## gate-cache-prune · The shared Rust build cache for app-kit's gates stays bounded
+
+Goal: `~/Library/Caches/app-kit/cargo-target`, the Cargo target folder app-kit's gates share
+across apps, was 16.5 GB on 2026-11-21 (measured with `du` by metamax's
+work-cleans-up-after-itself thread, while the data volume was at 6 GB free), and nothing
+prunes it. Sharing it is what makes a gate fast, so the fix is a bound, not deletion:
+for example, drop build artifacts no gate has used for N days, or cap the folder's size and
+evict the oldest. The release checkouts (testflight 13 GB, mac-release 5.8 GB) keep their
+Rust target on purpose and are out of scope.
+An idea, not a fault: nothing is wrong today, and 111 GB was free on 2026-11-23.
+Done when: the cache folder stays under a stated size or age bound across gate runs, a test proves the eviction, and a gate run after eviction still builds.
+Do not touch: the release checkouts' own build folders.
+Needs: none.
+Touches: app-kit's gate scripts where they set `CARGO_TARGET_DIR`.
