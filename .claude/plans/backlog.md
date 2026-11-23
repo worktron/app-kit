@@ -1161,3 +1161,15 @@ Written by: app-kit/gh-token-retry
 Goal: this is a fault, not an idea. The practices' test rules hold a unit test file under five seconds; test/mac-watch.test.ts ran its 33 tests in 32.7 s and 34.2 s on 2026-11-22 (bun test test/mac-watch.test.ts, twice, at the Mac's ordinary load from other sessions), and it ran as long on the code before v0.75.1, whose two new gh token tests take about 1 to 2 s of it. Its header says why: each test runs real git a dozen or more times over file:// repositories, a fresh clone per test from a copied seed, and it sets a 15-second default per test. No single test is near the limit (the slow-unit-tests ticket's junit runs put its slowest at 2.2 to 2.3 s), so it fails no landing today; the cost is the time every gates run spends on it. Where its time goes is not measured: start by counting the git processes each test starts (GIT_TRACE2_EVENT, as test/land.test.ts's header describes) and see whether a prepared clone can be copied instead of cloned and fetched per test, as the landing tests were cut. Raising a timeout or splitting the file to hide its total is not a fix. Related: slow-unit-tests (single tests near the limit, this file among them). Found by the gh-token-retry thread, 2026-11-22.
 
 Done when: test/mac-watch.test.ts runs whole in under five seconds in several runs in a row at the Mac's ordinary load, with every test still proving what it proves now, and the change lands on app-kit's main.
+
+## pglite-ready-made-start-timeout · The database test that starts from the ready-made empty database timed out on a busy Mac
+
+Written by: app-kit/landing-tests-load
+
+Goal: this is a fault. test/postgres.test.ts "starts a new PGlite folder from the ready-made empty database and keeps it across opens, migrating it only once" (classname openDb) took 7.26 s, "test timed out" against bun's 5-second limit, in one of five whole-suite runs run as a landing runs them on 2026-11-22 (bun 1.4.4, the 18-core Mac, load 38 to 57 before the run and 48 after, a suite of 451 s where the same suite took 84 to 220 s in the other runs). It passed in the other four. One sighting, from that run's junit report; where its time went is not traced. It is not postgres-template-step-cheaper's test, whose ticket leaves the ready-made empty database start-up alone. A timeout here stops any landing, including ones that never touched the database.
+
+Done when: with no time limit raised, the test's time on a busy machine is traced (PGlite's load of the ready-made files, the migration, the reopen), the part that grows with load is cut or taken out from under the wall-clock limit, and test/postgres.test.ts passes five whole-suite runs in a row beside enough busy processes that the old code fails, each run's load recorded.
+
+Do not touch: time limits in the tests or bunfig.toml; what openDb does for apps.
+
+Touches: server/postgres/index.ts, test/postgres.test.ts.
