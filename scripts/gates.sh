@@ -16,6 +16,13 @@ bun install --frozen-lockfile >/dev/null
 bun run typecheck
 bun run lint
 bun test
+# Playwright's browser builds live in one folder every checkout on the Mac shares, and any project's `playwright install`
+# deletes each build no checkout still on disk has registered, which only an install does. So the gates install the
+# Chromium and WebKit this Playwright needs: a no-op when they are there, a download when another project's install took
+# them, and this checkout registered, so no other install takes them while the browser tests run. --no-remove keeps this
+# install from deleting another project's builds the same way.
+echo "gates: installing any of Playwright's Chromium and WebKit that another project's install removed from the shared cache"
+bunx playwright install --no-remove chromium webkit
 bash scripts/e2e.sh
 # The Clerk browser test against the App Kit development instance, only for a change to the Clerk steps or to a Clerk
 # package's version: it needs the network and a 1Password read, which no other landing should wait on.
