@@ -1184,3 +1184,10 @@ Goal: renderIcons (icons/render.ts) requires app-icon.svg for every target, so a
 Done when: `app-kit icons render design/icon --extension extension/icons` writes icon-16, -32, -48 and -128 from a folder holding only mark.svg, a run for a Mac, iPhone or web target with no app-icon.svg still fails naming it, a test holds both, and the gates pass.
 Do not touch: the drawings' sizes and Apple's grid check for the app icon.
 Touches: icons/render.ts, its test, bin/app-kit.ts's usage.
+
+## report-build-time-name · The apps report's body-before-the-name line sees a name only in index.html's source
+Written by: app-kit/first-frame-body-gap
+
+Goal: scripts/kit-features.ts NO_FRAME_BEFORE_THE_NAME (v0.76.0) applies to an app only when a tracked index.html with a root draws a name in `#root:empty::before`, read from the source file. An app that puts the name into the page at build time, as Assay does through its Vite config (brand.ts), reads as not asked, so one built that way that still has a body tag before its root would go unflagged. Assay itself is fine: its index.html has no body tags. NAME_BEFORE_THE_CODE has the same reading. Found by the first-frame-body-gap thread, 2026-11-22.
+
+Done when: the line asks an app whose name before the code comes from its build, test/kit-features-entries.test.ts holds a made-up app that injects the name and keeps a body tag (lacks) and one without it (has), and Assay reads as has.
