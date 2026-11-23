@@ -56,6 +56,24 @@ async function reloadByAlarm() {
   return reloaded
 }
 
+/** Closes the toolbar icon's hidden page and waits until Chromium no longer lists it. */
+async function closeHiddenPage() {
+  const browser = ext.context.browser()
+  if (!browser) throw new Error('Playwright gave no browser for the context, so the hidden page cannot be reached')
+  const session = await browser.newBrowserCDPSession()
+  try {
+    const hidden = async () =>
+      ((await session.send('Target.getTargets')).targetInfos as { targetId: string; type: string; url: string }[]).filter(
+        (target) => target.type === 'background_page' && target.url.startsWith(`chrome-extension://${ext.extensionId}/`),
+      )
+    for (const target of await hidden()) await session.send('Target.closeTarget', { targetId: target.targetId })
+    const left = await until(hidden, (found) => found.length === 0, 10_000)
+    if (left.length) throw new Error(`Chromium still lists the hidden page after it was closed: ${left.map((target) => target.url).join(', ')}`)
+  } finally {
+    await session.detach()
+  }
+}
+
 beforeAll(async () => {
   // The server answers with Bun's own Response, not the unit tests' simulated page's.
   pageBack = await withoutPage()
@@ -189,6 +207,7 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
     const readRecord = () => page.evaluate(async (key) => ((await (globalThis as any).chrome.storage.local.get(key))[key] ?? null) as JobRecord | null, 'job:check')
     const session = await ext.context.newCDPSession(page)
     const starts: number[] = []
+    let stoppedAt: number | undefined
     // Every update Chrome sent for the extension's worker, for a failure to show.
     const updates: string[] = []
     session.on('ServiceWorker.workerVersionUpdated', ({ versions }: { versions: { versionId: string; scriptURL: string; runningStatus: string }[] }) => {
@@ -196,14 +215,26 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
       const ours = versions.filter((version) => version.scriptURL.startsWith(origin))
       for (const version of ours) updates.push(`${at} ${version.versionId} ${version.runningStatus}`)
       if (ours.some((version) => version.runningStatus === 'starting')) starts.push(at)
+      if (ours.some((version) => version.runningStatus === 'stopped')) stoppedAt = at
     })
     await session.send('ServiceWorker.enable')
     // A reload deletes the alarm, so one here was made again by the reloaded worker's job, which the clock rests on.
     const remade = await until(() => page.evaluate(async () => ((await (globalThis as any).chrome.alarms.get('check')) ?? null) as { periodInMinutes?: number } | null), (found) => found !== null)
     expect(remade?.periodInMinutes).toBe(1)
 
+    // The toolbar icon's hidden page, which the reloaded worker opens, tells it the Mac's mode and starts it to do so: a
+    // message on its way as the worker stops starts it again at once, and one the worker had no time to answer is sent
+    // again two seconds later. So the worker hears it first (it keeps the Mac's mode only from that page here, with no
+    // web page open to read), then the page is closed; the worker opens it again when the alarm starts it.
+    const heard = await until(() => page.evaluate(async () => (await (globalThis as any).chrome.storage.session.get('toolbarIconMac')).toolbarIconMac ?? null), (found) => typeof found === 'boolean')
+    if (typeof heard !== 'boolean') throw new Error("the reloaded worker never heard from the toolbar icon's hidden page")
+    await closeHiddenPage()
+
+    stoppedAt = undefined
     await ext.stopWorker()
-    const stopped = Date.now()
+    // Chrome's own time for the stop, not the step's return, which on a busy Mac comes long after it.
+    const stopped = await until(() => stoppedAt, (at) => at !== undefined, 10_000)
+    if (stopped === undefined) throw new Error(`Chrome reported no stop of the worker; its updates were: ${updates.join(', ')}`)
     const before = await readRecord()
     // Brought forward once the stop is reported, from the page, so only the alarm can start the worker.
     const due = await page.evaluate(async () => {
@@ -216,7 +247,7 @@ test('after a self-reload, an alarm starts the stopped worker and its job runs',
     // The worker started for the alarm, not for the page's reads before it was due.
     const firstStart = starts.find((at) => at >= stopped)
     if (firstStart === undefined) throw new Error(`Chrome reported no start of the worker after it was stopped at ${stopped}, with the alarm due at ${due}; its updates were: ${updates.join(', ')}`)
-    expect(firstStart).toBeGreaterThanOrEqual(due)
+    if (firstStart < due) throw new Error(`Something other than the alarm started the worker at ${firstStart}, after it was stopped at ${stopped} and before the alarm was due at ${due}; its updates were: ${updates.join(', ')}`)
     await session.detach()
   } finally {
     await page.close()
@@ -290,13 +321,31 @@ test('the toolbar icon follows light and dark mode, and a switch while the worke
   try {
     await page.goto(`chrome-extension://${ext.extensionId}/look.html`)
     const shown = () => page.evaluate(async () => ((await (globalThis as any).chrome.storage.session.get('toolbarIcon')).toolbarIcon ?? null) as ToolbarIcon | null)
+    // Whether Chrome has the worker running, for a failure to say.
+    const session = await ext.context.newCDPSession(page)
+    let running = 'not reported'
+    session.on('ServiceWorker.workerVersionUpdated', ({ versions }: { versions: { scriptURL: string; runningStatus: string }[] }) => {
+      for (const version of versions) if (version.scriptURL.startsWith(`chrome-extension://${ext.extensionId}/`)) running = version.runningStatus
+    })
+    await session.send('ServiceWorker.enable')
+    /** What each side showed when no icon came: the hidden pages, the mode the hidden page reads, the worker and its errors. */
+    const seen = async () => {
+      const worker = running
+      const browser = await ext.context.browser()!.newBrowserCDPSession()
+      const targets = ((await browser.send('Target.getTargets')).targetInfos as { type: string; url: string }[]).filter((target) => target.url.startsWith(`chrome-extension://${ext.extensionId}/`))
+      await browser.detach()
+      // Only the hidden page answers this question; asked from here it also starts a stopped worker, so the worker's state is read first.
+      const hiddenDark = await page.evaluate(() => (globalThis as any).chrome.runtime.sendMessage({ type: 'app-kit-color-scheme-mac' }).then((answer: { dark?: boolean } | undefined) => answer?.dark ?? 'no answer', (error: Error) => `no answer (${error.message})`))
+      const errors = (await status())?.extension?.errors.map((error) => error.message) ?? 'no status'
+      return `the worker ${worker}; the extension's pages ${targets.map((target) => `${target.type} ${target.url}`).join(', ')}; the hidden page reads dark: ${hiddenDark}; the worker's errors ${JSON.stringify(errors)}`
+    }
     let last = ''
     const switchTo = async (scheme: 'light' | 'dark') => {
       await ext.setColorScheme(scheme)
       const icon = await until(shown, (found) => found?.mode === scheme && found.at > last, 10_000)
-      expect(icon?.mode).toBe(scheme)
-      last = icon!.at
-      return icon!
+      if (icon?.mode !== scheme || !(icon.at > last)) throw new Error(`No ${scheme} toolbar icon was recorded after ${last || 'the start'}; the last record was ${JSON.stringify(icon)}; ${await seen()}`)
+      last = icon.at
+      return icon
     }
 
     const light = await switchTo('light')
