@@ -37,11 +37,12 @@
  * Exit codes: 0 uploaded and processed (or already uploaded, then processed); 3 the app did not compile; 1 anything
  * else.
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inflateSync } from 'node:zlib';
-import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type CertificateRecord, type Profile, type TestFlightKey } from './app-store-connect.ts';
+import { pngOpacities } from './icon-opacity.ts';
+import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type CertificateRecord, type Profile, type ProfileType, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
 import { lock } from '../state.ts';
 import {
@@ -65,10 +66,21 @@ import {
 } from './signing.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { deepLinkProblem } from '../deep-link-entitlements.ts';
-import { iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
+import { appsBelow, iphoneApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
+import {
+  buildNumberProblem,
+  deleteKeychain,
+  exportOptions,
+  isNativeFolder,
+  listedKeychains,
+  nativeIconProblem,
+  nativeProject,
+  nativeSigningSettings,
+  PROJECT_YML,
+} from './native.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 
-export { buildEnv, STOP_SIGNALS };
+export { buildEnv, pngOpacities, STOP_SIGNALS };
 
 export const EXPORT_OPTIONS = 'src-tauri/gen/apple/ExportOptions.plist';
 /** The app's Info.plist and each extension's, all of which Tauri's archive writes the build number into. */
@@ -114,98 +126,6 @@ export function alreadyUploaded(output: string): boolean {
 
 /** The iPhone app's icon set, in the Tauri project's generated Xcode project, where `tauri ios init` puts it. */
 export const ICON_SET = 'src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset';
-
-/** Each colour type's samples per pixel: grey, colour, palette, grey with alpha, colour with alpha. */
-const PNG_CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
-/** Adam7's seven passes over an interlaced image: the first column and row of each, and its steps across and down. */
-const ADAM7 = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]] as const;
-
-/**
- * How many of a PNG's pixels are at each opacity, from 0 (see-through) to 255 (opaque), a 16-bit alpha rounded down so
- * only a full one counts as 255; null when the bytes are not a PNG whose first chunk is its header, or its image data
- * cannot be read. An image with no alpha channel and no transparency chunk is opaque without being decoded; any other is
- * decoded whole: every colour type, bit depth, row filter and Adam7's interlacing, so a transparency only an unused
- * palette entry or colour carries counts for nothing, as on the phone.
- */
-export function pngOpacities(bytes: Uint8Array): number[] | null {
-  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  if (view.length < 33 || !view.subarray(0, 8).equals(signature) || view.toString('latin1', 12, 16) !== 'IHDR') return null;
-  const [width, height, depth, colourType, interlace] = [view.readUInt32BE(16), view.readUInt32BE(20), view[24]!, view[25]!, view[28]!];
-  const channels = PNG_CHANNELS[colourType];
-  if (!channels || !width || !height || ![1, 2, 4, 8, 16].includes(depth) || interlace > 1) return null;
-  let transparency: Buffer | undefined;
-  const data: Buffer[] = [];
-  for (let at = 8; at + 12 <= view.length; ) {
-    const length = view.readUInt32BE(at);
-    const type = view.toString('latin1', at + 4, at + 8);
-    const body = view.subarray(at + 8, at + 8 + length);
-    if (type === 'tRNS') transparency = body;
-    if (type === 'IDAT') data.push(body);
-    if (type === 'IEND') break;
-    at += 12 + length;
-  }
-  // A colour key holds a two-byte value for each channel; one cut short cannot say which colour it makes see-through.
-  if (transparency && (colourType === 0 || colourType === 2) && transparency.length < channels * 2) return null;
-  const counts = Array.from({ length: 256 }, () => 0);
-  if (colourType !== 4 && colourType !== 6 && !transparency) {
-    counts[255] = width * height;
-    return counts;
-  }
-  let pixels: Buffer;
-  try {
-    pixels = inflateSync(Buffer.concat(data));
-  } catch {
-    return null;
-  }
-  const max = (1 << depth) - 1;
-  const bits = channels * depth;
-  const step = Math.max(1, bits >> 3);
-  const sample = (row: Buffer, x: number, channel: number) => {
-    if (depth === 16) return row.readUInt16BE((x * channels + channel) * 2);
-    if (depth === 8) return row[x * channels + channel]!;
-    const bit = (x * channels + channel) * depth;
-    return (row[bit >> 3]! >> (8 - depth - (bit & 7))) & max;
-  };
-  const key = transparency && (colourType === 0 || colourType === 2) ? Array.from({ length: channels }, (_, at) => transparency.readUInt16BE(at * 2)) : null;
-  const opacity = (row: Buffer, x: number): number => {
-    if (colourType === 4 || colourType === 6) {
-      const alpha = sample(row, x, channels - 1);
-      return depth === 16 ? Math.floor(alpha / 257) : alpha;
-    }
-    if (colourType === 3) return transparency![sample(row, x, 0)] ?? 255;
-    return key!.every((value, channel) => sample(row, x, channel) === value) ? 0 : 255;
-  };
-  let at = 0;
-  for (const [left, top, across, down] of interlace ? ADAM7 : [[0, 0, 1, 1] as const]) {
-    const passWidth = Math.ceil((width - left) / across);
-    const passHeight = Math.ceil((height - top) / down);
-    if (passWidth <= 0 || passHeight <= 0) continue;
-    const rowBytes = Math.ceil((passWidth * bits) / 8);
-    let previous = Buffer.alloc(rowBytes);
-    for (let y = 0; y < passHeight; y++, at += 1 + rowBytes) {
-      if (at + 1 + rowBytes > pixels.length) return null;
-      const filter = pixels[at]!;
-      const row = Buffer.from(pixels.subarray(at + 1, at + 1 + rowBytes));
-      for (let i = 0; i < rowBytes; i++) {
-        const leftByte = i >= step ? row[i - step]! : 0;
-        const up = previous[i]!;
-        const upLeft = i >= step ? previous[i - step]! : 0;
-        if (filter === 1) row[i] = row[i]! + leftByte;
-        else if (filter === 2) row[i] = row[i]! + up;
-        else if (filter === 3) row[i] = row[i]! + ((leftByte + up) >> 1);
-        else if (filter === 4) {
-          const guess = leftByte + up - upLeft;
-          const [toLeft, toUp, toUpLeft] = [Math.abs(guess - leftByte), Math.abs(guess - up), Math.abs(guess - upLeft)];
-          row[i] = row[i]! + (toLeft <= toUp && toLeft <= toUpLeft ? leftByte : toUp <= toUpLeft ? up : upLeft);
-        } else if (filter !== 0) return null;
-      }
-      for (let x = 0; x < passWidth; x++) counts[opacity(row, x)]!++;
-      previous = row;
-    }
-  }
-  return counts;
-}
 
 /**
  * Why the App Store icon would make Apple refuse the upload, or null. It is the set's 1024 entry for the App Store: Tauri
@@ -260,7 +180,12 @@ const signedGroups = (entitlements: Record<string, unknown>) => {
  * Each reason the build must not go up, or none. `targets` are the Xcode project's, whose App Groups each signature must
  * allow: an extension signed without its group installs, and its share sheet entry cannot hand anything to the app.
  */
-export function ipaProblems(facts: IpaFacts, buildNumber: number, targets: XcodeTargets = { app: null, extensions: [] }): string[] {
+export function ipaProblems(
+  facts: IpaFacts,
+  buildNumber: number,
+  targets: XcodeTargets = { app: null, extensions: [] },
+  encryptionHint = 'put it in src-tauri/Info.ios.plist',
+): string[] {
   const problems: string[] = [];
   const { info, entitlements } = facts;
   const lacking = (signed: Record<string, unknown>, asked: string[]) => asked.filter((group) => !signedGroups(signed).includes(group));
@@ -280,7 +205,7 @@ export function ipaProblems(facts: IpaFacts, buildNumber: number, targets: Xcode
   }
   if (info.ITSAppUsesNonExemptEncryption !== false) {
     problems.push(
-      'its Info.plist does not say ITSAppUsesNonExemptEncryption false, so App Store Connect would hold every build on the export question: put it in src-tauri/Info.ios.plist',
+      `its Info.plist does not say ITSAppUsesNonExemptEncryption false, so App Store Connect would hold every build on the export question: ${encryptionHint}`,
     );
   }
   // With push, the App Store export must have rewritten the push environment and signed for distribution.
@@ -350,45 +275,80 @@ export async function upload(options: UploadOptions): Promise<0 | 1 | 3> {
   for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
     await sweepGoneCheckouts(home, run, output);
-    return await uploadSteps(options, build);
+    return await (isNativeFolder(options.cwd) ? nativeUploadSteps : uploadSteps)(options, build);
   } finally {
     for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
     if (build.started) await removeApps(iphoneApps(options.cwd, home), run, output);
   }
 }
 
-async function uploadSteps(options: UploadOptions, started: BuildStarted): Promise<0 | 1 | 3> {
+/** What every step of an upload, the Tauri one's or a native app's, reads from its options. */
+type Steps = {
+  cwd: string;
+  tokenOnly: boolean;
+  run: Run;
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  print: (line: string) => void;
+  say: (line: string) => void;
+  fail: (line: string) => 1;
+  output: (chunk: string) => void;
+  env: Env;
+  git: (...args: string[]) => Promise<{ ok: boolean; out: string }>;
+};
+
+function steps(options: UploadOptions): Steps {
   const { cwd, tokenOnly } = options;
   const run = options.run ?? runCommand;
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms: number) => Bun.sleep(ms));
-  const print = options.print ?? ((line: string) => console.log(`[testflight] ${line}`));
   const say = options.fail ?? ((line: string) => console.error(`[testflight] ${line}`));
-  const fail = (line: string): 1 => {
-    say(line);
-    return 1;
-  };
-  const output = options.output ?? ((chunk: string) => void process.stdout.write(chunk));
   const env = buildEnv(options.env ?? process.env, options.home);
-  const git = async (...args: string[]) => {
-    const done = await run(['git', ...args], { cwd, env });
-    return { ok: done.code === 0, out: done.out.trim() };
+  return {
+    cwd,
+    tokenOnly,
+    run,
+    now: options.now ?? Date.now,
+    sleep: options.sleep ?? ((ms: number) => Bun.sleep(ms)),
+    print: options.print ?? ((line: string) => console.log(`[testflight] ${line}`)),
+    say,
+    fail: (line: string): 1 => {
+      say(line);
+      return 1;
+    },
+    output: options.output ?? ((chunk: string) => void process.stdout.write(chunk)),
+    env,
+    git: async (...args: string[]) => {
+      const done = await run(['git', ...args], { cwd, env });
+      return { ok: done.code === 0, out: done.out.trim() };
+    },
   };
+}
+
+/** HEAD, when it is a commit of main's first-parent line in a clean tree, which a build number may name; else why not. */
+async function commitToBuild({ cwd, git }: Steps): Promise<{ head: string } | { error: string }> {
+  const status = await git('status', '--porcelain');
+  if (!status.ok) return { error: `${cwd} is not a git checkout` };
+  if (status.out) return { error: 'commit first: the build number names a commit, and the tree has uncommitted changes' };
+  const head = (await git('rev-parse', 'HEAD')).out;
+  const main = await git('rev-list', '--first-parent', 'origin/main');
+  if (!main.ok || !main.out.split('\n').includes(head)) {
+    return {
+      error: `HEAD (${head.slice(0, 7)}) is not a commit on origin/main's first-parent line: a build number names one, and a number from a branch makes Apple refuse main's lower ones. Fetch, and check out main.`,
+    };
+  }
+  return { head };
+}
+
+async function uploadSteps(options: UploadOptions, started: BuildStarted): Promise<0 | 1 | 3> {
+  const context = steps(options);
+  const { cwd, tokenOnly, run, now, print, say, fail, output, env, git } = context;
   const plistValue = async (text: string, key: string) => {
     const done = await run(['plutil', '-extract', key, 'raw', '-'], { cwd, env, input: text });
     return done.code === 0 ? done.out.trim() : null;
   };
 
-  const status = await git('status', '--porcelain');
-  if (!status.ok) return fail(`${cwd} is not a git checkout`);
-  if (status.out) return fail('commit first: the build number names a commit, and the tree has uncommitted changes');
-  const head = (await git('rev-parse', 'HEAD')).out;
-  const main = await git('rev-list', '--first-parent', 'origin/main');
-  if (!main.ok || !main.out.split('\n').includes(head)) {
-    return fail(
-      `HEAD (${head.slice(0, 7)}) is not a commit on origin/main's first-parent line: a build number names one, and a number from a branch makes Apple refuse main's lower ones. Fetch, and check out main.`,
-    );
-  }
+  const commit = await commitToBuild(context);
+  if ('error' in commit) return fail(commit.error);
+  const { head } = commit;
 
   const icon = appStoreIconProblem(cwd);
   if (icon) return fail(icon);
@@ -532,8 +492,173 @@ async function uploadSteps(options: UploadOptions, started: BuildStarted): Promi
   if (problems.length) return fail(`${ipaName} must not go up: ${problems.join('; ')}`);
   const bundleId = String(facts.info.CFBundleIdentifier ?? '');
 
+  return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: 'ios' });
+}
+
+/**
+ * The upload of a native Xcode app (native.ts says what is read from it and why): the project generated by XcodeGen,
+ * archived and exported by xcodebuild, signed by hand from a keychain of its own with the certificate and the
+ * platform's App Store profile, written into the generated project, which git ignores and the next run makes again, so
+ * nothing is put back. The build, its archive and its export are made in a temporary folder, deleted after with every
+ * app in it forgotten by macOS.
+ */
+async function nativeUploadSteps(options: UploadOptions, started: BuildStarted): Promise<0 | 1 | 3> {
+  const context = steps(options);
+  const { cwd, tokenOnly, run, now, print, say, fail, output, env, git } = context;
+  const commit = await commitToBuild(context);
+  if ('error' in commit) return fail(commit.error);
+  const { head } = commit;
+  const project = nativeProject(cwd);
+  if ('error' in project) return fail(project.error);
+  const { platform, bundleId } = project;
+  const xcodegen = await run(['xcodegen', '--version'], { cwd, env });
+  if (xcodegen.code !== 0) return fail('the project is generated by XcodeGen, which is not on PATH: brew install xcodegen');
+  const xcodeProject = `${project.name}.xcodeproj`;
+  if ((await git('ls-files', '--', xcodeProject)).out) {
+    return fail(`${xcodeProject} is committed, and the upload writes its signing into the project it generates: have git ignore it, as XcodeGen's project is made from ${PROJECT_YML}`);
+  }
+  const generated = await run(['xcodegen', 'generate'], { cwd, env, output });
+  if (generated.code !== 0) return fail(`xcodegen generate failed: ${lastLine(generated.out)}`);
+  const changed = (await git('diff', '--name-only', 'HEAD')).out;
+  if (changed) {
+    return fail(`xcodegen generate changed committed files (${changed.split('\n').join(', ')}), so the build would not be the commit's: have git ignore what it writes, or commit it`);
+  }
+  if (project.infoPlist) {
+    const version = await run(['plutil', '-extract', 'CFBundleVersion', 'raw', project.infoPlist], { cwd, env });
+    const problem = buildNumberProblem(project, version.code === 0 ? version.out.trim() : null);
+    if (problem) return fail(problem);
+  }
+  const icon = nativeIconProblem(cwd, project);
+  if (icon) return fail(icon);
+  const projectFile = `${xcodeProject}/project.pbxproj`;
+  const targetsRead = await xcodeTargets(cwd, projectFile, run, env, project.target);
+  if ('error' in targetsRead) return fail(targetsRead.error);
+  const app = targetsRead.app;
+  if (!app) return fail(`${projectFile} has no app target named ${project.target}, which ${PROJECT_YML} names`);
+  if (targetsRead.extensions.length) return fail(`${projectFile} has the app extension ${targetsRead.extensions.map((target) => target.name).join(', ')}, and the upload signs a native app's own target alone`);
+  const targets: XcodeTargets = { app, extensions: [] };
+
+  const buildNumber = Number((await git('rev-list', '--count', 'HEAD')).out);
+  const short = head.slice(0, 7);
+
+  const keyRead = await readKey(run, env, { tokenOnly });
+  if ('missing' in keyRead) {
+    return fail(`waiting for the 1Password token: the login keychain has no "app-kit testflight" item (app-kit's README, TestFlight, says how to add it)`);
+  }
+  if ('error' in keyRead) return fail(keyRead.error);
+  const key = keyRead.key;
+  const certificateRead = await readCertificate(run, env, { tokenOnly });
+  if ('missing' in certificateRead) return fail(`the vault "${VAULT}" has no "${CERTIFICATE_ITEM}", which the build signs with: ${MAKE_CERTIFICATE}`);
+  if ('error' in certificateRead) return fail(certificateRead.error);
+  const certificate = certificateRead.certificate;
+  const appStoreConnect = new AppStoreConnect(key, options.appStoreConnect);
+  const signing = await signingFiles(certificate, bundleId, targets, appStoreConnect, run, env, now, platform.profileType);
+  if (typeof signing === 'string') return fail(signing);
+
+  // One signing build on a Mac at a time: it puts its keychain on the list, as a Tauri build does.
+  const home = options.home ?? homedir();
+  const signingLock = join(home, 'Library/Caches/app-kit/testflight-signing.lock');
+  if (!lock(signingLock)) return fail(`another signing build is running on this Mac (its process id is in ${signingLock}); try again once it ends`);
+  const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-native-'));
+  const keychain = join(folder, 'signing.keychain-db');
+  let keychainMade = false;
+  const putBack = cleanupOnStop(() => {
+    if (keychainMade) deleteKeychain(keychain);
+    // After the build is stopped for good, so it cannot write the app again.
+    if (started.started) removeAppsNow(appsBelow(folder));
+    rmSync(folder, { recursive: true, force: true });
+    if (existsSync(signingLock) && readFileSync(signingLock, 'utf8') === String(process.pid)) rmSync(signingLock, { force: true });
+  });
+  let ipa: string;
+  try {
+    const security = async (...args: string[]) => {
+      const done = await run(['/usr/bin/security', ...args], { cwd, env });
+      return done.code === 0 ? null : `security ${args[0]} failed: ${lastLine(done.out)}`;
+    };
+    const password = randomBytes(24).toString('hex');
+    const p12 = join(folder, 'certificate.p12');
+    writeFileSync(p12, Buffer.from(certificate.p12, 'base64'), { mode: 0o600 });
+    keychainMade = true;
+    const listed = await run(['/usr/bin/security', 'list-keychains', '-d', 'user'], { cwd, env });
+    if (listed.code !== 0) return fail(`security could not list the keychains: ${lastLine(listed.out)}`);
+    const madeKeychain =
+      (await security('create-keychain', '-p', password, keychain)) ??
+      (await security('set-keychain-settings', '-lut', '3600', keychain)) ??
+      (await security('unlock-keychain', '-p', password, keychain)) ??
+      (await security('import', p12, '-k', keychain, '-P', certificate.password, '-T', '/usr/bin/codesign', '-T', '/usr/bin/security')) ??
+      (await security('set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)) ??
+      (await security('list-keychains', '-d', 'user', '-s', keychain, ...listedKeychains(listed.stdout).filter((path) => path !== keychain)));
+    rmSync(p12, { force: true });
+    if (madeKeychain) return fail(madeKeychain);
+    installProfile(home, signing.profile.uuid, signing.profile.content);
+    const signedWith = { identity: signing.name, team: signing.team, profileUuid: signing.profile.uuid };
+    const projectPath = join(cwd, projectFile);
+    const signed = withBuildSettings(readFileSync(projectPath, 'utf8'), app.configurations, nativeSigningSettings(platform, { ...signedWith, keychain }));
+    if (signed === null) return fail(`could not find ${project.target}'s build settings in ${projectFile} to write its signing into`);
+    writeFileSync(projectPath, signed);
+    // The export copies with rsync and passes options only Apple's accepts, as the Tauri path's does.
+    const tools = join(folder, 'tools');
+    mkdirSync(tools);
+    symlinkSync('/usr/bin/rsync', join(tools, 'rsync'));
+    const buildEnv = { ...env, PATH: `${tools}:${env.PATH}` };
+
+    print(`building build ${buildNumber} (${short})`);
+    started.started = true;
+    const archive = join(folder, `${project.target}.xcarchive`);
+    const archived = await run(
+      [
+        'xcodebuild', 'archive', '-project', xcodeProject, '-scheme', project.target, '-configuration', 'Release',
+        '-sdk', platform.sdk, '-destination', `generic/platform=${platform.name}`, '-archivePath', archive,
+        '-derivedDataPath', join(folder, 'derived-data'), `CURRENT_PROJECT_VERSION=${buildNumber}`,
+      ],
+      { cwd, env: buildEnv, output },
+    );
+    if (archived.code !== 0) {
+      if (compileFailed(archived.out)) {
+        say(`build ${buildNumber} (${short}) did not compile: ${lastLine(archived.out)}`);
+        return 3;
+      }
+      return fail(`the build of ${buildNumber} (${short}) failed: ${lastLine(archived.out)}`);
+    }
+    const exportPlist = join(folder, 'ExportOptions.plist');
+    writeFileSync(exportPlist, exportOptions({ ...signedWith, bundleId }));
+    const exportFolder = join(folder, 'export');
+    const exported = await run(['xcodebuild', '-exportArchive', '-archivePath', archive, '-exportPath', exportFolder, '-exportOptionsPlist', exportPlist], {
+      cwd,
+      env: buildEnv,
+      output,
+    });
+    if (exported.code !== 0) return fail(`the export of build ${buildNumber} (${short}) failed: ${lastLine(exported.out)}`);
+    const ipaName = existsSync(exportFolder) ? readdirSync(exportFolder).find((name) => name.endsWith('.ipa')) : undefined;
+    if (!ipaName) return fail(`the export made no .ipa`);
+    ipa = join(exportFolder, ipaName);
+
+    const facts = await readIpa(ipa, run, env);
+    if (typeof facts === 'string') return fail(facts);
+    const problems = ipaProblems(facts, buildNumber, targets, `put "ITSAppUsesNonExemptEncryption: false" in ${project.target}'s info.properties in ${PROJECT_YML}`);
+    if (facts.info.CFBundleIdentifier !== bundleId) problems.push(`its bundle id is ${String(facts.info.CFBundleIdentifier)}, not ${bundleId}, which it was signed for`);
+    if (problems.length) return fail(`${ipaName} must not go up: ${problems.join('; ')}`);
+    // The archive's apps are done with; the .ipa stays for the upload.
+    await removeApps(appsBelow(folder), run, output);
+    return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: platform.altoolType });
+  } finally {
+    if (started.started) await removeApps(appsBelow(folder), run, output);
+    putBack();
+  }
+}
+
+/**
+ * Uploads the checked .ipa and waits for Apple's processing: 0 once it is processed, or when App Store Connect already
+ * held the number and has processed it; 1 when altool refuses, processing fails, or it takes longer than the limit.
+ */
+async function uploadAndWait(
+  { run, now, sleep, print, fail, output, env }: Steps,
+  options: UploadOptions,
+  sent: { ipa: string; key: TestFlightKey; appStoreConnect: AppStoreConnect; bundleId: string; buildNumber: number; short: string; altoolType: 'ios' | 'appletvos' },
+): Promise<0 | 1> {
+  const { ipa, key, appStoreConnect, bundleId, buildNumber, short } = sent;
   print(`uploading build ${buildNumber} (${short})`);
-  const uploaded = await altoolUpload(ipa, key, run, env, output);
+  const uploaded = await altoolUpload(ipa, key, run, env, output, sent.altoolType);
   if (uploaded === 'already') print(`build ${buildNumber} is already uploaded; waiting for Apple's processing`);
   else if (uploaded !== 'uploaded') return fail(`altool did not upload build ${buildNumber}: ${uploaded}`);
 
@@ -578,6 +703,7 @@ async function targetProfile(
   appStoreConnect: AppStoreConnect,
   target: { bundleId: string; groups: string[]; extension: boolean },
   certificate: CertificateRecord,
+  profileType: ProfileType = 'IOS_APP_STORE',
 ): Promise<TargetProfile> {
   const { bundleId: identifier, groups } = target;
   let bundleId = await appStoreConnect.bundleId(identifier);
@@ -596,17 +722,17 @@ async function targetProfile(
   }
   const allows = (profile: Profile) => groups.every((group) => profileGroups(profile.content).includes(group));
   const lacks = (profile: Profile) => groups.filter((group) => !profileGroups(profile.content).includes(group));
-  const active = await appStoreConnect.appStoreProfiles(bundleId, certificate.id);
+  const active = await appStoreConnect.appStoreProfiles(bundleId, certificate.id, profileType);
   const fitting = active.find(allows);
   if (fitting) return { profile: fitting };
   if (active.length) return { lacks: lacks(active[0]!) };
   let made: Profile;
   try {
-    made = await appStoreConnect.createAppStoreProfile(bundleId, identifier, certificate.id);
+    made = await appStoreConnect.createAppStoreProfile(bundleId, identifier, certificate.id, profileType);
   } catch (error) {
     if (error instanceof AppStoreConnectError && error.status === 403) {
       return {
-        error: `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect, ${identifier}, the certificate expiring ${certificate.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`,
+        error: `Apple refused the key making the App Store profile for ${identifier}: make it once on Apple's developer site (Profiles, +, App Store Connect${profileType === 'TVOS_APP_STORE' ? ', tvOS' : ''}, ${identifier}, the certificate expiring ${certificate.expires?.slice(0, 10) ?? 'latest'}), and the next upload fetches it`,
       };
     }
     throw error;
@@ -642,6 +768,7 @@ async function signingFiles(
   run: Run,
   env: Env,
   now: () => number,
+  profileType: ProfileType = 'IOS_APP_STORE',
 ): Promise<{ profile: Profile; extensions: { target: XcodeTarget; profile: Profile }[]; team: string; name: string } | string> {
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-testflight-certificate-'));
   const remove = cleanupOnStop(() => rmSync(folder, { recursive: true, force: true }));
@@ -657,7 +784,7 @@ async function signingFiles(
     const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
     if (record.expires && Date.parse(record.expires) <= now()) return `the distribution certificate expired on ${record.expires.slice(0, 10)}: ${MAKE_CERTIFICATE}`;
-    const app = await targetProfile(appStoreConnect, { bundleId: identifier, groups: targets.app?.groups ?? [], extension: false }, record);
+    const app = await targetProfile(appStoreConnect, { bundleId: identifier, groups: targets.app?.groups ?? [], extension: false }, record, profileType);
     if ('error' in app) return app.error;
     const lacking: { bundleId: string; groups: string[] }[] = 'lacks' in app ? [{ bundleId: identifier, groups: app.lacks }] : [];
     const extensions: { target: XcodeTarget; profile: Profile }[] = [];
@@ -717,12 +844,12 @@ async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | stri
  * Uploads with altool, which finds the key file in API_PRIVATE_KEYS_DIR: a folder of its own, for the length of the
  * upload only. 'uploaded', 'already' when App Store Connect holds the number, or altool's refusal.
  */
-async function altoolUpload(ipa: string, key: TestFlightKey, run: Run, env: Env, output: (chunk: string) => void): Promise<string> {
+async function altoolUpload(ipa: string, key: TestFlightKey, run: Run, env: Env, output: (chunk: string) => void, type: 'ios' | 'appletvos' = 'ios'): Promise<string> {
   const keys = mkdtempSync(join(tmpdir(), 'app-kit-testflight-key-'));
   const remove = cleanupOnStop(() => rmSync(keys, { recursive: true, force: true }));
   try {
     writeFileSync(join(keys, `AuthKey_${key.keyId}.p8`), `${key.privateKey}\n`, { mode: 0o600 });
-    const done = await run(['xcrun', 'altool', '--upload-app', '--type', 'ios', '--file', ipa, '--apiKey', key.keyId, '--apiIssuer', key.issuerId], {
+    const done = await run(['xcrun', 'altool', '--upload-app', '--type', type, '--file', ipa, '--apiKey', key.keyId, '--apiIssuer', key.issuerId], {
       env: { ...env, API_PRIVATE_KEYS_DIR: keys },
       output,
     });

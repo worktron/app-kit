@@ -134,7 +134,7 @@ export function xcodeProjectFile(cwd: string): string | null {
  */
 export type XcodeTarget = { name: string; bundleId: string; groups: string[]; configurations: string[] };
 
-/** The iPhone app's target, or null when the project has none Tauri's way, and each app extension's. */
+/** The app's target, or null when the project has none, and each app extension's. */
 export type XcodeTargets = { app: XcodeTarget | null; extensions: XcodeTarget[] };
 
 /** A bundle id or an App Group the upload writes into a script and a plist path: letters, digits, dots and hyphens. */
@@ -146,7 +146,7 @@ const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
  * release configuration, as the build's; a value naming a build setting, `$(...)`, is refused, since the upload cannot
  * work out what Xcode would make of it.
  */
-export async function xcodeTargets(cwd: string, projectFile: string, run: Run, env: Env): Promise<XcodeTargets | { error: string }> {
+export async function xcodeTargets(cwd: string, projectFile: string, run: Run, env: Env, appTarget?: string): Promise<XcodeTargets | { error: string }> {
   const json = async (file: string) => {
     const done = await run(['plutil', '-convert', 'json', '-o', '-', file], { cwd, env });
     if (done.code !== 0) return null;
@@ -165,7 +165,8 @@ export async function xcodeTargets(cwd: string, projectFile: string, run: Run, e
   const targets: XcodeTargets = { app: null, extensions: [] };
   for (const target of Object.values(objects)) {
     if (target.isa !== 'PBXNativeTarget' || !target.name || !target.productType) continue;
-    const isApp = target.productType === 'com.apple.product-type.application' && target.name.includes('_iOS');
+    // Tauri's iPhone target is named <app>_iOS; a native app's is named in its project.yml.
+    const isApp = target.productType === 'com.apple.product-type.application' && (appTarget ? target.name === appTarget : target.name.includes('_iOS'));
     const isExtension = target.productType === extensionKind || target.productType.startsWith(`${extensionKind}.`);
     if (!isApp && !isExtension) continue;
     const configurations = objects[target.buildConfigurationList ?? '']?.buildConfigurations ?? [];

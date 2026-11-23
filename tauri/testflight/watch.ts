@@ -3,7 +3,10 @@
  * every five minutes. When an app's main has moved and the change touches its iPhone app, or the newest TestFlight build
  * is near the day Apple expires it, it builds main's exact commit in a clone of its own and runs the app's own
  * `bun run app-kit testflight upload --token-only` there, so the app's pinned kit decides how it is built. An app whose
- * Tauri project is in a subfolder of its repository names it after a `#`, and everything runs in that folder. Every
+ * Tauri project is in a subfolder of its repository names it after a `#`, and everything runs in that folder. A native
+ * Xcode app's folder, one holding an XcodeGen project.yml and no Tauri project (native.ts), is named the same way; its
+ * bundle id is read from project.yml, and its files are the folder's but its documentation, a check/ folder and its test
+ * targets' folders. Every
  * decision is one line in testflight.log, with its reason.
  *
  * What has already gone up is read from App Store Connect, never kept here, so an upload by hand is never repeated and
@@ -23,6 +26,7 @@ import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connec
 import { lastLine, readKey } from './key.ts';
 import { runCommand, type Run } from '../../command-line/run.ts';
 import { UPLOADING } from './upload.ts';
+import { isNativeFolder, nativeProject, PROJECT_YML } from './native.ts';
 import { appendLog, stateFolder } from '../state.ts';
 import {
   appAddress,
@@ -76,6 +80,8 @@ export function decide(input: {
   changed: string[];
   kind: AppKind;
   folder?: string;
+  /** Folders of the app's folder that are not the app, such as a native app's test targets. */
+  excluded?: string[];
   newestExpires?: string | null;
   now?: number;
 }): Decision {
@@ -98,7 +104,7 @@ export function decide(input: {
   if (!newestCommit) {
     return { upload: true, reason: `uploading ${at}: App Store Connect's newest build ${newest} names no commit on main` };
   }
-  const changed = input.changed.filter((path) => countsAsApp(path, kind, input.folder));
+  const changed = input.changed.filter((path) => countsAsApp(path, kind, input.folder, input.excluded));
   if (!changed.length) {
     if (expiring) return { upload: true, reason: `uploading ${at}: build ${newest} ${expiring}` };
     return { upload: false, reason: `skipped: no app files changed since build ${newest}` };
@@ -169,7 +175,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
     line(`failed: ${address}`);
     return true;
   }
-  // The app's Tauri project and its packages: the clone's root, or the folder its entry names.
+  // The app's Tauri project, or a native app's project.yml, and its packages: the clone's root, or the folder its entry names.
   const appFolder = join(checkout, address.folder);
   const tauriConfigName = join(address.folder, 'src-tauri/tauri.conf.json');
 
@@ -214,6 +220,11 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
     line("waiting: main's app-kit has no testflight upload");
     return judged();
   }
+  const native = isNativeFolder(appFolder);
+  if (native && !existsSync(join(appFolder, 'node_modules/app-kit/tauri/testflight/native.ts'))) {
+    line("waiting: main's app-kit cannot upload a native Xcode app");
+    return judged();
+  }
 
   const keyRead = await readKey(run, childEnv, { tokenOnly: true });
   if ('missing' in keyRead) {
@@ -223,12 +234,25 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   }
   if ('error' in keyRead) return failed('key', `failed: ${keyRead.error}; ${retry}`);
 
-  let tauriConfig: string;
+  // Which files are the app's, and its bundle id: from a native app's project.yml, or from the Tauri config.
+  let kind: AppKind = 'packs-its-pages';
+  let excluded: string[] = [];
+  let bundleId: string | undefined;
+  if (native) {
+    const project = nativeProject(appFolder);
+    if ('error' in project) return failed('project', `held: ${join(address.folder, PROJECT_YML)} at ${at}: ${project.error}; held until main moves`, true);
+    bundleId = project.bundleId;
+    excluded = ['check', ...project.testFolders];
+  }
   let builds: { number: number; expires: string | null }[];
   try {
-    tauriConfig = readFileSync(join(checkout, tauriConfigName), 'utf8');
-    const bundleId = (JSON.parse(tauriConfig) as { identifier?: string }).identifier;
-    if (!bundleId) return failed('app store connect', `failed: ${tauriConfigName} at ${at} names no identifier; ${retry}`);
+    if (!native) {
+      const tauriConfig = readFileSync(join(checkout, tauriConfigName), 'utf8');
+      kind = appKind(tauriConfig);
+      bundleId = (JSON.parse(tauriConfig) as { identifier?: string }).identifier;
+      if (!bundleId) return failed('app store connect', `failed: ${tauriConfigName} at ${at} names no identifier; ${retry}`);
+    }
+    if (!bundleId) return failed('app store connect', `failed: no bundle id at ${at}; ${retry}`);
     const appStoreConnect = new AppStoreConnect(keyRead.key, options.appStoreConnect);
     const appId = await appStoreConnect.appId(bundleId);
     if (!appId) return failed('app store connect', `failed: no app in App Store Connect has the bundle id ${bundleId}; ${retry}`);
@@ -247,7 +271,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
       ? await commitForNumber(newest, mainLine, async (commit) => Number((await git(['rev-list', '--count', commit])).out))
       : null;
   const changed = newestCommit && newestCommit !== head ? (await git(['diff', '--name-only', '--no-renames', newestCommit, head])).out.split('\n').filter(Boolean) : [];
-  const decision = decide({ newest, newestCommit, head: { commit: head, count }, changed, kind: appKind(tauriConfig), folder: address.folder, newestExpires, now: now() });
+  const decision = decide({ newest, newestCommit, head: { commit: head, count }, changed, kind, folder: address.folder, excluded, newestExpires, now: now() });
   line(decision.reason);
   if (!decision.upload) return judged();
   startBuildLog(installed.out);

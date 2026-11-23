@@ -28,6 +28,9 @@ export type Build = { number: string; processingState: string; internalState: st
 /** The team's distribution certificate as Apple records it: its id, and the day it expires, or null when Apple gives none. */
 export type CertificateRecord = { id: string; expires: string | null };
 
+/** The App Store profile types the upload signs with: an iPhone app's, and an Apple TV app's. */
+export type ProfileType = 'IOS_APP_STORE' | 'TVOS_APP_STORE';
+
 /** An App Store provisioning profile: its uuid, which Xcode names it by, and its content, the .mobileprovision in base64. */
 export type Profile = { uuid: string; content: string };
 
@@ -156,15 +159,15 @@ export class AppStoreConnect {
    * Every active App Store profile for the bundle id that signs with the certificate, in the server's order. Apple
    * refuses `include` on a bundle id's own profile list, so the team's list is read, filtered, with both linked.
    */
-  async appStoreProfiles(bundleId: string, certificateId: string): Promise<Profile[]> {
+  async appStoreProfiles(bundleId: string, certificateId: string, type: ProfileType = 'IOS_APP_STORE'): Promise<Profile[]> {
     const found: Profile[] = [];
     let next: string | undefined =
-      '/v1/profiles?filter[profileType]=IOS_APP_STORE&filter[profileState]=ACTIVE&limit=200&fields[profiles]=profileType,profileState,uuid,profileContent,bundleId,certificates&include=bundleId,certificates&limit[certificates]=50';
+      `/v1/profiles?filter[profileType]=${type}&filter[profileState]=ACTIVE&limit=200&fields[profiles]=profileType,profileState,uuid,profileContent,bundleId,certificates&include=bundleId,certificates&limit[certificates]=50`;
     for (let pages = 0; next && pages < 20; pages++) {
       const page: Page = await this.get(next);
       for (const profile of page.data) {
         const a = profile.attributes ?? {};
-        if (a.profileType !== 'IOS_APP_STORE' || a.profileState !== 'ACTIVE') continue;
+        if (a.profileType !== type || a.profileState !== 'ACTIVE') continue;
         const ids = (name: string) => {
           const linked = profile.relationships?.[name]?.data;
           return (Array.isArray(linked) ? linked : linked ? [linked] : []).map((resource) => resource.id);
@@ -178,13 +181,13 @@ export class AppStoreConnect {
     return found;
   }
 
-  /** Makes the App Store profile for the bundle id with the certificate. Apple refuses a key whose role may not. */
-  async createAppStoreProfile(bundleId: string, identifier: string, certificateId: string): Promise<Profile> {
+  /** Makes the App Store profile of `type` for the bundle id with the certificate. Apple refuses a key whose role may not. */
+  async createAppStoreProfile(bundleId: string, identifier: string, certificateId: string, type: ProfileType = 'IOS_APP_STORE'): Promise<Profile> {
     const made = await this.request('/v1/profiles', {
       data: {
         type: 'profiles',
         // Apple keeps a profile's name after it turns invalid, and names are unique, so each one made carries its time.
-        attributes: { name: `app-kit ${identifier} ${new Date(this.now()).toISOString().slice(0, 19)}`, profileType: 'IOS_APP_STORE' },
+        attributes: { name: `app-kit ${identifier} ${new Date(this.now()).toISOString().slice(0, 19)}`, profileType: type },
         relationships: { bundleId: { data: { type: 'bundleIds', id: bundleId } }, certificates: { data: [{ type: 'certificates', id: certificateId }] } },
       },
     });

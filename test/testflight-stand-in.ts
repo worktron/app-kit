@@ -164,7 +164,7 @@ export async function appStoreConnect(config: {
     }
     if (method === 'POST' && url.pathname === '/v1/profiles') {
       if (config.refuseProfiles) return [403, { errors: [{ status: '403', title: 'The API key in use does not allow this request', detail: 'FORBIDDEN_ERROR' }] }];
-      const made = JSON.parse(body) as { data: { relationships: { bundleId: { data: { id: string } }; certificates: { data: { id: string }[] } } } };
+      const made = JSON.parse(body) as { data: { attributes: { profileType: string }; relationships: { bundleId: { data: { id: string } }; certificates: { data: { id: string }[] } } } };
       const bundle = bundles.find((b) => b.id === made.data.relationships.bundleId.data.id);
       if (!bundle) return [409, { errors: [{ status: '409', title: 'wrong bundle id' }] }];
       const uuid = `uuid-${String(profiles.length + 1).padStart(4, '0')}`;
@@ -172,7 +172,7 @@ export async function appStoreConnect(config: {
         id: `PROFILE${profiles.length + 1}`,
         uuid,
         content: profileContent(uuid, config.groups?.[bundle.identifier]),
-        type: 'IOS_APP_STORE',
+        type: made.data.attributes.profileType,
         state: 'ACTIVE',
         certificates: made.data.relationships.certificates.data.map((c) => c.id),
         bundle: bundle.id,

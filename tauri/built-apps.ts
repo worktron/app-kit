@@ -124,6 +124,11 @@ export function iphoneApps(cwd: string, home: string): string[] {
   return [...xcode, ...left];
 }
 
+/** Every app bundle anywhere below `folder`, not looking inside one: what a build made in a folder of its own. */
+export function appsBelow(folder: string): string[] {
+  return foldersIn(folder).flatMap((child) => (child.endsWith('.app') ? [child] : appsBelow(child)));
+}
+
 /** The apps a Mac build of the Tauri folder `cwd` made. */
 export function macApps(cwd: string): string[] {
   return appsIn(join(cwd, MAC_BUNDLE_FOLDER));

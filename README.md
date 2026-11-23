@@ -1921,6 +1921,19 @@ It uploads only a commit on `origin/main`'s first-parent line, from a clean tree
 
 Once the upload is processed, or fails or is stopped after its build started, it deletes the app inside the archive the build left in `src-tauri/gen/apple/build/` and Xcode's copy in its build folder for the checkout, and runs `lsregister -u` on each, since macOS registers them hours after the upload and never drops them; the `.ipa` and the archive's debug symbols stay. It first deletes Xcode's build folders of Tauri checkouts that are gone, as `iphone run` does ([Running on the Simulator or an iPhone](#running-on-the-simulator-or-an-iphone)). These lines go to the build's output without the `[testflight]` prefix, so the watcher's reason for a failed upload stays the upload's own.
 
+#### Native Xcode apps
+
+A folder holding an XcodeGen `project.yml` and no `src-tauri/tauri.conf.json`, such as an Apple TV app written in Swift, uploads the same way, from that folder, with the same command. `project.yml` must name exactly one target of type `application`, for `tvOS` or `iOS`, and no `app-extension`; its bundle id is the target's `PRODUCT_BUNDLE_IDENTIFIER` (the Release config's, then the base settings', then XcodeGen's `bundleIdPrefix` and the target's name), written out plainly. The generated Xcode project must be ignored by git, since the upload writes its signing into it; `xcodegen` must be on `PATH` (`brew install xcodegen`).
+
+It runs `xcodegen generate` and refuses a run that changed a committed file. It refuses an app whose generated `Info.plist` does not say `CFBundleVersion` is `$(CURRENT_PROJECT_VERSION)`, since XcodeGen writes a fixed `1` when a target has an `info:` block and every build after the first would carry that number; the fix is two lines in the target's `info.properties`:
+
+```yaml
+CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+CFBundleShortVersionString: $(MARKETING_VERSION)
+```
+
+It refuses an App Store icon with a pixel that is not fully opaque: for an Apple TV app, the back layer of the 1280x768 image stack in the brand assets the target's `ASSETCATALOG_COMPILER_APPICON_NAME` names (the front layers may be see-through), and for an iPhone app the 1024 entry of its app icon set. An icon drawn by a script is drawn before the check by XcodeGen's `options.preGenCommand`. It then signs by hand: it makes a keychain of its own in a temporary folder holding the team's distribution certificate from 1Password, puts it first on the keychain list beside yours, and uses the app's App Store profile for its platform (`TVOS_APP_STORE` for an Apple TV app), made in App Store Connect when there is none, writing the signing into the app target's settings in the generated project. It archives with `xcodebuild archive` and the build number as `CURRENT_PROJECT_VERSION`, exports with `xcodebuild -exportArchive`, checks the `.ipa` as the Tauri path does and that it carries the app's bundle id, and uploads it with `altool --type appletvos` for an Apple TV app. However it ends, stopped by a signal too, it deletes the keychain and puts the list back, and deletes the temporary folder with the archive and the apps in it, forgotten by macOS. An iPhone app built this way is held by the kit's tests alone so far.
+
 The watcher, one pass, for each app's git address:
 
 ```sh
@@ -1932,6 +1945,8 @@ An app whose Tauri project is in a subfolder of its repository, with that folder
 ```sh
 bun bin/app-kit.ts testflight watch https://github.com/worktron/timescale.git#desktop
 ```
+
+A native Xcode app's folder is named the same way, as Lifeform names its Apple TV app's `tvos/`. Its bundle id is read from `project.yml`, and every file in the folder counts as the app's but its documentation, its `check/` folder and its test targets' source folders. A kit without the native upload waits with a line (`waiting: main's app-kit cannot upload a native Xcode app`).
 
 The install, the build and the upload then run in that folder, its `src-tauri/target` is kept, its `src-tauri/tauri.conf.json` is the one read, and only files under it count as the app's. GitHub's repository names hold no `#`, and the folder may hold only letters, digits, `.`, `_`, `-` and `/`, since it reaches `git clean` as a pattern; any other entry, or a folder main does not have, is a failed pass for that app with a line naming it. A repository is watched at one folder: a second entry for it is refused the same way, since both would share one clone and one record. A folder that is one of the root's bun workspaces is not handled: its packages land in the root's `node_modules`.
 

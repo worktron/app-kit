@@ -68,13 +68,17 @@ export function appKind(tauriConfig: string): AppKind {
   }
 }
 
-/** Whether a changed file, named from the repository's root, is part of the app whose Tauri project is in `folder`. */
-export function countsAsApp(path: string, kind: AppKind, folder = ''): boolean {
+/**
+ * Whether a changed file, named from the repository's root, is part of the app whose Tauri project, or native Xcode
+ * project, is in `folder`; `excluded` are folders of it that are not the app, such as a native app's test targets.
+ */
+export function countsAsApp(path: string, kind: AppKind, folder = '', excluded: string[] = []): boolean {
   if (folder) {
     if (!path.startsWith(`${folder}/`)) return false;
     path = path.slice(folder.length + 1);
   }
   if (kind === 'loads-a-website') return path.startsWith('src-tauri/') || path === 'package.json' || path === 'bun.lock';
+  if (excluded.some((excludedFolder) => path.startsWith(`${excludedFolder}/`))) return false;
   const parts = path.split('/');
   const name = parts[parts.length - 1];
   if (name.endsWith('.md') || name.includes('.test.')) return false;
