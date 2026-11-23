@@ -1206,3 +1206,10 @@ Done when: the cache folder stays under a stated size or age bound across gate r
 Do not touch: the release checkouts' own build folders.
 Needs: none.
 Touches: app-kit's gate scripts where they set `CARGO_TARGET_DIR`.
+
+## apps-playwright-run-folder · Apps' Playwright runs keep their temporary files in a folder of their own that the next run clears
+Written by: app-kit/browser-test-scratch
+
+Goal: an app's Playwright browser tests, killed partway, stop leaving browser profiles, artifacts and copies in the Mac's system temporary folder. Since 179ebc3 the kit's own browser tests take a per-run folder: web/e2e/playwright.config.ts calls testing/temporary-folder.ts useOwnFolder('/tmp/<project>-tests') in Playwright's main process, its workers inherit TMPDIR, and the next run of either kind sweeps an ended run's folder and has macOS forget any app in it. Apps have no such step: on 2026-11-23 the system temporary folder held about 1,000 playwright_chromiumdev_profile-* and 190 playwright_webkitdev_profile-* folders from killed runs of unknown projects. Giving apps this means a plain JavaScript export (Playwright leaves node_modules to Node), so it is a minor release with an Apps: line.
+
+Done when: an app's Playwright configuration can take the same per-run folder from one kit import, a test kills a run of a made-up app's Playwright configuration partway and sees nothing in the system temporary folder and the folder removed by the next run, and scripts/kit-features.ts lists it for apps with Playwright tests.
