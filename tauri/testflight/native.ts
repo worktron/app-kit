@@ -85,9 +85,12 @@ function sourceFolders(sources: unknown): string[] {
   const list = Array.isArray(sources) ? sources : sources === undefined ? [] : [sources];
   return list.flatMap((entry) => {
     const path = typeof entry === 'string' ? entry : entry && typeof entry === 'object' ? (entry as { path?: unknown }).path : null;
-    return typeof path === 'string' && path ? [path.replace(/^\.\//, '').replace(/\/+$/, '')] : [];
+    return typeof path === 'string' && path ? [path.replace(/^\.\//, '').replace(/\/+$/, '').replace(/^\.$/, '')] : [];
   });
 }
+
+/** Whether one folder is the other or holds it, `''` being the project's folder itself. */
+const overlaps = (a: string, b: string) => a === b || a === '' || b === '' || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 
 /** The native app's project as project.yml in `folder` describes it, or why the upload cannot build it. */
 export function nativeProject(folder: string): NativeProject | { error: string } {
@@ -114,9 +117,12 @@ export function nativeProject(folder: string): NativeProject | { error: string }
   if (!bundleId || bundleId.includes('$')) {
     return { error: `${target} in ${PROJECT_YML} has no plain bundle id: set PRODUCT_BUNDLE_IDENTIFIER in its settings, as the upload signs and finds it by that id` };
   }
+  // A test target's folder that the app's sources share, hold or sit in is the app's too, so its changes still count.
+  const appFolders = sourceFolders(spec_.sources);
   const testFolders = targets
     .filter(([, t]) => t.type === 'bundle.unit-test' || t.type === 'bundle.ui-testing')
-    .flatMap(([, t]) => sourceFolders(t.sources));
+    .flatMap(([, t]) => sourceFolders(t.sources))
+    .filter((testFolder) => !appFolders.some((appFolder) => overlaps(appFolder, testFolder)));
   return {
     name: spec.name,
     target,

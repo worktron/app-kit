@@ -519,9 +519,10 @@ async function nativeUploadSteps(options: UploadOptions, started: BuildStarted):
   }
   const generated = await run(['xcodegen', 'generate'], { cwd, env, output });
   if (generated.code !== 0) return fail(`xcodegen generate failed: ${lastLine(generated.out)}`);
-  const changed = (await git('diff', '--name-only', 'HEAD')).out;
+  // What it changed of the commit, and what it wrote that git does not ignore, which would leave the next run's tree unclean.
+  const changed = [(await git('diff', '--name-only', 'HEAD')).out, (await git('ls-files', '--others', '--exclude-standard')).out].filter(Boolean).join('\n');
   if (changed) {
-    return fail(`xcodegen generate changed committed files (${changed.split('\n').join(', ')}), so the build would not be the commit's: have git ignore what it writes, or commit it`);
+    return fail(`xcodegen generate changed or wrote files git does not ignore (${changed.split('\n').join(', ')}), so the build would not be the commit's: have git ignore what it writes, or commit it`);
   }
   if (project.infoPlist) {
     const version = await run(['plutil', '-extract', 'CFBundleVersion', 'raw', project.infoPlist], { cwd, env });

@@ -1925,7 +1925,7 @@ Once the upload is processed, or fails or is stopped after its build started, it
 
 A folder holding an XcodeGen `project.yml` and no `src-tauri/tauri.conf.json`, such as an Apple TV app written in Swift, uploads the same way, from that folder, with the same command. `project.yml` must name exactly one target of type `application`, for `tvOS` or `iOS`, and no `app-extension`; its bundle id is the target's `PRODUCT_BUNDLE_IDENTIFIER` (the Release config's, then the base settings', then XcodeGen's `bundleIdPrefix` and the target's name), written out plainly. The generated Xcode project must be ignored by git, since the upload writes its signing into it; `xcodegen` must be on `PATH` (`brew install xcodegen`).
 
-It runs `xcodegen generate` and refuses a run that changed a committed file. It refuses an app whose generated `Info.plist` does not say `CFBundleVersion` is `$(CURRENT_PROJECT_VERSION)`, since XcodeGen writes a fixed `1` when a target has an `info:` block and every build after the first would carry that number; the fix is two lines in the target's `info.properties`:
+It runs `xcodegen generate` and refuses a run that changed a committed file or wrote one git does not ignore, such as a generated `Info.plist` or a drawn icon catalog, which would leave the next run's tree unclean. It refuses an app whose generated `Info.plist` does not say `CFBundleVersion` is `$(CURRENT_PROJECT_VERSION)`, since XcodeGen writes a fixed `1` when a target has an `info:` block and every build after the first would carry that number; the fix is two lines in the target's `info.properties`:
 
 ```yaml
 CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -1946,7 +1946,7 @@ An app whose Tauri project is in a subfolder of its repository, with that folder
 bun bin/app-kit.ts testflight watch https://github.com/worktron/timescale.git#desktop
 ```
 
-A native Xcode app's folder is named the same way, as Lifeform names its Apple TV app's `tvos/`. Its bundle id is read from `project.yml`, and every file in the folder counts as the app's but its documentation, its `check/` folder and its test targets' source folders. A kit without the native upload waits with a line (`waiting: main's app-kit cannot upload a native Xcode app`).
+A native Xcode app's folder is named the same way, as Lifeform names its Apple TV app's `tvos/`. Its bundle id is read from `project.yml`, and every file in the folder counts as the app's but its documentation, its `check/` folder and its test targets' source folders, unless the app's own sources share that folder. A kit without the native upload waits with a line (`waiting: main's app-kit cannot upload a native Xcode app`).
 
 The install, the build and the upload then run in that folder, its `src-tauri/target` is kept, its `src-tauri/tauri.conf.json` is the one read, and only files under it count as the app's. GitHub's repository names hold no `#`, and the folder may hold only letters, digits, `.`, `_`, `-` and `/`, since it reaches `git clean` as a pattern; any other entry, or a folder main does not have, is a failed pass for that app with a line naming it. A repository is watched at one folder: a second entry for it is refused the same way, since both would share one clone and one record. A folder that is one of the root's bun workspaces is not handled: its packages land in the root's `node_modules`.
 
