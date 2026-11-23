@@ -14,14 +14,19 @@ import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 // starts with no parent but itself. Every page here plays through a gain of zero, so a browser that does open the
 // speakers plays silence into them, never sound.
 
-// Resolved, since macOS names a process's executable by its real path, under /private.
-const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-offline-audio-')));
-const recorderProgram = join(scratch, 'audio-output');
+// The test's folder, made by the first step that needs it, never as the file loads: Playwright also loads this file in
+// its main process to list the tests, which runs no hooks, so a folder made there would be left behind on every run
+// (test/browser-tests-load.test.ts). Resolved, since macOS names a process's executable by its real path, under /private.
+let scratch: string | undefined;
+const scratchFolder = () => (scratch ??= realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-offline-audio-'))));
+const recorderProgram = () => join(scratchFolder(), 'audio-output');
 test.beforeAll(() => {
-  if (process.platform === 'darwin') execFileSync('swiftc', [join(import.meta.dirname, 'audio-output.swift'), '-o', recorderProgram], { stdio: ['ignore', 'ignore', 'pipe'] });
+  if (process.platform === 'darwin') execFileSync('swiftc', [join(import.meta.dirname, 'audio-output.swift'), '-o', recorderProgram()], { stdio: ['ignore', 'ignore', 'pipe'] });
 });
 // With the copy of WebKit macOS registered as it started.
-test.afterAll(() => removeAppsNow([scratch]));
+test.afterAll(() => {
+  if (scratch) removeAppsNow([scratch]);
+});
 
 // The page, served by the test itself: each tap makes a context and starts it, as an iPhone needs.
 const ADDRESS = 'https://audio.example.com/';
@@ -97,7 +102,7 @@ const PAGE = `<!doctype html><button>Play</button><script>
 type BrowserTypes = { chromium: BrowserType; webkit: BrowserType };
 const BROWSERS = {
   chromium: (types: BrowserTypes = { chromium, webkit }) => types.chromium.launch(),
-  webkit: (types: BrowserTypes = { chromium, webkit }) => types.webkit.launch(webkitWithoutDockIcon(join(scratch, 'webkit'))),
+  webkit: (types: BrowserTypes = { chromium, webkit }) => types.webkit.launch(webkitWithoutDockIcon(join(scratchFolder(), 'webkit'))),
 } satisfies Record<string, (types?: BrowserTypes) => Promise<Browser>>;
 
 /** A page of `browser` on the test's own page, with the kit's offline audio when `options` are given. */
@@ -115,7 +120,7 @@ type Output = { pid: number; executable: string; parents: number[] };
 
 /** Starts the recorder; resolves once it has read macOS's list of audio processes. */
 async function recordOutputs() {
-  const recorder = spawn(recorderProgram, [], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const recorder = spawn(recorderProgram(), [], { stdio: ['pipe', 'pipe', 'inherit'] });
   const outputs: Output[] = [];
   /** Each mark asked of the recorder and not yet answered, oldest first, resolved with how many outputs came before its answer. */
   const marks: ((before: number) => void)[] = [];
@@ -160,7 +165,7 @@ async function recordOutputs() {
 }
 
 /** This test's own browser processes, told from every other process on the Mac. */
-const ours = (output: Output) => output.parents.includes(process.pid) || output.executable.startsWith(scratch);
+const ours = (output: Output) => output.parents.includes(process.pid) || output.executable.startsWith(scratchFolder());
 
 for (const [name, launch] of Object.entries(BROWSERS)) {
   // An app's test, as a spec gets it from the one file that makes it: no step of its own, on this file's browser.
