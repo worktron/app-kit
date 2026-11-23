@@ -2878,13 +2878,29 @@ preload = ["app-kit/testing/start-up"]
 - **The folder's name** is the `name` in `package.json` where `bun test` runs, with a scope's `@` dropped and its `/` made a `-`, so `@perf-buddy/server` is `/tmp/perf-buddy-server-tests`; with no name, it is the folder's own name.
 - **Only a folder of this user's.** `/tmp` is shared by every account, so the folder is used only when it is a real folder this user owns that no one else can write to. Anything else (a link, a file, a folder of another account or one others can write to) stops the tests with what it found, before any test runs.
 - **What it sets.** `TMPDIR` is the process's folder, and `os.tmpdir()` reads it on every call, so every `mkdtempSync(join(tmpdir(), ...))` lands there. `TEST_SHARED_TMPDIR` keeps the system folder, for what every test process shares, such as port reservations. A child started with `Bun.spawn` and no `env` keeps the start-up `TMPDIR`; pass `env: process.env`.
-- **Cleaning up.** `bun test` runs no exit handler, so each process removes the folders of processes that have ended rather than its own. Under `--parallel` the file runs once per test file, each time with the environment the worker started with, so only the first file in a process sweeps.
+- **Cleaning up.** `bun test` runs no exit handler, so each process removes the folders of processes that have ended rather than its own, and macOS forgets every app a test left in one ([Deleting a Mac app so macOS forgets it](#deleting-a-mac-app-so-macos-forgets-it)). Under `--parallel` the file runs once per test file, each time with the environment the worker started with, so only the first file in a process sweeps.
 
 It is the setup skill's test start-up file, held in one place.
 
 ### Browsers out of the Dock
 
-`app-kit/testing/playwright-dock`: `withoutDockIcon(browserType)` gives the launch options that run Playwright's WebKit or full Chromium from a copy macOS keeps out of the Dock. `app-kit/web/playwright-webkit` and the extension harness use it; see Browser tests under `web/` for why and how.
+`app-kit/testing/playwright-dock`: `withoutDockIcon(browserType)` gives the launch options that run Playwright's WebKit or full Chromium from a copy macOS keeps out of the Dock. `app-kit/web/playwright-webkit` and the extension harness use it; see Browser tests under `web/` for why and how. A copy it throws away, one whose Playwright browser is gone or one another run finished first, is forgotten by macOS as it goes.
+
+### Deleting a Mac app so macOS forgets it
+
+`app-kit/testing/forget-apps`: `removeAppsNow(paths)` deletes each path, an app or a folder holding apps, then has macOS forget every app that was at or in it, the helper apps inside a Chromium included. macOS registers every app bundle it finds or starts, wherever it is, and never drops a registration when the file is deleted, so a test that makes a copy of a browser, or a stand-in app, and deletes it the usual way leaves one more entry in macOS's list of apps on every run; on 2026-11-22 the kit's own tests had left about 1,700, and macOS's storage scanner spent 2 to 3.4 cores looking through them. A test that makes an app in a temporary folder removes that folder with it:
+
+```ts
+import { removeAppsNow } from 'app-kit/testing/forget-apps';
+
+afterAll(() => removeAppsNow([scratch]));
+```
+
+- **Delete first, then forget.** Deleting first leaves macOS no moment to register the copy again, and `lsregister -u`, the only way to have macOS forget an app, takes a path that is gone. A path that names an app is forgotten even when it was deleted before it was given.
+- **As macOS named it.** Each path is resolved first, so a folder under `/tmp` is forgotten as `/private/tmp`, where macOS registered it.
+- **Only inside what it was given.** It never follows a link, so a test folder that links to the checkout's packages never reaches an app outside it.
+- **It fails nothing.** A forget macOS refuses (it never registered the path, the usual case) is ignored. It returns the paths it could not delete, with why; those are not forgotten. Off macOS it only deletes.
+- The test start-up file uses it for the folders of test processes that ended, and `iphone run`, the TestFlight upload and the Mac release for the apps their builds made when stopped by a signal. It is plain JavaScript, so Playwright's tests can import it from inside `node_modules`.
 
 ## bin/, scripts/ and test/: develop
 

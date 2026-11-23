@@ -2,9 +2,10 @@
 // process keeps its temporary files in /tmp/<project>-tests/<pid>, outside the system temporary folder, which slows
 // every process started in it as it fills. <project> is the name in package.json where the tests run, or the folder's
 // name when it has none.
-import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { removeAppsNow } from './forget-apps.js';
 
 /** The project's name as one folder name: `@perf-buddy/server` is `perf-buddy-server`, so its owner is checked once. */
 export function projectName(folder: string): string {
@@ -43,15 +44,14 @@ const alive = (pid: number) => {
   }
 };
 
-// bun test runs no exit handler, so the folders of ended processes are removed by the next one.
-export function sweepEnded(root: string): void {
+// bun test runs no exit handler, so the folders of ended processes are removed by the next one, and macOS forgets any
+// app a test left in one (a copy of a browser, a stand-in), which it would otherwise keep in its list of apps for good.
+export function sweepEnded(root: string, run?: (command: string[]) => unknown): void {
   for (const name of readdirSync(root)) {
     if (!/^\d+$/.test(name) || alive(Number(name))) continue;
-    try {
-      rmSync(join(root, name), { recursive: true, force: true });
-    } catch (e) {
+    for (const { path, error } of removeAppsNow([join(root, name)], run)) {
       // Another process removing it at once; anything else is said, and the next run tries again.
-      if ((e as { code?: string }).code !== 'ENOENT') console.warn(`could not remove ${join(root, name)}, left by a test process that ended: ${String(e)}`);
+      if ((error as { code?: string }).code !== 'ENOENT') console.warn(`could not remove ${path}, left by a test process that ended: ${String(error)}`);
     }
   }
 }

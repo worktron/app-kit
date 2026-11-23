@@ -133,10 +133,7 @@ describe('deleting them', () => {
     write(app, ['src-tauri/target/release/bundle/macos/Sample App.app/Contents/Info.plist']);
     const built = join(app, 'src-tauri/target/release/bundle/macos/Sample App.app');
     const calls: string[][] = [];
-    removeAppsNow([built], ((command: string[]) => {
-      calls.push(command);
-      return { success: true };
-    }) as unknown as typeof Bun.spawnSync);
+    removeAppsNow([built], (command) => calls.push(command));
     expect(existsSync(built)).toBe(false);
     expect(calls).toEqual([[LSREGISTER, '-u', built]]);
   });

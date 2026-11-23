@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { LSREGISTER } from '../testing/forget-apps.js';
 import { folderProblem, projectName, sweepEnded } from '../testing/start-up';
 
 const kit = resolve(import.meta.dir, '..');
@@ -106,7 +107,7 @@ test("the sweep removes an ended process's folder, keeps a running one's, and sa
   const warn = console.warn;
   console.warn = (line: string) => warned.push(line);
   try {
-    sweepEnded(root);
+    sweepEnded(root, () => {});
   } finally {
     console.warn = warn;
     chmodSync(join(root, '99999998'), 0o700);
@@ -114,4 +115,20 @@ test("the sweep removes an ended process's folder, keeps a running one's, and sa
   expect(readdirSync(root).sort()).toEqual([String(process.pid), '99999998'].sort());
   expect(warned).toHaveLength(1);
   expect(warned[0]).toContain(`could not remove ${join(root, '99999998')}, left by a test process that ended`);
+});
+
+test("the sweep has macOS forget each app an ended process's folder held, once the folder is gone", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'start-up-')));
+  made.push(root);
+  const app = join(root, '99999999', 'app-kit-dock-x', 'webkit', 'Playwright.app');
+  mkdirSync(join(app, 'Contents'), { recursive: true });
+  const live = join(root, String(process.pid), 'Kept.app');
+  mkdirSync(live, { recursive: true });
+  const forgot: string[] = [];
+  sweepEnded(root, (command) => {
+    expect(command.slice(0, 2)).toEqual([LSREGISTER, '-u']);
+    forgot.push(`${command[2]}${existsSync(command[2]!) ? ' (still on disk)' : ''}`);
+  });
+  expect(forgot).toEqual([app]);
+  expect(existsSync(live)).toBe(true);
 });

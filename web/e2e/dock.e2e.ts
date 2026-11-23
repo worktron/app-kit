@@ -1,7 +1,8 @@
 import { expect, test, webkit } from '@playwright/test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { removeAppsNow } from '../../testing/forget-apps.js';
 import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 import { type Seen, watchApplications } from '../../test/applications.ts';
 
@@ -33,7 +34,8 @@ test('WebKit started through the kit never shows in the Dock', async () => {
     }
     apps = [...watch.seen.values()];
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    // With the copy of WebKit macOS registered as it started.
+    removeAppsNow([scratch]);
   }
   // The copy was seen at all, so a watch that hears nothing cannot pass.
   expect(apps.length).toBeGreaterThan(0);

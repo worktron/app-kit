@@ -7,10 +7,11 @@
 // every unit test here has.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { execFileSync } from 'child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 import { webkit } from 'playwright';
+import { removeAppsNow } from '../testing/forget-apps.js';
 
 // The tests run at once and each starts the kit in a bun process or more, up to nine together, so each is held to
 // the fifteen seconds a test may take, not Bun's five, which a busy machine passed while they took 3.5 on main.
@@ -18,7 +19,8 @@ setDefaultTimeout(15_000);
 
 const root = join(import.meta.dir, '..');
 const scratch = mkdtempSync(join(tmpdir(), 'app-kit-webkit-'));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+// With the signed stand-ins and their copies, which macOS registers.
+afterAll(() => removeAppsNow([scratch]));
 const folder = (name: string) => join(scratch, name);
 const kit = join(root, 'web/playwright-webkit.js');
 
@@ -103,7 +105,7 @@ describe.if(process.platform === 'darwin')('on macOS', () => {
     // Another browsers folder's copies sit beside this one's, measured against their own.
     const other = join(cache, 'another-browsers-folder', 'webkit-1000-1');
     mkdirSync(other, { recursive: true });
-    rmSync(copy, { recursive: true });
+    removeAppsNow([copy]);
     const second = await answer(inProcess(cache));
     expect(second.code).toBe(0);
     expect(second.printed).toContain('removed');
@@ -125,7 +127,7 @@ test.concurrent("an app loads it by its import name with Node, from inside node_
   mkdirSync(join(installed, 'web'), { recursive: true });
   mkdirSync(join(installed, 'testing'), { recursive: true });
   cpSync(join(root, 'package.json'), join(installed, 'package.json'));
-  for (const file of ['web/playwright-webkit.js', 'web/playwright-webkit.d.ts', 'testing/playwright-dock.js', 'testing/playwright-dock.d.ts']) cpSync(join(root, file), join(installed, file));
+  for (const file of ['web/playwright-webkit.js', 'web/playwright-webkit.d.ts', 'testing/playwright-dock.js', 'testing/playwright-dock.d.ts', 'testing/forget-apps.js', 'testing/forget-apps.d.ts']) cpSync(join(root, file), join(installed, file));
   mkdirSync(join(app, 'node_modules', '@playwright'));
   symlinkSync(join(root, 'node_modules/@playwright/test'), join(app, 'node_modules/@playwright/test'));
 

@@ -6,9 +6,10 @@
 // Run with `bun test ./extension/e2e/dock.e2e.ts`, which scripts/gates.sh does.
 
 import { expect, test } from 'bun:test'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { removeAppsNow } from '../../testing/forget-apps.js'
 import { launchExtension } from '../harness/index.ts'
 import { type Seen, watchApplications } from '../../test/applications.ts'
 
@@ -32,7 +33,8 @@ test.if(process.platform === 'darwin')("the harness's Chromium loads the extensi
     }
     apps = [...watch.seen.values()]
   } finally {
-    rmSync(scratch, { recursive: true, force: true })
+    // With the copy of Chromium, and its helper apps, macOS registered as it started.
+    removeAppsNow([scratch])
   }
   // The copy was seen at all, so a watch that hears nothing cannot pass.
   expect(apps.length).toBeGreaterThan(0)

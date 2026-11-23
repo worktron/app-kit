@@ -1,9 +1,10 @@
 import { chromium, expect, test, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { offlineAudio, testWithOfflineAudio } from '../playwright-offline-audio.js';
+import { removeAppsNow } from '../../testing/forget-apps.js';
 import { webkitWithoutDockIcon } from '../playwright-webkit.js';
 
 // A page's Web Audio run through the kit, in Chromium and in the kit's WebKit, with macOS's audio service recorded by
@@ -19,7 +20,8 @@ const recorderProgram = join(scratch, 'audio-output');
 test.beforeAll(() => {
   if (process.platform === 'darwin') execFileSync('swiftc', [join(import.meta.dirname, 'audio-output.swift'), '-o', recorderProgram], { stdio: ['ignore', 'ignore', 'pipe'] });
 });
-test.afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+// With the copy of WebKit macOS registered as it started.
+test.afterAll(() => removeAppsNow([scratch]));
 
 // The page, served by the test itself: each tap makes a context and starts it, as an iPhone needs.
 const ADDRESS = 'https://audio.example.com/';

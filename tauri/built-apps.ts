@@ -27,6 +27,9 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Run } from '../command-line/run.ts';
+import { LSREGISTER } from '../testing/forget-apps.js';
+
+export { LSREGISTER, removeAppsNow } from '../testing/forget-apps.js';
 
 /**
  * Whether this run has started a build, so only a run that built deletes: one refused before its build, such as a
@@ -34,8 +37,6 @@ import type { Run } from '../command-line/run.ts';
  */
 export type BuildStarted = { started: boolean };
 
-/** macOS's tool for its registry of apps, which has no public call that forgets one. */
-export const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 /** Xcode's build folders, below the home folder. */
 export const XCODE_BUILD_FOLDERS = 'Library/Developer/Xcode/DerivedData';
 /** A Tauri app's Xcode project, as Tauri generates it; the part before `/src-tauri/` is the checkout. */
@@ -145,17 +146,8 @@ export async function removeApps(paths: string[], run: Run, output: (chunk: stri
   }
 }
 
-/** The same, for a signal handler, which cannot wait on a promise. */
-export function removeAppsNow(paths: string[], spawnSync: typeof Bun.spawnSync = Bun.spawnSync): void {
-  for (const path of paths) {
-    try {
-      rmSync(path, { recursive: true, force: true });
-      spawnSync([LSREGISTER, '-u', path], { stdout: 'ignore', stderr: 'ignore' });
-    } catch {
-      // A stop by signal reports nothing more; the next run's sweep or delete settles it.
-    }
-  }
-}
+// The same for a signal handler, which cannot wait on a promise, is removeAppsNow, which tests and apps use too
+// (app-kit/testing/forget-apps).
 
 /**
  * Deletes Xcode's build folders under `home` made for a Tauri app whose checkout folder no longer exists, and has macOS

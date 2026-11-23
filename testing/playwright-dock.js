@@ -11,9 +11,10 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative, sep } from 'node:path';
+import { removeAppsNow } from './forget-apps.js';
 
 /** How the copy is made; a change to the steps below takes the next number, so an old copy is never reused. */
 const RECIPE = 1;
@@ -112,13 +113,15 @@ function makeCopy(source, copy, executable, key, label) {
     removeOrphans(cache, dirname(source), label);
     return true;
   } finally {
-    rmSync(making, { recursive: true, force: true });
+    // Signed, and so maybe registered by macOS already, when this run lost the race or Playwright changed it.
+    removeAppsNow([making]);
   }
 }
 
 /**
- * Removes copies, and copies being made, whose Playwright original is gone: Playwright removes a browser only once no
- * installed Playwright uses it. Anything not named as this file names a copy is left as it is.
+ * Removes copies, and copies being made, whose Playwright original is gone, and has macOS forget them: Playwright
+ * removes a browser only once no installed Playwright uses it. Anything not named as this file names a copy is left as
+ * it is.
  * @param {string} cache
  * @param {string} browsers
  * @param {string} label
@@ -127,7 +130,7 @@ function removeOrphans(cache, browsers, label) {
   for (const name of readdirSync(cache)) {
     const original = name.match(/^(?:\.making-)?([a-z_]+-\d+)-\d+(?:\.\d+\.\d+)?$/)?.[1];
     if (!original || existsSync(join(browsers, original))) continue;
-    rmSync(join(cache, name), { recursive: true, force: true });
+    removeAppsNow([join(cache, name)]);
     console.error(`app-kit: removed ${join(cache, name)}, whose ${label} is gone`);
   }
 }

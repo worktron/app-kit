@@ -5,13 +5,15 @@
 // tells. The file imports no Playwright package, so it runs here, in the test's own process.
 import { afterAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { removeAppsNow } from '../testing/forget-apps.js';
 import { withoutDockIcon } from '../testing/playwright-dock.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'app-kit-dock-'));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+// With the signed stand-ins and their copies, which macOS registers.
+afterAll(() => removeAppsNow([scratch]));
 
 const APP = 'chrome-mac-arm64/Google Chrome for Testing.app';
 const EXECUTABLE = `${APP}/Contents/MacOS/Google Chrome for Testing`;
