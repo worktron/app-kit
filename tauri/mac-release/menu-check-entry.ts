@@ -11,7 +11,8 @@
  *   copy's saved data, sign-in included, since Tauri builds the identifier into the app (a copy given another one in
  *   its Info.plist still wrote its log under the real one, on a worker Mac, 2026-11-21). A record counts only while
  *   nothing in its folders changed after its check could have written to them (`claimMs`): a later change is a real
- *   copy's, and the record is dropped. A copy of the app running when the check ends, opened during it, keeps them too.
+ *   copy's, and the record is dropped. A copy of the app running when the check ends, opened during it, keeps them too,
+ *   judged only once the check's own copy has left LaunchServices (ENDING_MS).
  *   What it clears it sets aside for SET_ASIDE_DAYS (~/.local/state/app-kit/menu-check/set-aside/), never deletes, so a
  *   misjudged real copy's data can be put back. After a run the record stays for LATE_MS, so what macOS writes for
  *   the app a moment after it ends is the check's to clear, not a real copy's that would refuse the next check.
@@ -65,6 +66,14 @@ export const RUN_MS = 3 * 60_000;
 export const CLAIM_MS = START_MS + RUN_MS + 60_000;
 /** How long after a run ends macOS may still write the app's folders, its preferences flushed and WebKit closing. */
 export const LATE_MS = 60_000;
+/**
+ * How long after the check ends its app macOS may still list it: the check waits this long for its own copy to leave
+ * LaunchServices before it takes what is listed as another copy (a worker Mac, 2026-11-22, kept Matter's folders after
+ * a failed check with no other copy started, by its own log).
+ */
+export const ENDING_MS = 5_000;
+/** The start of a line the check prints that is not its verdict, so the release never takes one for it. */
+export const NOTE = 'menu check note: ';
 /** How long cleared folders are kept, set aside, before they are deleted. */
 export const SET_ASIDE_DAYS = 7;
 
@@ -303,7 +312,7 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
   }
   deleteOldSetAside(home);
   for (const pid of leftCopies(command('/bin/ps', ['-axo', 'pid=,command=']).out, checkFolderStarts())) {
-    print(`menu check: ending process ${pid}, a copy an earlier check left running`);
+    print(`${NOTE}ending process ${pid}, a copy an earlier check left running`);
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
@@ -315,11 +324,20 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
   let identifier = '';
   let app = '';
   let pid = 0;
+  // The numbers LaunchServices lists the check's own copy under, read while it runs, since one that quit is gone.
+  const numbers = new Set<string>();
+  const noteOwn = (): boolean => {
+    if (pid && identifier) for (const copy of listed(identifier)) if (copy.pid === pid) numbers.add(copy.number);
+    return numbers.size > 0;
+  };
+  // The verdict is printed last, after every line the cleanup prints, since the release takes the last line as it.
+  let verdict = '';
+  const say = (line: string) => void (verdict = line);
   try {
     const unpacked = command('/usr/bin/tar', ['-xzf', join(jobFolder, archive), '-C', folder]);
     const bundle = readdirSync(folder).find((name) => name.endsWith('.app'));
     if (unpacked.code !== 0 || !bundle) {
-      print(`menu check: refused: the update archive holds no app: ${unpacked.out.trim()}`);
+      say(`menu check: refused: the update archive holds no app: ${unpacked.out.trim()}`);
       return REFUSED;
     }
     app = join(folder, bundle);
@@ -328,18 +346,18 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
     identifier = read('CFBundleIdentifier');
     const program = join(app, 'Contents/MacOS', read('CFBundleExecutable'));
     if (!/^[A-Za-z0-9.-]+$/.test(identifier) || !existsSync(program)) {
-      print(`menu check: refused: ${bundle} names no identifier or program in its Info.plist`);
+      say(`menu check: refused: ${bundle} names no identifier or program in its Info.plist`);
       identifier = '';
       return REFUSED;
     }
-    if (running(identifier)) {
-      print(`menu check: refused: ${identifier} is running on ${worker}; the check never runs beside a real copy`);
+    if (listed(identifier).length > 0) {
+      say(`menu check: refused: ${identifier} is running on ${worker}; the check never runs beside a real copy`);
       identifier = '';
       return REFUSED;
     }
     const real = unrecordedFolders(home, identifier);
     if (real.length > 0) {
-      print(`menu check: refused: ${worker} holds ${identifier}'s own data (${real.join(', ')}); the check never touches a real copy's`);
+      say(`menu check: refused: ${worker} holds ${identifier}'s own data (${real.join(', ')}); the check never touches a real copy's`);
       identifier = '';
       return REFUSED;
     }
@@ -347,7 +365,7 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
     print(`menu check: starting ${bundle} on ${worker}`);
     const opened = command('/usr/bin/open', ['-n', '--stdout', out, '--stderr', out, '--env', `${MENU_CHECK_VARIABLE}=1`, app]);
     if (opened.code !== 0) {
-      print(`menu check: macOS could not start ${bundle}: ${opened.out.trim()}`);
+      say(`menu check: macOS could not start ${bundle}: ${opened.out.trim()}`);
       return 1;
     }
     const started = Date.now();
@@ -358,10 +376,10 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
     if (!pid) {
       // No process is a fact about the worker as much as the build (LaunchServices slow, a desktop that starts
       // nothing), so it is tried again, not held: an app that dies at launch fails each hourly try and says so.
-      print(`menu check: ${bundle} did not start within ${START_MS / 1000} s on ${worker}`);
+      say(`menu check: ${bundle} did not start within ${START_MS / 1000} s on ${worker}`);
       return 1;
     }
-    const ending = await follow(out, pid);
+    const ending = await follow(out, pid, noteOwn);
     const lines = existsSync(out) ? readFileSync(out, 'utf8').split('\n') : [];
     // The check's lines and the kit's own, which say what each item did; the app's own lines stay on the worker.
     for (const line of lines) if (parseLine(line)?.target.startsWith(MENU_CHECK_KIT_TARGET)) print(line);
@@ -373,10 +391,13 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
         if (frames.length > 0) print(`menu check: the main thread, innermost last:\n  ${frames.join('\n  ')}`);
       }
     }
-    const verdict = judgeMenuCheck(lines, ending);
-    print(verdict.passed ? `menu check: passed on ${worker}: ${verdict.why}` : `menu check: failed on ${worker}: ${verdict.why}`);
-    return verdict.passed ? PASSED : FAILED;
+    const judged = judgeMenuCheck(lines, ending);
+    say(judged.passed ? `menu check: passed on ${worker}: ${judged.why}` : `menu check: failed on ${worker}: ${judged.why}`);
+    return judged.passed ? PASSED : FAILED;
   } finally {
+    // The check's own copy as macOS lists it, read once more while it may still run, so the cleanup tells it from any other.
+    noteOwn();
+    const own: Own = { pid, numbers: [...numbers] };
     if (pid) {
       try {
         process.kill(pid, 'SIGKILL');
@@ -386,14 +407,19 @@ export async function main(jobFolder: string, print: (line: string) => void): Pr
     }
     if (app) command(LSREGISTER, ['-u', app]);
     rmSync(folder, { recursive: true, force: true });
-    if (identifier && running(identifier, pid)) {
-      // A copy opened during the run shares the folders, so they are its now: the record goes, and they stay.
-      rmSync(recordFile(home, identifier), { force: true });
-      print(`menu check: ${identifier} was opened on ${worker} during the check, so its folders are left as they are`);
-    } else if (identifier) {
-      setAsideRecorded(home, identifier);
-      // The record stays a minute more, for what macOS writes for the app as it ends; the next check clears that.
-      recordFolders(home, identifier, Date.now(), LATE_MS);
+    try {
+      const others = identifier ? await otherCopiesOnceEnded(() => listed(identifier), own) : [];
+      if (others.length > 0) {
+        // A copy opened during the run shares the folders, so they are its now: the record goes, and they stay.
+        rmSync(recordFile(home, identifier), { force: true });
+        print(`${NOTE}${identifier} was opened on ${worker} during the check, so its folders are left as they are (macOS lists ${describeListed(others)})`);
+      } else if (identifier) {
+        setAsideRecorded(home, identifier);
+        // The record stays a minute more, for what macOS writes for the app as it ends; the next check clears that.
+        recordFolders(home, identifier, Date.now(), LATE_MS);
+      }
+    } finally {
+      if (verdict) print(verdict);
     }
   }
 }
@@ -409,18 +435,69 @@ export function appPid(info: string): number {
   return match ? Number(match[1]) : 0;
 }
 
-/** Whether macOS has a copy of the app of this identifier running, other than the check's own. */
-function running(identifier: string, own = 0): boolean {
-  return appNumbers(command('/usr/bin/lsappinfo', ['find', `bundleid=${identifier}`]).out).some((number) => {
-    const pid = appPid(command('/usr/bin/lsappinfo', ['info', '-only', 'pid', number]).out);
-    // An answer with no process id counts as another copy: the check never deletes on a guess.
-    return pid === 0 || pid !== own;
-  });
+/** A copy of an app LaunchServices lists: its number there, and the process id it gives for it, 0 when it gives none. */
+export interface Listed {
+  number: string;
+  pid: number;
+}
+
+/** The copies of the app of this identifier that macOS lists. */
+function listed(identifier: string): Listed[] {
+  return appNumbers(command('/usr/bin/lsappinfo', ['find', `bundleid=${identifier}`]).out).map((number) => ({
+    number,
+    pid: appPid(command('/usr/bin/lsappinfo', ['info', '-only', 'pid', number]).out),
+  }));
+}
+
+/** The check's own copy: its process id, and the numbers LaunchServices listed it under while it ran. */
+export interface Own {
+  pid: number;
+  numbers: string[];
+}
+
+function isOwn(copy: Listed, own: Own): boolean {
+  return own.numbers.includes(copy.number) || (own.pid !== 0 && copy.pid === own.pid);
+}
+
+/**
+ * The listed copies that are not the check's own, by its number in LaunchServices or its process id. Any other counts,
+ * one macOS gives no id for and one whose process has ended included: a real copy that ran during the check shared its
+ * folders, and the check never deletes on a guess.
+ */
+export function otherCopies(copies: Listed[], own: Own): Listed[] {
+  return copies.filter((copy) => !isOwn(copy, own));
+}
+
+/**
+ * The other copies listed once the check's own has left LaunchServices: asked again while its own copy, or one with no
+ * id that could be it, is still listed, for up to ENDING_MS, and then judged as it stands.
+ */
+export async function otherCopiesOnceEnded(list: () => Listed[], own: Own, sleep: (ms: number) => Promise<void> = Bun.sleep, waitMs = ENDING_MS): Promise<Listed[]> {
+  let copies = list();
+  for (let waited = 0; waited < waitMs && copies.some((copy) => copy.pid === 0 || isOwn(copy, own)); waited += 100) {
+    await sleep(100);
+    copies = list();
+  }
+  return otherCopies(copies, own);
+}
+
+/** What macOS listed, as the check's note says it. */
+export function describeListed(copies: Listed[]): string {
+  return copies.map((copy) => `${copy.number} ${copy.pid ? `with process ${copy.pid}` : 'with no process id'}`).join(', ');
+}
+
+/**
+ * Whether the check has its own copy's number from LaunchServices: once the app's output says its check started, macOS
+ * lists it, so it is asked then, before Quit can end it, and asked again each time round until macOS has listed it.
+ */
+export function ownNoted(noted: boolean, text: string, noteOwn: () => boolean): boolean {
+  return noted || (text.includes(`${MENU_CHECK_LINE}${MENU_CHECK_STARTING}`) && noteOwn());
 }
 
 /** Follows the app's output until it ends, is stuck, or runs too long, and says which. */
-async function follow(out: string, pid: number): Promise<Ending> {
+async function follow(out: string, pid: number, noteOwn: () => boolean): Promise<Ending> {
   const started = Date.now();
+  let noted = false;
   let size = -1;
   let movedAt = Date.now();
   let quitAt = 0;
@@ -437,6 +514,7 @@ async function follow(out: string, pid: number): Promise<Ending> {
       size = text.length;
       movedAt = Date.now();
     }
+    noted = ownNoted(noted, text, noteOwn);
     if (text.includes(`${MENU_CHECK_LINE}${MENU_CHECK_STOPPED}`)) return 'stopped-answering';
     if (text.includes(`${MENU_CHECK_LINE}${MENU_CHECK_NEVER_ANSWERED}`)) return 'stopped-answering';
     if (!text.includes(`${MENU_CHECK_LINE}${MENU_CHECK_STARTING}`) && Date.now() - started > START_MS) return 'never-started';

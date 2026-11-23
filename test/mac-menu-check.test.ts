@@ -9,10 +9,16 @@ import {
   appPid,
   CLAIM_MS,
   dataFolders,
+  describeListed,
+  ENDING_MS,
   itemName,
   judgeMenuCheck,
   kitLines,
   leftCopies,
+  type Listed,
+  otherCopies,
+  otherCopiesOnceEnded,
+  ownNoted,
   parseLine,
   recordFile,
   deleteOldSetAside,
@@ -246,4 +252,47 @@ test("a stuck app's main thread is printed from the app, Tauri and the kit, inne
 
 test("the job's entry runs the kit's judge with bun from the job's own folder", () => {
   expect(ENTRY).toContain('cd "$(dirname "$0")/.." && exec bun tauri/mac-release/menu-check-entry.ts');
+});
+
+// The moments after the kill are made up: on the workers macOS stopped listing a killed app at the first look in 31
+// tries (2026-11-22), yet one check took its own ending copy for another; what macOS listed then is unknown.
+const OWN_NUMBER = 'ASN:0x0-0x1-"Example":';
+const own = { pid: 501, numbers: [OWN_NUMBER] };
+
+test("the check's own copy, still listed a moment after its kill by its number or its id, with or without an id, is waited out and is no other copy", async () => {
+  const answers: Listed[][] = [[{ number: OWN_NUMBER, pid: 501 }], [{ number: OWN_NUMBER, pid: 0 }], [{ number: 'ASN:0x0-0x9-"Example":', pid: 501 }], []];
+  let slept = 0;
+  expect(await otherCopiesOnceEnded(() => answers.shift() ?? [], own, async () => void slept++)).toEqual([]);
+  expect(slept).toBe(3);
+});
+
+test("a copy opened during the check is another copy, even once its process has ended, and so is one macOS still gives no id for after the wait", async () => {
+  // A real copy opened and quit during the check: listed under its own number with its ended process's id.
+  const openedAndQuit = { number: 'ASN:0x0-0x2-"Example":', pid: 777 };
+  let slept = 0;
+  expect(await otherCopiesOnceEnded(() => [openedAndQuit], own, async () => void slept++)).toEqual([openedAndQuit]);
+  expect(slept).toBe(0);
+
+  const unknown = { number: 'ASN:0x0-0x3-"Example":', pid: 0 };
+  expect(await otherCopiesOnceEnded(() => [unknown], own, async () => void slept++)).toEqual([unknown]);
+  expect(slept).toBe(ENDING_MS / 100);
+  expect(describeListed([openedAndQuit, unknown])).toBe('ASN:0x0-0x2-"Example": with process 777, ASN:0x0-0x3-"Example": with no process id');
+});
+
+test("a check whose app ended before its number was read still tells its own copy by its process id, and nothing else", () => {
+  const ended = { pid: 501, numbers: [] };
+  expect(otherCopies([{ number: 'a', pid: 501 }], ended)).toEqual([]);
+  expect(otherCopies([{ number: 'b', pid: 0 }, { number: 'c', pid: 640 }], ended)).toHaveLength(2);
+});
+
+test("the check asks for its own copy's number once its check has started, and again each time round until macOS lists it", () => {
+  const answers = [false, false, true];
+  let asked = 0;
+  const noteOwn = () => (asked++, answers.shift() ?? true);
+  const before = line("menu check: the menu holds []");
+  let noted = ownNoted(false, before, noteOwn);
+  expect([noted, asked]).toEqual([false, 0]);
+  const started = `${line("menu check: starting")}\n`;
+  for (let round = 0; round < 4; round++) noted = ownNoted(noted, started, noteOwn);
+  expect([noted, asked]).toEqual([true, 3]);
 });

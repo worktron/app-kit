@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { assetName, nextVersion, releasesRepository, signedVersion } from '../tauri/mac-release/app.ts';
 import { identityName, NOTARY_KEY_FOLDER, release, type ReleaseOptions } from '../tauri/mac-release/release.ts';
 import { USERS } from '../tauri/mac-release/build-paths.ts';
+import { NOTE } from '../tauri/mac-release/menu-check-entry.ts';
 import { LSREGISTER } from '../tauri/built-apps.ts';
 import {
   DEVELOPER_ID_IDENTITIES,
@@ -544,10 +545,11 @@ test('the archive about to go up is sent to a worker Mac as a one-commit job, af
 
 test('a build that failed its menu check exits 5 and publishes nothing, naming what the worker saw', async () => {
   const { app } = macApp(place.folder);
-  // The door's lines of a freeze on a worker Mac (2026-11-21): the stuck main thread, the verdict, then the door's own.
+  // The door's lines of a freeze on a worker Mac (2026-11-21): the stuck main thread, the verdict, a note of the check's
+  // that once came after it (a worker Mac, 2026-11-22), then the door's own.
   const frames = 'menu check: the main thread, innermost last:\n  tauri_plugin_app_kit_window::settings::open\n  tauri::manager::webview::WebviewManager$LT$R$GT$::prepare_webview\n  __psynch_mutexwait\n';
   const result = await runRelease(app, {
-    workerRun: () => exit(5, `menu check: choosing Settings… (3 of 18)\n${frames}menu check: failed on worker-a: the app stopped answering after Settings… (3 of 18) was chosen\nfleet worker: paused while the job ran, resumed now: photolibraryd 1\n`),
+    workerRun: () => exit(5, `menu check: choosing Settings… (3 of 18)\n${frames}menu check: failed on worker-a: the app stopped answering after Settings… (3 of 18) was chosen\n${NOTE}com.example.app was opened on worker-a during the check, so its folders are left as they are\nfleet worker: paused while the job ran, resumed now: photolibraryd 1\n`),
   });
   expect(result.streamed).toContain(frames);
   expect(result.code).toBe(5);

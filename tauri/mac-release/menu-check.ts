@@ -87,7 +87,8 @@ export async function menuCheck(options: MenuCheckOptions): Promise<MenuCheckRes
   const until = now() + WAIT_MS;
   for (;;) {
     const done = await options.run(['worker-run', JOB_REPOSITORY, job.sha], { env: options.env, inputFile: job.bundle, timeoutMs: JOB_MS, output: options.output });
-    // The verdict is the check's own last line; the door adds lines of its own after it.
+    // The verdict is the check's own last line, printed after its notes, which start otherwise (NOTE); the door adds
+    // lines of its own after it.
     const said = done.out.split('\n').filter((each) => each.startsWith('menu check: ')).pop() ?? lastLine(done.out);
     if (done.code === PASSED) return { code: 0, line: said };
     if (done.code === FAILED) return { code: 5, line: said };
