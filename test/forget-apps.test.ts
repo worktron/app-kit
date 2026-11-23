@@ -1,13 +1,14 @@
 // The step that deletes a Mac app and has macOS forget it (testing/forget-apps.js), with lsregister a stand-in that
 // records what it was asked to forget and whether that was still on disk then: the real one changes macOS's list.
 import { afterAll, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appsIn, LSREGISTER, removeAppsNow } from '../testing/forget-apps.js';
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-forget-apps-')));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+// The link test leaves a stand-in Chromium outside what it removes, which this forgets in turn.
+afterAll(() => removeAppsNow([scratch]));
 let made = 0;
 const folder = () => {
   const path = join(scratch, String(made++));
@@ -73,6 +74,18 @@ describe.if(process.platform === 'darwin')('on macOS', () => {
     removeAppsNow([copy], stand.run);
     expect(stand.forgot).toEqual([]);
     expect(existsSync(app)).toBe(true);
+  });
+
+  test('a path that is itself a link is removed as a link, and what it points to is kept', () => {
+    const outside = folder();
+    const { app } = chromium(outside);
+    const link = join(folder(), 'copy');
+    symlinkSync(outside, link);
+    const stand = lsregister();
+    expect(removeAppsNow([link], stand.run)).toEqual([]);
+    expect(existsSync(link)).toBe(false);
+    expect(existsSync(app)).toBe(true);
+    expect(stand.forgot).toEqual([]);
   });
 
   test('a forget that fails fails nothing, and the next path is still deleted and forgotten', () => {

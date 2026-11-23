@@ -8,8 +8,8 @@
 // Node, which refuses TypeScript inside node_modules, where an app has the kit.
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync, realpathSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { lstatSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 /** macOS's tool for its list of apps, which has no public call that forgets one. */
 export const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
@@ -23,6 +23,8 @@ export function appsIn(path) {
   /** @type {import('node:fs').Dirent[]} */
   let entries;
   try {
+    // A link given as the path is not walked either: what it points to is not in it.
+    if (!lstatSync(path).isDirectory()) return found;
     entries = readdirSync(path, { withFileTypes: true });
   } catch {
     return found;
@@ -42,10 +44,12 @@ export function removeAppsNow(paths, run = runCommand) {
   /** @type {{ path: string, error: Error }[]} */
   const failed = [];
   for (const given of paths) {
-    // As macOS registered it: a test's folder under /tmp is /private/tmp to macOS. A path already gone stays as given.
+    // As macOS registered it: a test's folder under /tmp is /private/tmp to macOS. Only the folder it is in is resolved,
+    // so a path that is itself a link is removed as a link, never by deleting what it points to. A folder already gone
+    // leaves the path as given.
     let path = given;
     try {
-      path = realpathSync(given);
+      path = join(realpathSync(dirname(given)), basename(given));
     } catch {
       // Gone already, or never there.
     }

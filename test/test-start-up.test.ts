@@ -117,7 +117,8 @@ test("the sweep removes an ended process's folder, keeps a running one's, and sa
   expect(warned[0]).toContain(`could not remove ${join(root, '99999998')}, left by a test process that ended`);
 });
 
-test("the sweep has macOS forget each app an ended process's folder held, once the folder is gone", () => {
+// Off macOS the sweep only deletes, as there is no list of apps to forget them from.
+test.if(process.platform === 'darwin')("the sweep has macOS forget each app an ended process's folder held, once the folder is gone", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'start-up-')));
   made.push(root);
   const app = join(root, '99999999', 'app-kit-dock-x', 'webkit', 'Playwright.app');
