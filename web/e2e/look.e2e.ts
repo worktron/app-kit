@@ -239,7 +239,7 @@ test("on a phone a button naming a long account wraps inside the screen, and a s
 test.describe('on a touch screen', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
 
-  test('the Text size menu takes a tap 44 pixels tall, 20 pixels below its words, and none past that', async ({ page }) => {
+  test('the Text size menu takes a tap 44 pixels tall, 20 pixels below its words, and its box ends there', async ({ page }) => {
     await page.goto('/look.html');
     // The words' own box, without the padding a touch screen adds, measured as a mouse page draws it.
     const words = page.getByRole('combobox', { name: 'Text size' });
@@ -252,9 +252,18 @@ test.describe('on a touch screen', () => {
     await page.touchscreen.tap(box.x + box.width / 2, middle + 20);
     await expect(page.getByRole('option', { name: '150%' })).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('option')).toHaveCount(0);
-    // Past the target, a tap is the row's, and opens nothing.
-    await page.touchscreen.tap(box.x + box.width / 2, middle - 26);
-    await expect(page.getByRole('combobox', { name: 'Text size' })).toHaveAttribute('aria-expanded', 'false');
+    // A closed menu fades out, hidden from the accessibility tree but still taking taps until it is gone: a tap then
+    // picks the size under it, and the page grows.
+    await expect(page.getByRole('listbox', { includeHidden: true })).toHaveCount(0);
+    // The target's top pixel is the menu's, and the one past it is not.
+    const x = box.x + box.width / 2;
+    const menuAt = (y: number) => words.evaluate((menu, point) => menu.contains(document.elementFromPoint(point.x, point.y)), { x, y });
+    expect(await menuAt(padded.y)).toBe(true);
+    expect(await menuAt(padded.y - 1)).toBe(false);
+    // Chrome moves a tap a few pixels off a control onto it, as a phone does: measured, 7 pixels past the target still
+    // opens the menu and 13 do not. A tap 13 pixels past it opens nothing and changes nothing.
+    await page.touchscreen.tap(x, padded.y - 13);
+    await expect(words).toHaveAttribute('aria-expanded', 'false');
+    expect(await words.boundingBox(), 'the menu where it was, at the size it was').toEqual(padded);
   });
 });
