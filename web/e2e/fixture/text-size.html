@@ -15,12 +15,13 @@
       span { font-size: 40px !important; }
     </style>
   </head>
-  <body>
-    <main>
-      <h1>Text size</h1>
-      <p class="scale">Scale <output id="scale"></output></p>
-      <p>Every size on this page is in rem, so it follows the root font size the kit sets from the phone's Text Size.</p>
-    </main>
-    <script type="module" src="/text-size.ts"></script>
-  </body>
+  <!-- No body tags, on purpose: the main section's own tag makes the body, in the same step, so the browser has no body
+       to paint with nothing in it, which the frame tests in steps.e2e.ts would see (README, "The name before the code,
+       in one picture or two"). -->
+  <main id="main">
+    <h1>Text size</h1>
+    <p class="scale">Scale <output id="scale"></output></p>
+    <p>Every size on this page is in rem, so it follows the root font size the kit sets from the phone's Text Size.</p>
+  </main>
+  <script type="module" src="/text-size.ts"></script>
 </html>

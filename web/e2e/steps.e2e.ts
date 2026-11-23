@@ -104,7 +104,17 @@ test('page loads are counted from the step on', async ({ page }) => {
 
 test('frames are noted from the first, and a page drawn in one background throughout is steady', async ({ page, context }) => {
   await watchFrames(context, { root: 'main' });
-  await page.goto(plainPage);
+  // Held just before the main section, where a busy browser's parser stops: with a body there, Chromium paints it with
+  // nothing in it, so the page has no body tags.
+  const beforeMain = await holdBeforeRoot(page, { root: 'main' });
+  const loaded = page.goto(plainPage);
+  loaded.catch(() => {});
+  try {
+    await beforeMain.reached();
+  } finally {
+    beforeMain.release();
+  }
+  await loaded;
   await expect(page.getByRole('heading', { name: 'Text size' })).toBeVisible();
   await page.evaluate(() => new Promise(requestAnimationFrame));
   expectSteady(await takeFrames(page), 'rgb(244, 239, 230)');
