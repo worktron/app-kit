@@ -84,9 +84,10 @@ for (const macDark of [false, true]) {
     beforeAll(async () => {
       ext = await launchExtension({ source: FIXTURE, followChromeMode: true, macDark })
     }, 90_000)
+    // Closing waits for Chromium to shut down, the browser's work as starting it is, so it gets the start's limit.
     afterAll(async () => {
       await ext?.close()
-    })
+    }, 90_000)
 
     test("the icon matches the toolbar in each of Chrome's modes, before any of the extension's pages opens", async () => {
       // Chrome set against the Mac while no web page is open: nothing it may read shows Chrome's mode yet.
@@ -151,9 +152,10 @@ describe('an extension without site access', () => {
   beforeAll(async () => {
     ext = await launchExtension({ source: fixtureWithoutSiteAccess(), followChromeMode: true })
   }, 90_000)
+  // Closing waits for Chromium to shut down, the browser's work as starting it is, so it gets the start's limit.
   afterAll(async () => {
     await ext?.close()
-  })
+  }, 90_000)
 
   test("takes Chrome's fixed mode from its popup and keeps it across a Mac change", async () => {
     const mac: Mode = macIsDark ? 'dark' : 'light'

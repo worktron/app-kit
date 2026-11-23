@@ -75,12 +75,14 @@ beforeAll(async () => {
   pagesAtStart = ext.pages()
 }, 90_000)
 
+// Closing waits for Chromium to shut down, which is the browser's work, as starting it is: it gets the start's limit, not
+// Bun's 5-second default for a cleanup, which a busy Mac ran past.
 afterAll(async () => {
   server?.stop(true)
   pageBack()
   await ext?.close()
   rmSync(hostDir, { recursive: true, force: true })
-})
+}, 90_000)
 
 test('the worker loads under the ID its key gives, connects its host, and answers through the socket', async () => {
   const key = JSON.parse(readFileSync(join(FIXTURE, 'manifest.json'), 'utf8')).key
