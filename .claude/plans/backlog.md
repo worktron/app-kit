@@ -1173,3 +1173,13 @@ Done when: with no time limit raised, the test's time on a busy machine is trace
 Do not touch: time limits in the tests or bunfig.toml; what openDb does for apps.
 
 Touches: server/postgres/index.ts, test/postgres.test.ts.
+
+## bun-rejects-loses-exits · Report to Bun that a pending expect().rejects beside concurrent tests loses other tests' child exits
+
+Written by: app-kit/landing-tests-load
+
+Goal: this is a fault in bun 1.4.4 on macOS, worked around in app-kit and not yet reported upstream. In test/land.test.ts, a `test.concurrent` that awaited `expect(landIn(work)).rejects` on a landing still running, beside the file's other concurrent tests each running git, made bun never see the end of git processes those other tests had started: GIT_TRACE2 showed each such git exiting with code 0 in 2 to 9 ms, while bun's `child.exited` and stdout never resolved, and the tests waited out the 5-second limit. Counts: 17 timeouts in 8 runs of the file with the `.rejects` wait, 0 in as many runs with the same failure caught by hand (`.then(() => undefined, (error) => error.message)`), which is what the file does now (comment beside "a main whose package.json is gone..."). A scratch file with no landing code, 30 `test.concurrent` tests each running `git rev-parse HEAD`, `git status --porcelain` and `git cat-file --batch` fed on stdin together, 15 times over, also hung once (69 failures in one round, none in the rounds after), so `.rejects` makes it common but is not the only trigger. The same file's old code and tests had 9 timeouts in one set of runs that never came back in 30 later runs; the bug may explain them, unproven. No other test file now combines `.rejects`, concurrent tests and child processes. Filing the report publishes, so it waits for the owner's yes to its text.
+
+Done when: a minimal reproduction (a pending `.rejects` in one concurrent test, child processes in others) is written, checked against bun's latest release, and, on the owner's yes, filed on bun's issue tracker with the link added here; or the latest bun no longer shows it in 20 runs and this ticket is closed with that count.
+
+Touches: nothing in the kit unless a bun upgrade lets the hand-caught failure go back to `.rejects`.
