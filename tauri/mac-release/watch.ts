@@ -13,7 +13,8 @@
  * the last failure, so a pass on an unmoved main asks nothing and writes no line.
  *
  * gh is given the token of the account `--gh-user` names, rather than whichever account another session last made
- * active on this Mac.
+ * active on this Mac. It is asked for it again, up to three times, when it says it has none, since gh gives up on a
+ * keychain that is slow to answer on a busy Mac.
  *
  * Which apps: those named on the command line, and with `--owner`, each app in that account's own repositories whose
  * root package.json on main declares `"app-kit": { "mac-release": "<the folder holding src-tauri>" }` ("." for the
@@ -33,7 +34,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG, readConfig, releasesRepository } from './app.ts';
 import { lastLine } from '../testflight/key.ts';
-import { runCommand, type Run } from '../../command-line/run.ts';
+import { runCommand, type Run, type RunResult } from '../../command-line/run.ts';
 import { appendLog, stateFolder } from '../state.ts';
 import {
   appAddress,
@@ -119,6 +120,8 @@ export type WatchOptions = {
   env?: Env;
   home?: string;
   now?: () => number;
+  /** Waits between asks for gh's token; a timer when left out. */
+  wait?: (ms: number) => Promise<void>;
   limits?: Partial<Limits>;
 };
 
@@ -171,7 +174,7 @@ async function findApps(options: WatchOptions, recordFile: string, line: (name: 
     // none yet: every app found is new
   }
   const save = (record: FoundRecord) => writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`);
-  const env = await ghEnv(run, watcherChildEnv(options.env ?? process.env), options.ghUser);
+  const env = await ghEnv(options, watcherChildEnv(options.env ?? process.env), (message) => line('github', message));
   const found = typeof env === 'string' ? { failed: env } : await declaredApps({ owners: options.owners!, key: DECLARATION_KEY, run, env, cloneUrl: options.cloneUrl });
   const asking = 'asking GitHub which apps declare a Mac release';
   if ('failed' in found) {
@@ -195,12 +198,47 @@ async function findApps(options: WatchOptions, recordFile: string, line: (name: 
   return { apps: found, failed: false };
 }
 
-/** The environment gh runs in: with the token of the account `ghUser` names, or why there is none. */
-async function ghEnv(run: Run, env: Env, ghUser: string | undefined): Promise<Env | string> {
+/**
+ * How gh is asked for the named account's token: up to three times, five seconds apart, each held to 30 seconds. gh
+ * gives up on its keychain read after 3 seconds and then says it has no token, which a busy Mac running the watcher at
+ * background priority can take; the read works again moments later.
+ */
+const TOKEN_TRIES = 3;
+const TOKEN_TRY_AGAIN_MS = 5_000;
+const TOKEN_LIMIT_MS = 30_000;
+
+/** How one ask for the token ended, for the line: never the token itself. */
+function tokenTry(result: RunResult, ms: number): string {
+  const took = `${(ms / 1000).toFixed(1)} seconds`;
+  if (result.timedOut) return `stopped after ${took}, at its limit of ${minutes(TOKEN_LIMIT_MS)}`;
+  return result.code === 0 ? `exited 0 with no token after ${took}` : `exited ${result.code} after ${took}`;
+}
+
+/**
+ * The environment gh runs in: with the token of the account `ghUser` names, or why there is none. A token given on a
+ * later try is said in a line, with how the tries before it ended.
+ */
+async function ghEnv(options: WatchOptions, env: Env, line: (message: string) => void): Promise<Env | string> {
+  const { ghUser } = options;
   if (!ghUser) return { ...env };
-  const token = await run(['gh', 'auth', 'token', '--user', ghUser], { env, timeoutMs: 30_000 });
-  if (token.code !== 0 || !token.stdout.trim()) return `gh has no token for ${ghUser}: ${lastLine(token.out)}`;
-  return { ...env, GH_TOKEN: token.stdout.trim() };
+  const run = options.run ?? runCommand;
+  const now = options.now ?? Date.now;
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const tries: string[] = [];
+  let said = '';
+  for (let tryNumber = 1; tryNumber <= TOKEN_TRIES; tryNumber++) {
+    if (tryNumber > 1) await wait(TOKEN_TRY_AGAIN_MS);
+    const started = now();
+    const token = await run(['gh', 'auth', 'token', '--user', ghUser], { env, timeoutMs: TOKEN_LIMIT_MS });
+    const ms = now() - started;
+    if (token.code === 0 && token.stdout.trim()) {
+      if (tries.length) line(`gh gave the token for ${ghUser} on try ${tryNumber} of ${TOKEN_TRIES}, after ${tries.join(', ')}: ${said}`);
+      return { ...env, GH_TOKEN: token.stdout.trim() };
+    }
+    tries.push(tokenTry(token, ms));
+    said = lastLine(token.out);
+  }
+  return `gh has no token for ${ghUser}: ${said} (asked ${TOKEN_TRIES} times, ${minutes(TOKEN_TRY_AGAIN_MS)} apart: ${tries.join(', ')})`;
 }
 
 /** One app's pass, `knownHead` main's head as GitHub gave it when the app was found; gives true when a step failed. */
@@ -253,7 +291,7 @@ async function watchApp(url: string, state: string, options: WatchOptions, known
 
   // gh's token for the named account, handed to gh here and to the release, so another session's `gh auth switch`
   // never decides which account publishes.
-  const publishing = await ghEnv(run, childEnv, options.ghUser);
+  const publishing = await ghEnv(options, childEnv, line);
   if (typeof publishing === 'string') return failed('gh', `failed: ${publishing}; ${retry}`);
   const last = await run(['gh', 'release', 'view', '--repo', repository, '--json', 'tagName,body'], { env: publishing, timeoutMs: 60_000 });
   let lastTag: string | null = null;

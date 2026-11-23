@@ -46,6 +46,11 @@ let kitHasWatch: boolean;
 let lastRelease: RunResult;
 let releaseAnswer: (command: string[], options: RunOptions) => RunResult | Promise<RunResult>;
 let githubAnswer: (owner: string, after: string | null, options: RunOptions) => RunResult;
+// gh's answers to the named account's token, one per ask and each with how long it took, before it gives the token.
+let tokenMisses: { result: RunResult; ms: number }[];
+// The watcher's waits between asks for the token, and the time gh's asks took, which the pass's clock moves by.
+let waits: number[];
+let spent: number;
 
 const released = (tag: string, sha: string) => ok(JSON.stringify({ tagName: tag, body: `Example App for Mac ${tag.slice(1)}, built from ${sha.slice(0, 7)} (${sha}).` }));
 
@@ -59,6 +64,9 @@ beforeEach(() => {
   lastRelease = released('v0.1.3', firstCommit);
   releaseAnswer = () => ok('[mac release] releasing Example App 0.1.4 from abc1234\n[mac release] published Example App 0.1.4: https://github.com/example/example-releases/releases/tag/v0.1.4\n');
   githubAnswer = () => exit(1, 'no stand-in GitHub for this test\n');
+  tokenMisses = [];
+  waits = [];
+  spent = 0;
 });
 
 afterEach(() => place.done());
@@ -77,7 +85,12 @@ function runner() {
       if (settings.kitHasWatch) writeFileSync(join(kit, 'watch.ts'), '');
       return ok('installed\n');
     }
-    if (line === 'gh auth token --user example-owner') return ok('gho_stand-in-token\n');
+    if (line === 'gh auth token --user example-owner') {
+      const miss = tokenMisses.shift();
+      if (!miss) return ok('gho_stand-in-token\n');
+      spent += miss.ms;
+      return miss.result;
+    }
     if (line.startsWith('gh auth token')) return exit(1, 'no oauth token found for github.com account another-owner\n');
     if (line === `gh release view --repo ${REPOSITORY} --json tagName,body`) return settings.lastRelease;
     if (line.includes('mac release')) return settings.releaseAnswer(command, options);
@@ -99,7 +112,10 @@ async function pass(options: { limits?: Partial<Limits>; urls?: string[]; ghUser
     ghUser: options.ghUser ?? 'example-owner',
     run: stand.run,
     env: env(),
-    now: () => time,
+    now: () => time + spent,
+    wait: async (ms) => {
+      waits.push(ms);
+    },
     limits: options.limits,
   });
   return stand;
@@ -278,9 +294,31 @@ test('a release that never finishes is stopped at its time limit, naming the ste
 test('gh with no token for the named account fails the app before anything is built', async () => {
   commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
   const stand = await pass({ ghUser: 'another-owner' });
-  expect(logLines()).toEqual([`${at(START)} failed: gh has no token for another-owner: no oauth token found for github.com account another-owner; trying again in an hour`]);
+  const miss = 'exited 1 after 0.0 seconds';
+  expect(logLines()).toEqual([
+    `${at(START)} failed: gh has no token for another-owner: no oauth token found for github.com account another-owner (asked 3 times, 5 seconds apart: ${miss}, ${miss}, ${miss}); trying again in an hour`,
+  ]);
+  expect(stand.named('gh auth token')).toHaveLength(3);
+  expect(waits).toEqual([5_000, 5_000]);
   expect(stand.named('gh release view')).toEqual([]);
   expect(stand.named('mac release')).toEqual([]);
+});
+
+test('gh that gives up on a slow keychain once is asked again, and the release runs with the token it then gives', async () => {
+  commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
+  tokenMisses = [{ result: exit(1, 'no oauth token found for github.com account example-owner\n'), ms: 3_100 }];
+  const stand = await pass();
+  const later = START + 3_100;
+  expect(logLines()).toEqual([
+    `${at(later)} gh gave the token for example-owner on try 2 of 3, after exited 1 after 3.1 seconds: no oauth token found for github.com account example-owner`,
+    `${at(later)} releasing ${short(head())}: app files changed since v0.1.3 (${short(firstCommit)}) (src/app.ts)`,
+    `${at(later)} released 0.1.4 from ${short(head())}`,
+  ]);
+  expect(logLines().some((line) => line.includes('gh has no token'))).toBe(false);
+  expect(failures).toBe(0);
+  expect(stand.named('gh auth token')).toHaveLength(2);
+  expect(waits).toEqual([5_000]);
+  expect(stand.named('mac release')[0]!.options.env?.GH_TOKEN).toBe('gho_stand-in-token');
 });
 
 test('a Tauri project in a subfolder is judged and released from its folder', async () => {
@@ -411,6 +449,26 @@ describe('apps that declare a Mac release in their own repository', () => {
       expect.stringContaining('github: failed: asking GitHub'),
       `${new Date(START).toISOString()} github: asking GitHub which apps declare a Mac release works again (failing since ${new Date(START).toISOString()})`,
     ]);
+  });
+
+  test("when every ask for the search's token fails, the line says how each ended, and the app still releases with the token its own ask gets", async () => {
+    commit(origin, { 'package.json': declares('.') });
+    github([EXAMPLE_APP]);
+    await pass({ owners: ['example'] });
+    commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
+    tokenMisses = [
+      { result: { code: -1, out: '', stdout: '', stderr: '', timedOut: true }, ms: 30_000 },
+      { result: ok(''), ms: 200 },
+      { result: exit(1, ''), ms: 3_000 },
+    ];
+    const stand = await pass({ owners: ['example'] });
+    expect(logLines().filter((line) => line.includes(' github: '))).toEqual([
+      `${new Date(START + 33_200).toISOString()} github: failed: asking GitHub which apps declare a Mac release: gh has no token for example-owner: no output (asked 3 times, 5 seconds apart: stopped after 30.0 seconds, at its limit of 30 seconds, exited 0 with no token after 0.2 seconds, exited 1 after 3.0 seconds); watching the 1 apps found last, with a line when it works`,
+    ]);
+    expect(stand.named('graphql')).toEqual([]);
+    expect(stand.named('mac release')).toHaveLength(1);
+    expect(stand.named('mac release')[0]!.options.env?.GH_TOKEN).toBe('gho_stand-in-token');
+    expect(failures).toBe(1);
   });
 
   test('an account GitHub does not know fails the question, with a line', async () => {
