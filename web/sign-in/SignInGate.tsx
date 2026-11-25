@@ -292,6 +292,8 @@ function Gate({
       });
     } else if (!iphoneSignIn.wentToGoogle()) {
       setGoogleStep('form');
+    } else {
+      console.log('[app-kit sign-in] signed out on the page that hands sign-in to an app, back from Google already: not going again');
     }
   }, [iphoneSignIn, signedOutHere, googleStep, signIn]);
 

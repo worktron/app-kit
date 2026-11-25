@@ -97,12 +97,12 @@ test('a return refused again after the one more trip stops at the sign-in screen
   });
   const page = await second.newPage();
   const returns = countReturns(page);
+  // The gate's own record of its decision, written where it would otherwise have gone to Google a third time.
+  const stayed = page.waitForEvent('console', (message) => message.text().includes('back from Google already: not going again'));
   await page.goto(address);
   await expect(heading(page)).toHaveText('Sign in');
   await expect(page.getByRole('alert')).toHaveText('Signing in with Google did not finish. Try again, or use an emailed code.');
-  expect(new URL(page.url()).pathname).toBe('/desktop-sign-in');
-  // The gate decided in the effect after drawing this screen; a turn of the page's own tasks later, it has not gone.
-  await page.evaluate(() => new Promise((done) => setTimeout(done, 0)));
+  await stayed;
   expect(returns()).toBe(2);
   expect(new URL(page.url()).pathname).toBe('/desktop-sign-in');
   await second.close();
