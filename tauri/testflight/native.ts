@@ -20,6 +20,7 @@
  */
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AppStorePlatform } from './app-store-connect.ts';
 import { pngOpacities } from './icon-opacity.ts';
 
 /** What differs between the platforms a native app may build for. */
@@ -31,11 +32,13 @@ export type NativePlatform = {
   profileType: 'TVOS_APP_STORE' | 'IOS_APP_STORE';
   /** altool's --type. */
   altoolType: 'appletvos' | 'ios';
+  /** The platform App Store Connect files its builds under. */
+  appStorePlatform: AppStorePlatform;
 };
 
 export const PLATFORMS: Record<NativePlatform['name'], NativePlatform> = {
-  tvOS: { name: 'tvOS', sdk: 'appletvos', profileType: 'TVOS_APP_STORE', altoolType: 'appletvos' },
-  iOS: { name: 'iOS', sdk: 'iphoneos', profileType: 'IOS_APP_STORE', altoolType: 'ios' },
+  tvOS: { name: 'tvOS', sdk: 'appletvos', profileType: 'TVOS_APP_STORE', altoolType: 'appletvos', appStorePlatform: 'TV_OS' },
+  iOS: { name: 'iOS', sdk: 'iphoneos', profileType: 'IOS_APP_STORE', altoolType: 'ios', appStorePlatform: 'IOS' },
 };
 
 /** The project file of a native app, beside which the generated Xcode project is written. */

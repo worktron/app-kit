@@ -88,6 +88,8 @@ export type StandInBuild = {
   hiddenFor?: number;
   /** Its expirationDate, the day Apple expires it. */
   expires?: string;
+  /** The platform it was uploaded for; IOS when not given. One app record holds every platform's builds. */
+  platform?: 'IOS' | 'TV_OS';
 };
 
 /**
@@ -184,6 +186,10 @@ export async function appStoreConnect(config: {
       return [200, { data: q('filter[bundleId]') === config.bundleId ? [{ type: 'apps', id: appId, attributes: { bundleId: config.bundleId } }] : [] }];
     }
     if (url.pathname === '/v1/builds' && q('filter[app]') === appId) {
+      // Apple answers every platform's builds when none is named; a caller that names none would mix them, so it is refused.
+      const platform = q('filter[preReleaseVersion.platform]');
+      if (!platform) return [400, { errors: [{ status: '400', title: 'the stand-in needs filter[preReleaseVersion.platform]' }] }];
+      const ofPlatform = builds.filter((b) => (b.platform ?? 'IOS') === platform);
       const fields = q('fields[builds]')?.split(',');
       const resource = (b: StandInBuild, state: string) => {
         const all: Record<string, unknown> = { version: b.number, processingState: state, ...(b.expires ? { expirationDate: b.expires } : {}) };
@@ -196,7 +202,7 @@ export async function appStoreConnect(config: {
       };
       const version = q('filter[version]');
       if (version) {
-        const build = builds.find((b) => b.number === version);
+        const build = ofPlatform.find((b) => b.number === version);
         if (!build || (build.hiddenFor ?? 0) > 0) {
           if (build) build.hiddenFor = (build.hiddenFor ?? 0) - 1;
           return [200, { data: [] }];
@@ -210,10 +216,10 @@ export async function appStoreConnect(config: {
           },
         ];
       }
-      const sorted = [...builds].sort((a, b) => b.number.localeCompare(a.number));
+      const sorted = [...ofPlatform].sort((a, b) => b.number.localeCompare(a.number));
       const size = config.pageSize ?? Number(q('limit') ?? 50);
       const from = Number(q('cursor') ?? 0);
-      const next = from + size < sorted.length ? new URL(`/v1/builds?filter[app]=${appId}&limit=${size}&cursor=${from + size}`, url).href : undefined;
+      const next = from + size < sorted.length ? new URL(`/v1/builds?filter[app]=${appId}&filter[preReleaseVersion.platform]=${platform}&limit=${size}&cursor=${from + size}`, url).href : undefined;
       return [200, { data: sorted.slice(from, from + size).map((b) => resource(b, b.states[b.states.length - 1])), links: { next } }];
     }
     return [404, { errors: [{ status: '404', title: 'Not found' }] }];

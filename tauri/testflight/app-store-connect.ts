@@ -31,6 +31,12 @@ export type CertificateRecord = { id: string; expires: string | null };
 /** The App Store profile types the upload signs with: an iPhone app's, and an Apple TV app's. */
 export type ProfileType = 'IOS_APP_STORE' | 'TVOS_APP_STORE';
 
+/**
+ * The platform a build is for, as App Store Connect filters builds by it. One app record can hold several platforms'
+ * builds, each with its own numbers, so every build lookup names the platform it uploads for.
+ */
+export type AppStorePlatform = 'IOS' | 'TV_OS';
+
 /** An App Store provisioning profile: its uuid, which Xcode names it by, and its content, the .mobileprovision in base64. */
 export type Profile = { uuid: string; content: string };
 
@@ -101,10 +107,11 @@ export class AppStoreConnect {
     return page.data.find((app) => app.attributes?.bundleId === bundleId)?.id ?? null;
   }
 
-  /** Every build the app has, in the server's order, which is not by number. */
-  async builds(appId: string): Promise<Build[]> {
+  /** Every build the app has for `platform`, in the server's order, which is not by number. */
+  async builds(appId: string, platform: AppStorePlatform): Promise<Build[]> {
     const builds: Build[] = [];
-    let next: string | undefined = `/v1/builds?filter[app]=${encodeURIComponent(appId)}&limit=200&fields[builds]=version,processingState,expirationDate`;
+    let next: string | undefined =
+      `/v1/builds?filter[app]=${encodeURIComponent(appId)}&filter[preReleaseVersion.platform]=${platform}&limit=200&fields[builds]=version,processingState,expirationDate`;
     for (let pages = 0; next && pages < 50; pages++) {
       const page: Page = await this.get(next);
       builds.push(...page.data.map((build) => buildOf(build, page.included)));
@@ -113,10 +120,10 @@ export class AppStoreConnect {
     return builds;
   }
 
-  /** Build `number` with its TestFlight state, or null when App Store Connect does not list it yet. */
-  async build(appId: string, number: string): Promise<Build | null> {
+  /** `platform`'s build `number` with its TestFlight state, or null when App Store Connect does not list it yet. */
+  async build(appId: string, number: string, platform: AppStorePlatform): Promise<Build | null> {
     const page = await this.get(
-      `/v1/builds?filter[app]=${encodeURIComponent(appId)}&filter[version]=${encodeURIComponent(number)}&include=buildBetaDetail`,
+      `/v1/builds?filter[app]=${encodeURIComponent(appId)}&filter[version]=${encodeURIComponent(number)}&filter[preReleaseVersion.platform]=${platform}&include=buildBetaDetail`,
     );
     const build = page.data.find((b) => b.attributes?.version === number);
     return build ? buildOf(build, page.included) : null;

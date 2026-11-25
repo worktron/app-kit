@@ -20,24 +20,32 @@ test("App Store Connect's token names the key and issuer and its audience, lives
   expect(tokenProblem(`Bearer ${token.slice(0, -4)}AAAA`)).toBe('the signature does not verify');
 });
 
-test('every build is read across pages with the day Apple expires it, and one build comes with its TestFlight state', async () => {
+test("every build of one platform is read across pages with the day Apple expires it, and one build comes with its TestFlight state, in a record another platform's builds share", async () => {
   const asc = await appStoreConnect({
     bundleId: 'app.pastthebreak',
     pageSize: 2,
-    builds: ['98', '99', '100', '101', '7'].map((number) => ({ number, states: ['VALID'], ...(number === '101' ? { expires: '2026-12-01T10:00:00.000+0000' } : {}) })),
+    builds: [
+      ...['98', '99', '100', '101', '7'].map((number) => ({ number, states: ['VALID'], ...(number === '101' ? { expires: '2026-12-01T10:00:00.000+0000' } : {}) })),
+      // The Apple TV app's builds in the same record, one with a number the iPhone app also has.
+      { number: '100', states: ['PROCESSING'], platform: 'TV_OS' as const },
+      { number: '120', states: ['VALID'], platform: 'TV_OS' as const },
+    ],
   });
   stops.push(asc.stop);
   const client = new AppStoreConnect(KEY, asc.options);
   expect(await client.appId('app.other')).toBeNull();
   const appId = await client.appId('app.pastthebreak');
   expect(appId).toBe('1000000001');
-  const numbers = (await client.builds(appId!)).map((b) => b.number);
+  const numbers = (await client.builds(appId!, 'IOS')).map((b) => b.number);
   expect(numbers.sort()).toEqual(['100', '101', '7', '98', '99']);
+  expect((await client.builds(appId!, 'TV_OS')).map((b) => b.number).sort()).toEqual(['100', '120']);
   // The stand-in answers only the fields asked for, as Apple does, so the expiry is there only because it was asked.
-  const expiring = (await client.builds(appId!)).filter((b) => b.expires);
+  const expiring = (await client.builds(appId!, 'IOS')).filter((b) => b.expires);
   expect(expiring).toEqual([{ number: '101', processingState: 'VALID', internalState: null, expires: '2026-12-01T10:00:00.000+0000' }]);
-  expect(await client.build(appId!, '100')).toEqual({ number: '100', processingState: 'VALID', internalState: 'IN_BETA_TESTING', expires: null });
-  expect(await client.build(appId!, '102')).toBeNull();
+  expect(await client.build(appId!, '100', 'IOS')).toEqual({ number: '100', processingState: 'VALID', internalState: 'IN_BETA_TESTING', expires: null });
+  expect(await client.build(appId!, '100', 'TV_OS')).toEqual({ number: '100', processingState: 'PROCESSING', internalState: 'IN_BETA_TESTING', expires: null });
+  expect(await client.build(appId!, '102', 'IOS')).toBeNull();
+  expect(await client.build(appId!, '101', 'TV_OS')).toBeNull();
 });
 
 test("a refusal names App Store Connect's own reason", async () => {

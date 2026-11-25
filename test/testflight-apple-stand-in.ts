@@ -358,11 +358,12 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       }
       if (options.altool === 'refused') return exit(1, "ERROR: [ContentDelivery.Uploader] Asset validation failed (90062) This bundle is invalid. The value for key CFBundleVersion [3] in the Info.plist file must contain a higher version.");
       const n = git(cwd, 'rev-list', '--count', 'HEAD');
+      const platform = / --type appletvos /.test(line) ? 'TV_OS' : 'IOS';
       if (options.altool === 'duplicate') {
-        builds.push({ number: n, states: ['VALID'] });
+        builds.push({ number: n, states: ['VALID'], platform });
         return exit(1, `ERROR ITMS-90189: "Redundant Binary Upload. You've already uploaded a build with build number '${n}' for version number '0.1.0'."`);
       }
-      builds.push({ number: n, states: options.states ?? ['PROCESSING', 'VALID'], hiddenFor: 1 });
+      builds.push({ number: n, states: options.states ?? ['PROCESSING', 'VALID'], hiddenFor: 1, platform });
       return ok('No errors uploading archive\nUPLOAD SUCCEEDED\n');
     }
     return undefined;

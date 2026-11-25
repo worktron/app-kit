@@ -505,7 +505,7 @@ test("a native Xcode app in a subfolder is judged by its project.yml's bundle id
   });
   const url = `file://${couch}#tvos`;
   const line = (ms: number) => `${new Date(ms).toISOString()} couch:`;
-  asc.builds.push({ number: '1', states: ['VALID'] });
+  asc.builds.push({ number: '1', states: ['VALID'], platform: 'TV_OS' });
   kitHasNative = false;
   const change = commit(couch, { 'tvos/CouchTV/App.swift': 'import SwiftUI // now\n' });
   const older = await pass(runner(), {}, [url]);
@@ -524,12 +524,25 @@ test("a native Xcode app in a subfolder is judged by its project.yml's bundle id
   expect(inside.named('testflight upload')[0].options.cwd).toBe(join(folder(), 'couch/checkout/tvos'));
   expect(change).not.toBe(tests);
 
-  asc.builds.push({ number: '3', states: ['VALID'] });
+  asc.builds.push({ number: '3', states: ['VALID'], platform: 'TV_OS' });
   clock += 5 * MINUTE;
   commit(couch, { 'tvos/CouchTVTests/AppTests.swift': 'import XCTest // more\n', 'tvos/check/run.sh': 'false\n' });
   const skipped = await pass(runner(), {}, [url]);
   expect(logLines().at(-1)).toBe(`${line(clock)} skipped: no app files changed since build 3`);
   expect(skipped.named('testflight upload')).toEqual([]);
+});
+
+test("a native Apple TV app is judged by its own platform's newest build in an App Store Connect record it shares with an iPhone app", async () => {
+  const yml = 'name: Couch\ntargets:\n  CouchTV:\n    type: application\n    platform: tvOS\n    settings:\n      PRODUCT_BUNDLE_IDENTIFIER: app.pastthebreak\n';
+  const couch = repository(join(place.folder, 'couch'), { 'tvos/project.yml': yml, 'tvos/CouchTV/App.swift': 'import SwiftUI\n', 'tvos/package.json': '{}\n', 'tvos/bun.lock': '{}\n' });
+  const head = commit(couch, { 'tvos/CouchTV/App.swift': 'import SwiftUI // now\n' });
+  // The Apple TV app's build 1, and the iPhone app's build of main's head: one record, the same numbers counted from one repository.
+  asc.builds.push({ number: '1', states: ['VALID'], platform: 'TV_OS' }, { number: '2', states: ['VALID'] });
+  kitHasNative = true;
+  const judged = await pass(runner(), {}, [`file://${couch}#tvos`]);
+  expect(logLines()[0]).toBe(`${new Date(START).toISOString()} couch: uploading build 2 (${head.slice(0, 7)}): app files changed since build 1 (tvos/CouchTV/App.swift)`);
+  expect(judged.named('testflight upload')).toHaveLength(1);
+  expect(asc.requests.filter((request) => request.startsWith('/v1/builds')).every((request) => request.includes('filter[preReleaseVersion.platform]=TV_OS'))).toBe(true);
 });
 
 test('a folder that is missing, leaves the repository or holds pattern characters fails that app with a line naming it', async () => {

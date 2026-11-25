@@ -10,7 +10,7 @@ import { runCommand } from '../command-line/run.ts';
 import { countsAsApp } from '../tauri/watch-main.ts';
 import { decide } from '../tauri/testflight/watch.ts';
 import { upload, type UploadOptions } from '../tauri/testflight/upload.ts';
-import { buildNumberProblem, deleteKeychain, isNativeFolder, nativeIconProblem, nativeProject, type NativeProject } from '../tauri/testflight/native.ts';
+import { buildNumberProblem, deleteKeychain, isNativeFolder, nativeIconProblem, nativeProject, PLATFORMS, type NativeProject } from '../tauri/testflight/native.ts';
 import { drawTvIcons, LISTED_KEYCHAIN, projectYml, tv as tvFor, TV_BUNDLE_ID, TV_TARGET, tvFixture, type Tv } from './testflight-native-stand-in.ts';
 import { appStoreConnect, CERTIFICATE, commit, git, GIT_IDENTITY_ENV, profileContent, scratch } from './testflight-stand-in.ts';
 
@@ -105,6 +105,16 @@ test("an Apple TV app is generated, signed with a tvOS profile from a keychain o
   expect(asc.profiles.filter((p) => p.type === 'TVOS_APP_STORE')).toHaveLength(1);
 });
 
+test("an Apple TV upload waits on its own build, though the iPhone app sharing its App Store Connect record has a processed build of the same number", async () => {
+  asc.builds.push({ number: count(), states: ['VALID'] });
+  const { code, printed } = await runUpload(tv({ states: ['PROCESSING', 'INVALID'] }));
+  expect(printed.at(-1)).toBe(`! Apple's processing of build ${count()} ended INVALID`);
+  expect(code).toBe(1);
+  const lookups = asc.requests.filter((request) => request.startsWith('/v1/builds'));
+  expect(lookups.length).toBeGreaterThan(0);
+  expect(lookups.every((request) => request.includes('filter[preReleaseVersion.platform]=TV_OS'))).toBe(true);
+});
+
 test("a generated Info.plist with XcodeGen's fixed build number is refused before anything is built, naming the line to add", async () => {
   const stand = tv({ bundleVersion: '1' });
   const { code, printed } = await runUpload(stand);
@@ -137,7 +147,7 @@ describe("the Apple TV App Store icon, read on its back layer", () => {
     mkdirSync(join(folder, 'Assets.xcassets/AppIcon.appiconset'), { recursive: true });
     writeFileSync(join(folder, 'Assets.xcassets/AppIcon.appiconset/Contents.json'), JSON.stringify({ images: [{ size: '1024x1024', idiom: 'universal', platform: 'ios', filename: 'icon.png' }] }));
     drawTvIcons(folder);
-    const project = { ...(nativeProject(app) as NativeProject), platform: { name: 'iOS', sdk: 'iphoneos', profileType: 'IOS_APP_STORE', altoolType: 'ios' }, iconName: 'AppIcon' } as const;
+    const project = { ...(nativeProject(app) as NativeProject), platform: PLATFORMS.iOS, iconName: 'AppIcon' } as const;
     expect(nativeIconProblem(folder, project)).toContain('AppIcon.appiconset/icon.png is missing');
     writeFileSync(join(folder, 'Assets.xcassets/AppIcon.appiconset/icon.png'), readFileSync(join(folder, 'Icon.xcassets/App Icon & Top Shelf Image.brandassets/App Icon.imagestack/Back.imagestacklayer/Content.imageset/1x.png')));
     expect(nativeIconProblem(folder, project)).toBeNull();
@@ -149,7 +159,7 @@ describe('project.yml', () => {
     expect(nativeProject(app)).toEqual({
       name: 'Couch',
       target: TV_TARGET,
-      platform: { name: 'tvOS', sdk: 'appletvos', profileType: 'TVOS_APP_STORE', altoolType: 'appletvos' },
+      platform: { name: 'tvOS', sdk: 'appletvos', profileType: 'TVOS_APP_STORE', altoolType: 'appletvos', appStorePlatform: 'TV_OS' },
       bundleId: TV_BUNDLE_ID,
       infoPlist: `${TV_TARGET}/Info.plist`,
       iconName: 'App Icon & Top Shelf Image',

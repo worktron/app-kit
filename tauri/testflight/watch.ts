@@ -22,7 +22,7 @@
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AppStoreConnect, type AppStoreConnectOptions } from './app-store-connect.ts';
+import { AppStoreConnect, type AppStoreConnectOptions, type AppStorePlatform } from './app-store-connect.ts';
 import { lastLine, readKey } from './key.ts';
 import { runCommand, type Run } from '../../command-line/run.ts';
 import { UPLOADING } from './upload.ts';
@@ -238,10 +238,13 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   let kind: AppKind = 'packs-its-pages';
   let excluded: string[] = [];
   let bundleId: string | undefined;
+  // A Tauri app uploads for the iPhone; a native app for the platform its project.yml names.
+  let platform: AppStorePlatform = 'IOS';
   if (native) {
     const project = nativeProject(appFolder);
     if ('error' in project) return failed('project', `held: ${join(address.folder, PROJECT_YML)} at ${at}: ${project.error}; held until main moves`, true);
     bundleId = project.bundleId;
+    platform = project.platform.appStorePlatform;
     excluded = ['check', ...project.testFolders];
   }
   let builds: { number: number; expires: string | null }[];
@@ -257,7 +260,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
     const appId = await appStoreConnect.appId(bundleId);
     if (!appId) return failed('app store connect', `failed: no app in App Store Connect has the bundle id ${bundleId}; ${retry}`);
     // Build numbers are compared as numbers: the server's order puts 99 above 100.
-    builds = (await appStoreConnect.builds(appId)).map((build) => ({ number: Number(build.number), expires: build.expires })).filter((b) => Number.isInteger(b.number));
+    builds = (await appStoreConnect.builds(appId, platform)).map((build) => ({ number: Number(build.number), expires: build.expires })).filter((b) => Number.isInteger(b.number));
   } catch (error) {
     return failed('app store connect', `failed: ${error instanceof Error ? error.message : String(error)}; ${retry}`);
   }

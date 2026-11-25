@@ -42,7 +42,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pngOpacities } from './icon-opacity.ts';
-import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type CertificateRecord, type Profile, type ProfileType, type TestFlightKey } from './app-store-connect.ts';
+import { AppStoreConnect, AppStoreConnectError, type AppStoreConnectOptions, type AppStorePlatform, type CertificateRecord, type Profile, type ProfileType, type TestFlightKey } from './app-store-connect.ts';
 import { CERTIFICATE_ITEM, lastLine, readCertificate, readKey, VAULT, type Certificate } from './key.ts';
 import { lock } from '../state.ts';
 import {
@@ -492,7 +492,7 @@ async function uploadSteps(options: UploadOptions, started: BuildStarted): Promi
   if (problems.length) return fail(`${ipaName} must not go up: ${problems.join('; ')}`);
   const bundleId = String(facts.info.CFBundleIdentifier ?? '');
 
-  return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: 'ios' });
+  return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: 'ios', platform: 'IOS' });
 }
 
 /**
@@ -644,7 +644,7 @@ async function nativeUploadSteps(options: UploadOptions, started: BuildStarted):
     if (problems.length) return fail(`${ipaName} must not go up: ${problems.join('; ')}`);
     // The archive's apps are done with; the .ipa stays for the upload.
     await removeApps(appsBelow(folder), run, output);
-    return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: platform.altoolType });
+    return await uploadAndWait(context, options, { ipa, key, appStoreConnect, bundleId, buildNumber, short, altoolType: platform.altoolType, platform: platform.appStorePlatform });
   } finally {
     if (started.started) await removeApps(appsBelow(folder), run, output);
     putBack();
@@ -658,7 +658,7 @@ async function nativeUploadSteps(options: UploadOptions, started: BuildStarted):
 async function uploadAndWait(
   { run, now, sleep, print, fail, output, env }: Steps,
   options: UploadOptions,
-  sent: { ipa: string; key: TestFlightKey; appStoreConnect: AppStoreConnect; bundleId: string; buildNumber: number; short: string; altoolType: 'ios' | 'appletvos' },
+  sent: { ipa: string; key: TestFlightKey; appStoreConnect: AppStoreConnect; bundleId: string; buildNumber: number; short: string; altoolType: 'ios' | 'appletvos'; platform: AppStorePlatform },
 ): Promise<0 | 1> {
   const { ipa, key, appStoreConnect, bundleId, buildNumber, short } = sent;
   print(`uploading build ${buildNumber} (${short})`);
@@ -674,7 +674,7 @@ async function uploadAndWait(
     try {
       appId ??= await appStoreConnect.appId(bundleId);
       if (!appId) return fail(`no app in App Store Connect has the bundle id ${bundleId}: its record is made once, by hand (app-kit's README, TestFlight)`);
-      const build = await appStoreConnect.build(appId, String(buildNumber));
+      const build = await appStoreConnect.build(appId, String(buildNumber), sent.platform);
       seen = build ? build.processingState : 'not listed yet';
       if (build?.processingState === 'VALID') {
         print(`build ${buildNumber} (${short}) processed; TestFlight: ${build.internalState ?? 'unknown'}`);
