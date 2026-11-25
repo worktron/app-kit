@@ -300,6 +300,17 @@ for (const look of ['plain', 'console'] as const) {
       });
       expect(hovered).toEqual({ fill: expect.not.stringMatching(/^rgba\(\d+, \d+, \d+, 0\)$/), line: 'none' });
       expect(box.fill).not.toBe('rgba(0, 0, 0, 0)');
+      if (look === 'plain') {
+        // The plain look's text Button is still a word: no padding, nothing filled, an underline under the pointer.
+        const word = page.getByRole('button', { name: 'Test', exact: true });
+        await word.hover();
+        const drawnWord = await word.evaluate(async (button) => {
+          await Promise.all(button.getAnimations().map((animation) => animation.finished));
+          const style = getComputedStyle(button);
+          return { padding: style.padding, fill: style.backgroundColor, line: style.textDecorationLine };
+        });
+        expect(drawnWord).toEqual({ padding: '0px', fill: 'rgba(0, 0, 0, 0)', line: 'underline' });
+      }
       await page.screenshot({ path: testInfo.outputPath(`update-line-${look}-${scheme}.png`), animations: 'disabled' });
     });
   }
