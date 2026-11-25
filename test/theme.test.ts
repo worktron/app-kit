@@ -75,7 +75,10 @@ test("the app's own options merge into the kit's before MUI computes the theme",
   // The plain look's label placement is a function of the label's state, which the setting's label size leaves whole.
   expect(typeof theme.components?.MuiInputLabel?.styleOverrides?.root).toBe('function');
   // The app's button setting joins the kit's, rather than replacing it.
-  expect(theme.components?.MuiButton?.styleOverrides?.root).toMatchObject({ letterSpacing: '0.01em', padding: 0 });
+  expect(theme.components?.MuiButton?.styleOverrides?.root).toMatchObject({ letterSpacing: '0.01em', flexShrink: 0 });
+  // Only a text Button is a word with no padding; an outlined or filled one keeps MUI's.
+  expect(theme.components?.MuiButton?.styleOverrides?.text).toMatchObject({ padding: 0 });
+  expect(theme.components?.MuiButton?.styleOverrides?.root).not.toHaveProperty('padding');
   expect(theme.components?.MuiButton?.defaultProps).toMatchObject({ variant: 'text', disableRipple: true });
   expect(theme.spacing(2)).toBe('calc(2 * var(--mui-spacing, 4px))');
   expect(theme.colorSchemes.light!.palette.primary.main).toBe(DEFAULT_ACCENT.light);

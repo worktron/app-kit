@@ -287,6 +287,19 @@ for (const look of ['plain', 'console'] as const) {
       });
       expect(drawn.band).toEqual([...drawn.button.slice(0, 3), 0.16]);
       expect(drawn.text).toBe(drawn.body);
+      // Update is a filled button with room around its word, and keeps its fill under the pointer, where the plain look's
+      // words show an underline instead.
+      const update = line.getByRole('button', { name: 'Update' });
+      const box = await update.evaluate((button) => ({ left: getComputedStyle(button).paddingLeft, fill: getComputedStyle(button).backgroundColor }));
+      expect(box.left).not.toBe('0px');
+      await update.hover();
+      // Read once MUI's eased change of color under the pointer has finished, not partway through it.
+      const hovered = await update.evaluate(async (button) => {
+        await Promise.all(button.getAnimations().map((animation) => animation.finished));
+        return { fill: getComputedStyle(button).backgroundColor, line: getComputedStyle(button).textDecorationLine };
+      });
+      expect(hovered).toEqual({ fill: expect.not.stringMatching(/^rgba\(\d+, \d+, \d+, 0\)$/), line: 'none' });
+      expect(box.fill).not.toBe('rgba(0, 0, 0, 0)');
       await page.screenshot({ path: testInfo.outputPath(`update-line-${look}-${scheme}.png`), animations: 'disabled' });
     });
   }

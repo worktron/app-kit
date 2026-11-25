@@ -130,17 +130,20 @@ function plainOptions(choices: PlainChoices): Options {
       MuiAppBar: { defaultProps: { elevation: 0, color: 'inherit' }, styleOverrides: { root: { borderBottom: line } } },
       // An action is a word in the accent, a removal one in the error color, with nothing filled. It keeps its size beside
       // a row's text, and wraps, inside an address too, only when it is wider than its box, as a button naming an account
-      // can be on a phone.
+      // can be on a phone. Only a text Button is a word: an outlined or filled one, such as the update line's Update for a
+      // release, keeps MUI's padding and its fill under the pointer.
       MuiButton: {
         defaultProps: { variant: 'text', disableElevation: true, disableRipple: true },
         styleOverrides: {
           root: {
-            minWidth: 0,
             maxWidth: '100%',
-            padding: 0,
             flexShrink: 0,
             overflowWrap: 'anywhere',
             textAlign: 'start',
+          },
+          text: {
+            minWidth: 0,
+            padding: 0,
             '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
           },
         },
