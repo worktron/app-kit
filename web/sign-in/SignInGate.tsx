@@ -179,8 +179,6 @@ function Gate({
   latest.current = session;
   const signedInAt = useRef(0);
   const wasSignedOut = useRef<boolean | null>(null);
-  // Who was signed in when the gate last looked, so an account switched with no sign-out between is told apart.
-  const lastPersonId = useRef<string | null>(null);
   // Whether this page drew the provider's handling of Google's return, so a sign-in after it came from Google.
   const finishingGoogleReturn = useRef(false);
 
@@ -220,8 +218,6 @@ function Gate({
     rememberSignedIn(personId !== null);
     if (personId !== null) {
       if (wasSignedOut.current) signedInAt.current = Date.now();
-      // Another account, switched to with no sign-out between: the return from Google noted was for the one before.
-      if (lastPersonId.current !== null && lastPersonId.current !== personId) forgetBackFromGoogle();
       if (email) rememberAccount(email);
       setReturningFromGoogle(false);
       // On the sign-in itself, not when the provider fills in the email after: the line stays through the hold only for
@@ -242,7 +238,6 @@ function Gate({
       setSignedInWithGoogle(false);
     }
     wasSignedOut.current = personId === null;
-    lastPersonId.current = personId;
   }, [loaded, personId, email]);
 
   // Read again on each sign-in screen, since a sign-in on this page may have changed it.
@@ -346,7 +341,7 @@ function Gate({
     // Back from Google and signed in: on to the address the person asked for, before the app reads where it is.
     if (window.location.pathname === callbackPath) {
       const back = takeReturn();
-      if (finishingGoogleReturn.current) noteBackFromGoogle(back);
+      if (finishingGoogleReturn.current) noteBackFromGoogle(back, person.id);
       finishingGoogleReturn.current = false;
       window.history.replaceState(null, '', back);
     }

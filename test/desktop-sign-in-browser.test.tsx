@@ -273,20 +273,23 @@ test("in another site's frame, the page never offers to hand over, and goes to G
   }
 });
 
-test('a tab that finished Google’s return for this request, and started none, counts as having been to Google, and only for this nonce', () => {
+test('a tab that finished Google’s return for this request, and started none, counts as having been to Google, only for this nonce and the person it signed in', () => {
   goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  expect(googleStartedHere('p1')).toBe(false);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${'c'.repeat(64)}&account=choose`, 'p1');
+  expect(googleStartedHere('p1')).toBe(false);
+  noteBackFromGoogle('/week', 'p1');
+  expect(googleStartedHere('p1')).toBe(false);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`, 'p1');
+  expect(googleStartedHere('p1')).toBe(true);
+  // Only for the person that return signed in.
+  expect(googleStartedHere('p2')).toBe(false);
   expect(googleStartedHere()).toBe(false);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${'c'.repeat(64)}&account=choose`);
-  expect(googleStartedHere()).toBe(false);
-  noteBackFromGoogle('/week');
-  expect(googleStartedHere()).toBe(false);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
-  expect(googleStartedHere()).toBe(true);
 });
 
 test('asked for Google’s list in a tab that finished Google’s return, as another Chrome profile’s, the page waits for the click instead of signing out', async () => {
   goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`, 'p2');
   serveDesktopSignIn(() => 'bo@example.com');
   const provider = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' }, leaveForGoogle: () => {} });
   draw(provider);

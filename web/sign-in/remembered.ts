@@ -84,11 +84,11 @@ export function takeReturn(store: () => KeyValueStore = session, search: string 
 }
 
 /**
- * This tab finished Google's return and signed someone in, going on to `address`: whoever is signed in now is the
- * account picked at Google. Never noted for a tab that was signed in already, where no return was finished.
+ * This tab finished Google's return and signed `personId` in, going on to `address`: that person is the account picked
+ * at Google. Never noted for a tab that was signed in already, where no return was finished.
  */
-export function noteBackFromGoogle(address: string, store: () => KeyValueStore = session): void {
-  write(store, BACK_FROM_GOOGLE_KEY, address);
+export function noteBackFromGoogle(address: string, personId: string, store: () => KeyValueStore = session): void {
+  write(store, BACK_FROM_GOOGLE_KEY, JSON.stringify({ address, personId }));
 }
 
 /** Signed out in this tab: a later sign-in here came from wherever it comes from, not the return noted before. */
@@ -96,7 +96,17 @@ export function forgetBackFromGoogle(store: () => KeyValueStore = session): void
   write(store, BACK_FROM_GOOGLE_KEY, null);
 }
 
-/** The address this tab last went on to after finishing Google's return, or null. */
-export function cameBackFromGoogleTo(store: () => KeyValueStore = session): string | null {
-  return read(store, BACK_FROM_GOOGLE_KEY);
+/**
+ * The address this tab last went on to after finishing Google's return, while `personId` is the person that return
+ * signed in; null for anyone else, however the account changed, or with nothing noted.
+ */
+export function cameBackFromGoogleTo(personId: string | null, store: () => KeyValueStore = session): string | null {
+  const noted = read(store, BACK_FROM_GOOGLE_KEY);
+  if (!noted || personId === null) return null;
+  try {
+    const back = JSON.parse(noted) as { address?: unknown; personId?: unknown };
+    return back.personId === personId && typeof back.address === 'string' ? back.address : null;
+  } catch {
+    return null;
+  }
 }

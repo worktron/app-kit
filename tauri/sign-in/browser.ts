@@ -80,13 +80,14 @@ export function startGoogleHere(store: () => KeyValueStore = thisTab): boolean {
 /**
  * Whether this tab has been to Google for this request, so the account it came back with is the one picked there: it
  * went from here, or it finished Google's return for this page, as a tab does when Chrome moves the return into
- * another of its profiles, which started nothing. Never from the page's address alone, which anything can open.
+ * another of its profiles, which started nothing, and `personId` is still the person it signed in. Never from the page's
+ * address alone, which anything can open.
  */
-export function googleStartedHere(store: () => KeyValueStore = thisTab): boolean {
+export function googleStartedHere(personId: string | null = null, store: () => KeyValueStore = thisTab): boolean {
   const asked = desktopSignInRequest();
   if (!asked) return false;
   if (read(store, STARTED_KEY) === asked.nonce) return true;
-  const back = cameBackFromGoogleTo(store);
+  const back = cameBackFromGoogleTo(personId, store);
   if (!back) return false;
   const address = new URL(back, 'https://this.site');
   return address.pathname === DESKTOP_SIGN_IN_PATH && address.searchParams.get('nonce') === asked.nonce;
@@ -180,7 +181,7 @@ export function useDesktopSignInBrowserPage({
     if (!asked) return setNow({ state: 'not-from-app' });
     const email = latest.current.person?.email?.toLowerCase() ?? null;
     const notAsked = asked.account === 'choose' || (asked.account !== null && asked.account.account.toLowerCase() !== email);
-    if (notAsked && !googleStartedHere()) {
+    if (notAsked && !googleStartedHere(latest.current.person?.id ?? null)) {
       setNow({ state: 'signing-out' });
       latest.current.signOut().catch(() => setNow({ state: 'failed' }));
       return;
