@@ -580,13 +580,6 @@ Goal: an iPhone or iPad browser tab gets Web Push only once the app is on the Ho
 
 Done when: app-kit/web holds a quiet in-place piece that shows those steps for the layout the phone uses, shown only while the state is `needs-home-screen`, in the kit's looks, with a browser test at a phone's size, and the README points to it instead of asking apps to draw their own.
 
-## gates-own-browsers · The gates install the Playwright browsers they use, so another project's install cannot delete them mid-landing
-Written by: app-kit/quiet-ignored-keys
-
-Goal: on 2026-11-09 a landing of quiet-ignored-keys passed its gates, rebased onto a moved main, and on the second gate run failed 95 browser tests with "browserType.launch: Executable doesn't exist" for chromium_headless_shell-1248 and webkit-2370. Another session's Playwright install had pruned them: Playwright keeps a browser in ~/Library/Caches/ms-playwright only while a checkout registered in its .links folder uses that version, and no app-kit checkout was registered. Running `bunx playwright install chromium webkit` from the worktree put them back and the same commit then landed (v0.58.2). scripts/e2e.sh only says the browsers are needed; nothing installs them. The landing script also charged the failure to the change rather than to the machine.
-
-Done when: scripts/gates.sh (or e2e.sh) installs the Chromium and WebKit its Playwright version needs before the browser tests, a no-op when they are present, and a gate run with those browser folders removed from a scratch PLAYWRIGHT_BROWSERS_PATH passes.
-
 ## bundled-page-grant · The window plugin's page grant works for an app whose page is bundled
 Written by: messages-service/messages-service
 
@@ -834,13 +827,6 @@ Written by: app-kit/steady-name
 Goal: web/e2e/first-frame.e2e.ts reloads the fixture with its scripts held to watch the name drawn before the code. Chromium paints a frame of the name alone then, but WebKit painted no frame at all while the scripts were held in 7 of 8 signed-out runs on 2026-11-16 (readyState interactive, the root's ::before already "fixture", requestAnimationFrame's frame list empty), for a reason not known: a paint hold of WebKit's own while the parser waits, or the headless run under metamax's window profile (its log showed "CVDisplayLinkCreateWithCGDisplay failed"). So only Chromium is held to a first frame of the name alone (the `paintsWhileHeld` flag), and WebKit's case reads the name from a page whose scripts never load. Safari on the phone is where the name matters most. Found by the steady-name thread, 2026-11-16.
 
 Done when: the cause is known and written down with a recorded sample, and either WebKit's cases hold the first frame as Chromium's do or the test says, from that sample, why WebKit cannot.
-
-## gates-reinstall-browsers · app-kit's gates install their test browsers when another project's cleanup deleted them
-Written by: app-kit/dock-keeps-app
-
-Goal: on 2026-11-17 a landing of app-kit (the Mac restart fix, v0.69.1) stopped with 114 browser tests failing because Chromium 1248 and WebKit 2370 were gone from Playwright's shared browser folder (`~/Library/Caches/ms-playwright`): another project's `playwright install` had deleted every browser no registered install (`.links`) still used, and no app-kit checkout was registered at that moment. `bunx playwright install chromium webkit` from an app-kit checkout put them back and the next landing passed. Today the gates fail on every browser test instead of saying the browsers are missing. Make the gates check for the browsers app-kit's Playwright version needs and install them before the browser steps (or stop with one plain line naming the command), so a landing never fails for a folder another project cleaned.
-
-Done when: with app-kit's Chromium and WebKit removed from a scratch copy of the browser folder (`PLAYWRIGHT_BROWSERS_PATH`), `scripts/gates.sh` installs them and its browser steps pass, held by a test, without touching the shared folder in the test.
 
 ## messages-restart-keeps-dock · The Apple Messages reopen after Full Disk Access comes back in the pinned Dock icon
 Written by: app-kit/dock-keeps-app
