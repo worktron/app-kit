@@ -12,7 +12,6 @@ Urgency: rides along
 
 Urgency: now
 
-- take this version; nothing else changes.
 - take this version; nothing else changes. Desktop sign-in no longer dead-ends on the app's home page when Chrome moves Google's return into another Chrome profile; an app's server already answers /sso-callback whatever its query.
 
 ## v0.76.4
