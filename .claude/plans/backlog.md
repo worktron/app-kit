@@ -1226,3 +1226,9 @@ Written by: app-kit/browser-copies-registered
 Goal: tauri/mac-release/menu-check-entry.ts keeps its own lsregister path (line 295) and forgets the copy it ran with `command(LSREGISTER, ['-u', app])` (line 408), forgetting only the top app it names. The kit's shared step, removeAppsNow in testing/forget-apps.js (v0.76.1), deletes first and then forgets every app at or under the path, nested helper apps included, takes /tmp as /private/tmp, never follows a link, and is what tauri/built-apps.ts and release.ts already use. Two copies of the same rule drift: the menu check's misses any app nested inside the one it ran. Found by browser-copies-registered, 2026-11-25.
 
 Done when: menu-check-entry.ts imports removeAppsNow (and LSREGISTER if it still needs it) instead of its own copy, a unit test with a stand-in lsregister shows the menu check's cleanup deletes the copy and then forgets it and each app inside it, and `git grep lsregister tauri/mac-release` finds no command of its own.
+
+## text-size-device-name · The Text size row says "Same as the iPad" on an iPad, not "Same as the phone"
+
+Goal: web/TextSizeSetting.tsx:19 names the first choice "Same as the phone" on every touch device, so an iPad shows "Same as the phone". metamax drew its own row on 2026-11-25 to say "Same as the iPad", deciding the device from the screen's shorter side: 700 points or more is an iPad, since the iPad mini's is 744 and the largest iPhone's 440 (metamax client/src/features/phone/textSize.ts `deviceName`, with its unit test). Found by metamax's ipad-text-size thread, 2026-11-25.
+
+Done when: TextSizeSetting says "Same as the iPad" on an iPad and "Same as the iPhone" on an iPhone (or "Same as the phone" kept for the iPhone), held by a unit test on the device rule and the look browser test (web/e2e/look.e2e.ts:201) at an iPad's size.
