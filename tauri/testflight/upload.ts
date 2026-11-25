@@ -845,6 +845,18 @@ async function readIpa(ipa: string, run: Run, env: Env): Promise<IpaFacts | stri
 }
 
 /**
+ * Why altool refused: its ERROR lines, without their time and without the "ExitFailure" line that ends every refusal and
+ * says nothing of why, else its last line.
+ */
+export function altoolRefusal(out: string): string {
+  const errors = out
+    .split('\n')
+    .map((line) => line.trim().replace(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(\.\d+)? /, ''))
+    .filter((line) => /\bERROR\b/.test(line) && !/^ERROR: \[altool\.main\] ExitFailure\b/.test(line));
+  return errors.length ? errors.join(' ') : lastLine(out);
+}
+
+/**
  * Uploads with altool, which finds the key file in API_PRIVATE_KEYS_DIR: a folder of its own, for the length of the
  * upload only. 'uploaded', 'already' when App Store Connect holds the number, or altool's refusal.
  */
@@ -860,7 +872,7 @@ async function altoolUpload(ipa: string, key: TestFlightKey, run: Run, env: Env,
     if (alreadyUploaded(done.out)) return 'already';
     // altool has exited 0 while printing an error, so its own word counts too.
     if (done.code === 0 && !/\bERROR\b[^\n]*ITMS-|UPLOAD FAILED/.test(done.out)) return 'uploaded';
-    return lastLine(done.out);
+    return altoolRefusal(done.out);
   } finally {
     remove();
   }

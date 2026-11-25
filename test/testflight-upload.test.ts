@@ -289,6 +289,14 @@ test('a build that does not answer the export question, or carries the wrong num
   expect((await runUpload(apple({ entitlements: ENTITLEMENTS_PUSH }))).code).toBe(0);
 });
 
+test("altool's refusal is said by its own reason, not by the exit line that follows it", async () => {
+  const { code, printed } = await runUpload(apple({ altool: 'no app' }));
+  expect(code).toBe(1);
+  expect(printed.at(-1)).toBe(
+    `! altool did not upload build ${count()}: ERROR: [altool.77B54191C0] Unable to find Apple ID for Bundle ID 'app.pastthebreak' on platform 'iOS App'. Either create this app in App Store Connect first, or provide the Apple ID directly with --apple-id <id>. (19)`,
+  );
+});
+
 test('the key folder is removed when altool refuses, and after an upload', async () => {
   const refused = apple({ altool: 'refused' });
   const { code, printed } = await runUpload(refused);

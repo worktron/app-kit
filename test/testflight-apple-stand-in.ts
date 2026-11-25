@@ -253,7 +253,7 @@ export type Apple = {
   version?: (n: string) => string;
   encryption?: boolean;
   entitlements?: string;
-  altool?: 'ok' | 'duplicate' | 'refused';
+  altool?: 'ok' | 'duplicate' | 'refused' | 'no app';
   /** The states Apple's processing goes through once the build is listed. */
   states?: string[];
   /** Where the stand-in hangs, printing a line with the marker, which also names the hanging process. */
@@ -355,6 +355,16 @@ export function apple(app: string, builds: StandInBuild[], options: Apple = {}) 
       if (options.hang?.at === 'altool') {
         writeFileSync(`${options.hang.marker}.keys`, folder);
         return hang(options.hang.marker, runOptions);
+      }
+      // altool's answer for a bundle id with no App Store Connect record, recorded from a real run (2026-11-25, its
+      // --validate-app, which looks the app up as the upload does), the bundle id replaced.
+      if (options.altool === 'no app') {
+        return exit(
+          1,
+          "Running altool at path '/Applications/Xcode.app/Contents/SharedFrameworks/ContentDelivery.framework/Resources/altool'...\n\n" +
+            "2026-11-25 12:39:56.597 ERROR: [altool.77B54191C0] Unable to find Apple ID for Bundle ID 'app.pastthebreak' on platform 'iOS App'. Either create this app in App Store Connect first, or provide the Apple ID directly with --apple-id <id>. (19)\n" +
+            '2026-11-25 12:39:56.597 ERROR: [altool.main] ExitFailure (31)\n',
+        );
       }
       if (options.altool === 'refused') return exit(1, "ERROR: [ContentDelivery.Uploader] Asset validation failed (90062) This bundle is invalid. The value for key CFBundleVersion [3] in the Info.plist file must contain a higher version.");
       const n = git(cwd, 'rev-list', '--count', 'HEAD');
