@@ -6,7 +6,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { StrictMode, useLayoutEffect, useSyncExternalStore } from 'react';
 import { GATE_SHOWS_ATTRIBUTE, OPENING_GOOGLE, SESSION_ENDED, SIGNING_IN_WITH_GOOGLE, SignInGate, useAppDrawn, useSignIn, useSignOut, type GoogleAccount } from '../web/sign-in/SignInGate';
 import type { IphoneSignIn, IphoneSignInWindow } from '../web/sign-in/iphone-sign-in';
-import { takeReturn } from '../web/sign-in/remembered';
+import { googleCallback, takeReturn } from '../web/sign-in/remembered';
 import { currentSession } from '../web/sign-in/current';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 
@@ -124,7 +124,7 @@ test('on the page Apple’s sheet opens, signed out, the gate goes to Google onc
   expect(line()).toBe(OPENING_GOOGLE);
   expect(signInScreen()).toBeNull();
   expect(shows()).toBe('placeholder-with-line');
-  expect(p.calls.google).toEqual([{ callbackPath: '/sso-callback', account: null }]);
+  expect(p.calls.google).toEqual([{ callbackPath: googleCallback('/sso-callback', SHEET_PAGE), account: null }]);
   // Google comes back to the callback, which then returns to this page, where the hand-over happens.
   expect(takeReturn()).toBe(SHEET_PAGE);
 });
@@ -134,7 +134,7 @@ test('the account the app asked for goes to Google by name', async () => {
   const p = provider();
   draw(p, fakeIphone({ asked: { account: 'ana@example.com' } }).iphone);
   await act(async () => {});
-  expect(p.calls.google).toEqual([{ callbackPath: '/sso-callback', account: 'ana@example.com' }]);
+  expect(p.calls.google).toEqual([{ callbackPath: googleCallback('/sso-callback', SHEET_PAGE), account: 'ana@example.com' }]);
 });
 
 test('in React’s development mode, which runs each effect twice, the gate goes to Google once and never draws the sign-in screen', async () => {

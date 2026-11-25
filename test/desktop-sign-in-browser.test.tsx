@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, test } from 'bun:test';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, startGoogleHere, stoppedForATap, useDesktopSignInBrowserPage } from '../tauri/sign-in';
+import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, googleStartedHere, startGoogleHere, stoppedForATap, useDesktopSignInBrowserPage } from '../tauri/sign-in';
 import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../web/sign-in/SignInGate';
+import { googleCallback, noteBackFromGoogle } from '../web/sign-in/remembered';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { fingerprint, randomHex } from '../tauri/sign-in/fingerprint';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
@@ -18,6 +19,8 @@ const NONCE = fingerprint(randomHex());
 const PAGE = `/desktop-sign-in?nonce=${NONCE}&account=ana%40example.com`;
 /** The page as the iPhone's sheet opens it when it waits for the hand-back over https. */
 const OVER_HTTPS = `${PAGE}&back=https`;
+/** Where Google returns to from `address`, carrying it. */
+const returnFrom = (address: string) => googleCallback(GOOGLE_CALLBACK_PATH, address);
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const MAC_SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
@@ -101,7 +104,7 @@ test('signed out, the page goes to Google once for the account the window asked 
   goTo(PAGE);
   const provider = standInSignIn({ leaveForGoogle: () => {} });
   const first = draw(provider);
-  expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
+  expect(provider.calls.google).toEqual([{ callbackPath: returnFrom(PAGE), account: 'ana@example.com' }]);
   first.unmount();
 
   // Back from Google's page, the same tab draws the page again.
@@ -135,7 +138,7 @@ test('signed in as another account, the page signs out, goes to Google once for 
   const first = draw(leaving);
   await waitFor(() => expect(heading()).toBe('Sign in'));
   expect(leaving.calls.signOut).toBe(1);
-  expect(leaving.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
+  expect(leaving.calls.google).toEqual([{ callbackPath: returnFrom(PAGE), account: 'ana@example.com' }]);
   first.unmount();
 
   // Google comes back with an account picked there, other than the one asked: it is the person's choice, so it goes over.
@@ -157,7 +160,7 @@ test("asked for Google's list, as by Use a different account, a signed-in page s
   draw(provider);
   await waitFor(() => expect(heading()).toBe('Sign in'));
   expect(provider.calls.signOut).toBe(1);
-  expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: null }]);
+  expect(provider.calls.google).toEqual([{ callbackPath: returnFrom(`/desktop-sign-in?nonce=${NONCE}&account=choose`), account: null }]);
   expect(sent).toEqual([]);
 });
 
@@ -188,7 +191,7 @@ test('a sign-out that fails, as on a network failure, says so, and Open the app 
   refuse = false;
   await act(async () => screen.getByRole('button', { name: 'Open the app again' }).click());
   await waitFor(() => expect(heading()).toBe('Sign in'));
-  expect(provider.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
+  expect(provider.calls.google).toEqual([{ callbackPath: returnFrom(PAGE), account: 'ana@example.com' }]);
 });
 
 test("signed in as the account asked, whose email the provider has not loaded yet, the page waits for it rather than signing out", async () => {
@@ -270,6 +273,28 @@ test("in another site's frame, the page never offers to hand over, and goes to G
   }
 });
 
+test('a tab that finished Google’s return for this request, and started none, counts as having been to Google, and only for this nonce', () => {
+  goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  expect(googleStartedHere()).toBe(false);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${'c'.repeat(64)}&account=choose`);
+  expect(googleStartedHere()).toBe(false);
+  noteBackFromGoogle('/week');
+  expect(googleStartedHere()).toBe(false);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  expect(googleStartedHere()).toBe(true);
+});
+
+test('asked for Google’s list in a tab that finished Google’s return, as another Chrome profile’s, the page waits for the click instead of signing out', async () => {
+  goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
+  serveDesktopSignIn(() => 'bo@example.com');
+  const provider = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' }, leaveForGoogle: () => {} });
+  draw(provider);
+  await waitFor(() => expect(heading()).toBe('ready'));
+  expect(provider.calls.signOut).toBe(0);
+  expect(provider.calls.google).toEqual([]);
+});
+
 test("in the iPhone's sheet waiting over https, signed in as the account asked, the page hands over with no click, by going to its own site's address", async () => {
   inBrowser(IPHONE, 5);
   goTo(OVER_HTTPS);
@@ -324,7 +349,7 @@ test("in the iPhone's sheet waiting over https, signed in as another account, th
   draw(leaving);
   await waitFor(() => expect(heading()).toBe('Sign in'));
   expect(leaving.calls.signOut).toBe(1);
-  expect(leaving.calls.google).toEqual([{ callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' }]);
+  expect(leaving.calls.google).toEqual([{ callbackPath: returnFrom(OVER_HTTPS), account: 'ana@example.com' }]);
   expect(sent).toEqual([]);
 });
 

@@ -3,6 +3,13 @@ import { SIGNED_IN_KEY } from './names.js';
 
 const ACCOUNT_KEY = 'app-kit.lastAccount';
 const RETURN_KEY = 'app-kit.returnTo';
+const BACK_FROM_GOOGLE_KEY = 'app-kit.backFromGoogle';
+
+/**
+ * The field of Google's return address that carries where the person was, so a return Chrome moves into another of
+ * its profiles, whose tab storage is empty, still goes back there.
+ */
+export const RETURN_PARAM = 'return_to';
 
 /** Whether this browser was signed in when it last looked, so the page drawn while the provider loads matches the next. */
 export function lastSignedIn(store: () => KeyValueStore = local): boolean | null {
@@ -36,15 +43,55 @@ export function currentAddress(): string {
   return window.location.pathname + window.location.search + window.location.hash;
 }
 
+/**
+ * The address Google returns to, `callbackPath` with where the person was: its path and query only, since the part
+ * after `#` can hold what never leaves the browser, and the same tab gets it whole from its own storage.
+ */
+export function googleCallback(callbackPath: string, address: string): string {
+  const withoutFragment = address.split('#')[0] ?? '';
+  return `${callbackPath}?${new URLSearchParams({ [RETURN_PARAM]: withoutFragment })}`;
+}
+
 /** Kept for the trip to Google and back, in this tab only. */
 export function rememberReturn(address: string, store: () => KeyValueStore = session): void {
   write(store, RETURN_KEY, address);
 }
 
-/** The address kept before the trip to Google, removed as it is read; the root when none was kept. */
-export function takeReturn(store: () => KeyValueStore = session): string {
-  const address = read(store, RETURN_KEY);
+/**
+ * Only a path on this site, never another site's address: resolved as the browser would, since it reads `/\host` as
+ * `//host`, another site, which the page cannot move to.
+ */
+function onThisSite(address: string | null): address is string {
+  if (!address?.startsWith('/')) return false;
+  try {
+    return new URL(address, window.location.origin).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The address kept before the trip to Google: this tab's own, removed as it is read, or, in a tab that kept none, as
+ * when Chrome moved Google's return into another profile, the one Google's return address carries; the root when
+ * neither is on this site.
+ */
+export function takeReturn(store: () => KeyValueStore = session, search: string = window.location.search): string {
+  const kept = read(store, RETURN_KEY);
   write(store, RETURN_KEY, null);
-  // Only a path on this site, never another site's address.
-  return address && address.startsWith('/') && !address.startsWith('//') ? address : '/';
+  if (onThisSite(kept)) return kept;
+  const carried = new URLSearchParams(search).get(RETURN_PARAM);
+  return onThisSite(carried) ? carried : '/';
+}
+
+/**
+ * This tab finished Google's return and signed someone in, going on to `address`: whoever is signed in now is the
+ * account picked at Google. Never noted for a tab that was signed in already, where no return was finished.
+ */
+export function noteBackFromGoogle(address: string, store: () => KeyValueStore = session): void {
+  write(store, BACK_FROM_GOOGLE_KEY, address);
+}
+
+/** The address this tab last went on to after finishing Google's return, or null. */
+export function cameBackFromGoogleTo(store: () => KeyValueStore = session): string | null {
+  return read(store, BACK_FROM_GOOGLE_KEY);
 }

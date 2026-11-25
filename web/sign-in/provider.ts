@@ -34,8 +34,8 @@ export interface ProviderSession {
    */
   tokenNow(): string | null;
   /**
-   * Sends the browser to Google. Google returns to `callbackPath`, where the gate draws the provider's
-   * `GoogleReturn`. `account` names the account to sign in as, so Google shows no page while it is still signed in to
+   * Sends the browser to Google. Google returns to `callbackPath`, a path with a query the provider keeps whole, since
+   * it carries where the person was, and there the gate draws the provider's `GoogleReturn`. `account` names the account to sign in as, so Google shows no page while it is still signed in to
    * it; null has Google list its accounts. On success the browser is already leaving, so only a failure comes back.
    */
   google(options: { callbackPath: string; account: string | null }): Promise<Outcome>;

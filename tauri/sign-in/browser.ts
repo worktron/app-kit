@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProviderSession } from '../../web/sign-in/provider';
+import { cameBackFromGoogleTo } from '../../web/sign-in/remembered';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST, REFUSED_PARAM } from './names';
 import { HEX_32 } from './fingerprint';
@@ -76,10 +77,19 @@ export function startGoogleHere(store: () => KeyValueStore = thisTab): boolean {
   return read(store, STARTED_KEY) === asked.nonce;
 }
 
-/** Whether this tab has gone to Google for this request, so the account it came back with is the one picked there. */
+/**
+ * Whether this tab has been to Google for this request, so the account it came back with is the one picked there: it
+ * went from here, or it finished Google's return for this page, as a tab does when Chrome moves the return into
+ * another of its profiles, which started nothing. Never from the page's address alone, which anything can open.
+ */
 export function googleStartedHere(store: () => KeyValueStore = thisTab): boolean {
   const asked = desktopSignInRequest();
-  return asked !== null && read(store, STARTED_KEY) === asked.nonce;
+  if (!asked) return false;
+  if (read(store, STARTED_KEY) === asked.nonce) return true;
+  const back = cameBackFromGoogleTo(store);
+  if (!back) return false;
+  const address = new URL(back, 'https://this.site');
+  return address.pathname === DESKTOP_SIGN_IN_PATH && address.searchParams.get('nonce') === asked.nonce;
 }
 
 /**

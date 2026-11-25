@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import { request } from '../web/fetch';
 import { resetConnection } from '../web/connection';
 import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, usePerson, useSignIn, useSignOut } from '../web/sign-in/SignInGate';
-import { lastAccount, rememberAccount, rememberSignedIn } from '../web/sign-in/remembered';
+import { cameBackFromGoogleTo, googleCallback, lastAccount, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from '../web/sign-in/remembered';
 import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { noAccountFor } from '../web/sign-in/provider';
 
@@ -168,8 +168,8 @@ test('Continue as names the remembered account to Google, and a different accoun
   await press('Continue as ana@example.com');
   await press('Use a different account');
   expect(provider.calls.google).toEqual([
-    { callbackPath: GOOGLE_CALLBACK_PATH, account: 'ana@example.com' },
-    { callbackPath: GOOGLE_CALLBACK_PATH, account: null },
+    { callbackPath: googleCallback(GOOGLE_CALLBACK_PATH, '/'), account: 'ana@example.com' },
+    { callbackPath: googleCallback(GOOGLE_CALLBACK_PATH, '/'), account: null },
   ]);
 });
 
@@ -203,6 +203,44 @@ test('back from Google, the sign-in finishes in the page and lands on the addres
   draw(standInSignIn({ store }));
   await waitFor(() => expect(heading()).toBe('The app at /week?category=work'));
   expect(window.location.pathname).toBe('/week');
+  expect(cameBackFromGoogleTo()).toBe('/week?category=work');
+});
+
+test('a return from Google finished in a tab that started nothing, as when Chrome moves it into another profile, lands where the trip started', async () => {
+  window.history.replaceState(null, '', '/week?category=work#today');
+  const leaving = standInSignIn({ leaveForGoogle: () => {} });
+  const first = draw(leaving);
+  await press('Use a different account');
+  first.unmount();
+  const [{ callbackPath }] = leaving.calls.google;
+  // Only the path and query travel: the part after # stays in the tab that had it.
+  expect(callbackPath).toBe(googleCallback(GOOGLE_CALLBACK_PATH, '/week?category=work'));
+
+  // Another profile's tab, with nothing in its storage, finishes the return.
+  sessionStorage.clear();
+  window.history.replaceState(null, '', `${callbackPath}&stand_in_google=bo%40example.com`);
+  draw(standInSignIn({ store: sessionStorage }));
+  await waitFor(() => expect(heading()).toBe('The app at /week?category=work'));
+  expect(cameBackFromGoogleTo()).toBe('/week?category=work');
+});
+
+test('a tab already signed in that lands on the callback goes on, but notes no return from Google, since it finished none', async () => {
+  sessionStorage.setItem('stand-in.person', JSON.stringify({ id: 'p2', email: 'bo@example.com' }));
+  window.history.replaceState(null, '', googleCallback(GOOGLE_CALLBACK_PATH, '/week'));
+  draw(standInSignIn({ store: sessionStorage }));
+  await waitFor(() => expect(heading()).toBe('The app at /week'));
+  expect(cameBackFromGoogleTo()).toBeNull();
+});
+
+test('the address kept for the trip is this tab’s own first, then the one Google’s return carries, and never another site', () => {
+  rememberReturn('/kept#here');
+  expect(takeReturn(undefined, '?return_to=%2Fcarried')).toBe('/kept#here');
+  expect(takeReturn(undefined, '?return_to=%2Fcarried')).toBe('/carried');
+  expect(takeReturn(undefined, '?return_to=%2F%2Fevil.example.com')).toBe('/');
+  expect(takeReturn(undefined, '?return_to=https%3A%2F%2Fevil.example.com')).toBe('/');
+  // A browser reads a backslash as a slash, so /\evil.example.com is another site too.
+  expect(takeReturn(undefined, '?return_to=%2F%5Cevil.example.com')).toBe('/');
+  expect(takeReturn(undefined, '')).toBe('/');
 });
 
 test('back from Google without a sign-in, the sign-in screen says so at the address the trip started from', async () => {
