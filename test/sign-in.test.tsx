@@ -239,6 +239,23 @@ test('signing out forgets the return from Google this tab finished, so a later s
   expect(cameBackFromGoogleTo()).toBeNull();
 });
 
+test('an account switched to with no sign-out between forgets the return from Google noted for the one before', async () => {
+  window.history.replaceState(null, '', '/week');
+  const leaving = standInSignIn({ store: sessionStorage, leaveForGoogle: () => {} });
+  const first = draw(leaving);
+  await press('Use a different account');
+  first.unmount();
+  window.history.replaceState(null, '', `${leaving.calls.google[0]!.callbackPath}&stand_in_google=bo%40example.com`);
+  const back = standInSignIn({ store: sessionStorage });
+  draw(back);
+  await waitFor(() => expect(heading()).toBe('The app at /week'));
+  // The provider fills in the same person's details: still the account picked at Google.
+  await act(async () => back.signInAs({ id: 'person-bo@example.com', email: 'bo@example.com', name: 'Bo' }));
+  expect(cameBackFromGoogleTo()).toBe('/week');
+  await act(async () => back.signInAs({ id: 'p-cy', email: 'cy@example.com' }));
+  expect(cameBackFromGoogleTo()).toBeNull();
+});
+
 test('a tab already signed in that lands on the callback goes on, but notes no return from Google, since it finished none', async () => {
   sessionStorage.setItem('stand-in.person', JSON.stringify({ id: 'p2', email: 'bo@example.com' }));
   window.history.replaceState(null, '', googleCallback(GOOGLE_CALLBACK_PATH, '/week'));
