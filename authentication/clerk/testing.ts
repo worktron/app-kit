@@ -63,7 +63,10 @@ const base64url = (bytes: Uint8Array | string) =>
 async function sessionToken(personId: string, authorizedParty: string | undefined): Promise<string> {
   const { kid, privateKey } = await key();
   const now = Math.floor(Date.now() / 1000);
-  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid }));
+  // `cat` marks it a session token, as Clerk's own are: @clerk/backend 3.28 and newer refuse a token without it
+  // ("Invalid session token category"), and earlier versions accept this value. Clerk's name for it is
+  // JWT_CATEGORY_SESSION_TOKEN, which the package does not export.
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid, cat: 'cl_B7d4PD111AAA' }));
   const payload = base64url(
     JSON.stringify({
       sub: personId,

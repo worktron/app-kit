@@ -9,8 +9,8 @@
         "standardwebhooks": "^1.1.1",
       },
       "devDependencies": {
-        "@clerk/backend": "^3.26.2",
-        "@clerk/hono": "^0.1.93",
+        "@clerk/backend": "^3.33.0",
+        "@clerk/hono": "^0.1.108",
         "@clerk/react": "^6.17.4",
         "@clerk/testing": "^2.2.51",
         "@electric-sql/pglite": "0.5.11",
@@ -110,13 +110,13 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@clerk/backend": ["@clerk/backend@3.26.2", "", { "dependencies": { "@clerk/shared": "^4.41.1", "standardwebhooks": "^1.0.0", "tslib": "2.8.1" } }, "sha512-IQAeEPmAy1QXzQULVYPf4yato8isGoI5XpoaJoCkV9GC+22w+GgSWP3gCJ3wcaPcSxeEHPkQck9sLwRsW7ZYTw=="],
+    "@clerk/backend": ["@clerk/backend@3.33.0", "", { "dependencies": { "@clerk/shared": "^4.49.0", "standardwebhooks": "^1.0.0" } }, "sha512-rC9rZGW2asq2FunUZEBoI5WlNnGPhOgU3KC47rdmBw/l9LxuFQMIXFAUlqHXMK/vBpptQIw9CS7Cnpr2ZF6TsQ=="],
 
-    "@clerk/hono": ["@clerk/hono@0.1.93", "", { "dependencies": { "@clerk/backend": "^3.26.2", "@clerk/shared": "^4.41.1" }, "peerDependencies": { "hono": ">=4" } }, "sha512-4pdzn0f2wmrparj9u5EQxPhQev1MTqYW3ecem0gRAhiBiCw0ERNcOYmfAwKCOgLA/T6iopzPCkix9e1Cn/3eBA=="],
+    "@clerk/hono": ["@clerk/hono@0.1.108", "", { "dependencies": { "@clerk/backend": "^3.33.0", "@clerk/shared": "^4.49.0" }, "peerDependencies": { "hono": ">=4" } }, "sha512-J2PXng4IAfMk7a7TWE7A8acLWOAt6l/bIo6C+YYSsbLIrGZ2/FmQB+4e9uJQjQ51Gx1+lPtZzG2/yUgsLdmDwg=="],
 
     "@clerk/react": ["@clerk/react@6.18.1", "", { "dependencies": { "@clerk/shared": "^4.41.1", "tslib": "2.8.1" }, "peerDependencies": { "react": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0", "react-dom": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0" } }, "sha512-vCd3qctGaBJ7p7bnf2SLI4ynweaDHqiEgXbFaPVHjY3kduG5uPzHAFE42VwJazXbV81P56rhus3BYna0D1l62g=="],
 
-    "@clerk/shared": ["@clerk/shared@4.41.1", "", { "dependencies": { "@tanstack/query-core": "^5.101.4", "dequal": "2.0.3", "glob-to-regexp": "0.4.1", "js-cookie": "3.0.8" }, "peerDependencies": { "react": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0", "react-dom": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-qxy8bzGMV6EGuKqnfEVm/+f9yGncUyOJhxdbM10X52PoMiALJ5VOH+c3C427ETkupYalF81eBlg7aBH50AtbNA=="],
+    "@clerk/shared": ["@clerk/shared@4.49.0", "", { "dependencies": { "@tanstack/query-core": "^5.101.4", "dequal": "2.0.3", "glob-to-regexp": "0.4.1", "js-cookie": "3.0.8" }, "peerDependencies": { "react": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0", "react-dom": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-OI7+jr+Y481nBJJdAIt5NXJSo+wJAk9SYPYDpmcIOzyq8JnCtIdcd86wod2J3IY7UG6UxnBMT+IDbchFwJGs1Q=="],
 
     "@clerk/testing": ["@clerk/testing@2.2.51", "", { "dependencies": { "@clerk/backend": "^3.26.3", "@clerk/shared": "^4.42.0", "dotenv": "17.2.2" }, "peerDependencies": { "@playwright/test": "^1", "cypress": "^13 || ^14 || ^15" }, "optionalPeers": ["@playwright/test", "cypress"] }, "sha512-bxwmAYty/37eTkx+998A4E28bm6zCqRtgoThgybB0Q6Su7tmu22NKKrQh9qyd4LBOk1bxuF95O74/pH8pB8KvA=="],
 
@@ -697,6 +697,8 @@
     "yaml": ["yaml@1.10.3", "", {}, "sha512-vIYeF1u3CjlhAFekPPAk2h/Kv4T3mAkMox5OymRiJQB0spDP10LHvt+K7G9Ny6NuuMAb25/6n1qyUjAcGNf/AA=="],
 
     "zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
+
+    "@clerk/react/@clerk/shared": ["@clerk/shared@4.41.1", "", { "dependencies": { "@tanstack/query-core": "^5.101.4", "dequal": "2.0.3", "glob-to-regexp": "0.4.1", "js-cookie": "3.0.8" }, "peerDependencies": { "react": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0", "react-dom": "^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-qxy8bzGMV6EGuKqnfEVm/+f9yGncUyOJhxdbM10X52PoMiALJ5VOH+c3C427ETkupYalF81eBlg7aBH50AtbNA=="],
 
     "@clerk/testing/@clerk/backend": ["@clerk/backend@3.26.3", "", { "dependencies": { "@clerk/shared": "^4.42.0", "standardwebhooks": "^1.0.0", "tslib": "2.8.1" } }, "sha512-hgCEEVloVYe+QPusZoDp3d/V9vVlFKGufdfvjSGimadD4Ii7K16dgxXB/5/lSvc0KgQLmD54Nh8zRMKez7ZSrA=="],
 

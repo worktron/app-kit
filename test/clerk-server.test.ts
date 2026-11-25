@@ -109,7 +109,8 @@ describe('clerkServerSignIn', () => {
   const base64url = (data: string | Buffer) => Buffer.from(data).toString('base64url');
   function sessionToken(azp: string) {
     const now = Math.floor(Date.now() / 1000);
-    const header = base64url(JSON.stringify({ alg: 'RS256', kid: KID, typ: 'JWT' }));
+    // Clerk's session category, without which @clerk/backend 3.28 and newer refuse the token (see fakeClerkApi).
+    const header = base64url(JSON.stringify({ alg: 'RS256', kid: KID, typ: 'JWT', cat: 'cl_B7d4PD111AAA' }));
     const payload = base64url(
       JSON.stringify({ sub: 'user_stand_in_person', sid: 'sess_stand_in', azp, iss: 'https://example.clerk.accounts.dev', iat: now - 5, nbf: now - 5, exp: now + 60 }),
     );

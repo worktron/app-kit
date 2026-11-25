@@ -147,8 +147,8 @@
     }
   },
   "devDependencies": {
-    "@clerk/backend": "^3.26.2",
-    "@clerk/hono": "^0.1.93",
+    "@clerk/backend": "^3.33.0",
+    "@clerk/hono": "^0.1.108",
     "@clerk/react": "^6.17.4",
     "@clerk/testing": "^2.2.51",
     "@electric-sql/pglite": "0.5.11",
