@@ -2301,6 +2301,9 @@ const { values, positionals } = readArguments(args, {
 - **`signIn(profile, address, log)`** opens the profile's Chrome in front with no debugging or automation switch, so Google's sign-in sees an ordinary browser, and waits for the owner to quit it. It is the owner's to run: a command that calls it refuses when `runByThread()` names a thread.
 - **`drive(profile, log, window?)`** starts the same profile with a debugging port on this Mac only and connects Playwright. With no `window` it is headless: no window and no Dock icon. With `window` (`left`, `top`, `width`, `height`, in points from the main display's top left) Chrome opens no window of its own and the run makes one there in the background, which leaves focus where it was; Chrome is told to keep drawing when covered. A run with a window shows Chrome's icon in the Dock while it lasts (a copy of Chrome marked a background app, which keeps Playwright's WebKit out of the Dock, does not start), so a command that opens one is one the owner approves first.
 
+- **`signedInProfileFolder(address)`** is the folder of the profile signed in to the Google account `address`, `~/.local/state/app-kit/demo-chrome/<address>`, lower-cased, which `withProfile` takes.
+- **`keepSignedIn(folder, domains)`** and **`staysSignedIn(folder)`** record and read the sites the profile in `folder` must stay signed in to (`<folder>/stays-signed-in`, one domain a line, none until one is recorded); `app-kit google demo-grant` records google.com before the owner signs the demo profile in. An entry covers its subdomains, accounts.google.com included, and clearing every site's cookies signs out of all of them, so a caller that clears a profile's cookies, such as a video run signing out of the app's own site first, refuses any clearing that reaches a listed site.
+
 Playwright's own launch is not used: it adds `--use-mock-keychain`, which would make the profile the owner signed in to read as signed out.
 
 ### Window recording
@@ -2309,9 +2312,10 @@ Playwright's own launch is not used: it adds `--use-mock-keychain`, which would 
 
 ```ts
 import { drive } from 'app-kit/command-line/signed-in-chrome';
-import { buildRecorder, openHiddenDisplay } from 'app-kit/command-line/window-recording';
+import { buildRecorder, openHiddenDisplay, watchWindows } from 'app-kit/command-line/window-recording';
 
 const display = await openHiddenDisplay({ width: 1280, height: 800, out: 'take.mp4' }, await buildRecorder());
+const watch = await watchWindows('Google Chrome', display.left, display.top); // before Chrome's window can exist
 const chrome = await drive(profile, log, { left: display.left, top: display.top, width: 1280, height: 800 });
 const startedAt = await display.record(chrome.pid); // the first frame's time, the video's clock zero
 // ... drive chrome.page ...
@@ -2319,11 +2323,14 @@ void display.ended.then(() => chrome.close()); // a recorder that crashed took t
 await display.stop(); // throws if Chrome came to the front while it recorded
 await chrome.close();
 await display.close(); // the display goes
+const sightings = await watch.stop(); // each time Chrome's window touched one of the owner's displays
 ```
 
-`buildRecorder()` builds the program with `swift build` into `~/.local/state/app-kit/window-recording`, never into the installed kit; an unchanged package builds in a second or two. macOS asks once for Screen Recording permission for the app the run is started from (System Settings, Privacy & Security, Screen & System Audio Recording); without it `record` throws a `RecordingFailed` of kind `screen-recording` and nothing is recorded. While it records, macOS shows its screen recording mark in the menu bar, as it does for every screen recording; the program carries an Info.plist in its binary for it, without which ScreenCaptureKit stops the program. While it records, the app in front is checked every half second, and `stop` throws if the recorded program was ever in front, since the owner's keys could then have reached it. When the display first appears macOS slots it beside the main display for a moment, shifting the owner's other displays, before it moves to the corner; it is removed while still there. Close the recorded program before `close()`: macOS moves a window still on a display that goes onto the owner's screen.
+`buildRecorder()` builds the program with `swift build` into `~/.local/state/app-kit/window-recording`, never into the installed kit; an unchanged package builds in a second or two. macOS asks once for Screen Recording permission for the app the run is started from (System Settings, Privacy & Security, Screen & System Audio Recording); without it `record` throws a `RecordingFailed` of kind `screen-recording` and nothing is recorded. While it records, macOS shows its screen recording mark in the menu bar, as it does for every screen recording; the program carries an Info.plist in its binary for it, without which ScreenCaptureKit stops the program. While it records, the app in front is checked every half second, and `stop` throws if the recorded program was ever in front, since the owner's keys could then have reached it. When the display first appears macOS slots it beside the main display for a moment, shifting the owner's other displays, before it moves to the corner; it is removed while still there. Close the recorded program before `close()`: macOS moves a window still on a display that goes onto the owner's screen. The program runs in a process group of its own, so the Ctrl-C a terminal sends its whole foreground group never reaches it; only `close()` ends it, or its standard input closing when the caller goes. If the recorded program still runs then (the caller went without closing it, as Ctrl-C ends a caller that does not catch it), the program ends it first, asked to quit and then stopped outright after five seconds, and removes the display only once it is gone, so its window never lands on the owner's screen.
 
-Its live test, `bun test ./swift/window-recording/e2e/record.e2e.ts`, shows a test window of its own on the hidden display and records it. It is the owner's to run in their own terminal, never an agent's or the gates', since a fault in the placement puts that window on the owner's screen.
+`watchWindows(name, left, top)` watches the screen's window list every 20 milliseconds for a window of a program named `name`, started after the watch, that touches any display but the hidden one (the one holding `left`, `top`). It is a second program in the same Swift package, built the same way, and reads only the window list, so it needs no permission of its own. Start it before the recorded program's window can exist and stop it after the display is gone; `stop()` gives each sighting, and throws when the watch cannot vouch for the run: it ended before it was asked to, never said it finished, or saw no window of the program anywhere, the hidden display included (macOS does not promise a window's owner name, and a watch that matched nothing would pass having watched nothing).
+
+Its live tests, `bun test ./swift/window-recording/e2e/record.e2e.ts` and `bun test ./command-line/e2e/chrome-recording.e2e.ts`, each watched by `watchWindows`, show a test window of its own on the hidden display and records it. It is the owner's to run in their own terminal, never an agent's or the gates', since a fault in the placement puts that window on the owner's screen.
 
 ## authentication/: who is calling
 
@@ -2690,13 +2697,21 @@ A permission is known to be missing only from Google's own answer, `missingAcces
 }
 ```
 
-A message is unread unless `"read": true`; a meeting starts at the quarter hour at or after its minutes from now. The reset acts only on the account its grant is for, refusing any other address, and one run at a time holds each account (`withDemoAccount(address, work)`, which a recording holds across its reset and its take). Its grant is a demo-only one, never a Workspace service account, which can act as every person in the domain:
+A message is unread unless `"read": true`; a meeting starts at the quarter hour at or after its minutes from now. The reset acts only on the account its grant is for, refusing any other address, and one run at a time holds each account (`withDemoAccount(address, work)`). A recording holds the demo profile's lock (`withProfile`) from before its first reset to the end of its take instead, so a reset run by hand in another terminal during a recording is not stopped. Its grant is a demo-only one, never a Workspace service account, which can act as every person in the domain:
 
 1. The owner makes a Google Cloud project of its own for demos, in the demo account's Workspace, with the Gmail and Google Calendar APIs on, an OAuth consent screen of type Internal (an Internal app's grant does not expire after 7 days), and a Desktop app OAuth client. If the Workspace admin console restricts Gmail or Calendar under Security, API controls, the demo app is marked Trusted there.
 2. The client's id and secret go into a 1Password item in the agents vault, "Google demo grant <address>", in fields `client id` and `client secret`.
-3. `app-kit google demo-grant <address>`, in the owner's own terminal, opens Google's consent for `gmail.modify` and `calendar.events` in the demo account's own Chrome profile (`~/.local/state/app-kit/demo-chrome/<address>`, the one its videos are recorded in, which this signs in to the demo account too). The owner signs in as the demo account, allows it and quits Chrome; the refresh token goes into the item's `refresh token` field through 1Password's app, which asks once. Run by a thread it opens nothing and prints the line for the owner.
+3. `app-kit google demo-grant <address>`, in the owner's own terminal, opens Google's consent for `gmail.modify` and `calendar.events` in the demo account's own Chrome profile (`signedInProfileFolder(address)`, `~/.local/state/app-kit/demo-chrome/<address>`, the one its videos are recorded in, which this signs in to the demo account too), first recording that the profile stays signed in to google.com, so a grant that fails after the sign-in still leaves it guarded. The owner signs in as the demo account, allows it and quits Chrome; the refresh token goes into the item's `refresh token` field through 1Password's app, which asks once. Run by a thread it opens nothing and prints the line for the owner.
 
 A grant Google no longer honors (revoked, the demo account's password changed, or unused for six months) stops the reset with Google's reason and the line to run the grant again.
+
+What Google's reviewers look for in the verification video, from Google's pages as read on 2026-11-09 ([Demo Video](https://support.google.com/cloud/answer/13804565), [Prepare for verification](https://support.google.com/cloud/answer/13464321)):
+
+- The complete OAuth consent screen, showing the exact scopes the app asks for, with its language setting at the bottom left set to English.
+- The app as submitted, with its name and branding, and its whole flow from sign-in to each use: every scope's use shown in the app, every point where it calls a Google API, and every consent flow it has.
+- The OAuth client ID readable in the address bar on the consent screen. Google's pages do not say so, but reviewers' emails ask for it, so the window is recorded wide enough for the whole address.
+- Google shows the consent screen only the first time an account grants an app's Google Cloud project access ([OAuth 2.0 for web server applications](https://developers.google.com/identity/protocols/oauth2/web-server)). So the app's own reset revokes the demo account's grant to the app at `https://oauth2.googleapis.com/revoke`, which removes every scope it granted the project, for every client in it, and can take a while to take effect; the video run's consent step checks that a scope's wording is on screen, so a consent screen that did not show fails by name.
+- Before verification Google shows its unverified-app screen before the consent screen ([Unverified apps](https://support.google.com/cloud/answer/7454865)); it is expected in every video recorded before then.
 
 ### The Postgres database
 

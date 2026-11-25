@@ -2,7 +2,7 @@ import { afterAll, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { driveArguments, lastUsedProfile, ordinaryUserAgent, signIn, windowWhereAsked, withProfile } from '../command-line/signed-in-chrome.ts'
+import { driveArguments, keepSignedIn, lastUsedProfile, ordinaryUserAgent, signedInProfileFolder, signIn, staysSignedIn, windowWhereAsked, withProfile } from '../command-line/signed-in-chrome.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-signed-in-chrome-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -74,4 +74,23 @@ test('sign-in waits for Chrome without stopping the caller, so a redirect server
   } finally {
     process.env.PATH = path
   }
+})
+
+test('a profile signed in to an address has its folder in the state folder, the address lower-cased, where demo-grant has signed in since v0.54.0', () => {
+  expect(signedInProfileFolder('Demo@example.com', { XDG_STATE_HOME: '/state' })).toBe('/state/app-kit/demo-chrome/demo@example.com')
+})
+
+test('the sites a profile must stay signed in to are kept beside it, none until one is recorded', () => {
+  const folder = join(dir, 'stays')
+  expect(staysSignedIn(folder)).toEqual([])
+  keepSignedIn(folder, ['google.com'])
+  keepSignedIn(folder, ['Google.com', 'example.com'])
+  expect(staysSignedIn(folder)).toEqual(['google.com', 'example.com'])
+})
+
+test('a stay-signed-in list that cannot be read stops the caller rather than reading as no sites to protect', () => {
+  const folder = join(dir, 'unreadable')
+  mkdirSync(join(folder, 'stays-signed-in'), { recursive: true })
+  expect(() => staysSignedIn(folder)).toThrow()
+  expect(() => keepSignedIn(folder, ['google.com'])).toThrow()
 })

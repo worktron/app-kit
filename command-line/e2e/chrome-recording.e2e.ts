@@ -9,10 +9,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { watchWindows } from '../../swift/window-recording/e2e/watch.ts'
 import { withoutPage } from '../../test/dom.ts'
 import { drive } from '../signed-in-chrome.ts'
-import { buildRecorder, frontmostPid, openHiddenDisplay } from '../window-recording.ts'
+import { buildRecorder, frontmostPid, openHiddenDisplay, watchWindows } from '../window-recording.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-chrome-recording-e2e-')))
 // The tests' simulated page replaces fetch with one that refuses Chrome's DevTools answer as another origin's.
@@ -36,7 +35,7 @@ test('a Chrome window on the hidden display is recorded with its address bar, ne
   // Watched from before Chrome starts until after the display is gone, so a window of Chrome's on the owner's screens at
   // any moment, its first frame and its last included, fails the test.
   let sightings: string[] = []
-  const watch = await watchWindows(dir, 'Google Chrome', display.left, display.top)
+  const watch = await watchWindows('Google Chrome', display.left, display.top)
   const log: string[] = []
   try {
     const chrome = await drive(profile, (line) => log.push(line), { left: display.left, top: display.top, width: 1280, height: 800 })

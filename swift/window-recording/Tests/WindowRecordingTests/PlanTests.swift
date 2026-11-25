@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import WindowRecording
 
@@ -53,4 +54,22 @@ import Testing
     ]
     #expect(chooseWindow(candidates, pid: 7, display: display) == 1)
     #expect(chooseWindow(candidates, pid: 9, display: display) == nil)
+}
+
+@Test func aRecordedProgramStillRunningWhenTheRecordingEndsIsEndedFirst() throws {
+    let sleeper = Process()
+    sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    sleeper.arguments = ["30"]
+    try sleeper.run()
+    let program = try #require(RecordedProgram(pid: sleeper.processIdentifier))
+    #expect(program.path == "/bin/sleep")
+    #expect(program.end() == true)
+    sleeper.waitUntilExit()
+    #expect(!program.running)
+    // One already gone is left alone.
+    #expect(program.end() == false)
+}
+
+@Test func aProcessNumberWithNoProcessIsNoRecordedProgram() {
+    #expect(RecordedProgram(pid: 99_999_999) == nil)
 }

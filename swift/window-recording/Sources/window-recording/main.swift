@@ -8,7 +8,9 @@
 //   out  error <kind>: <message>      a line it could not do; the display stays until standard input closes
 // An error before the display is up ends the program: usage (2), display (5). Standard input closing, or SIGTERM or
 // SIGINT, finishes any recording, removes the display and ends; the caller closes the recorded program first, since a
-// window left on a display that goes is moved to the owner's screen.
+// window left on a display that goes is moved to the owner's screen. When the caller went without closing it (a
+// terminal's Ctrl-C ends the caller, whose going closes standard input), the recorded program is ended first and the
+// display waits for it.
 import AppKit
 import CoreGraphics
 import Foundation
@@ -20,6 +22,9 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 setvbuf(stdout, nil, _IOLBF, 0)
+// A caller that went leaves no reader of standard output; a line written then must not end the program before it has
+// ended the recorded program and removed the display.
+signal(SIGPIPE, SIG_IGN)
 
 func say(_ line: String) {
     print(line)
@@ -48,6 +53,7 @@ let place = windowPlace(display: display.bounds)
 say("display \(display.id) \(Int(place.x)) \(Int(place.y))")
 
 let recorder = WindowRecorder()
+var recorded: RecordedProgram?
 let out = URL(fileURLWithPath: options.out)
 
 /** Says what went wrong with a line, and keeps the display, so a window on it never lands on the owner's screen. */
@@ -66,6 +72,9 @@ func finish() async -> Never {
             refuse("recording", "\(error)")
             code = 6
         }
+    }
+    if let program = recorded, program.end() {
+        FileHandle.standardError.write(Data("window-recording: ended the recorded program \(program.pid) before removing the display, since its window was still on it\n".utf8))
     }
     display.remove()
     exit(code)
@@ -89,6 +98,7 @@ Task {
                     refuse("usage", "already recording")
                     continue
                 }
+                recorded = RecordedProgram(pid: pid_t(pid))
                 do {
                     let window = try await findWindow(pid: pid, display: display.bounds)
                     try await recorder.start(window: window, scale: options.scale, out: out)

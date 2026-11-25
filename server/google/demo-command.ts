@@ -4,9 +4,9 @@
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { opRead, runByThread } from '../../command-line/index.ts'
-import { signIn, withProfile } from '../../command-line/signed-in-chrome.ts'
+import { keepSignedIn, signedInProfileFolder, signIn, withProfile } from '../../command-line/signed-in-chrome.ts'
 import { appendLog, stateFolder } from '../../tauri/state.ts'
-import { demoChromeFolder, demoConsentAddress, demoGrantItem, readDemoFixtures, readDemoGrant, refreshTokenFor, resetDemoAccount, withDemoAccount } from './demo.ts'
+import { demoConsentAddress, demoGrantItem, readDemoFixtures, readDemoGrant, refreshTokenFor, resetDemoAccount, withDemoAccount } from './demo.ts'
 
 function log(line: string): void {
   appendLog(join(stateFolder('google-demo'), 'google-demo.log'), `${new Date().toISOString()} ${line}`)
@@ -54,7 +54,13 @@ async function demoGrant(address: string): Promise<void> {
   try {
     const consent = demoConsentAddress(clientId, address, redirect, state)
     console.log(`Opening Google's consent for the demo app in ${address}'s own Chrome. Sign in as ${address}, allow it, then quit that Chrome.`)
-    await withProfile(demoChromeFolder(address), `${address} demo`, async (profile) => await signIn(profile, consent, (line) => log(`grant: ${line}`)))
+    const folder = signedInProfileFolder(address)
+    await withProfile(folder, `${address} demo`, async (profile) => {
+      // Recorded before the owner signs in, so a grant that fails after the sign-in still leaves the profile protected
+      // from a recording that would clear Google's cookies and sign it out.
+      keepSignedIn(folder, ['google.com'])
+      await signIn(profile, consent, (line) => log(`grant: ${line}`))
+    })
     if (!given) throw new Error('Chrome was quit before Google sent the consent back; run demo-grant again and allow the demo app first.')
     const refreshToken = await refreshTokenFor(given, clientId, clientSecret, redirect)
     // Written through 1Password's desktop app, which asks the owner once; the agents vault's reader is read only.

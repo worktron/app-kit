@@ -12,15 +12,20 @@ import { stateFolder } from '../tauri/state'
 /** The Swift package, in the kit's own folder wherever bun installed it. */
 export const RECORDER_PACKAGE = join(import.meta.dir, '..', 'swift', 'window-recording')
 
+/** Builds one program of the Swift package with Swift's package manager into app-kit's state folder, and gives its path. */
+async function buildProgram(product: string, run: Run, env: Record<string, string | undefined>): Promise<string> {
+  const scratch = join(stateFolder('window-recording', env), 'build')
+  const built = await run(['swift', 'build', '-c', 'release', '--package-path', RECORDER_PACKAGE, '--scratch-path', scratch, '--product', product], { timeoutMs: 600_000 })
+  if (built.code !== 0) throw new Error(`The ${product} program did not build (swift build exited ${built.code}):\n${built.out.slice(-2000)}`)
+  return join(scratch, 'release', product)
+}
+
 /**
- * Builds the recording program with Swift's package manager into app-kit's state folder, never into the installed kit,
- * and gives its path. An unchanged package builds in a second or two, so every run builds it.
+ * Builds the recording program into app-kit's state folder, never into the installed kit, and gives its path. An
+ * unchanged package builds in a second or two, so every run builds it.
  */
 export async function buildRecorder(run: Run = runCommand, env: Record<string, string | undefined> = process.env): Promise<string> {
-  const scratch = join(stateFolder('window-recording', env), 'build')
-  const built = await run(['swift', 'build', '-c', 'release', '--package-path', RECORDER_PACKAGE, '--scratch-path', scratch, '--product', 'window-recording'], { timeoutMs: 600_000 })
-  if (built.code !== 0) throw new Error(`The window recording program did not build (swift build exited ${built.code}):\n${built.out.slice(-2000)}`)
-  return join(scratch, 'release', 'window-recording')
+  return await buildProgram('window-recording', run, env)
 }
 
 /** A hidden display, up, with its window place, and the recording of one window on it. */
@@ -123,7 +128,15 @@ export async function openHiddenDisplay(
   program: string,
   front: () => number | undefined = frontmostPid,
 ): Promise<HiddenDisplay> {
-  const child = spawn(program, ['--width', String(options.width), '--height', String(options.height), '--out', options.out, '--scale', String(options.scale ?? 2)], { stdio: ['pipe', 'pipe', 'pipe'] })
+  const child = spawn(program, ['--width', String(options.width), '--height', String(options.height), '--out', options.out, '--scale', String(options.scale ?? 2)], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    // A process group of its own, so the Ctrl-C a terminal sends its whole foreground group never reaches it: ended by
+    // Ctrl-C alongside the recorded program, it could take the display while that program's window is still on it, and
+    // macOS moves a window left on a display that goes onto the owner's screen. Only close() ends it, after the caller
+    // has closed the recorded program; a caller that goes instead closes its standard input, and the program then ends
+    // the recorded program, if it still runs, before it removes the display.
+    detached: true,
+  })
   // A write after the program ended fails with EPIPE; the line reader already says it ended, which is the error the
   // caller gets.
   child.stdin.on('error', () => {})
@@ -169,5 +182,70 @@ export async function openHiddenDisplay(
     },
     close,
     ended,
+  }
+}
+
+/** A watch of the screen's window list for a run's window on the owner's displays (`watchWindows`). */
+export type Watch = {
+  /**
+   * Ends the watch and gives each sighting of a window of the watched program that touched one of the owner's
+   * displays, as `outside <pid> <left> <top> <width> <height>`. Throws when the watch cannot vouch for the run: it
+   * ended before it was asked to, never said it finished, or saw no window of the program anywhere, the hidden display
+   * included.
+   */
+  stop: () => Promise<string[]>
+}
+
+/**
+ * What the window watch printed, judged: its sightings, or why the watch proves nothing. `asked` is whether its
+ * standard input was closed, which is the only way it ends when nothing went wrong.
+ */
+export function watchResult(name: string, said: string, code: number | null, asked: boolean): string[] {
+  const lines = said.split('\n')
+  const done = lines.map((line) => /^done (\d+) (\d+)$/.exec(line)).find(Boolean)
+  if (!asked || code !== 0 || !done) {
+    throw new RecordingFailed('watch', `the window watch ended ${asked ? '' : 'before it was asked to, '}with code ${code} and no finish line, so it did not watch the whole run: ${said.trim().split('\n').slice(-3).join(' ')}`)
+  }
+  if (Number(done[2]) === 0) {
+    throw new RecordingFailed('watch', `the window watch saw no window of ${name} anywhere, so it did not watch it; macOS may have left out the windows' owner names`)
+  }
+  return lines.filter((line) => line.startsWith('outside '))
+}
+
+/**
+ * Watches the windows of programs named `name` started from now on, every 20 milliseconds, for any that touches a
+ * display other than the hidden one, the display holding `left`, `top`. Start it before the program's window can
+ * exist and stop it after the display is gone, so a window on the owner's screens at any moment, its first frame and
+ * its last included, is a sighting. It reads only the window list, so it needs no Screen Recording permission.
+ */
+export async function watchWindows(name: string, left: number, top: number, run: Run = runCommand, env: Record<string, string | undefined> = process.env): Promise<Watch> {
+  const program = await buildProgram('window-watch', run, env)
+  const watcher = spawn(program, [name, String(left), String(top)], { stdio: ['pipe', 'pipe', 'pipe'] })
+  watcher.stdin.on('error', () => {})
+  watcher.stdout.setEncoding('utf8')
+  watcher.stderr.setEncoding('utf8')
+  let said = ''
+  let asked = false
+  watcher.stdout.on('data', (chunk: string) => (said += chunk))
+  watcher.stderr.on('data', (chunk: string) => (said += chunk))
+  const ended = new Promise<number | null>((resolve) => watcher.on('close', (code) => resolve(code)))
+  await new Promise<void>((resolve, reject) => {
+    const started = () => {
+      if (said.includes('watching')) {
+        watcher.stdout.off('data', started)
+        resolve()
+      }
+    }
+    watcher.stdout.on('data', started)
+    void ended.then(() => reject(new RecordingFailed('watch', `the window watch ended at once: ${said.trim()}`)))
+  })
+  return {
+    stop: async () => {
+      asked = watcher.exitCode === null && watcher.signalCode === null
+      watcher.stdin.end()
+      // Waited for before what it printed is read: its finish line comes as it ends.
+      const code = await ended
+      return watchResult(name, said, code, asked)
+    },
   }
 }

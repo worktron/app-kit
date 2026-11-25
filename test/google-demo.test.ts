@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { staysSignedIn } from '../command-line/signed-in-chrome.ts'
 import { withoutPage } from './dom'
 import { type DemoFixtures, type DemoGrant, rawMessage, readDemoFixtures, readDemoGrant, resetDemoAccount, withDemoAccount } from '../server/google/demo.ts'
 
@@ -178,4 +179,28 @@ test('demo-grant run by a thread opens no Chrome and prints the line for the own
   expect(run.exitCode).toBe(1)
   expect(run.stdout.toString()).toContain('bun run app-kit google demo-grant demo@example.com')
   expect(Bun.file(join(folder, 'open-calls')).size).toBe(0)
+})
+
+test('demo-grant records that the demo profile stays signed in to Google before it opens, so a grant that fails after the sign-in still guards it', () => {
+  const folder = join(dir, 'grant-quit')
+  const bin = join(folder, 'bin')
+  mkdirSync(bin, { recursive: true })
+  // A 1Password that gives the client's id and secret, and a Chrome the owner quits before allowing the demo app, which
+  // keeps what the stay-signed-in list held as it opened.
+  writeFileSync(join(bin, 'op'), '#!/bin/sh\nprintf client\n')
+  writeFileSync(join(bin, 'open'), '#!/bin/sh\ncat "$XDG_STATE_HOME/app-kit/demo-chrome/demo@example.com/stays-signed-in" >> "$HOME/open-calls"\n')
+  chmodSync(join(bin, 'op'), 0o755)
+  chmodSync(join(bin, 'open'), 0o755)
+  const { AI_AGENT: _agent, METAMAX_JOB_ID: _job, ...env } = process.env
+  const run = Bun.spawnSync([process.execPath, join(import.meta.dir, '../bin/app-kit.ts'), 'google', 'demo-grant', 'demo@example.com'], {
+    cwd: folder,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...env, HOME: folder, XDG_STATE_HOME: join(folder, 'state'), PATH: `${bin}:${env.PATH}` },
+  })
+  expect(run.exitCode).not.toBe(0)
+  expect(run.stderr.toString()).toContain('Chrome was quit before Google sent the consent back')
+  // google.com was on the list when Chrome opened, not only after.
+  expect(readFileSync(join(folder, 'open-calls'), 'utf8')).toBe('google.com\n')
+  expect(staysSignedIn(join(folder, 'state', 'app-kit', 'demo-chrome', 'demo@example.com'))).toEqual(['google.com'])
 })

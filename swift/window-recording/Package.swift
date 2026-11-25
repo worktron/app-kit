@@ -15,6 +15,8 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "window-recording", targets: ["window-recording"]),
+        // Watches the screen's window list for a run's window on any display but the hidden one; it records nothing.
+        .executable(name: "window-watch", targets: ["window-watch"]),
     ],
     targets: [
         // The declarations of macOS's virtual display classes, which no public header holds.
@@ -26,6 +28,7 @@ let package = Package(
             exclude: ["Info.plist"],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist])]
         ),
+        .executableTarget(name: "window-watch"),
         .testTarget(name: "WindowRecordingTests", dependencies: ["WindowRecording"]),
     ],
     swiftLanguageModes: [.v5]

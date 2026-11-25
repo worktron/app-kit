@@ -16,11 +16,6 @@ import { opRead } from '../../command-line/index';
 import { lock, stateFolder } from '../../tauri/state';
 import { readGoogleResponse } from './index';
 
-/** The folder of the Chrome profile signed in to the demo account `address`, which its videos are recorded in. */
-export function demoChromeFolder(address: string, env: Record<string, string | undefined> = process.env): string {
-  return join(stateFolder('demo-chrome', env), address.toLowerCase())
-}
-
 /** What the demo grant may do: insert and trash mail, and create and delete events. */
 export const DEMO_SCOPES = ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/calendar.events'];
 

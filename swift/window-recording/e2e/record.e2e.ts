@@ -8,8 +8,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildRecorder, frontmostPid, openHiddenDisplay } from '../../../command-line/window-recording.ts'
-import { watchWindows } from './watch.ts'
+import { buildRecorder, frontmostPid, openHiddenDisplay, watchWindows } from '../../../command-line/window-recording.ts'
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-window-recording-e2e-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -23,7 +22,7 @@ test('a window on the hidden display is recorded to an mp4 at twice its size, it
   const display = await openHiddenDisplay({ width: 640, height: 400, out }, await buildRecorder())
   // Watched from before the window exists until after the display is gone: a sighting on the owner's screens fails it.
   let sightings: string[] = []
-  const watch = await watchWindows(dir, 'test-window', display.left, display.top)
+  const watch = await watchWindows('test-window', display.left, display.top)
   let windowSize = { width: 0, height: 0 }
   const shown = spawn(testWindow, [String(display.left), String(display.top), '640', '400'], { stdio: ['pipe', 'pipe', 'inherit'] })
   // A recording program that ends unasked took the display with it: the window goes at once, before anyone sees it.

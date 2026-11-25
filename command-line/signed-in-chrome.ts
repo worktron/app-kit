@@ -16,11 +16,11 @@
 // opens a window is one the owner approves first.
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
-import { alive, lock } from '../tauri/state'
+import { alive, lock, stateFolder } from '../tauri/state'
 
 /** Google Chrome's program, inside the app macOS installs. */
 export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -105,6 +105,43 @@ export function lastUsedProfile(profile: string): string {
   } catch {
     return 'Default'
   }
+}
+
+/**
+ * The folder of the Chrome profile signed in to the Google account `address`, such as a demo account an app's videos
+ * are recorded in, in app-kit's state folder. Its place is the one `app-kit google demo-grant` has signed in since
+ * v0.54.0, so a profile signed in then is kept.
+ */
+export function signedInProfileFolder(address: string, env: Record<string, string | undefined> = process.env): string {
+  return join(stateFolder('demo-chrome', env), address.toLowerCase())
+}
+
+/** The file in a profile's folder naming the sites the profile must stay signed in to, one domain a line. */
+const STAYS_SIGNED_IN = 'stays-signed-in'
+
+/**
+ * Records that the profile in `folder` must stay signed in to `domains`, as `app-kit google demo-grant` records
+ * google.com before the owner signs the demo profile in. Written under another name and renamed into place.
+ */
+export function keepSignedIn(folder: string, domains: string[]): void {
+  mkdirSync(folder, { recursive: true })
+  const file = join(folder, STAYS_SIGNED_IN)
+  const known = new Set([...staysSignedIn(folder), ...domains.map((domain) => domain.trim().toLowerCase()).filter(Boolean)])
+  writeFileSync(`${file}.new`, `${[...known].join('\n')}\n`)
+  renameSync(`${file}.new`, file)
+}
+
+/**
+ * The sites the profile in `folder` must stay signed in to, none when nothing recorded any; a list that cannot be
+ * read throws. An entry covers its
+ * subdomains (google.com covers accounts.google.com, where Google keeps its sign-in), and clearing every site's
+ * cookies signs out of all of them, so a caller that clears a profile's cookies refuses any clearing that reaches one.
+ */
+export function staysSignedIn(folder: string): string[] {
+  const file = join(folder, STAYS_SIGNED_IN)
+  // Only a file nobody wrote means no sites: one that cannot be read throws, rather than read as nothing to protect.
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8').split('\n').map((line) => line.trim()).filter(Boolean)
 }
 
 /** Where a run's one window goes and its size, in the screen's points, measured from the top left of the main display. */
