@@ -347,10 +347,23 @@ test('in the Mac app a newer deploy and a release found are one line, "has an up
   await expect(page.getByRole('status')).toHaveCount(1);
   await expect(line.getByRole('button')).toHaveText(['Update']);
   await expect(page.getByText('changed since this page loaded')).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath('update-line-mac.png'), animations: 'disabled' });
+  // A release restarts the app, so it is a step to find: a band in a tint of the theme's primary color, words at full
+  // strength, Update filled. The fixture has MUI's default theme: primary #1976d2, text rgba(0,0,0,0.87) and 0.6.
+  const look = () =>
+    line.evaluate((element) => {
+      const button = element.querySelector('button') as HTMLElement;
+      return { text: getComputedStyle(element).color, band: getComputedStyle(element).backgroundColor, button: getComputedStyle(button).backgroundColor };
+    });
+  // MUI eases a button's color in, from the quiet line's word to the filled button, so the test waits for the drawn color.
+  await expect.poll(look).toEqual({ text: 'rgba(0, 0, 0, 0.87)', band: 'rgba(25, 118, 210, 0.16)', button: 'rgb(25, 118, 210)' });
+  await page.screenshot({ path: testInfo.outputPath('update-line-release.png'), animations: 'disabled' });
 
-  // With the release gone, the deploy alone is the update, and Update reloads into it.
+  // With the release gone, the deploy alone is the update, on the quiet line: secondary words, no band, Update a word.
   await release(null);
+  await expect.poll(look).toEqual({ text: 'rgba(0, 0, 0, 0.6)', band: 'rgba(0, 0, 0, 0)', button: 'rgba(0, 0, 0, 0)' });
+  await page.screenshot({ path: testInfo.outputPath('update-line-deploy.png'), animations: 'disabled' });
+
+  // Update reloads into the deploy.
   await newer.stop();
   const count = countLoads(page);
   await line.getByRole('button', { name: 'Update' }).click();

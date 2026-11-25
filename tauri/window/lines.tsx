@@ -1,4 +1,5 @@
 import { Box, Button } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { isAppWindow } from '../../web/installed-app';
 import { line, newBuildMessage } from '../../web/lines';
 import { useNewBuild } from '../../web/new-build';
@@ -49,6 +50,35 @@ export function updateMessage(appName: string, update: Update, inApp: boolean): 
 }
 
 /**
+ * Whether `update` restarts the app once it is taken, or is restarting it already: a release found, installing or
+ * failed, or a newer build installed. Only a newer deploy of the site does not, which reloads the page alone. The update
+ * line draws these as a band with a filled button, since each is a step waiting on the person and comes rarely, and a
+ * deploy, which comes often, as the quiet line. An app that draws its own line asks this for the same look.
+ */
+export function restartsTheApp(update: Update): boolean {
+  return update !== 'deploy';
+}
+
+/**
+ * The line for an update that restarts the app: the quiet line's shape on a band across the page, a faint tint of the
+ * theme's primary color with a hairline of it below, and its words at full strength. The color is read through the
+ * theme's CSS variables when it has them, as the kit's own looks do, so the band follows the light or dark scheme the
+ * filled button follows.
+ */
+const band = [
+  line,
+  (theme: Theme) => {
+    const primary = (theme.vars ?? theme).palette.primary.main;
+    return {
+      color: 'text.primary',
+      py: 0.75,
+      bgcolor: theme.alpha(primary, 0.16),
+      borderBottom: `1px solid ${theme.alpha(primary, 0.45)}`,
+    };
+  },
+] as const;
+
+/**
  * Takes `update`: a deploy reloads the page; a release found or failed opens `updateLink(scheme)`, which installs it
  * and restarts the app into it; a newer build installed opens `restartLink(scheme)`. Either restart loads the newest
  * page too. Nothing else is taken.
@@ -63,20 +93,23 @@ export function takeUpdate(update: Update, scheme: string): void {
  * The app's one update line, for an app on the Mac window, in place of `NewBuildLine`: "<App> has an update." with
  * Update for a newer deploy, a release found, a newer build installed or any of them at once, Update doing what that
  * needs (`takeUpdate`); while a release installs, a line saying so; if it failed, Try again. In a browser tab, where
- * only a deploy is found, it is `NewBuildLine`'s "<App> has changed since this page loaded." with Reload. Nothing
+ * only a deploy is found, it is `NewBuildLine`'s "<App> has changed since this page loaded." with Reload. An update that
+ * restarts the app (`restartsTheApp`) is drawn as a band in a tint of the theme's primary color with Update filled, so
+ * the step is found without looking for it; a deploy alone is the quiet line, as it comes often. Nothing
  * installs or restarts by itself; a deploy alone reloads by itself as `useNewBuild` says, unless `reloadsItself` is
  * false. `scheme` is the app's own link scheme, the one `Site::scheme` names. An app that draws its own lines uses
- * `useUpdate`, `updateMessage` and `takeUpdate` instead.
+ * `useUpdate`, `updateMessage`, `takeUpdate` and `restartsTheApp` instead.
  */
 export function UpdateLine({ appName, scheme, reloadsItself = true }: { appName: string; scheme: string; reloadsItself?: boolean }) {
   const update = useUpdate({ reloadsItself });
   if (!update) return null;
   const { message, action } = updateMessage(appName, update, isAppWindow());
+  const strong = restartsTheApp(update);
   return (
-    <Box role="status" sx={line}>
+    <Box role="status" sx={strong ? band : line}>
       {message}
       {action && (
-        <Button size="small" onClick={() => takeUpdate(update, scheme)}>
+        <Button size="small" variant={strong ? 'contained' : 'text'} disableElevation={strong} onClick={() => takeUpdate(update, scheme)}>
           {action}
         </Button>
       )}

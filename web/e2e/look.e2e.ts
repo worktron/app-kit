@@ -267,3 +267,27 @@ test.describe('on a touch screen', () => {
     expect(await words.boundingBox(), 'the menu where it was, at the size it was').toEqual(padded);
   });
 });
+
+// The Mac window's update line with a release found, on each kit theme in each setting: the band is a tint of the same
+// primary color the filled Update is drawn in, read through the theme's CSS variables, so a dark page never gets the
+// light setting's color behind its words.
+for (const look of ['plain', 'console'] as const) {
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`a release's update line on the ${look} theme in ${scheme} is a band in a tint of the filled Update's own color`, async ({ page }, testInfo) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 460, height: 900 });
+      await page.goto(`/look.html?update=release${look === 'console' ? '&look=console' : ''}`);
+      const line = page.getByRole('status').filter({ hasText: 'Beeline has an update.' });
+      await expect(line).toBeVisible();
+      const drawn = await line.evaluate((element) => {
+        const channels = (value: string) => value.match(/[\d.]+/g)!.map(Number);
+        const band = channels(getComputedStyle(element).backgroundColor);
+        const button = channels(getComputedStyle(element.querySelector('button')!).backgroundColor);
+        return { band, button, text: getComputedStyle(element).color, body: getComputedStyle(document.querySelector('h1')!).color };
+      });
+      expect(drawn.band).toEqual([...drawn.button.slice(0, 3), 0.16]);
+      expect(drawn.text).toBe(drawn.body);
+      await page.screenshot({ path: testInfo.outputPath(`update-line-${look}-${scheme}.png`), animations: 'disabled' });
+    });
+  }
+}

@@ -482,11 +482,27 @@ mod feed {
         None
     }
 
+    /// Waits for the page to be told where the update stands, which `answered` does after it sets the menu's words,
+    /// failing after a minute rather than hanging.
+    fn wait_for_page(app: &tauri::App<MockRuntime>) -> Option<UpdateState> {
+        let updates = app.state::<Updates>();
+        for _ in 0..6000 {
+            if let Some(told) = *updates.told.lock().unwrap() {
+                return Some(told);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+
     #[test]
-    fn a_release_in_the_feed_is_found_offered_to_the_page_and_downloads_with_its_signature_checked() {
+    fn a_release_in_the_feed_is_found_offered_to_the_page_and_the_menu_and_downloads_with_its_signature_checked() {
         let key = key();
         let address = serve(signature(&key, ARCHIVE, VERSION));
         let app = app(Some(updater_config(&key.public, &address)));
+        // The menu's update item, as AppMenu builds it, before anyone has asked.
+        let item = crate::menu::update_item(app.handle()).unwrap();
+        assert_eq!(item.text().unwrap(), "Check for Updates…");
         // The test program is not inside an app bundle, so the plugin's own start left updates off.
         assert!(!ready(app.handle()));
         register(app.handle());
@@ -494,8 +510,12 @@ mod feed {
         let found = wait_for_answer(&app).expect("the check at registration found the release");
         assert_eq!(found.version, VERSION);
         assert_eq!(found.current_version, "0.1.0");
-        assert_eq!(*app.state::<Updates>().told.lock().unwrap(), Some(UpdateState::Available));
+        let told = wait_for_page(&app).expect("the page was told the release was found");
+        assert_eq!(told, UpdateState::Available);
         assert_eq!(page_loaded_script(app.handle()), Some(update_script(UpdateState::Available)));
+        // Found in the background, with nobody asking: the menu offers the version, and choosing it installs it.
+        assert_eq!(item.text().unwrap(), format!("Update to {VERSION}"));
+        assert!(item.is_enabled().unwrap());
         let downloaded = tauri::async_runtime::block_on(found.download(|_, _| {}, || {}));
         assert_eq!(downloaded.unwrap(), ARCHIVE);
     }

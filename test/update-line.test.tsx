@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { NewBuildLine } from '../web/lines';
 import { lookForNewBuild } from '../web/new-build';
-import { NEWER_BUILD_EVENT, NEWER_BUILD_FLAG, UPDATE_EVENT, UPDATE_FLAG, UpdateLine, updateMessage, useUpdate } from '../tauri/window';
+import { NEWER_BUILD_EVENT, NEWER_BUILD_FLAG, UPDATE_EVENT, UPDATE_FLAG, UpdateLine, restartsTheApp, updateMessage, useUpdate } from '../tauri/window';
 
 const page = window as unknown as Record<string, unknown>;
 const realFetch = globalThis.fetch;
@@ -186,4 +186,17 @@ test("the line's words are the ones an app drawing its own lines gets", () => {
   expect(updateMessage('Atlas', 'deploy', false)).toEqual({ message: 'Atlas has changed since this page loaded.', action: 'Reload' });
   expect(updateMessage('Atlas', 'installing', true).action).toBeNull();
   expect(updateMessage('Atlas', 'failed', true).action).toBe('Try again');
+});
+
+test('every update but a deploy restarts the app, so the line draws it as a band with Update filled, and a deploy as the quiet line', () => {
+  expect(restartsTheApp('available')).toBe(true);
+  expect(restartsTheApp('restart')).toBe(true);
+  expect(restartsTheApp('installing')).toBe(true);
+  expect(restartsTheApp('failed')).toBe(true);
+  expect(restartsTheApp('deploy')).toBe(false);
+
+  inTheApp();
+  page[UPDATE_FLAG] = 'available';
+  render(<UpdateLine appName="Atlas" scheme="com.example.app" />);
+  expect(screen.getByRole('button', { name: 'Update' }).className).toContain('MuiButton-contained');
 });

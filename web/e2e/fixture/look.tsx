@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Autocomplete, Box, Button, CssBaseline, List, ListItem, ListItemText, MenuItem, Select, Switch, TextField, Typography } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import { fieldsNeverZoom, followTextSize, lookTheme, TextSizeSetting } from '../..';
+import { UPDATE_FLAG, UpdateLine } from '../../../tauri/window';
 
 // The kit's MUI themes drawn on a settings page, the Plain Look Studies page's General and Profiles tabs as a web page
 // draws them: section labels, rows between hairlines, status in colored words, a switch, a menu that reads as text, a
@@ -139,10 +140,15 @@ function LabeledFields() {
 
 followTextSize();
 
+// ?update=release draws the Mac window's update line above the page with a release found, as the window tells it.
+const release = search.get('update') === 'release';
+if (release) (window as unknown as Record<string, unknown>)[UPDATE_FLAG] = 'available';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      {release && <UpdateLine appName="Beeline" scheme="com.example.beeline" />}
       <Settings />
     </ThemeProvider>
   </StrictMode>,

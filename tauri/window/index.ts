@@ -109,7 +109,7 @@ export function updateLink(scheme: string): string {
   return `${scheme}://${UPDATE_HOST}`;
 }
 
-export { UpdateLine, useUpdate, updateMessage, takeUpdate, type Update } from './lines';
+export { UpdateLine, useUpdate, updateMessage, takeUpdate, restartsTheApp, type Update } from './lines';
 
 /** A menu item the page carries out: Settings… or Sign Out. */
 export type WindowMenuItem = typeof MENU_SETTINGS | typeof MENU_SIGN_OUT;
