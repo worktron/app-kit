@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { announceSignedOut, setCurrentSession } from './current';
 import type { IphoneSignIn } from './iphone-sign-in';
 import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
-import { currentAddress, forgetAccount, googleCallback, lastAccount, lastSignedIn, noteBackFromGoogle, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
+import { currentAddress, forgetAccount, forgetBackFromGoogle, googleCallback, lastAccount, lastSignedIn, noteBackFromGoogle, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
 
 /** Where Google sends the browser back to, unless the gate is told another. The server must answer it with the app. */
 export const GOOGLE_CALLBACK_PATH = '/sso-callback';
@@ -230,6 +230,8 @@ function Gate({
       // Signed out here, in another tab or by the session ending: the sign-in screen is next, and a later sign-in
       // holds the placeholder up again until the app has drawn. What the page kept for the person goes.
       announceSignedOut();
+      // Noted again only by the next Google return this page finishes.
+      forgetBackFromGoogle();
       setCameThroughSignIn(true);
       setSigningOut(false);
       setAppDrawn(false);

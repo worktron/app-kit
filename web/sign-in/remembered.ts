@@ -91,6 +91,11 @@ export function noteBackFromGoogle(address: string, store: () => KeyValueStore =
   write(store, BACK_FROM_GOOGLE_KEY, address);
 }
 
+/** Signed out in this tab: a later sign-in here came from wherever it comes from, not the return noted before. */
+export function forgetBackFromGoogle(store: () => KeyValueStore = session): void {
+  write(store, BACK_FROM_GOOGLE_KEY, null);
+}
+
 /** The address this tab last went on to after finishing Google's return, or null. */
 export function cameBackFromGoogleTo(store: () => KeyValueStore = session): string | null {
   return read(store, BACK_FROM_GOOGLE_KEY);
