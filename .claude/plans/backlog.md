@@ -1232,3 +1232,9 @@ Done when: menu-check-entry.ts imports removeAppsNow (and LSREGISTER if it still
 Goal: web/TextSizeSetting.tsx:19 names the first choice "Same as the phone" on every touch device, so an iPad shows "Same as the phone". metamax drew its own row on 2026-11-25 to say "Same as the iPad", deciding the device from the screen's shorter side: 700 points or more is an iPad, since the iPad mini's is 744 and the largest iPhone's 440 (metamax client/src/features/phone/textSize.ts `deviceName`, with its unit test). Found by metamax's ipad-text-size thread, 2026-11-25.
 
 Done when: TextSizeSetting says "Same as the iPad" on an iPad and "Same as the iPhone" on an iPhone (or "Same as the phone" kept for the iPhone), held by a unit test on the device rule and the look browser test (web/e2e/look.e2e.ts:201) at an iPad's size.
+
+## expect-fits-clipped · expectFits stops counting what a clipping box hides as past the edge
+
+Goal: expectFits in web/playwright.js exempts only elements inside a box that scrolls sideways (overflow auto or scroll, :242), so an element hidden by a box with overflow hidden or clip counts as past the edge though nothing of it shows. MUI's Switch keeps its hidden checkbox three times the thumb's width inside a root that clips it, so a settings page with a switch near the right edge fails expectFits at every size: on metamax's phone Settings the checkbox reached 22 points past a 1032-point screen. metamax wrote its own check instead (metamax e2e/text-size.ts `fitsOnScreen`): an element's shown right edge is the smallest right edge of it and every clipping box above it. Found by metamax's ipad-text-size thread, 2026-11-25.
+
+Done when: expectFits measures an element's right edge clipped by its overflow hidden or clip ancestors, and a test page with an MUI Switch at the right edge passes while a truly overflowing element still fails.
