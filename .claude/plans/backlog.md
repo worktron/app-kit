@@ -1249,3 +1249,10 @@ Unknown: which side is wrong. Either the check misses a valid form, or `deploy.d
 To reproduce, from app-kit: `bun scripts/owed.ts ~/Workspace/urge-surfer` lists the draining time as lacking.
 
 Done when: the field reaches Railway and the check counts it, held by a test of `DRAINING` against a settings file that uses `deploy.drainingSeconds`; or the field does not reach Railway, and the check's line and the README's "Starting the server" say the variable is needed, so urge-surfer can be ticketed to set it.
+
+## testflight-judge-all · The TestFlight watcher can judge every app once on its next pass, so a new watcher tag is checked by its log
+Written by: fleet/testflight-kit-bump
+
+Goal: after a background job moves `app-kit testflight watch` to a new release tag, its owner can read one pass in which every watched app says skipped, uploaded or failed, and compare it with the old tag. Today a pass writes no line for an app whose main has not moved (tauri/testflight/watch.ts, the `head === record.judgedHead && !retryDue && !expiryDue` return), so a new tag over unmoved apps logs nothing. Fleet's move from v0.25.2 to v0.76.3 on 2026-11-25 was checked by deleting `expiryCheckAt` from each `~/.local/state/app-kit/testflight/<app>/record.json` by hand, the kit's "judged once" path for a record written before that field existed. A supported way would be a `--judge-all` flag on `testflight watch` for one pass, or the record noting the kit version that judged it and judging again when it changes. The Mac release watcher (`mac watch`) has the same gap. Found by fleet's testflight-kit-bump thread, 2026-11-25.
+
+Done when: one documented step (a flag, or the kit version in the record) makes the next pass write one line per watched app, each judged against App Store Connect with nothing uploaded twice; a test in test/testflight-watch.test.ts holds it, and the README's TestFlight section names it as how to check a new watcher tag.
