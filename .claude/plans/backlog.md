@@ -1238,3 +1238,14 @@ Done when: TextSizeSetting says "Same as the iPad" on an iPad and "Same as the i
 Goal: expectFits in web/playwright.js exempts only elements inside a box that scrolls sideways (overflow auto or scroll, :242), so an element hidden by a box with overflow hidden or clip counts as past the edge though nothing of it shows. MUI's Switch keeps its hidden checkbox three times the thumb's width inside a root that clips it, so a settings page with a switch near the right edge fails expectFits at every size: on metamax's phone Settings the checkbox reached 22 points past a 1032-point screen. metamax wrote its own check instead (metamax e2e/text-size.ts `fitsOnScreen`): an element's shown right edge is the smallest right edge of it and every clipping box above it. Found by metamax's ipad-text-size thread, 2026-11-25.
 
 Done when: expectFits measures an element's right edge clipped by its overflow hidden or clip ancestors, and a test page with an MUI Switch at the right edge passes while a truly overflowing element still fails.
+
+## draining-check-settings-field · The owed check counts drainingSeconds in .railway/railway.ts, or says why it does not (a fault)
+Written by: urge-surfer/app-kit-catch-up
+
+A fault, found by urge-surfer's app-kit-catch-up thread on 2026-11-25. On every landing, `app-kit-owed.ts` reports urge-surfer with "lacks (listed, never holds): Railway's draining time set for the kit's clean stop". But urge-surfer sets it in `.railway/railway.ts:13` as `deploy: { drainingSeconds: 10 }`, and its `server.ts:4` and README say that is where it lives. The check, `DRAINING` in `scripts/kit-features.ts:138-153`, counts only the `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` variable, even when it searches `.railway/railway.ts`. It does not count the settings file's own `deploy.drainingSeconds` field. Its comment rules out railway.json's `drainingSeconds`, since Railway stops reading that file on 2026-12-01, but says nothing about the field in the new settings file.
+
+Unknown: which side is wrong. Either the check misses a valid form, or `deploy.drainingSeconds` in `.railway/railway.ts` never reaches Railway, so urge-surfer has no draining time. Find out from Railway's docs for the settings file and from what urge-surfer's web service has set on Railway.
+
+To reproduce, from app-kit: `bun scripts/owed.ts ~/Workspace/urge-surfer` lists the draining time as lacking.
+
+Done when: the field reaches Railway and the check counts it, held by a test of `DRAINING` against a settings file that uses `deploy.drainingSeconds`; or the field does not reach Railway, and the check's line and the README's "Starting the server" say the variable is needed, so urge-surfer can be ticketed to set it.
