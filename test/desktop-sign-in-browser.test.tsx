@@ -3,7 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { ASK_TAKEN_EVERY_MS, backLink, desktopSignInRequest, googleStartedHere, startGoogleHere, stoppedForATap, useDesktopSignInBrowserPage } from '../tauri/sign-in';
 import { GOOGLE_CALLBACK_PATH, SignInGate, useSignIn } from '../web/sign-in/SignInGate';
-import { googleCallback, noteBackFromGoogle } from '../web/sign-in/remembered';
+import { googleCallback } from '../web/sign-in/remembered';
 import { standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { fingerprint, randomHex } from '../tauri/sign-in/fingerprint';
 import { serveDesktopSignIn } from './desktop-sign-in-server';
@@ -273,29 +273,13 @@ test("in another site's frame, the page never offers to hand over, and goes to G
   }
 });
 
-test('a tab that finished Google’s return for this request, and started none, counts as having been to Google, only for this nonce and the person it signed in', () => {
+test('a tab has been to Google for this request only once it went from this page, for this nonce', () => {
   goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
-  expect(googleStartedHere('p1')).toBe(false);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${'c'.repeat(64)}&account=choose`, 'p1');
-  expect(googleStartedHere('p1')).toBe(false);
-  noteBackFromGoogle('/week', 'p1');
-  expect(googleStartedHere('p1')).toBe(false);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`, 'p1');
-  expect(googleStartedHere('p1')).toBe(true);
-  // Only for the person that return signed in.
-  expect(googleStartedHere('p2')).toBe(false);
   expect(googleStartedHere()).toBe(false);
-});
-
-test('asked for Google’s list in a tab that finished Google’s return, as another Chrome profile’s, the page waits for the click instead of signing out', async () => {
-  goTo(`/desktop-sign-in?nonce=${NONCE}&account=choose`);
-  noteBackFromGoogle(`/desktop-sign-in?nonce=${NONCE}&account=choose`, 'p2');
-  serveDesktopSignIn(() => 'bo@example.com');
-  const provider = standInSignIn({ person: { id: 'p2', email: 'bo@example.com' }, leaveForGoogle: () => {} });
-  draw(provider);
-  await waitFor(() => expect(heading()).toBe('ready'));
-  expect(provider.calls.signOut).toBe(0);
-  expect(provider.calls.google).toEqual([]);
+  expect(startGoogleHere()).toBe(true);
+  expect(googleStartedHere()).toBe(true);
+  goTo(`/desktop-sign-in?nonce=${'c'.repeat(64)}&account=choose`);
+  expect(googleStartedHere()).toBe(false);
 });
 
 test("in the iPhone's sheet waiting over https, signed in as the account asked, the page hands over with no click, by going to its own site's address", async () => {

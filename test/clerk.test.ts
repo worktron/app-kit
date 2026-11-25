@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, SIGN_UP_UNFINISHED, type EmailCodeSignIn, type EmailCodeSignUp } from '../authentication/clerk/email-code';
-import { clerkMove, finishGoogleReturn, startGoogle, whileGoogleReturns, type GoogleStartSignIn, type RedirectClerk } from '../authentication/clerk/google';
+import { clerkMove, clerkReason, finishGoogleReturn, startGoogle, whileGoogleReturns, type GoogleStartSignIn, type RedirectClerk } from '../authentication/clerk/google';
 import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
 import { TICKET_FAILED } from '../web/sign-in/provider';
 import recorded from './fixtures/clerk-sign-up.json';
@@ -122,6 +122,20 @@ describe('the trip to Google', () => {
     const refused = apiError('form_identifier_not_found');
     expect(await startGoogle(fakeStart(GOOGLE, refused).signIn, { back: BACK, account: 'ana@example.com', go })).toEqual({ ok: false, message: messageFor(refused, 'ana@example.com') });
     expect(went).toEqual([]);
+  });
+
+  test('a refused start writes Clerk’s own reason to the console, since the person is told only to try again', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      // Clerk's API error as clerk-js throws it: the status on the error, the code and words in its first error.
+      const refused = { status: 400, errors: [{ code: 'example_refusal', message: 'Refused.', longMessage: 'Refused, at length.' }] };
+      await startGoogle(fakeStart(GOOGLE, refused).signIn, { back: BACK, account: 'ana@example.com', go: () => {} });
+      expect(warn.mock.calls).toEqual([['[app-kit clerk] Google did not start: example_refusal (HTTP 400): Refused, at length.']]);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(clerkReason(new Error('offline'))).toBe('no code (no HTTP status): offline');
+    expect(clerkReason(apiError('form_identifier_not_found'))).toBe('form_identifier_not_found (no HTTP status): from Clerk');
   });
 
   test('back from Google, Clerk’s move to the return page stays in the page, and any other move loads', async () => {

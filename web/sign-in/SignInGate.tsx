@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { announceSignedOut, setCurrentSession } from './current';
 import type { IphoneSignIn } from './iphone-sign-in';
 import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
-import { currentAddress, forgetAccount, forgetBackFromGoogle, googleCallback, lastAccount, lastSignedIn, noteBackFromGoogle, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
+import { currentAddress, forgetAccount, googleCallback, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
 
 /** Where Google sends the browser back to, unless the gate is told another. The server must answer it with the app. */
 export const GOOGLE_CALLBACK_PATH = '/sso-callback';
@@ -179,8 +179,6 @@ function Gate({
   latest.current = session;
   const signedInAt = useRef(0);
   const wasSignedOut = useRef<boolean | null>(null);
-  // Whether this page drew the provider's handling of Google's return, so a sign-in after it came from Google.
-  const finishingGoogleReturn = useRef(false);
 
   // The person's own Sign out forgets the account; a session the server ended keeps it, so signing back in is one tap.
   // Forgotten before the provider answers, since the sign-in screen reads it as it draws.
@@ -230,8 +228,6 @@ function Gate({
       // Signed out here, in another tab or by the session ending: the sign-in screen is next, and a later sign-in
       // holds the placeholder up again until the app has drawn. What the page kept for the person goes.
       announceSignedOut();
-      // Noted again only by the next Google return this page finishes.
-      forgetBackFromGoogle();
       setCameThroughSignIn(true);
       setSigningOut(false);
       setAppDrawn(false);
@@ -287,6 +283,7 @@ function Gate({
     const asked = iphoneSignIn.asked();
     if (!asked) return;
     if (iphoneSignIn.noteGoingToGoogle()) {
+      console.log(`[app-kit sign-in] signed out on the page that hands sign-in to an app: going to Google for ${asked === 'choose' ? 'its list of accounts' : asked === 'remembered' ? 'the account last used' : asked.account}`);
       setGoogleStep('leaving');
       void signIn.google(asked).then((outcome) => {
         if (outcome.ok) return;
@@ -314,15 +311,15 @@ function Gate({
 
     if (!person) {
       if (returningFromGoogle) {
-        finishingGoogleReturn.current = true;
         return [
           'placeholder',
           <>
             {placeholder}
             <GoogleReturn
               onUnfinished={() => {
-                finishingGoogleReturn.current = false;
-                window.history.replaceState(null, '', takeReturn());
+                const back = takeReturn();
+                console.log(`[app-kit sign-in] back from Google: the sign-in did not finish in this tab, back to ${new URL(back, window.location.origin).pathname}`);
+                window.history.replaceState(null, '', back);
                 setNotice(GOOGLE_UNFINISHED);
                 setReturningFromGoogle(false);
               }}
@@ -339,12 +336,7 @@ function Gate({
     }
 
     // Back from Google and signed in: on to the address the person asked for, before the app reads where it is.
-    if (window.location.pathname === callbackPath) {
-      const back = takeReturn();
-      if (finishingGoogleReturn.current) noteBackFromGoogle(back, person.id);
-      finishingGoogleReturn.current = false;
-      window.history.replaceState(null, '', back);
-    }
+    if (window.location.pathname === callbackPath) window.history.replaceState(null, '', takeReturn());
 
     // Until the app has drawn its first data, it renders, so its requests go out, but nothing of it shows: the whole
     // screen appears at once. The wrapper is always there, with no box of its own, so drawing the app never remounts it.

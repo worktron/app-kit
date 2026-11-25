@@ -7,9 +7,8 @@ export { STAND_IN_CODE };
 export const WRONG_CODE = 'That code did not match. Use the newest email, or send a new code.';
 
 const PERSON_KEY = 'stand-in.person';
+/** The account the stand-in's Google picked, kept in the store of the tab that went, as Clerk keeps its sign-in in its client. */
 const GOOGLE_KEY = 'stand-in.google';
-/** The field of the callback address carrying the account the stand-in's Google picked. */
-const GOOGLE_PARAM = 'stand_in_google';
 const TICKET_PREFIX = 'stand-in-ticket:';
 
 /** A one-time ticket the stand-in takes, signing in as the address, as a server's ticket for that person would. */
@@ -93,11 +92,7 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
       calls.google.push({ callbackPath, account });
       const picked = account ?? 'chosen@example.com';
       store?.setItem(GOOGLE_KEY, picked);
-      // Google's answer travels with its return, as a real provider's does, so a return finished in another tab or
-      // browser profile signs in too.
-      const back = new URL(callbackPath, window.location.origin);
-      back.searchParams.set(GOOGLE_PARAM, picked);
-      leaveForGoogle(back.pathname + back.search);
+      leaveForGoogle(callbackPath);
       return ok;
     },
     sendEmailCode: async (email: string, options?: { signUp?: boolean }): Promise<Outcome> => {
@@ -140,13 +135,17 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
     return { ...session, loaded: now.loaded, person: now.person };
   }
 
-  /** Google said yes when the trip was started from this tab, and no when the person came back without one. */
+  /**
+   * Google said yes when the trip was started from this tab, and no otherwise: a return finished where no trip started,
+   * as when Chrome moves it into another of its profiles, is refused, as Clerk refuses a sign-in its own client did not
+   * start.
+   */
   function GoogleReturn({ onUnfinished }: GoogleReturnProps) {
     const ran = useRef(false);
     useEffect(() => {
       if (ran.current) return;
       ran.current = true;
-      const account = new URLSearchParams(window.location.search).get(GOOGLE_PARAM) ?? store?.getItem(GOOGLE_KEY);
+      const account = store?.getItem(GOOGLE_KEY);
       store?.removeItem(GOOGLE_KEY);
       if (account) set({ person: { id: `person-${account}`, email: account } });
       else onUnfinished();

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProviderSession } from '../../web/sign-in/provider';
-import { cameBackFromGoogleTo } from '../../web/sign-in/remembered';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST, REFUSED_PARAM } from './names';
 import { HEX_32 } from './fingerprint';
@@ -78,19 +77,14 @@ export function startGoogleHere(store: () => KeyValueStore = thisTab): boolean {
 }
 
 /**
- * Whether this tab has been to Google for this request, so the account it came back with is the one picked there: it
- * went from here, or it finished Google's return for this page, as a tab does when Chrome moves the return into
- * another of its profiles, which started nothing, and `personId` is still the person it signed in. Never from the page's
- * address alone, which anything can open.
+ * Whether this tab has been to Google for this request, so the account it came back with is the one picked there.
+ * Never from the page's address alone, which anything can open. A tab Chrome moved Google's return into, from another
+ * of its profiles, has not: the sign-in provider refuses a return its own profile did not start, and the tab goes to
+ * Google once from there (`startGoogleHere`).
  */
-export function googleStartedHere(personId: string | null = null, store: () => KeyValueStore = thisTab): boolean {
+export function googleStartedHere(store: () => KeyValueStore = thisTab): boolean {
   const asked = desktopSignInRequest();
-  if (!asked) return false;
-  if (read(store, STARTED_KEY) === asked.nonce) return true;
-  const back = cameBackFromGoogleTo(personId, store);
-  if (!back) return false;
-  const address = new URL(back, 'https://this.site');
-  return address.pathname === DESKTOP_SIGN_IN_PATH && address.searchParams.get('nonce') === asked.nonce;
+  return asked !== null && read(store, STARTED_KEY) === asked.nonce;
 }
 
 /**
@@ -181,7 +175,7 @@ export function useDesktopSignInBrowserPage({
     if (!asked) return setNow({ state: 'not-from-app' });
     const email = latest.current.person?.email?.toLowerCase() ?? null;
     const notAsked = asked.account === 'choose' || (asked.account !== null && asked.account.account.toLowerCase() !== email);
-    if (notAsked && !googleStartedHere(latest.current.person?.id ?? null)) {
+    if (notAsked && !googleStartedHere()) {
       setNow({ state: 'signing-out' });
       latest.current.signOut().catch(() => setNow({ state: 'failed' }));
       return;

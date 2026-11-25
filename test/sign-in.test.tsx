@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState } from 'react';
 import { request } from '../web/fetch';
 import { resetConnection } from '../web/connection';
 import { accountFor, GOOGLE_CALLBACK_PATH, GOOGLE_UNFINISHED, SESSION_ENDED, SignInGate, useAppDrawn, usePerson, useSignIn, useSignOut } from '../web/sign-in/SignInGate';
-import { cameBackFromGoogleTo, googleCallback, lastAccount, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from '../web/sign-in/remembered';
+import { googleCallback, lastAccount, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from '../web/sign-in/remembered';
 import { STAND_IN_CODE, standInSignIn, type StandInSignIn } from '../authentication/stand-in';
 import { noAccountFor } from '../web/sign-in/provider';
 
@@ -203,10 +203,9 @@ test('back from Google, the sign-in finishes in the page and lands on the addres
   draw(standInSignIn({ store }));
   await waitFor(() => expect(heading()).toBe('The app at /week?category=work'));
   expect(window.location.pathname).toBe('/week');
-  expect(cameBackFromGoogleTo('person-chosen@example.com')).toBe('/week?category=work');
 });
 
-test('a return from Google finished in a tab that started nothing, as when Chrome moves it into another profile, lands where the trip started', async () => {
+test('a return from Google in a tab that started nothing, as when Chrome moves it into another profile, is refused and lands where the trip started, saying so', async () => {
   window.history.replaceState(null, '', '/week?category=work#today');
   const leaving = standInSignIn({ leaveForGoogle: () => {} });
   const first = draw(leaving);
@@ -216,51 +215,21 @@ test('a return from Google finished in a tab that started nothing, as when Chrom
   // Only the path and query travel: the part after # stays in the tab that had it.
   expect(callbackPath).toBe(googleCallback(GOOGLE_CALLBACK_PATH, '/week?category=work'));
 
-  // Another profile's tab, with nothing in its storage, finishes the return.
+  // Another profile's tab, with nothing in its storage: the provider holds no sign-in there to finish, as Clerk holds
+  // none in another profile's client.
   sessionStorage.clear();
-  window.history.replaceState(null, '', `${callbackPath}&stand_in_google=bo%40example.com`);
+  window.history.replaceState(null, '', callbackPath);
   draw(standInSignIn({ store: sessionStorage }));
-  await waitFor(() => expect(heading()).toBe('The app at /week?category=work'));
-  expect(cameBackFromGoogleTo('person-bo@example.com')).toBe('/week?category=work');
+  await waitFor(() => expect(heading()).toBe('Sign in'));
+  expect(window.location.pathname + window.location.search).toBe('/week?category=work');
+  expect(screen.getByRole('alert').textContent).toBe(GOOGLE_UNFINISHED);
 });
 
-test('signing out forgets the return from Google this tab finished, so a later sign-in here is not taken for a pick at Google', async () => {
-  window.history.replaceState(null, '', '/week');
-  const leaving = standInSignIn({ store: sessionStorage, leaveForGoogle: () => {} });
-  const first = draw(leaving);
-  await press('Use a different account');
-  first.unmount();
-  window.history.replaceState(null, '', `${leaving.calls.google[0]!.callbackPath}&stand_in_google=bo%40example.com`);
-  draw(standInSignIn({ store: sessionStorage }));
-  await waitFor(() => expect(heading()).toBe('The app at /week'));
-  expect(cameBackFromGoogleTo('person-bo@example.com')).toBe('/week');
-  await press('Sign out');
-  expect(heading()).toBe('Sign in');
-  expect(cameBackFromGoogleTo('person-bo@example.com')).toBeNull();
-});
-
-test('the return from Google noted counts only for the person it signed in, however the account changed after', async () => {
-  window.history.replaceState(null, '', '/week');
-  const leaving = standInSignIn({ store: sessionStorage, leaveForGoogle: () => {} });
-  const first = draw(leaving);
-  await press('Use a different account');
-  first.unmount();
-  window.history.replaceState(null, '', `${leaving.calls.google[0]!.callbackPath}&stand_in_google=bo%40example.com`);
-  const back = standInSignIn({ store: sessionStorage });
-  draw(back);
-  await waitFor(() => expect(heading()).toBe('The app at /week'));
-  expect(cameBackFromGoogleTo('person-bo@example.com')).toBe('/week');
-  // However the account changed, the note is not for the person signed in now.
-  await act(async () => back.signInAs({ id: 'p-cy', email: 'cy@example.com' }));
-  expect(cameBackFromGoogleTo('p-cy')).toBeNull();
-});
-
-test('a tab already signed in that lands on the callback goes on, but notes no return from Google, since it finished none', async () => {
+test('a tab already signed in that lands on the callback goes on to the address it carries', async () => {
   sessionStorage.setItem('stand-in.person', JSON.stringify({ id: 'p2', email: 'bo@example.com' }));
   window.history.replaceState(null, '', googleCallback(GOOGLE_CALLBACK_PATH, '/week'));
   draw(standInSignIn({ store: sessionStorage }));
   await waitFor(() => expect(heading()).toBe('The app at /week'));
-  expect(cameBackFromGoogleTo('p2')).toBeNull();
 });
 
 test('the address kept for the trip is this tab’s own first, then the one Google’s return carries, and never another site', () => {

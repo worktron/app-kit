@@ -36,8 +36,26 @@ export async function startGoogle(
     go(google.toString());
     return { ok: true };
   } catch (error) {
+    console.warn(`[app-kit clerk] Google did not start: ${clerkReason(error)}`);
     return { ok: false, message: messageFor(error, account ?? '') };
   }
+}
+
+/**
+ * Clerk's own reason for a refusal, for the console: its error code, the HTTP status and its words, as its API errors
+ * carry them, since the person is told only to try again.
+ */
+export function clerkReason(error: unknown): string {
+  const refusal = (typeof error === 'object' && error !== null ? error : {}) as {
+    status?: unknown;
+    message?: unknown;
+    errors?: { code?: unknown; message?: unknown; longMessage?: unknown }[];
+  };
+  const first = refusal.errors?.[0];
+  const code = typeof first?.code === 'string' ? first.code : 'no code';
+  const status = typeof refusal.status === 'number' ? `HTTP ${refusal.status}` : 'no HTTP status';
+  const words = [first?.longMessage, first?.message, refusal.message].find((each) => typeof each === 'string') ?? String(error);
+  return `${code} (${status}): ${words}`;
 }
 
 /** How Clerk asks to move the page: to a path, with its own way of loading an address, which fires its unload event. */
@@ -96,7 +114,11 @@ export async function finishGoogleReturn(clerk: RedirectClerk, onUnfinished: () 
   try {
     await whileGoogleReturns(here, () =>
       loaded.handleRedirectCallback({ signInFallbackRedirectUrl: here, signUpFallbackRedirectUrl: here }, async () => {
-        if (!loaded.session) onUnfinished();
+        if (loaded.session) return;
+        // As when Chrome moved Google's return into another of its profiles: Clerk keeps a sign-in in the client of the
+        // browser that started it, and this one holds none it can finish.
+        console.log('[app-kit clerk] back from Google: Clerk ended with no session in this browser');
+        onUnfinished();
       }),
     );
   } catch (error) {
