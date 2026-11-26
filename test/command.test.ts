@@ -8,7 +8,8 @@ import packageJson from '../package.json';
 const run = (...args: string[]) => runFrom(join(import.meta.dir, '..'), ...args);
 const runFrom = (kit: string, ...args: string[]) => {
   const done = Bun.spawnSync(['bun', join(kit, 'bin/app-kit.ts'), ...args], { stdout: 'pipe', stderr: 'pipe' });
-  return { code: done.exitCode, out: done.stdout.toString(), err: done.stderr.toString() };
+  // Bun gives a signal only when one ended the program, so a normal exit's result has none to compare.
+  return { code: done.exitCode, signal: done.signalCode, out: done.stdout.toString(), err: done.stderr.toString() };
 };
 
 test('no arguments, help, -h and --help print the usage with its exit codes, and exit 0', () => {
@@ -37,11 +38,28 @@ test('an unknown part, a part with no command, a command missing its argument or
 
 const wrongUsage = (kit: string) => {
   for (const args of [['bogus'], ['extension'], ['extension', 'bogus'], ['extension', 'copy'], ['extension', 'copy', 'kit', 'extra'], ['extension', 'id', '.', 'extra'], ['extension', 'listing', 'a', 'b'], ['extension', 'listing', '--bogus'], ['--version', 'extra'], ['help', 'extra'], ['iphone'], ['iphone', 'run'], ['iphone', 'run', 'tablet'], ['iphone', 'run', 'sim', 'udid', 'extra'], ['iphone', 'run', 'phone', '--udid'], ['iphone-simulator'], ['iphone-simulator', 'quiet'], ['iphone-simulator', 'quiet', 'udid', 'extra'], ['iphone-simulator', 'keep'], ['iphone-simulator', 'keep', 'udid', '0'], ['iphone-simulator', 'keep', 'udid', 'ten'], ['iphone-simulator', 'keep', 'udid', '5', 'extra'], ['iphone-simulator', 'watch', 'udid', '--every'], ['iphone-simulator', 'shut-down-idle', '--udid'], ['iphone-simulator', 'shut-down-idle', 'udid', 'extra'], ['icons'], ['icons', 'draw', '--web', 'public'], ['icons', 'render'], ['icons', 'render', 'design/icon'], ['icons', 'render', '--web'], ['icons', 'render', 'a', 'b', '--web', 'public'], ['icons', 'render', '--web', 'public', '--web', 'other'], ['icons', 'render', '--extension', 'icons', '--toolbar-color', 'grey'], ['icons', 'render', '--web', 'public', '--toolbar-color', '#1f1f1f'], ['icons', 'render', '--web', 'public', '--size', '64']]) {
-    const { code, out, err } = runFrom(kit, ...args);
-    expect({ args, code, out }).toEqual({ args, code: 2, out: '' });
+    const { code, signal, out, err } = runFrom(kit, ...args);
+    // In words, since a diff of the result leaves out the arguments, which did not change. A run with no exit code
+    // and no signal is the fault .claude/plans/usage-exit-code.md hunts: keep its log and bring it there.
+    const ended = `app-kit ${args.join(' ')} ended with ${code === null ? 'no exit code' : `exit code ${code}`} and ${signal ? `signal ${signal}` : 'no signal'}; stderr: ${err}; see .claude/plans/usage-exit-code.md`;
+    expect({ code, out }, ended).toEqual({ code: 2, out: '' });
     expect(err).toContain('app-kit <part> <command>');
   }
 };
+
+test('a wrong-usage run that does not exit 2 says its arguments, its signal and its stderr', () => {
+  // A stand-in command that prints and then ends on a signal, as the run the plan note hunts ended with no exit code.
+  const cache = join(import.meta.dir, '../node_modules/.cache');
+  mkdirSync(cache, { recursive: true });
+  const kit = mkdtempSync(join(cache, 'app-kit-signalled-'));
+  try {
+    mkdirSync(join(kit, 'bin'));
+    writeFileSync(join(kit, 'bin/app-kit.ts'), "process.stderr.write('stand-in stderr\\n', () => process.kill(process.pid, 'SIGTERM'));\n");
+    expect(() => wrongUsage(kit)).toThrow('app-kit bogus ended with no exit code and signal SIGTERM; stderr: stand-in stderr\n; see .claude/plans/usage-exit-code.md');
+  } finally {
+    rmSync(kit, { recursive: true, force: true });
+  }
+});
 
 test('keep for a Simulator app-kit holds no time for says so and exits 1', () => {
   const cache = join(import.meta.dir, '../node_modules/.cache');
@@ -89,7 +107,7 @@ test('keep moves the shut-down time of a Simulator app-kit holds, and says when'
 
 test('--version prints the version and the commit this checkout is at', () => {
   const head = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD'], { stdout: 'pipe' }).stdout.toString().trim();
-  expect(run('--version')).toEqual({ code: 0, out: `app-kit ${packageJson.version} (${head})\n`, err: '' });
+  expect(run('--version')).toEqual({ code: 0, signal: undefined, out: `app-kit ${packageJson.version} (${head})\n`, err: '' });
 });
 
 test("installed in an app's checkout, --version names the commit the app's bun.lock pinned, never the app's own", () => {
@@ -107,7 +125,7 @@ test("installed in an app's checkout, --version names the commit the app's bun.l
     for (const path of ['bin', 'command-line', 'extension', 'look', 'icons', 'tauri/iphone-run', 'tauri/iphone-simulator', 'tauri/mac-release', 'tauri/testflight', 'tauri/apple-token.ts', 'tauri/build-env.ts', 'tauri/state.ts', 'web/drive.ts', 'server/google', 'package.json']) cpSync(join(import.meta.dir, '..', path), join(kit, path), { recursive: true });
     expect(runFrom(kit, '--version').out).toBe(`app-kit ${packageJson.version} (commit unknown: no checkout of its own and no bun.lock naming it)\n`);
     writeFileSync(join(app, 'bun.lock'), `{\n  "packages": {\n    "app-kit": ["app-kit@github:worktron/app-kit#1ce3152", {}, "worktron-app-kit-1ce3152", "sha512-x"],\n  }\n}\n`);
-    expect(runFrom(kit, '--version')).toEqual({ code: 0, out: `app-kit ${packageJson.version} (1ce3152)\n`, err: '' });
+    expect(runFrom(kit, '--version')).toEqual({ code: 0, signal: undefined, out: `app-kit ${packageJson.version} (1ce3152)\n`, err: '' });
   } finally {
     rmSync(app, { recursive: true, force: true });
   }
