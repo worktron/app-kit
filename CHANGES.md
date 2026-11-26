@@ -2,6 +2,12 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner and files a catch-up ticket in each), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do). scripts/owed.ts lists the now and next round versions an app has not taken, for metamax's landing of the app's code to hold on once one is more than 14 days old.
 
+## v0.80.0
+
+Urgency: rides along
+
+- an iPhone app that wants the Watch's heart rate passes heartRateEndpoint to startIphoneHealth, names heart rate in NSHealthShareUsageDescription, and adds a route taking HeartRatePayload, keeping readings by uuid and index (README, iPhone Health, Heart rate); an app that takes only sleep changes nothing.
+
 ## v0.79.0
 
 Urgency: rides along
