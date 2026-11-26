@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { checkEmailCode, cleanCode, googleAccountParams, messageFor, sendEmailCode, SIGN_UP_UNFINISHED, type EmailCodeSignIn, type EmailCodeSignUp } from '../authentication/clerk/email-code';
-import { clerkMove, clerkReason, finishGoogleReturn, startGoogle, whileGoogleReturns, type GoogleStartSignIn, type RedirectClerk } from '../authentication/clerk/google';
+import { clerkMove, clerkReason, finishGoogleReturn, startGoogle, startProvider, unfinishedReason, whileGoogleReturns, type GoogleStartSignIn, type RedirectClerk } from '../authentication/clerk/google';
 import { signInWithTicket, type TicketSignIn } from '../authentication/clerk/ticket';
 import { TICKET_FAILED } from '../web/sign-in/provider';
 import recorded from './fixtures/clerk-sign-up.json';
@@ -122,6 +122,34 @@ describe('the trip to Google', () => {
     const refused = apiError('form_identifier_not_found');
     expect(await startGoogle(fakeStart(GOOGLE, refused).signIn, { back: BACK, account: 'ana@example.com', go })).toEqual({ ok: false, message: messageFor(refused, 'ana@example.com') });
     expect(went).toEqual([]);
+  });
+
+  test('Microsoft is asked of Clerk as Google is, with the account named or the list asked for, and its refusal names Microsoft', async () => {
+    const { signIn, asked } = fakeStart('https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x');
+    const went: string[] = [];
+    expect(await startProvider(signIn, 'microsoft', { back: BACK, account: 'ana@example.com', go: (address) => went.push(address) })).toEqual({ ok: true });
+    await startProvider(signIn, 'microsoft', { back: BACK, account: null, go: () => {} });
+    expect(asked).toEqual([
+      { strategy: 'oauth_microsoft', redirectUrl: BACK, actionCompleteRedirectUrl: BACK, oidcLoginHint: 'ana@example.com' },
+      { strategy: 'oauth_microsoft', redirectUrl: BACK, actionCompleteRedirectUrl: BACK, oidcPrompt: 'select_account' },
+    ]);
+    expect(went).toEqual(['https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x']);
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await startProvider(fakeStart(null).signIn, 'microsoft', { back: BACK, account: null, go: () => {} });
+      expect(warn.mock.calls).toEqual([['[app-kit clerk] Microsoft did not start: the sign-in is needs_first_factor, with no Microsoft address']]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a return that ended with no session is explained by Clerk’s own sign-in, its status and its first factor’s error', () => {
+    expect(unfinishedReason({ client: null })).toBe('no sign-in in this browser');
+    const refused = { status: 422, errors: [{ code: 'external_account_email_address_verification_required', message: 'Verify the email.' }] };
+    expect(unfinishedReason({ client: { signIn: { status: 'needs_identifier', firstFactorVerification: { status: 'failed', error: refused } } } })).toBe(
+      'sign-in needs_identifier, first factor failed, external_account_email_address_verification_required (HTTP 422): Verify the email.',
+    );
+    expect(unfinishedReason({ client: { signIn: { status: null, firstFactorVerification: null } } })).toBe('sign-in without a status, first factor without a status');
   });
 
   test('a refused start writes Clerk’s own reason to the console, since the person is told only to try again', async () => {

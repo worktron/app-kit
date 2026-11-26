@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProviderSession } from '../../web/sign-in/provider';
+import type { ProviderSession, SignInWith } from '../../web/sign-in/provider';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { BACK_OVER_HTTPS, BACK_PARAM, DESKTOP_SIGN_IN_BACK_PATH, DESKTOP_SIGN_IN_PATH, LINK_HOST, REFUSED_PARAM } from './names';
 import { HEX_32 } from './fingerprint';
 import { post } from './requests';
-import type { DesktopSignInAccount } from './window';
+import { WITH_PARAM, type DesktopSignInAccount } from './window';
 
 /*
  * The browser end: the app's sign-in page in the default browser, opened by the app's window. Signed in there as the
@@ -34,6 +34,8 @@ export const ASK_TAKEN_FOR_MS = 90_000;
 export interface DesktopSignInRequest {
   nonce: string;
   account: DesktopSignInAccount;
+  /** The provider the window asked for: Google unless the address names Microsoft, as from a window built before it could. */
+  with: SignInWith;
   overHttps: boolean;
   iphone: boolean;
   refused: string | null;
@@ -61,7 +63,8 @@ export function desktopSignInRequest(location: Pick<Location, 'pathname' | 'sear
   const iphone = inIphoneBrowser();
   const overHttps = query.get(BACK_PARAM) === BACK_OVER_HTTPS && iphone;
   const refused = iphone ? query.get(REFUSED_PARAM) : null;
-  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account }, overHttps, iphone, refused };
+  const signInWith: SignInWith = query.get(WITH_PARAM) === 'microsoft' ? 'microsoft' : 'google';
+  return { nonce, account: !account ? null : account === 'choose' ? 'choose' : { account }, with: signInWith, overHttps, iphone, refused };
 }
 
 /**
@@ -133,8 +136,9 @@ export interface DesktopSignInBrowserPageOptions {
 
 /**
  * The browser's sign-in page once signed in. Signed in as an account other than the one the window asked for, or asked
- * for Google's list, and not back from Google, it only signs out: the app's sign-in screen then goes to Google for the
- * account asked, through `startGoogleHere`. Otherwise it is `ready`: the app draws which account goes to the app and a
+ * for Google's list, or for Microsoft at all, and not back from the provider, it only signs out: the app's sign-in
+ * screen then goes to the provider the window asked for (`desktopSignInRequest().with`) for the account asked, through
+ * `startGoogleHere`. Otherwise it is `ready`: the app draws which account goes to the app and a
  * button that calls `handOver`, and the state says where the hand-over stands for the app to draw. The kit's words for
  * it, one plain step: a heading "Finish signing in to <App>", "Signed in as <address>. Continue only if you just started
  * signing in from <App>.", and a button "Continue to <App>" that names no address, so it fits a phone. The condition is
@@ -174,7 +178,10 @@ export function useDesktopSignInBrowserPage({
     const asked = desktopSignInRequest();
     if (!asked) return setNow({ state: 'not-from-app' });
     const email = latest.current.person?.email?.toLowerCase() ?? null;
-    const notAsked = asked.account === 'choose' || (asked.account !== null && asked.account.account.toLowerCase() !== email);
+    // Microsoft is asked of Microsoft: a browser already signed in to the app, maybe with Google as the same address,
+    // goes there from this tab first, so pressing Microsoft never hands over a session made with Google.
+    const notAsked =
+      asked.with === 'microsoft' || asked.account === 'choose' || (asked.account !== null && asked.account.account.toLowerCase() !== email);
     if (notAsked && !googleStartedHere()) {
       setNow({ state: 'signing-out' });
       latest.current.signOut().catch(() => setNow({ state: 'failed' }));

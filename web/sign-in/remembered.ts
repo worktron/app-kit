@@ -1,7 +1,10 @@
 import { local, read, session, write, type KeyValueStore } from '../storage';
 import { SIGNED_IN_KEY } from './names.js';
+import type { SignInWith } from './provider';
 
 const ACCOUNT_KEY = 'app-kit.lastAccount';
+const ACCOUNT_WITH_KEY = 'app-kit.lastAccountWith';
+const TRIP_WITH_KEY = 'app-kit.signInWith';
 const RETURN_KEY = 'app-kit.returnTo';
 
 /**
@@ -35,6 +38,34 @@ export function rememberAccount(email: string, store: () => KeyValueStore = loca
 /** The person signed out: the next sign-in screen offers no account by name. */
 export function forgetAccount(store: () => KeyValueStore = local): void {
   write(store, ACCOUNT_KEY, null);
+  write(store, ACCOUNT_WITH_KEY, null);
+}
+
+/**
+ * Which provider the account `lastAccount` names signed in with, for Continue as: Google unless it was Microsoft, so an
+ * account remembered before the kit knew Microsoft, or one signed in with an emailed code, reads as Google, as before.
+ */
+export function lastAccountWith(store: () => KeyValueStore = local): SignInWith {
+  return read(store, ACCOUNT_WITH_KEY) === 'microsoft' ? 'microsoft' : 'google';
+}
+
+/** Kept beside the account as it is remembered; null for a sign-in with no provider's trip, as an emailed code. */
+export function rememberAccountWith(signedInWith: SignInWith | null, store: () => KeyValueStore = local): void {
+  write(store, ACCOUNT_WITH_KEY, signedInWith === 'microsoft' ? 'microsoft' : null);
+}
+
+/**
+ * Notes, in this tab, which provider a sign-in starting now goes to: the gate's trip, or a desktop app's window asking
+ * the browser, whose sign-in comes back by ticket. Read and removed when someone signs in here.
+ */
+export function noteTripWith(signInWith: SignInWith | null, store: () => KeyValueStore = session): void {
+  write(store, TRIP_WITH_KEY, signInWith);
+}
+
+/** The provider this tab's sign-in went to, or null when none was noted. */
+export function tripWith(store: () => KeyValueStore = session): SignInWith | null {
+  const noted = read(store, TRIP_WITH_KEY);
+  return noted === 'google' || noted === 'microsoft' ? noted : null;
 }
 
 /** The address the person was at, as a path with its query and fragment. */

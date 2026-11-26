@@ -7,6 +7,7 @@ export {
   takeDesktopSignIn,
   useDesktopSignInWindow,
   NOT_FROM_THIS_WINDOW,
+  WITH_PARAM,
   type DesktopSignInAccount,
   type DesktopSignInLink,
   type DesktopSignInWindow,

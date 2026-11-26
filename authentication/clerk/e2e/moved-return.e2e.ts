@@ -28,5 +28,5 @@ test('a Google return this browser did not start goes to Google once more by its
   console.log(`[clerk e2e] moved return: ${lines.join(' | ')}`);
   expect(google).toHaveLength(1);
   expect(google[0]!.searchParams.get('login_hint')).toBe('ana@example.com');
-  expect(lines).toContain('[app-kit clerk] back from Google: Clerk ended with no session in this browser');
+  expect(lines.some((line) => line.startsWith('[app-kit clerk] back from Google: Clerk ended with no session in this browser ('))).toBe(true);
 });

@@ -1,13 +1,28 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { announceSignedOut, setCurrentSession } from './current';
 import type { IphoneSignIn } from './iphone-sign-in';
-import type { Outcome, ProviderSession, SignedInPerson, SignInProvider } from './provider';
-import { currentAddress, forgetAccount, googleCallback, lastAccount, lastSignedIn, rememberAccount, rememberReturn, rememberSignedIn, takeReturn } from './remembered';
+import type { Outcome, ProviderSession, SignedInPerson, SignInProvider, SignInWith } from './provider';
+import {
+  currentAddress,
+  forgetAccount,
+  googleCallback,
+  lastAccount,
+  lastAccountWith,
+  lastSignedIn,
+  noteTripWith,
+  rememberAccount,
+  rememberAccountWith,
+  rememberReturn,
+  rememberSignedIn,
+  takeReturn,
+  tripWith,
+} from './remembered';
 
-/** Where Google sends the browser back to, unless the gate is told another. The server must answer it with the app. */
+/** Where Google and Microsoft send the browser back to, unless the gate is told another. The server must answer it with the app. */
 export const GOOGLE_CALLBACK_PATH = '/sso-callback';
 
 export const GOOGLE_UNFINISHED = 'Signing in with Google did not finish. Try again, or use an emailed code.';
+export const MICROSOFT_UNFINISHED = 'Signing in with Microsoft did not finish. Try again, or use an emailed code.';
 export const SESSION_ENDED = 'Your session ended. Sign in again to carry on where you were.';
 /** What a sign-in pressed in an open app says when the provider has not loaded within `PROVIDER_LOAD_WAIT_MS`. */
 export const SIGN_IN_NOT_LOADED = 'Sign-in could not load. Check your connection and try again.';
@@ -18,6 +33,9 @@ export const PROVIDER_LOAD_WAIT_MS = 20_000;
 export const OPENING_GOOGLE = 'Opening Google.';
 /** The line under the wordmark in the iPhone app, from the tap until the app's screen, unless the app gives its own. */
 export const SIGNING_IN_WITH_GOOGLE = 'Signing in with Google.';
+/** The same two lines for Microsoft. */
+export const OPENING_MICROSOFT = 'Opening Microsoft.';
+export const SIGNING_IN_WITH_MICROSOFT = 'Signing in with Microsoft.';
 
 /**
  * The attribute the gate puts on `<html>` saying what it shows: `placeholder`, `placeholder-with-line`, `sign-in` (the
@@ -27,10 +45,10 @@ export const SIGNING_IN_WITH_GOOGLE = 'Signing in with Google.';
 export const GATE_SHOWS_ATTRIBUTE = 'data-sign-in-gate';
 type GateShows = 'placeholder' | 'placeholder-with-line' | 'sign-in' | 'app' | 'app-signed-out';
 
-/** Which Google account a sign-in asks for. */
+/** Which account a sign-in asks Google or Microsoft for. Named for Google, which it was written for first. */
 export type GoogleAccount = 'remembered' | 'choose' | { account: string };
 
-/** The account to name to Google, or null for its list. */
+/** The account to name to Google or Microsoft, or null for its list. */
 export function accountFor(choice: GoogleAccount, remembered: string | null): string | null {
   if (choice === 'choose') return null;
   if (choice === 'remembered') return remembered;
@@ -44,7 +62,9 @@ export interface SignIn {
    * Sign out forgets it; a session the server ended keeps it.
    */
   lastAccount: string | null;
-  /** Something to say above the buttons: Google did not finish, or the server ended the session. */
+  /** Which provider `lastAccount` signed in with, so Continue as goes back to it: Google unless it was Microsoft. */
+  lastAccountWith: SignInWith;
+  /** Something to say above the buttons: Google or Microsoft did not finish, or the server ended the session. */
   notice: string | null;
   /**
    * In an open gate, while it draws this screen because the server ended the session: puts the app back, signed out.
@@ -57,6 +77,11 @@ export interface SignIn {
    * account named outright is for a choice made elsewhere, as in a desktop app's window that hands sign-in to the browser.
    */
   google(account: GoogleAccount): Promise<Outcome>;
+  /**
+   * Microsoft, as `google` is Google: work, school and personal accounts. Microsoft fills a named account in on its own
+   * page, so Continue as may still show that page where Google would not.
+   */
+  microsoft(account: GoogleAccount): Promise<Outcome>;
   /** Emails the address a code; with the gate's `signUp`, an address with no account gets one too, to make it. */
   sendEmailCode(email: string): Promise<Outcome>;
   checkEmailCode(code: string, email: string): Promise<Outcome>;
@@ -120,8 +145,8 @@ interface GateProps {
    */
   signUp?: boolean;
   callbackPath?: string;
-  /** The lines under the wordmark in iPhone Google sign-in's in-between steps, in place of the gate's own. */
-  lines?: { openingGoogle?: string; signingInWithGoogle?: string };
+  /** The lines under the wordmark in iPhone sign-in's in-between steps, in place of the gate's own. */
+  lines?: { openingGoogle?: string; signingInWithGoogle?: string; openingMicrosoft?: string; signingInWithMicrosoft?: string };
   children: ReactNode;
 }
 
@@ -158,6 +183,9 @@ export function SignInGate({ provider, ...props }: SignInGateProps) {
   );
 }
 
+/** The provider by the name people know it by, for the console. */
+const providerName = (signInWith: SignInWith) => (signInWith === 'microsoft' ? 'Microsoft' : 'Google');
+
 // With no iPhone sign-in, nothing is handed back.
 const WAITING = { state: 'waiting' } as const;
 const useNoWindow = () => WAITING;
@@ -193,13 +221,15 @@ function Gate({
   const [signInAsked, setSignInAsked] = useState(false);
   const [returningFromGoogle, setReturningFromGoogle] = useState(() => window.location.pathname === callbackPath);
   const markAppDrawn = useCallback(() => setDrawnFor(drawnKeyNow.current), []);
-  // On the page Apple's sheet opens: whether it is leaving for Google, or shows the sign-in screen after all.
-  const [googleStep, setGoogleStep] = useState<'undecided' | 'leaving' | 'form'>('undecided');
-  // In the iPhone app: the sheet is open or its sign-in is being taken, and, once signed in, whether that is how.
-  const [withGoogle, setWithGoogle] = useState(false);
-  const [signedInWithGoogle, setSignedInWithGoogle] = useState(false);
-  const withGoogleNow = useRef(false);
-  withGoogleNow.current = withGoogle;
+  // On the page Apple's sheet opens: whether it is leaving for Google or Microsoft, or shows the sign-in screen after all.
+  const [tripStep, setTripStep] = useState<'undecided' | 'leaving' | 'form'>('undecided');
+  // In the iPhone app: the sheet is open or its sign-in is being taken, and, once signed in, whether that is how; and
+  // which provider the sheet went to, for its line.
+  const [inSheet, setInSheet] = useState(false);
+  const [signedInThroughSheet, setSignedInThroughSheet] = useState(false);
+  const [sheetWith, setSheetWith] = useState<SignInWith>('google');
+  const inSheetNow = useRef(false);
+  inSheetNow.current = inSheet;
 
   // The latest session, for the fetch wrapper, which holds on to one object across renders.
   const latest = useRef<ProviderSession>(session);
@@ -274,14 +304,22 @@ function Gate({
     rememberSignedIn(personId !== null);
     if (personId !== null) {
       if (wasSignedOut.current) signedInAt.current = Date.now();
-      if (email) rememberAccount(email);
+      if (email) {
+        rememberAccount(email);
+        // The provider this tab's sign-in went to, noted as it left or as a desktop app's window asked the browser.
+        const signedInWith = tripWith();
+        if (signedInWith) {
+          rememberAccountWith(signedInWith);
+          noteTripWith(null);
+        }
+      }
       setReturningFromGoogle(false);
       setSignInAsked(false);
       // On the sign-in itself, not when the provider fills in the email after: the line stays through the hold only for
       // this sign-in, so a later Sign out shows the sign-in screen.
       if (wasSignedOut.current !== false) {
-        setSignedInWithGoogle(withGoogleNow.current);
-        setWithGoogle(false);
+        setSignedInThroughSheet(inSheetNow.current);
+        setInSheet(false);
       }
     } else {
       // Signed out here, in another tab or by the session ending: the sign-in screen is next, and a later sign-in
@@ -291,16 +329,36 @@ function Gate({
       setSigningOut(false);
       // An open gate's signed-out app is another app, drawn by itself; it may have drawn already, before the provider loaded.
       if (!openNow.current) setDrawnFor(null);
-      setSignedInWithGoogle(false);
+      setSignedInThroughSheet(false);
     }
     wasSignedOut.current = personId === null;
   }, [loaded, personId, email]);
 
   // Read again on each sign-in screen, since a sign-in on this page may have changed it.
   const remembered = personId === null ? lastAccount() : null;
-  const signIn = useMemo<SignIn>(
-    () => ({
+  const rememberedWith = lastAccountWith();
+  const signIn = useMemo<SignIn>(() => {
+    // Google or Microsoft: the sheet in the iPhone app, else the provider's own trip, coming back to this address.
+    const trip =
+      (signInWith: SignInWith) =>
+      async (account: GoogleAccount): Promise<Outcome> => {
+        setNotice(null);
+        noteTripWith(signInWith);
+        if (iphoneSignIn?.opensSheet()) {
+          setSheetWith(signInWith);
+          setInSheet(true);
+          // Closed or failed: the sign-in screen again, ready. A refused hand-over says why, through the window's state.
+          if (!(await iphoneSignIn.open(account, lastAccount(), signInWith))) setInSheet(false);
+          return { ok: true };
+        }
+        const address = currentAddress();
+        rememberReturn(address);
+        if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
+        return latest.current[signInWith]({ callbackPath: googleCallback(callbackPath, address), account: accountFor(account, lastAccount()) });
+      };
+    return {
       lastAccount: remembered,
+      lastAccountWith: rememberedWith,
       notice,
       continueSignedOut:
         open && signInAsked
@@ -309,39 +367,31 @@ function Gate({
               setNotice(null);
             }
           : null,
-      google: async (account) => {
-        setNotice(null);
-        if (iphoneSignIn?.opensSheet()) {
-          setWithGoogle(true);
-          // Closed or failed: the sign-in screen again, ready. A refused hand-over says why, through the window's state.
-          if (!(await iphoneSignIn.open(account, lastAccount()))) setWithGoogle(false);
-          return { ok: true };
-        }
-        const address = currentAddress();
-        rememberReturn(address);
-        if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
-        return latest.current.google({ callbackPath: googleCallback(callbackPath, address), account: accountFor(account, lastAccount()) });
-      },
+      google: trip('google'),
+      microsoft: trip('microsoft'),
       sendEmailCode: async (address) => {
         setNotice(null);
+        // No provider's trip: an account signed in this way reads as Google's, as before the kit knew Microsoft.
+        noteTripWith(null);
         if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
         return latest.current.sendEmailCode(address, { signUp });
       },
       checkEmailCode: async (code, address) => {
         if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
-        return latest.current.checkEmailCode(code, address);
+        const outcome = await latest.current.checkEmailCode(code, address);
+        if (outcome.ok) rememberAccountWith(null);
+        return outcome;
       },
-    }),
-    [remembered, notice, open, signInAsked, callbackPath, signUp, iphoneSignIn, providerLoaded],
-  );
+    };
+  }, [remembered, rememberedWith, notice, open, signInAsked, callbackPath, signUp, iphoneSignIn, providerLoaded]);
 
   // The sign-in the sheet hands back: the line while it is taken, and the sign-in screen with the reason if it fails.
   const useWindow = iphoneSignIn?.useWindow ?? useNoWindow;
   const handedBack = useWindow(session);
   useEffect(() => {
-    if (handedBack.state === 'signing-in') setWithGoogle(true);
+    if (handedBack.state === 'signing-in') setInSheet(true);
     if (handedBack.state === 'failed') {
-      setWithGoogle(false);
+      setInSheet(false);
       setNotice(handedBack.message);
     }
   }, [handedBack]);
@@ -351,38 +401,40 @@ function Gate({
   // first run's trip alone. With storage blocked nothing can be noted, so the sign-in screen waits for a click.
   const signedOutHere = loaded && !signingOut && personId === null && !returningFromGoogle;
   useEffect(() => {
-    if (!iphoneSignIn || !signedOutHere || googleStep !== 'undecided') return;
+    if (!iphoneSignIn || !signedOutHere || tripStep !== 'undecided') return;
     const asked = iphoneSignIn.asked();
     if (!asked) return;
+    const askedWith = iphoneSignIn.askedWith?.() ?? 'google';
     if (iphoneSignIn.noteGoingToGoogle()) {
-      console.log(`[app-kit sign-in] signed out on the page that hands sign-in to an app: going to Google for ${asked === 'choose' ? 'its list of accounts' : asked === 'remembered' ? 'the account last used' : asked.account}`);
-      setGoogleStep('leaving');
-      void signIn.google(asked).then((outcome) => {
+      console.log(`[app-kit sign-in] signed out on the page that hands sign-in to an app: going to ${providerName(askedWith)} for ${asked === 'choose' ? 'its list of accounts' : asked === 'remembered' ? 'the account last used' : asked.account}`);
+      setTripStep('leaving');
+      void signIn[askedWith](asked).then((outcome) => {
         if (outcome.ok) return;
-        setGoogleStep('form');
+        setTripStep('form');
         setNotice(outcome.message);
       });
     } else if (!iphoneSignIn.wentToGoogle()) {
-      setGoogleStep('form');
+      setTripStep('form');
     } else {
-      console.log('[app-kit sign-in] signed out on the page that hands sign-in to an app, back from Google already: not going again');
+      console.log(`[app-kit sign-in] signed out on the page that hands sign-in to an app, back from ${providerName(askedWith)} already: not going again`);
     }
-  }, [iphoneSignIn, signedOutHere, googleStep, signIn]);
+  }, [iphoneSignIn, signedOutHere, tripStep, signIn]);
 
   // Back from Google, a page the browser kept as it was would still say it is opening Google.
   useEffect(() => {
     if (!iphoneSignIn) return;
     const restored = (event: PageTransitionEvent) => {
-      if (event.persisted) setGoogleStep('form');
+      if (event.persisted) setTripStep('form');
     };
     window.addEventListener('pageshow', restored);
     return () => window.removeEventListener('pageshow', restored);
   }, [iphoneSignIn]);
 
   const withLine = (line: string): [GateShows, ReactNode] => ['placeholder-with-line', placeholderWithLine?.(line) ?? placeholder];
-  const signingInLine = () => withLine(lines?.signingInWithGoogle ?? SIGNING_IN_WITH_GOOGLE);
+  const signingInLine = () =>
+    withLine(sheetWith === 'microsoft' ? (lines?.signingInWithMicrosoft ?? SIGNING_IN_WITH_MICROSOFT) : (lines?.signingInWithGoogle ?? SIGNING_IN_WITH_GOOGLE));
   // Signed in through Apple's sheet, the line stays up until the app is drawn, so it never drops away just before.
-  const throughGoogle = iphoneSignIn !== undefined && (withGoogle || signedInWithGoogle);
+  const throughSheet = iphoneSignIn !== undefined && (inSheet || signedInThroughSheet);
   const signInScreen: [GateShows, ReactNode] = ['sign-in', <SignInContext.Provider value={signIn}>{signedOut}</SignInContext.Provider>];
 
   /**
@@ -392,7 +444,7 @@ function Gate({
    */
   const openApp = (line: [GateShows, ReactNode] | null): [GateShows, ReactNode] => {
     const holding = waitForFirstDraw && drawnFor !== drawnKey;
-    const over = line ?? (holding ? (person && throughGoogle ? signingInLine() : (['placeholder', person && !cameThroughSignIn ? whileReturning : placeholder] as [GateShows, ReactNode])) : null);
+    const over = line ?? (holding ? (person && throughSheet ? signingInLine() : (['placeholder', person && !cameThroughSignIn ? whileReturning : placeholder] as [GateShows, ReactNode])) : null);
     return [
       over ? over[0] : person ? 'app' : 'app-signed-out',
       <PersonContext.Provider value={person}>
@@ -428,7 +480,7 @@ function Gate({
                 const back = takeReturn();
                 console.log(`[app-kit sign-in] back from Google: the sign-in did not finish in this tab, back to ${new URL(back, window.location.origin).pathname}`);
                 window.history.replaceState(null, '', back);
-                setNotice(GOOGLE_UNFINISHED);
+                setNotice(tripWith() === 'microsoft' ? MICROSOFT_UNFINISHED : GOOGLE_UNFINISHED);
                 setReturningFromGoogle(false);
               }}
             />
@@ -436,9 +488,11 @@ function Gate({
         ];
       }
       if (iphoneSignIn) {
-        const leaving = googleStep === 'leaving' || (googleStep === 'undecided' && !iphoneSignIn.wentToGoogle());
-        if (leaving && iphoneSignIn.asked()) return withLine(lines?.openingGoogle ?? OPENING_GOOGLE);
-        if (withGoogle) return open ? openApp(signingInLine()) : signingInLine();
+        const leaving = tripStep === 'leaving' || (tripStep === 'undecided' && !iphoneSignIn.wentToGoogle());
+        if (leaving && iphoneSignIn.asked()) {
+          return withLine(iphoneSignIn.askedWith?.() === 'microsoft' ? (lines?.openingMicrosoft ?? OPENING_MICROSOFT) : (lines?.openingGoogle ?? OPENING_GOOGLE));
+        }
+        if (inSheet) return open ? openApp(signingInLine()) : signingInLine();
       }
       if (open && !signInAsked) return openApp(null);
       return signInScreen;
@@ -451,7 +505,7 @@ function Gate({
     // Until the app has drawn its first data, it renders, so its requests go out, but nothing of it shows: the whole
     // screen appears at once. The wrapper is always there, with no box of its own, so drawing the app never remounts it.
     const holding = waitForFirstDraw && drawnFor !== drawnKey;
-    const held: [GateShows, ReactNode] = throughGoogle ? signingInLine() : ['placeholder', cameThroughSignIn ? placeholder : whileReturning];
+    const held: [GateShows, ReactNode] = throughSheet ? signingInLine() : ['placeholder', cameThroughSignIn ? placeholder : whileReturning];
     return [
       holding ? held[0] : 'app',
       <PersonContext.Provider value={person}>

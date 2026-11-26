@@ -39,6 +39,8 @@ function App() {
       <p>Opened {opened.join(', ') || 'nothing'}</p>
       <button onClick={() => void window.open(desktopSignInAddress(null))}>Continue with Google in the Mac app</button>
       <button onClick={() => void signInInSheet(desktopSignInAddress(null), { scheme: 'com.example.app' })}>Continue with Google in the iPhone app</button>
+      <button onClick={() => void window.open(desktopSignInAddress(null, 'microsoft'))}>Continue with Microsoft in the Mac app</button>
+      <button onClick={() => void signInInSheet(desktopSignInAddress(null, 'microsoft'), { scheme: 'com.example.app' })}>Continue with Microsoft in the iPhone app</button>
     </main>
   );
 }

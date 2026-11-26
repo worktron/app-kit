@@ -40,16 +40,19 @@ export {
   accountFor,
   GOOGLE_CALLBACK_PATH,
   GOOGLE_UNFINISHED,
+  MICROSOFT_UNFINISHED,
   SESSION_ENDED,
   SIGN_IN_NOT_LOADED,
   PROVIDER_LOAD_WAIT_MS,
   OPENING_GOOGLE,
   SIGNING_IN_WITH_GOOGLE,
+  OPENING_MICROSOFT,
+  SIGNING_IN_WITH_MICROSOFT,
   GATE_SHOWS_ATTRIBUTE,
   type SignIn,
   type GoogleAccount,
   type SignInGateProps,
 } from './sign-in/SignInGate';
-export { noAccountFor, TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome } from './sign-in/provider';
-export { lastAccount } from './sign-in/remembered';
+export { noAccountFor, TICKET_FAILED, type SignInProvider, type ProviderSession, type GoogleReturnProps, type SignedInPerson, type Outcome, type SignInWith } from './sign-in/provider';
+export { lastAccount, lastAccountWith } from './sign-in/remembered';
 export type { IphoneSignIn, IphoneSignInWindow } from './sign-in/iphone-sign-in';

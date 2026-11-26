@@ -7,7 +7,7 @@ export { STAND_IN_CODE };
 export const WRONG_CODE = 'That code did not match. Use the newest email, or send a new code.';
 
 const PERSON_KEY = 'stand-in.person';
-/** The account the stand-in's Google picked, kept in the store of the tab that went, as Clerk keeps its sign-in in its client. */
+/** The account the stand-in's Google or Microsoft picked, kept in the store of the tab that went, as Clerk keeps its sign-in in its client. */
 const GOOGLE_KEY = 'stand-in.google';
 const TICKET_PREFIX = 'stand-in-ticket:';
 
@@ -19,6 +19,7 @@ export function standInTicket(email: string): string {
 /** Everything the stand-in was asked, for tests to check. */
 export interface StandInCalls {
   google: { callbackPath: string; account: string | null }[];
+  microsoft: { callbackPath: string; account: string | null }[];
   sendEmailCode: string[];
   checkEmailCode: string[];
   /** Each address whose account an emailed code made. */
@@ -48,7 +49,7 @@ export interface StandInOptions {
    * test passes sessionStorage; unit tests leave it out.
    */
   store?: KeyValueStore;
-  /** What a Google sign-in does. The default leaves the page for the callback path, as the real trip does. */
+  /** What a Google or Microsoft sign-in does. The default leaves the page for the callback path, as the real trip does. */
   leaveForGoogle?: (callbackPath: string) => void;
   /**
    * The addresses that have an account, for an emailed code. Every address has one when this is left out. Accounts an
@@ -67,7 +68,7 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
   // Addresses sent a code with sign-up on and no account yet: the right code makes the account, as Clerk's does.
   const signingUp = new Set<string>();
   const listeners = new Set<() => void>();
-  const calls: StandInCalls = { google: [], sendEmailCode: [], checkEmailCode: [], signUps: [], tickets: [], signOut: 0, tokens: [] };
+  const calls: StandInCalls = { google: [], microsoft: [], sendEmailCode: [], checkEmailCode: [], signUps: [], tickets: [], signOut: 0, tokens: [] };
 
   const set = (next: Partial<typeof state>) => {
     state = { ...state, ...next };
@@ -79,6 +80,13 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
     return () => listeners.delete(listener);
   };
   const ok: Outcome = { ok: true };
+  // Google's trip and Microsoft's are the same here: the account named, or the one picked from the list, signs in.
+  const trip = (asked: StandInCalls['google'], { callbackPath, account }: { callbackPath: string; account: string | null }) => {
+    asked.push({ callbackPath, account });
+    store?.setItem(GOOGLE_KEY, account ?? 'chosen@example.com');
+    leaveForGoogle(callbackPath);
+    return ok;
+  };
 
   const session = {
     token: async (options?: { fresh?: boolean }) => {
@@ -96,13 +104,8 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
       return `stand-in-token-${tokenCount}`;
     },
     tokenNow: () => (state.person ? `stand-in-token-${tokenCount}` : null),
-    google: async ({ callbackPath, account }: { callbackPath: string; account: string | null }) => {
-      calls.google.push({ callbackPath, account });
-      const picked = account ?? 'chosen@example.com';
-      store?.setItem(GOOGLE_KEY, picked);
-      leaveForGoogle(callbackPath);
-      return ok;
-    },
+    google: async (options: { callbackPath: string; account: string | null }) => trip(calls.google, options),
+    microsoft: async (options: { callbackPath: string; account: string | null }) => trip(calls.microsoft, options),
     sendEmailCode: async (email: string, options?: { signUp?: boolean }): Promise<Outcome> => {
       calls.sendEmailCode.push(email);
       signingUp.delete(email);

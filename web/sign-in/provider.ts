@@ -8,6 +8,9 @@ export interface SignedInPerson {
   name?: string | null;
 }
 
+/** The account providers the kit signs in with: Google, or Microsoft (work, school and personal accounts alike). */
+export type SignInWith = 'google' | 'microsoft';
+
 /** Whether a step worked, and if not, what to tell the person, in words that say what to do next. */
 export type Outcome = { ok: true } | { ok: false; message: string };
 
@@ -40,6 +43,12 @@ export interface ProviderSession {
    */
   google(options: { callbackPath: string; account: string | null }): Promise<Outcome>;
   /**
+   * Sends the browser to Microsoft, as `google` does to Google, and comes back to the same `callbackPath`, where the
+   * gate draws the same `GoogleReturn`. `account` names the account to Microsoft, which fills it in on its page; null
+   * has Microsoft list its accounts.
+   */
+  microsoft(options: { callbackPath: string; account: string | null }): Promise<Outcome>;
+  /**
    * Starts a sign-in for the address and emails it a code. With `signUp`, an address with no account gets a code too,
    * and checking it makes the account; without, it answers `noAccountFor`.
    */
@@ -56,14 +65,15 @@ export interface ProviderSession {
 }
 
 /**
- * Finishes a sign-in Google has just sent back, drawing nothing of its own. Once its session is active the gate
+ * Finishes a sign-in Google or Microsoft has just sent back, drawing nothing of its own. Named for Google, which it was
+ * written for first. Once its session is active the gate
  * moves to the address the person asked for, with no page load; a sign-in Google did not finish calls `onUnfinished`.
  */
 export interface GoogleReturnProps {
   onUnfinished: () => void;
 }
 
-/** A sign-in provider as the gate takes it: its own context around the app, the session hook, and Google's return. */
+/** A sign-in provider as the gate takes it: its own context around the app, the session hook, and the return from Google or Microsoft. */
 export interface SignInProvider {
   Root: ComponentType<{ children: ReactNode }>;
   useSession(): ProviderSession;

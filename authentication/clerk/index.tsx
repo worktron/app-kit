@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { ClerkProvider, useAuth, useClerk, useSignIn, useSignUp, useUser } from '@clerk/react';
-import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider } from '../../web/sign-in/provider';
+import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider, SignInWith } from '../../web/sign-in/provider';
 import { standInSignIn } from '../stand-in';
 import { checkEmailCode, messageFor, sendEmailCode } from './email-code';
-import { clerkMove, finishGoogleReturn, startGoogle } from './google';
+import { clerkMove, finishGoogleReturn, startProvider } from './google';
 import { signInWithTicket } from './ticket';
 import { tokenStillGood } from './token-now';
 
@@ -81,16 +81,19 @@ export function useClerkSession(): ProviderSession {
   const name = user?.fullName ?? null;
   const person = useMemo(() => (userId ? { id: userId, email, name } : null), [userId, email, name]);
 
+  const start = async (signInWith: SignInWith, callbackPath: string, account: string | null): Promise<Outcome> => {
+    const classic = clerk.client?.signIn;
+    if (!classic) return { ok: false, message: messageFor(undefined, '') };
+    return startProvider(classic, signInWith, { back: `${window.location.origin}${callbackPath}`, account });
+  };
+
   return {
     loaded: isLoaded,
     person,
     token: (options) => getToken(options?.fresh ? { skipCache: true } : undefined),
     tokenNow: () => tokenStillGood(clerk.session?.lastActiveToken),
-    google: async ({ callbackPath, account }): Promise<Outcome> => {
-      const classic = clerk.client?.signIn;
-      if (!classic) return { ok: false, message: messageFor(undefined, '') };
-      return startGoogle(classic, { back: `${window.location.origin}${callbackPath}`, account });
-    },
+    google: ({ callbackPath, account }) => start('google', callbackPath, account),
+    microsoft: ({ callbackPath, account }) => start('microsoft', callbackPath, account),
     sendEmailCode: (address, options) => sendEmailCode(signIn, address, options),
     checkEmailCode: (code, address) => checkEmailCode(signIn, code, address, signUp),
     ticket: (ticket) => signInWithTicket(signIn, ticket),

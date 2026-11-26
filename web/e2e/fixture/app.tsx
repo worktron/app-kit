@@ -79,8 +79,10 @@ function SignInScreen() {
     <main>
       <h1>Sign in</h1>
       {signIn.notice && <p role="alert">{signIn.notice}</p>}
-      {signIn.lastAccount && <button onClick={() => void signIn.google('remembered')}>Continue as {signIn.lastAccount}</button>}
+      {signIn.lastAccount && <button onClick={() => void signIn[signIn.lastAccountWith]('remembered')}>Continue as {signIn.lastAccount}</button>}
+      {signIn.lastAccount && <p>Last signed in with {signIn.lastAccountWith === 'microsoft' ? 'Microsoft' : 'Google'}</p>}
       <button onClick={() => void signIn.google('choose')}>{signIn.lastAccount ? 'Use a different account' : 'Continue with Google'}</button>
+      <button onClick={() => void signIn.microsoft('choose')}>Continue with Microsoft</button>
       {sent ? (
         <form
           onSubmit={async (e) => {

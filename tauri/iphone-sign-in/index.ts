@@ -9,6 +9,7 @@
  */
 import type { GoogleAccount } from '../../web/sign-in/SignInGate';
 import type { IphoneSignIn } from '../../web/sign-in/iphone-sign-in';
+import type { SignInWith } from '../../web/sign-in/provider';
 import { isIphoneApp } from '../../web/installed-app';
 import {
   desktopSignInAddress,
@@ -128,10 +129,11 @@ export function iphoneSignInForGate(options: SheetSignInOptions): IphoneSignIn {
       // Whoever the browser is signed in as, with nobody signed in, is Google's list.
       return asked.account === null ? 'choose' : asked.account;
     },
+    askedWith: () => desktopSignInRequest()?.with ?? 'google',
     wentToGoogle: () => googleStartedHere(),
     noteGoingToGoogle: () => startGoogleHere(),
     opensSheet: isIphoneApp,
-    open: (choice, lastAccount) => signInInSheet(desktopSignInAddress(sheetAccount(choice, lastAccount)), options),
+    open: (choice, lastAccount, signInWith: SignInWith = 'google') => signInInSheet(desktopSignInAddress(sheetAccount(choice, lastAccount), signInWith), options),
     useWindow: useDesktopSignInWindow,
   };
 }

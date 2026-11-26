@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { TICKET_FAILED, type Outcome, type ProviderSession } from '../../web/sign-in/provider';
+import { TICKET_FAILED, type Outcome, type ProviderSession, type SignInWith } from '../../web/sign-in/provider';
+import { noteTripWith } from '../../web/sign-in/remembered';
 import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
 import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, LOG_PREFIX, NONCE_PARAM, TICKET_PARAM } from './names';
 import { fingerprint, HEX_32, randomHex } from './fingerprint';
@@ -36,12 +37,17 @@ export interface DesktopSignInLink {
   nonce: string;
 }
 
+/** The field of the browser page's address naming Microsoft; Google's address has none, as before the kit knew Microsoft. */
+export const WITH_PARAM = 'with';
+
 /**
- * The browser page to open for Google, as a full address, since the iPhone's sign-in sheet takes only one, asking for
- * the account chosen in the window, with the fingerprint of the window's secret as its nonce. A secret already kept and
- * not yet used is asked with again, so a second click leaves the first browser tab's sign-in good.
+ * The browser page to open for Google, or for Microsoft with `signInWith`, as a full address, since the iPhone's
+ * sign-in sheet takes only one, asking for the account chosen in the window, with the fingerprint of the window's
+ * secret as its nonce. A secret already kept and not yet used is asked with again, so a second click leaves the first
+ * browser tab's sign-in good. The provider is noted in the window's tab, so the account it signs in as by ticket is
+ * remembered as that provider's, for Continue as.
  */
-export function desktopSignInAddress(account: DesktopSignInAccount, store: () => KeyValueStore = thisTab): string {
+export function desktopSignInAddress(account: DesktopSignInAccount, signInWith: SignInWith = 'google', store: () => KeyValueStore = thisTab): string {
   let secret = read(store, SECRET_KEY);
   if (!secret || !HEX_32.test(secret)) {
     secret = randomHex();
@@ -49,6 +55,8 @@ export function desktopSignInAddress(account: DesktopSignInAccount, store: () =>
   }
   const query = new URLSearchParams({ nonce: fingerprint(secret) });
   if (account) query.set('account', account === 'choose' ? 'choose' : account.account);
+  if (signInWith === 'microsoft') query.set(WITH_PARAM, 'microsoft');
+  noteTripWith(signInWith, store);
   return `${window.location.origin}${DESKTOP_SIGN_IN_PATH}?${query}`;
 }
 
