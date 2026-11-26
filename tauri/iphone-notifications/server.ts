@@ -19,8 +19,6 @@ export type AppleConfig = { keyId: string; teamId: string; key: string };
 type AppleAlert = {
   title: string;
   body: string;
-  /** Goes to the Notification Center list without lighting the screen or playing anything. */
-  quiet?: boolean;
   /** The number on the app's icon; 0 clears it. The plugin never changes it, so the count is the server's. */
   badge?: number;
   /**
@@ -28,13 +26,29 @@ type AppleAlert = {
    * is on the list; without it, the alert's own tag is what the list is read against.
    */
   covers?: string[];
-};
+} & (
+  | {
+      /** Goes to the Notification Center list without lighting the screen or playing anything. */
+      quiet?: boolean;
+      timeSensitive?: false;
+    }
+  | {
+      quiet?: false;
+      /**
+       * Apple's time-sensitive level: it sounds and shows through a Focus and the Scheduled Summary, where the person
+       * allows it. The app's iPhone build needs the Time Sensitive Notifications entitlement, or iOS shows it as a
+       * plain alert.
+       */
+      timeSensitive?: boolean;
+    }
+);
 
 /** Only the number on the app's icon: nothing shows and nothing plays. */
 type AppleBadge = {
   title?: never;
   body?: never;
   quiet?: never;
+  timeSensitive?: never;
   /** The number on the app's icon; 0 clears it. */
   badge: number;
   covers?: never;
@@ -51,6 +65,7 @@ export type AppleKeep = {
   title?: never;
   body?: never;
   quiet?: never;
+  timeSensitive?: never;
   badge?: never;
   covers?: never;
   url?: never;
@@ -106,9 +121,10 @@ export function providerToken(config: AppleConfig, nowMs: number): string {
 /**
  * Apple's payload: the alert, and the page a tap opens as a path, query and fragment. The page opens only a page of
  * its own site, so the server's own address is left out, and a debug build whose page runs on a dev server opens the
- * same path there. A quiet alert is Apple's passive level with no sound. A badge alone has no alert and no sound, and
- * no `content-available`, which Apple reserves for a silent update that leaves out `alert`, `badge` and `sound`. A keep
- * list is that silent update: `content-available` alone in `aps`, beside the list.
+ * same path there. A quiet alert is Apple's passive level with no sound, and a time-sensitive one Apple's time-sensitive
+ * level with the default sound. A badge alone has no alert and no sound, and no `content-available`, which Apple
+ * reserves for a silent update that leaves out `alert`, `badge` and `sound`. A keep list is that silent update:
+ * `content-available` alone in `aps`, beside the list.
  *
  * `sentAt`, in milliseconds, is when the server sent it, which `sendToApple` gives every alert and keep list. Apple can
  * deliver pushes out of order, so the phone compares the two times and a late list never removes a newer alert.
@@ -120,7 +136,10 @@ export function applePayload(payload: ApplePayload, sentAt?: number): string {
   if (payload.title !== undefined) {
     aps.alert = { title: payload.title, body: payload.body };
     if (payload.quiet) aps['interruption-level'] = 'passive';
-    else aps.sound = 'default';
+    else {
+      if (payload.timeSensitive) aps['interruption-level'] = 'time-sensitive';
+      aps.sound = 'default';
+    }
   }
   if (payload.badge !== undefined) aps.badge = payload.badge;
   if (payload.title === undefined && payload.url === undefined) return JSON.stringify({ aps });

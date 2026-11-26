@@ -52,10 +52,12 @@ import {
   extensionSigningSettings,
   installProfile,
   profileGroups,
+  profileTimeSensitive,
   projectToPutBack,
   removeTauriProfileCopy,
   tauriCliProblem,
   tauriProfileFiles,
+  TIME_SENSITIVE_ENTITLEMENT,
   withBuildSettings,
   writeSecurityRecorder,
   writeXcodebuildStandIn,
@@ -176,9 +178,14 @@ const signedGroups = (entitlements: Record<string, unknown>) => {
   return Array.isArray(groups) ? groups.map(String) : [];
 };
 
+/** Whether a signature allows Time Sensitive Notifications. */
+const signedTimeSensitive = (entitlements: Record<string, unknown>) => entitlements[TIME_SENSITIVE_ENTITLEMENT] === true;
+
 /**
  * Each reason the build must not go up, or none. `targets` are the Xcode project's, whose App Groups each signature must
- * allow: an extension signed without its group installs, and its share sheet entry cannot hand anything to the app.
+ * allow: an extension signed without its group installs, and its share sheet entry cannot hand anything to the app. So
+ * must Time Sensitive Notifications where a target asks for it, or iOS shows a time-sensitive alert as a plain one and
+ * a Focus holds it back.
  */
 export function ipaProblems(
   facts: IpaFacts,
@@ -191,6 +198,7 @@ export function ipaProblems(
   const lacking = (signed: Record<string, unknown>, asked: string[]) => asked.filter((group) => !signedGroups(signed).includes(group));
   const appLacks = lacking(entitlements, targets.app?.groups ?? []);
   if (appLacks.length) problems.push(`its signature lacks the App Group ${appLacks.join(', ')} its entitlements ask for`);
+  if (targets.app?.timeSensitive && !signedTimeSensitive(entitlements)) problems.push('its signature lacks Time Sensitive Notifications, which its entitlements ask for');
   for (const target of targets.extensions) {
     const built = facts.extensions?.find((extension) => extension.info.CFBundleIdentifier === target.bundleId);
     if (!built) {
@@ -199,6 +207,9 @@ export function ipaProblems(
     }
     const lacks = lacking(built.entitlements, target.groups);
     if (lacks.length) problems.push(`its extension ${target.bundleId}'s signature lacks the App Group ${lacks.join(', ')} its entitlements ask for`);
+    if (target.timeSensitive && !signedTimeSensitive(built.entitlements)) {
+      problems.push(`its extension ${target.bundleId}'s signature lacks Time Sensitive Notifications, which its entitlements ask for`);
+    }
   }
   if (info.CFBundleVersion !== String(buildNumber)) {
     problems.push(`its CFBundleVersion is ${String(info.CFBundleVersion)}, not the build number ${buildNumber}`);
@@ -693,23 +704,27 @@ async function uploadAndWait(
   }
 }
 
-/** A target's App Store profile, or the App Groups the profile for it lacks, or why there is none. */
-type TargetProfile = { profile: Profile } | { lacks: string[] } | { error: string };
+/** What a target's entitlements ask for that its profile does not allow: App Groups, and Time Sensitive Notifications. */
+type Lacks = { groups: string[]; timeSensitive: boolean };
+
+/** A target's App Store profile, or what the profile for it lacks, or why there is none. */
+type TargetProfile = { profile: Profile } | { lacks: Lacks } | { error: string };
 
 /**
  * The profile `target` signs with: an active one for its bundle id and the certificate that allows every App Group its
- * entitlements ask for, else one made when it has no active one. When active ones exist and none allows the groups, or
- * the one made does not, Apple's record of the App ID lacks the group, which only a person can add on the developer
- * site; nothing more is made, and nothing is deleted. Adding it changes the App ID, which makes Apple mark every
- * profile for it invalid, so the next upload makes one that allows it.
+ * entitlements ask for, and Time Sensitive Notifications when they ask for it, else one made when it has no active one.
+ * When active ones exist and none allows them, or the one made does not, Apple's record of the App ID lacks the group or
+ * the capability, which only a person can add on the developer site; nothing more is made, and nothing is deleted.
+ * Adding it changes the App ID, which makes Apple mark every profile for it invalid, so the next upload makes one that
+ * allows it.
  */
 async function targetProfile(
   appStoreConnect: AppStoreConnect,
-  target: { bundleId: string; groups: string[]; extension: boolean },
+  target: { bundleId: string; groups: string[]; timeSensitive: boolean; extension: boolean },
   certificate: CertificateRecord,
   profileType: ProfileType = 'IOS_APP_STORE',
 ): Promise<TargetProfile> {
-  const { bundleId: identifier, groups } = target;
+  const { bundleId: identifier, groups, timeSensitive } = target;
   let bundleId = await appStoreConnect.bundleId(identifier);
   if (!bundleId && !target.extension) {
     return { error: `the team has no bundle id ${identifier}: register it on Apple's developer site (Certificates, Identifiers & Profiles, Identifiers), with the capabilities the app uses` };
@@ -724,8 +739,14 @@ async function targetProfile(
       };
     }
   }
-  const allows = (profile: Profile) => groups.every((group) => profileGroups(profile.content).includes(group));
-  const lacks = (profile: Profile) => groups.filter((group) => !profileGroups(profile.content).includes(group));
+  const lacks = (profile: Profile): Lacks => ({
+    groups: groups.filter((group) => !profileGroups(profile.content).includes(group)),
+    timeSensitive: timeSensitive && !profileTimeSensitive(profile.content),
+  });
+  const allows = (profile: Profile) => {
+    const lacking = lacks(profile);
+    return lacking.groups.length === 0 && !lacking.timeSensitive;
+  };
   const active = await appStoreConnect.appStoreProfiles(bundleId, certificate.id, profileType);
   const fitting = active.find(allows);
   if (fitting) return { profile: fitting };
@@ -745,18 +766,31 @@ async function targetProfile(
 }
 
 /**
- * What a person does on Apple's developer site so each App ID's profile allows its App Groups, which Apple's API cannot
- * do, as one line: the watcher keeps only the upload's last line in its log.
+ * What a person does on Apple's developer site so each App ID's profile allows its App Groups and Time Sensitive
+ * Notifications, which Apple's API cannot do, as one line: the watcher keeps only the upload's last line in its log.
  */
-export function appGroupSteps(lacking: { bundleId: string; groups: string[] }[]): string {
-  const groups = [...new Set(lacking.flatMap((target) => target.groups))];
-  const assign = lacking.map((target) => `${target.bundleId} (tick App Groups, Configure, tick ${target.groups.join(' and ')}, Continue, Assign, Done, Save, Confirm)`);
-  return (
-    `the App Store profile for ${lacking.map((target) => target.bundleId).join(' and ')} lacks the App Group ${groups.join(' and ')}, which Apple's API cannot add: ` +
-    `on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, choose App Groups in the menu at the right, and if ${groups.join(' or ')} is not listed, ` +
-    `+, App Groups, Continue, a description and the identifier, Continue, Register; then choose App IDs in that menu and open ` +
-    `${assign.join(', then ')}; then run the upload again, which makes profiles that allow it`
-  );
+export function capabilitySteps(lacking: ({ bundleId: string } & Lacks)[]): string {
+  const parts: string[] = [];
+  const grouped = lacking.filter((target) => target.groups.length > 0);
+  if (grouped.length) {
+    const groups = [...new Set(grouped.flatMap((target) => target.groups))];
+    const assign = grouped.map((target) => `${target.bundleId} (tick App Groups, Configure, tick ${target.groups.join(' and ')}, Continue, Assign, Done, Save, Confirm)`);
+    parts.push(
+      `the App Store profile for ${grouped.map((target) => target.bundleId).join(' and ')} lacks the App Group ${groups.join(' and ')}, which Apple's API cannot add: ` +
+        `on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, choose App Groups in the menu at the right, and if ${groups.join(' or ')} is not listed, ` +
+        `+, App Groups, Continue, a description and the identifier, Continue, Register; then choose App IDs in that menu and open ` +
+        assign.join(', then '),
+    );
+  }
+  const sensitive = lacking.filter((target) => target.timeSensitive).map((target) => target.bundleId);
+  if (sensitive.length) {
+    parts.push(
+      `the App Store profile for ${sensitive.join(' and ')} lacks Time Sensitive Notifications, which Apple's API cannot switch on: ` +
+        `on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, App IDs, open ` +
+        sensitive.map((bundleId) => `${bundleId} (tick Time Sensitive Notifications, Save, Confirm)`).join(', then '),
+    );
+  }
+  return `${parts.join('; and ')}; then run the upload again, which makes profiles that allow it`;
 }
 
 /**
@@ -788,17 +822,18 @@ async function signingFiles(
     const record = await appStoreConnect.distributionCertificate(facts.serial);
     if (!record) return `Apple lists no distribution certificate with the serial number of the one in 1Password, so it was revoked or is another team's: ${MAKE_CERTIFICATE}`;
     if (record.expires && Date.parse(record.expires) <= now()) return `the distribution certificate expired on ${record.expires.slice(0, 10)}: ${MAKE_CERTIFICATE}`;
-    const app = await targetProfile(appStoreConnect, { bundleId: identifier, groups: targets.app?.groups ?? [], extension: false }, record, profileType);
+    const asked = { bundleId: identifier, groups: targets.app?.groups ?? [], timeSensitive: targets.app?.timeSensitive ?? false, extension: false };
+    const app = await targetProfile(appStoreConnect, asked, record, profileType);
     if ('error' in app) return app.error;
-    const lacking: { bundleId: string; groups: string[] }[] = 'lacks' in app ? [{ bundleId: identifier, groups: app.lacks }] : [];
+    const lacking: ({ bundleId: string } & Lacks)[] = 'lacks' in app ? [{ bundleId: identifier, ...app.lacks }] : [];
     const extensions: { target: XcodeTarget; profile: Profile }[] = [];
     for (const target of targets.extensions) {
       const found = await targetProfile(appStoreConnect, { ...target, extension: true }, record);
       if ('error' in found) return found.error;
-      if ('lacks' in found) lacking.push({ bundleId: target.bundleId, groups: found.lacks });
+      if ('lacks' in found) lacking.push({ bundleId: target.bundleId, ...found.lacks });
       else extensions.push({ target, profile: found.profile });
     }
-    if (lacking.length || !('profile' in app)) return appGroupSteps(lacking);
+    if (lacking.length || !('profile' in app)) return capabilitySteps(lacking);
     return { profile: app.profile, extensions, team, name };
   } catch (error) {
     return `App Store Connect could not give the signing profiles for ${identifier}: ${error instanceof Error ? error.message : String(error)}`;

@@ -13,13 +13,14 @@ import {
   buildEnv,
   compileFailed,
   ICON_SET,
+  capabilitySteps,
   ipaProblems,
   pngOpacities,
   restoreValue,
   upload,
   type UploadOptions,
 } from '../tauri/testflight/upload.ts';
-import { extensionSigningSettings, profileGroups, projectToPutBack, withBuildSettings, writeSecurityRecorder, writeXcodebuildStandIn } from '../tauri/testflight/signing.ts';
+import { extensionSigningSettings, profileGroups, profileTimeSensitive, projectToPutBack, withBuildSettings, writeSecurityRecorder, writeXcodebuildStandIn } from '../tauri/testflight/signing.ts';
 import {
   apple as appleFor,
   ENTITLEMENTS_DEVELOPMENT,
@@ -51,6 +52,8 @@ let app: string;
 let cargoHome: string;
 let asc: Awaited<ReturnType<typeof appStoreConnect>>;
 const apple = (options: Apple = {}) => appleFor(app, asc.builds, options);
+/** The Time Sensitive Notifications entitlement, as an entitlements file and a signature hold it. */
+const TIME_SENSITIVE = '\t<key>com.apple.developer.usernotifications.time-sensitive</key>\n\t<true/>\n';
 
 beforeEach(async () => {
   place = scratch('testflight-upload-');
@@ -619,6 +622,13 @@ describe('an app with a share extension', () => {
     certificates: [CERTIFICATE_RECORD.id],
     ...(bundle ? { bundle } : {}),
   });
+  /** The app's entitlements file asks for Time Sensitive Notifications beside its App Group, as a landing on main. */
+  const askTimeSensitive = () => {
+    commit(origin, { 'src-tauri/gen/apple/past-the-break_iOS/past-the-break_iOS.entitlements': plist(`\t<key>com.apple.security.application-groups</key>\n\t<array>\n\t\t<string>${GROUP}</string>\n\t</array>\n${TIME_SENSITIVE}`) });
+    git(app, 'pull', '-q');
+  };
+  /** What codesign reads from the app signed with a profile that allows its App Group and Time Sensitive Notifications. */
+  const timeSensitiveSignature = () => groupEntitlements('app.pastthebreak').replace('\t<key>get-task-allow</key>', `${TIME_SENSITIVE}\t<key>get-task-allow</key>`);
   const xcodeProfile = (uuid: string) => join(place.folder, 'Library/Developer/Xcode/UserData/Provisioning Profiles', `${uuid}.mobileprovision`);
 
   test("each target signs with its own profile: the extension's App ID is registered, its profile made, and the export lists it", async () => {
@@ -757,10 +767,60 @@ describe('an app with a share extension', () => {
     expect(withBuildSettings(XCODE_PROJECT_WITH_SHARE, ['NOPE'], settings)).toBeNull();
   });
 
+  test('an app asking for Time Sensitive Notifications whose active profile lacks it stops before the build, with the switch to flip, and makes nothing', async () => {
+    await share({ profiles: [withGroup('APP', 'uuid-app0'), withGroup('SHARE', 'uuid-shr0', 'BUNDLE0003')], bundles: [SHARE_ID] });
+    askTimeSensitive();
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed).toEqual([
+      "! the App Store profile for app.pastthebreak lacks Time Sensitive Notifications, which Apple's API cannot switch on: on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, App IDs, open app.pastthebreak (tick Time Sensitive Notifications, Save, Confirm); then run the upload again, which makes profiles that allow it",
+    ]);
+    expect(asc.requests.filter((request) => request.startsWith('POST') || request.startsWith('DELETE'))).toEqual([]);
+    expect(stand.named('tauri')).toEqual([]);
+    expect(git(app, 'status', '--porcelain')).toBe('');
+  });
+
+  test('an app asking for Time Sensitive Notifications signs with the profile that allows it, and goes up', async () => {
+    const sensitive = { ...withGroup('APP', 'uuid-app0'), content: profileContent('uuid-app0', [GROUP], { timeSensitive: true }) };
+    await share({ profiles: [withGroup('OLD', 'uuid-old0'), sensitive, withGroup('SHARE', 'uuid-shr0', 'BUNDLE0003')], bundles: [SHARE_ID] });
+    askTimeSensitive();
+    const stand = apple({ entitlements: timeSensitiveSignature() });
+    const { code, printed } = await runUpload(stand);
+    expect(printed.filter((line) => line.startsWith('!'))).toEqual([]);
+    expect(code).toBe(0);
+    expect(stand.named('tauri ios build')[0].options.env?.IOS_MOBILE_PROVISION).toBe(sensitive.content);
+  });
+
+  test('a built app whose signature lacks the Time Sensitive Notifications its entitlements ask for never goes up', async () => {
+    const sensitive = { ...withGroup('APP', 'uuid-app0'), content: profileContent('uuid-app0', [GROUP], { timeSensitive: true }) };
+    await share({ profiles: [sensitive, withGroup('SHARE', 'uuid-shr0', 'BUNDLE0003')], bundles: [SHARE_ID] });
+    askTimeSensitive();
+    const stand = apple();
+    const { code, printed } = await runUpload(stand);
+    expect(code).toBe(1);
+    expect(printed.at(-1)).toBe('! Past the Break.ipa must not go up: its signature lacks Time Sensitive Notifications, which its entitlements ask for');
+    expect(stand.named('altool')).toEqual([]);
+  });
+
   test("a profile's App Groups are read from the plist Apple signs into it", () => {
     expect(profileGroups(profileContent('uuid-1', [GROUP, 'group.other']))).toEqual([GROUP, 'group.other']);
     // The keychain's access groups, an array beside it, are not App Groups.
     expect(profileGroups(profileContent('uuid-1'))).toEqual([]);
+  });
+
+  test("a profile's Time Sensitive Notifications are read from the plist Apple signs into it", () => {
+    expect(profileTimeSensitive(profileContent('uuid-1', [GROUP], { timeSensitive: true }))).toBe(true);
+    expect(profileTimeSensitive(profileContent('uuid-1', [GROUP]))).toBe(false);
+    const off = Buffer.from(Buffer.from(profileContent('uuid-1', [], { timeSensitive: true }), 'base64').toString('latin1').replace('<true/>', '<false/>'), 'latin1').toString('base64');
+    expect(profileTimeSensitive(off)).toBe(false);
+  });
+
+  test('the steps for App Groups and Time Sensitive Notifications together are one line', () => {
+    expect(capabilitySteps([{ bundleId: 'app.pastthebreak', groups: [GROUP], timeSensitive: true }, { bundleId: SHARE_ID, groups: [GROUP], timeSensitive: false }])).toBe(
+      `the App Store profile for app.pastthebreak and ${SHARE_ID} lacks the App Group ${GROUP}, which Apple's API cannot add: on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, choose App Groups in the menu at the right, and if ${GROUP} is not listed, +, App Groups, Continue, a description and the identifier, Continue, Register; then choose App IDs in that menu and open app.pastthebreak (tick App Groups, Configure, tick ${GROUP}, Continue, Assign, Done, Save, Confirm), then ${SHARE_ID} (tick App Groups, Configure, tick ${GROUP}, Continue, Assign, Done, Save, Confirm); ` +
+        "and the App Store profile for app.pastthebreak lacks Time Sensitive Notifications, which Apple's API cannot switch on: on Apple's developer site, Certificates, Identifiers & Profiles, Identifiers, App IDs, open app.pastthebreak (tick Time Sensitive Notifications, Save, Confirm); then run the upload again, which makes profiles that allow it",
+    );
   });
 });
 
@@ -804,11 +864,23 @@ describe('the pure parts', () => {
     };
     // With the Xcode project's targets: the app's own signature must allow its App Group, and each extension the
     // project builds must be inside the app.
-    const asked = { app: { name: 'past-the-break_iOS', bundleId: 'app.pastthebreak', groups: [GROUP], configurations: [] }, extensions: [] };
+    const asked = { app: { name: 'past-the-break_iOS', bundleId: 'app.pastthebreak', groups: [GROUP], timeSensitive: false, configurations: [] }, extensions: [] };
     expect(ipaProblems(pastTheBreak, 108, asked)).toEqual([`its signature lacks the App Group ${GROUP} its entitlements ask for`]);
     const grouped = { ...pastTheBreak, entitlements: { ...pastTheBreak.entitlements, 'com.apple.security.application-groups': [GROUP] } };
     expect(ipaProblems(grouped, 108, asked)).toEqual([]);
-    const withShare = { ...asked, extensions: [{ name: 'past-the-break-share', bundleId: SHARE_ID, groups: [GROUP], configurations: [] }] };
+    // A target asking for Time Sensitive Notifications needs a signature that allows it.
+    const sensitive = { app: { ...asked.app, timeSensitive: true }, extensions: [] };
+    expect(ipaProblems(grouped, 108, sensitive)).toEqual(['its signature lacks Time Sensitive Notifications, which its entitlements ask for']);
+    expect(ipaProblems({ ...grouped, entitlements: { ...grouped.entitlements, 'com.apple.developer.usernotifications.time-sensitive': true } }, 108, sensitive)).toEqual([]);
+    // And so does each extension asking for it, by its own signature, not the app's.
+    const sensitiveSigned = { ...grouped.entitlements, 'com.apple.developer.usernotifications.time-sensitive': true };
+    const sensitiveShare = { ...asked, extensions: [{ name: 'past-the-break-share', bundleId: SHARE_ID, groups: [GROUP], timeSensitive: true, configurations: [] }] };
+    const shareBuilt = (entitlements: Record<string, unknown>) => ({ info: { CFBundleIdentifier: SHARE_ID }, entitlements });
+    expect(ipaProblems({ ...grouped, entitlements: sensitiveSigned, extensions: [shareBuilt(grouped.entitlements)] }, 108, sensitiveShare)).toEqual([
+      `its extension ${SHARE_ID}'s signature lacks Time Sensitive Notifications, which its entitlements ask for`,
+    ]);
+    expect(ipaProblems({ ...grouped, extensions: [shareBuilt(sensitiveSigned)] }, 108, sensitiveShare)).toEqual([]);
+    const withShare = { ...asked, extensions: [{ name: 'past-the-break-share', bundleId: SHARE_ID, groups: [GROUP], timeSensitive: false, configurations: [] }] };
     expect(ipaProblems({ ...grouped, extensions: [] }, 108, withShare)).toEqual([`it holds no app extension ${SHARE_ID}, which the Xcode project builds`]);
     expect(ipaProblems(argonDevelopment, 7)).toEqual([
       "its aps-environment is development, not production, so push would go to Apple's sandbox",

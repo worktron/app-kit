@@ -87,6 +87,41 @@ test('a quiet alert is passive and has no sound', () => {
   });
 });
 
+test('a time-sensitive alert is Apple’s time-sensitive level with its sound', () => {
+  expect(JSON.parse(applePayload({ title: 'Routine due', body: 'Morning check-in', url: '/routines/2', timeSensitive: true }))).toEqual({
+    aps: { alert: { title: 'Routine due', body: 'Morning check-in' }, 'interruption-level': 'time-sensitive', sound: 'default' },
+    url: '/routines/2',
+  });
+  expect(applePayload({ title: 't', body: 'b', timeSensitive: false })).toBe(applePayload({ title: 't', body: 'b' }));
+  expect(JSON.parse(applePayload({ title: 't', body: 'b', timeSensitive: true, badge: 2 })).aps).toEqual({
+    alert: { title: 't', body: 'b' },
+    'interruption-level': 'time-sensitive',
+    sound: 'default',
+    badge: 2,
+  });
+});
+
+test('a time-sensitive send is an alert push at priority 10', async () => {
+  const d = deps(async () => ({ status: 200 }));
+  const result = await sendToApple([{ token: 'phone', environment: 'production' }], { title: 't', body: 'b', timeSensitive: true, tag: 'routine-2' }, { topic: 'com.example.app', ttlSeconds: 900 }, d);
+  expect(result).toEqual({ sent: 1, gone: [], failed: 0 });
+  expect(d.asked[0].headers['apns-push-type']).toBe('alert');
+  expect(d.asked[0].headers['apns-priority']).toBe('10');
+  expect(JSON.parse(d.asked[0].body).aps['interruption-level']).toBe('time-sensitive');
+});
+
+test('time-sensitive takes a true-or-false worked out at run time, and never beside quiet or without an alert', () => {
+  const alarm = (missed: boolean) => applePayload({ title: 't', body: 'b', timeSensitive: !missed });
+  expect(JSON.parse(alarm(false)).aps['interruption-level']).toBe('time-sensitive');
+  expect(JSON.parse(alarm(true)).aps['interruption-level']).toBeUndefined();
+  // @ts-expect-error an alert is quiet or time-sensitive, never both
+  applePayload({ title: 't', body: 'b', quiet: true, timeSensitive: true });
+  // @ts-expect-error time-sensitive describes an alert, and this has none
+  applePayload({ badge: 1, timeSensitive: true });
+  // @ts-expect-error a keep list shows nothing
+  applePayload({ keep: [], timeSensitive: true });
+});
+
 test('a badge on an alert sets the icon’s number beside the alert and its sound', () => {
   expect(JSON.parse(applePayload({ title: 't', body: 'b', url: '/digest', badge: 3 }))).toEqual({
     aps: { alert: { title: 't', body: 'b' }, sound: 'default', badge: 3 },

@@ -130,9 +130,16 @@ export function xcodeProjectFile(cwd: string): string | null {
 
 /**
  * A target of the Xcode project the upload signs: its name, its bundle id, the App Groups its entitlements file asks
- * for, and the ids of its build configurations, which an extension's signing settings are written into.
+ * for, whether it asks for Time Sensitive Notifications, and the ids of its build configurations, which an extension's
+ * signing settings are written into.
  */
-export type XcodeTarget = { name: string; bundleId: string; groups: string[]; configurations: string[] };
+export type XcodeTarget = { name: string; bundleId: string; groups: string[]; timeSensitive: boolean; configurations: string[] };
+
+/**
+ * The entitlement Apple's time-sensitive notification level needs (`timeSensitive` in iphone-notifications/server.ts),
+ * a boolean true. Apple's API cannot switch it on for an App ID, so a profile has it only once a person has.
+ */
+export const TIME_SENSITIVE_ENTITLEMENT = 'com.apple.developer.usernotifications.time-sensitive';
 
 /** The app's target, or null when the project has none, and each app extension's. */
 export type XcodeTargets = { app: XcodeTarget | null; extensions: XcodeTarget[] };
@@ -177,6 +184,7 @@ export async function xcodeTargets(cwd: string, projectFile: string, run: Run, e
       return { error: `the app extension ${target.name} in ${projectFile} has the bundle id "${bundleId}" in its release configuration; write it out in full, as the upload registers and signs it by that id` };
     }
     let groups: string[] = [];
+    let timeSensitive = false;
     const entitlementsFile = typeof settings.CODE_SIGN_ENTITLEMENTS === 'string' ? settings.CODE_SIGN_ENTITLEMENTS : null;
     if (entitlementsFile) {
       const entitlements = await json(join(sourceRoot, entitlementsFile));
@@ -185,8 +193,9 @@ export async function xcodeTargets(cwd: string, projectFile: string, run: Run, e
       groups = Array.isArray(asked) ? asked.map(String) : [];
       const unplain = groups.find((group) => !PLAIN_ID.test(group));
       if (unplain) return { error: `${target.name}'s entitlements ask for the App Group "${unplain}"; write it out in full, as the upload checks the signing profile for it` };
+      timeSensitive = entitlements[TIME_SENSITIVE_ENTITLEMENT] === true;
     }
-    const found = { name: target.name, bundleId, groups, configurations };
+    const found = { name: target.name, bundleId, groups, timeSensitive, configurations };
     if (isApp) targets.app = found;
     else targets.extensions.push(found);
   }
@@ -199,6 +208,12 @@ export function profileGroups(content: string): string[] {
   const text = Buffer.from(content, 'base64').toString('latin1');
   const list = text.match(/<key>com\.apple\.security\.application-groups<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? '';
   return [...list.matchAll(/<string>([^<]*)<\/string>/g)].map((match) => match[1]!);
+}
+
+/** Whether a provisioning profile allows Time Sensitive Notifications, from the plist Apple signs into it; in base64. */
+export function profileTimeSensitive(content: string): boolean {
+  const text = Buffer.from(content, 'base64').toString('latin1');
+  return /<key>com\.apple\.developer\.usernotifications\.time-sensitive<\/key>\s*<true\s*\/>/.test(text);
 }
 
 /** The signing settings written into an extension's build configurations, in the forms Tauri writes for the app. */
