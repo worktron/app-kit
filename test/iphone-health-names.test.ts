@@ -6,12 +6,12 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { BATCH_LIMIT, COMMANDS, KEPT_LIMIT, KEPT_OUTCOMES, KEYS, LOG_PREFIX, OUTCOMES, PLUGIN, TRIGGERS } from '../tauri/iphone-health/names';
+import { BATCH_LIMIT, COMMANDS, HEART_RATE_BATCH_LIMIT, KEPT_LIMIT, KEPT_OUTCOMES, KEYS, LOG_PREFIX, OUTCOMES, PLUGIN, TRIGGERS } from '../tauri/iphone-health/names';
 
 const plugin = join(import.meta.dir, '../tauri/iphone-health/plugin');
 const read = (path: string) => readFileSync(join(plugin, path), 'utf8');
 const swift = read('ios/Sources/IphoneHealthPlugin.swift');
-const rules = read('ios/Sources/SleepSync.swift');
+const rules = read('ios/Sources/HealthSync.swift');
 const rust = ['src/lib.rs', 'src/commands.rs', 'src/mobile.rs'].map(read).join('\n');
 const crate = read('Cargo.toml').match(/^name = "(.+)"$/m)![1];
 
@@ -19,9 +19,9 @@ test('every native function the Rust calls is one the Swift defines, and the oth
   const externBlocks = [...rust.matchAll(/extern "C" \{([\s\S]*?)\n\s*\}/g)].map((m) => m[1]).join('\n');
   const called = [...externBlocks.matchAll(/fn (\w+)\(/g)].map((m) => m[1]);
   const binding = rust.match(/ios_plugin_binding!\((\w+)\)/)![1];
-  // The Simulator's and the phone's `iphone_health_simulator_sleep` are one function, in either branch of an #if.
+  // The Simulator's and the phone's made-up samples are one function each, in either branch of an #if.
   const defined = [...new Set([...swift.matchAll(/@_cdecl\("(\w+)"\)/g)].map((m) => m[1]))];
-  expect(called.length).toBe(3);
+  expect(called.length).toBe(4);
   expect([...called, binding].sort()).toEqual(defined.sort());
 });
 
@@ -38,7 +38,7 @@ test('the commands the page calls are the ones the plugin builds, registers and 
 
 test('the build script reruns on every Swift source', () => {
   const build = read('build.rs');
-  for (const file of ['IphoneHealthPlugin.swift', 'SleepSync.swift']) expect(build).toContain(`ios/Sources/${file}`);
+  for (const file of ['IphoneHealthPlugin.swift', 'HealthSync.swift']) expect(build).toContain(`ios/Sources/${file}`);
 });
 
 test('the Swift package builds the product named after the crate, which is what Tauri links', () => {
@@ -52,13 +52,17 @@ test('the Swift saves under the keys and limits the page names, and logs as the 
   expect(rules).toContain(`let earlierKey = "${KEYS.earlier}"`);
   expect(rules).toContain(`let keptLimit = ${KEPT_LIMIT}`);
   expect(rules).toContain(`let batchLimit = ${BATCH_LIMIT}`);
+  expect(rules).toContain(`let heartRateAddressKey = "${KEYS.heartRate.address}"`);
+  expect(rules).toContain(`let heartRateAnchorKey = "${KEYS.heartRate.anchor}"`);
+  expect(rules).toContain(`let heartRateEarlierKey = "${KEYS.heartRate.earlier}"`);
+  expect(rules).toContain(`let heartRateBatchLimit = ${HEART_RATE_BATCH_LIMIT}`);
   expect(swift).toContain(`private let logPrefix = "${LOG_PREFIX}"`);
 });
 
 test('the triggers and outcomes the Swift sends are the ones the page and the server read', () => {
-  const triggers = rules.match(/enum SleepTrigger[\s\S]*?\n\}/)![0];
+  const triggers = rules.match(/enum HealthTrigger[\s\S]*?\n\}/)![0];
   expect([...triggers.matchAll(/case \w+ = "([^"]+)"/g)].map((m) => m[1])).toEqual([...TRIGGERS]);
-  const outcomes = rules.match(/enum SleepOutcome[\s\S]*?\n\}/)![0];
+  const outcomes = rules.match(/enum HealthOutcome[\s\S]*?\n\}/)![0];
   expect([...outcomes.matchAll(/case \w+ = "([^"]+)"/g)].map((m) => m[1])).toEqual([...OUTCOMES]);
   const kept = outcomes.match(/var kept: Bool[\s\S]*?case (\.[\w, .]+): return true/)![1];
   const keptNames = kept.split(',').map((c) => c.trim().slice(1));
@@ -68,10 +72,38 @@ test('the triggers and outcomes the Swift sends are the ones the page and the se
 
 test('Health is read through the anchored query, with the watcher and background delivery', () => {
   expect(swift).toContain('HKAnchoredObjectQuery(type: sleepType, predicate: nil, anchor: anchor, limit: limit)');
-  expect(swift).toContain('HKObserverQuery(sampleType: sleepType');
-  expect(swift).toContain('enableBackgroundDelivery(for: sleepType, frequency: .immediate)');
+  expect(swift).toContain('HKObserverQuery(sampleType: type');
+  expect(swift).toContain('enableBackgroundDelivery(for: type, frequency: frequency)');
+  expect(swift).toContain('TypeWatcher(type: sleepType, frequency: .immediate');
   expect(swift).toContain('errorDatabaseInaccessible');
   expect(swift).toContain('requiringSecureCoding: true');
+});
+
+test('heart rate is read with its own anchor, its series expanded, and woken for at most hourly', () => {
+  expect(swift).toContain('HKAnchoredObjectQuery(type: heartRateType, predicate: nil, anchor: anchor, limit: limit)');
+  expect(swift).toContain('TypeWatcher(type: heartRateType, frequency: .hourly');
+  expect(swift).toMatch(/HKQuantitySeriesSampleQuery\(quantityType: heartRateType, predicate: HKQuery\.predicateForObjects\(with: ids\)\)/);
+  expect(swift).toContain('query.includeSample = true');
+  expect(swift).toContain('query.orderByQuantitySampleStartDate = true');
+  expect(swift).toContain('HKUnit.count().unitDivided(by: .minute())');
+  // Sleep and heart rate keep their places, addresses and kept attempts under their own keys.
+  expect(swift).toContain('SavedState(address: addressKey, anchor: anchorKey, earlier: earlierKey)');
+  expect(swift).toContain('SavedState(address: heartRateAddressKey, anchor: heartRateAnchorKey, earlier: heartRateEarlierKey)');
+  expect(swift).toContain('batch: heartRateBatchLimit, words: .heartRate');
+});
+
+test('heart rate goes by its own answer from Health, not sleep\'s', () => {
+  // An app upgraded from sleep alone has sleep's answer and not heart rate's, and a watcher started before the answer
+  // never wakes, so every watch and sync of heart rate waits on heart rate's own question.
+  expect(swift).toMatch(/func heartRateQuestionAnswered[^}]*questionAnswered\(read: heartRateType/);
+  const heartRateWatches = [...swift.matchAll(/heartRateSync\.watchIfReady\(/g)].length;
+  const gated = [...swift.matchAll(/heartRateQuestionAnsweredIfAsked \{ answered in\s+heartRateSync\.watchIfReady/g)].length;
+  expect(heartRateWatches).toBe(3);
+  expect(gated).toBe(3);
+  expect(swift).not.toMatch(/healthQuestionAnswered \{[^}]*heartRateSync/);
+  // The start asks only what is still to ask once heart rate is wanted, and sleep alone as it always has.
+  expect(swift).toContain('guard heartRate else { return askForHealth(share: writeOnSimulator([sleepType]), read: [sleepType]) }');
+  expect(swift).toContain('.filter(stillToAsk)');
 });
 
 test('the send refuses redirects and asks iOS for time to finish', () => {
@@ -96,13 +128,14 @@ test('the made-up nights write to Health only in a Simulator build', () => {
   const simulatorOnly = [...swift.matchAll(/#if targetEnvironment\(simulator\)/g)].map((match) => [match.index, swift.indexOf('#else', match.index)]);
   expect(simulatorOnly.length).toBeGreaterThan(0);
   const outside = simulatorOnly.reduceRight((rest, [from, to]) => rest.slice(0, from) + rest.slice(to), swift);
-  for (const write of ['healthStore.save(', 'healthStore.delete(', 'askForHealth(share: [sleepType]', '? [sleepType] : nil']) {
+  for (const write of ['healthStore.save(', 'healthStore.delete(', 'askForHealth(share: [sleepType]', 'askForHealth(share: [heartRateType]', 'HKQuantitySeriesSampleBuilder', '? Set(types) : nil']) {
     const at = swift.indexOf(write);
     expect(simulatorOnly.some(([from, to]) => at > from && at < to)).toBe(true);
     expect(outside).not.toContain(write);
   }
   // Start asks to write only through the helper that answers nil outside a Simulator build.
-  expect(outside).toContain('askForHealth(share: writeForMadeUpNights(), read: [sleepType])');
-  expect(outside).toMatch(/func writeForMadeUpNights\(\)[^}]*#else\s+return nil\s+#endif/);
+  expect(outside).toContain('askForHealth(share: writeOnSimulator([sleepType]), read: [sleepType])');
+  expect(outside).toContain('askForHealth(share: writeOnSimulator(types), read: Set(types))');
+  expect(outside).toMatch(/func writeOnSimulator\(_ types: \[HKSampleType\]\)[^}]*#else\s+return nil\s+#endif/);
   expect(outside).not.toContain('askForHealth(share: [');
 });

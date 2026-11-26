@@ -1,3 +1,3 @@
 [default]
-description = "Lets the page give the address Health's sleep is sent to, which asks for Health's sleep and sends, and add or delete made-up nights on the Simulator"
-permissions = ["allow-start", "allow-simulator-sleep"]
+description = "Lets the page give the addresses Health's sleep and heart rate are sent to, which asks for them and sends, and add or delete made-up nights and heart rate on the Simulator"
+permissions = ["allow-start", "allow-simulator-sleep", "allow-simulator-heart-rate"]

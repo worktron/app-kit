@@ -1,8 +1,8 @@
-// app-kit's iPhone Health: the sleep stretches the Apple Watch (or any app) writes to Health, sent by the app itself to
-// the address the page gives, when the app opens, each time it comes to the front, and when iOS wakes it in the
-// background for new sleep. When to send and what is kept is SleepSync.swift's; this file is HealthKit, the network
-// and iOS. Health cannot be read while the phone is locked, so a background wake then sends nothing and is kept, and
-// the stretches go the next time the app opens.
+// app-kit's iPhone Health: the sleep stretches the Apple Watch (or any app) writes to Health, and, for an app that asks,
+// its heart rate readings, each sent by the app itself to the address the page gives for it, when the app opens, each
+// time it comes to the front, and when iOS wakes it in the background for new samples. When to send and what is kept
+// is HealthSync.swift's; this file is HealthKit, the network and iOS. Health cannot be read while the phone is locked,
+// so a background wake then sends nothing and is kept, and the samples go the next time the app opens.
 
 import UIKit
 import WebKit
@@ -17,6 +17,13 @@ private func log(_ line: String) {
 
 private let healthStore = HKHealthStore()
 private let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+private let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate)!
+private let beatsPerMinute = HKUnit.count().unitDivided(by: .minute())
+
+/// Heart rate's log lines, apart from sleep's.
+private func heartRateLog(_ line: String) {
+    log("heart rate: \(line)")
+}
 
 // MARK: - Health's sleep
 
@@ -37,20 +44,30 @@ private func milliseconds(_ date: Date) -> Int64 {
     Int64((date.timeIntervalSince1970 * 1000).rounded())
 }
 
-private final class HealthSleepStore: SleepStore {
-    func read(after anchorData: Data?, limit: Int, done: @escaping (SleepRead) -> Void) {
-        var anchor: HKQueryAnchor?
-        if let anchorData = anchorData {
-            anchor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: anchorData)
-            if anchor == nil { log("the saved place in Health's history did not read back, so the history starts over") }
-        }
+/// The saved place in Health's history, or none: the start of it.
+private func unarchiveAnchor(_ anchorData: Data?, log: (String) -> Void) -> HKQueryAnchor? {
+    guard let anchorData = anchorData else { return nil }
+    let anchor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: anchorData)
+    if anchor == nil { log("the saved place in Health's history did not read back, so the history starts over") }
+    return anchor
+}
+
+private func archiveAnchor(_ anchor: HKQueryAnchor?) -> Data? {
+    anchor.flatMap { try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
+}
+
+/// Whether Health's error says the phone is locked, when Health cannot be read.
+private func isLocked(_ error: Error) -> Bool {
+    let error = error as NSError
+    return error.domain == HKErrorDomain && error.code == HKError.Code.errorDatabaseInaccessible.rawValue
+}
+
+private final class HealthSleepStore: HealthStore {
+    func read(after anchorData: Data?, limit: Int, done: @escaping (HealthRead<SleepSample>) -> Void) {
+        let anchor = unarchiveAnchor(anchorData, log: log)
         let query = HKAnchoredObjectQuery(type: sleepType, predicate: nil, anchor: anchor, limit: limit) { _, samples, deleted, newAnchor, error in
-            if let error = error as NSError? {
-                if error.domain == HKErrorDomain && error.code == HKError.Code.errorDatabaseInaccessible.rawValue {
-                    done(.locked)
-                } else {
-                    done(.failed(error.localizedDescription))
-                }
+            if let error = error {
+                done(isLocked(error) ? .locked : .failed(error.localizedDescription))
                 return
             }
             let stretches = (samples ?? []).compactMap { $0 as? HKCategorySample }.map { sample in
@@ -62,11 +79,73 @@ private final class HealthSleepStore: SleepStore {
                     source: sample.sourceRevision.source.bundleIdentifier,
                     device: sample.sourceRevision.productType ?? sample.device?.model)
             }
-            let archived = newAnchor.flatMap { try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
-            done(.batch(samples: stretches, deleted: (deleted ?? []).map { $0.uuid.uuidString }, anchor: archived))
+            let gone = (deleted ?? []).map { $0.uuid.uuidString }
+            done(.batch(samples: stretches, deleted: gone, anchor: archiveAnchor(newAnchor),
+                        more: filledLimit(samples: samples?.count ?? 0, deleted: gone.count, limit: limit)))
         }
         healthStore.execute(query)
     }
+}
+
+// MARK: - Health's heart rate
+
+/// Reads heart rate as `readHeartRate` says: an anchored read, smaller while condensed series make it too many readings,
+/// then one series query for every condensed series in it.
+private final class HealthHeartRateStore: HealthStore {
+    func read(after anchorData: Data?, limit: Int, done: @escaping (HealthRead<HeartRateSample>) -> Void) {
+        let anchor = unarchiveAnchor(anchorData, log: heartRateLog)
+        readHeartRate(limit: limit, cap: limit, query: { limit, answer in
+            let query = HKAnchoredObjectQuery(type: heartRateType, predicate: nil, anchor: anchor, limit: limit) { _, samples, deleted, newAnchor, error in
+                if let error = error {
+                    answer(isLocked(error) ? .locked : .failed(error.localizedDescription))
+                    return
+                }
+                let objects = (samples ?? []).compactMap { $0 as? HKQuantitySample }.map { sample in
+                    HeartRateObject(
+                        uuid: sample.uuid.uuidString,
+                        count: sample.count,
+                        start: milliseconds(sample.startDate),
+                        end: milliseconds(sample.endDate),
+                        bpm: sample.quantity.doubleValue(for: beatsPerMinute),
+                        source: sample.sourceRevision.source.bundleIdentifier,
+                        device: sample.sourceRevision.productType ?? sample.device?.model)
+                }
+                answer(.value(HeartRateRead(objects: objects, deleted: (deleted ?? []).map { $0.uuid.uuidString }, anchor: archiveAnchor(newAnchor))))
+            }
+            healthStore.execute(query)
+        }, series: { uuids, answer in
+            readSeries(uuids, answer: answer)
+        }, done: done)
+    }
+}
+
+/// Every reading of the condensed series named, in one query, grouped by series in the order Health gives them. Health
+/// calls the handler once per reading and once more with `done`; a call with no reading adds nothing, and an error ends
+/// the query.
+private func readSeries(_ uuids: [String], answer: @escaping (HealthPart<[String: [SeriesReading]]>) -> Void) {
+    let ids = Set(uuids.compactMap { UUID(uuidString: $0) })
+    var readings: [String: [SeriesReading]] = [:]
+    var answered = false
+    let query = HKQuantitySeriesSampleQuery(quantityType: heartRateType, predicate: HKQuery.predicateForObjects(with: ids)) { query, quantity, interval, sample, done, error in
+        guard !answered else { return }
+        if let error = error {
+            answered = true
+            healthStore.stop(query)
+            answer(isLocked(error) ? .locked : .failed(error.localizedDescription))
+            return
+        }
+        if let quantity = quantity, let interval = interval, let sample = sample {
+            readings[sample.uuid.uuidString, default: []].append(SeriesReading(
+                start: milliseconds(interval.start), end: milliseconds(interval.end), bpm: quantity.doubleValue(for: beatsPerMinute)))
+        }
+        if done {
+            answered = true
+            answer(.value(readings))
+        }
+    }
+    query.includeSample = true
+    query.orderByQuantitySampleStartDate = true
+    healthStore.execute(query)
 }
 
 // MARK: - The network
@@ -81,7 +160,7 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate {
     }
 }
 
-private final class NetworkSender: SleepSender {
+private final class NetworkSender: HealthSender {
     private let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
 
     func post(_ body: Data, to address: String, done: @escaping (SendAnswer) -> Void) {
@@ -102,12 +181,24 @@ private final class NetworkSender: SleepSender {
 
 // MARK: - The phone's saved state
 
-private final class SavedState: SleepKeeping {
+/// One kind's address, place in Health's history and kept attempts, under that kind's keys.
+private final class SavedState: HealthKeeping {
     private let defaults = UserDefaults.standard
+    private let addressKey: String
+    private let anchorKey: String
+    private let earlierKey: String
+
+    init(address: String, anchor: String, earlier: String) {
+        addressKey = address
+        anchorKey = anchor
+        earlierKey = earlier
+    }
 
     var address: String? {
         get { defaults.string(forKey: addressKey) }
-        set { defaults.set(newValue, forKey: addressKey) }
+        set {
+            if let newValue = newValue { defaults.set(newValue, forKey: addressKey) } else { defaults.removeObject(forKey: addressKey) }
+        }
     }
 
     func anchor(for address: String) -> Data? {
@@ -123,32 +214,50 @@ private final class SavedState: SleepKeeping {
         }
     }
 
-    var earlier: [SleepAttempt] {
-        get { defaults.data(forKey: earlierKey).flatMap { try? JSONDecoder().decode([SleepAttempt].self, from: $0) } ?? [] }
+    var earlier: [HealthAttempt] {
+        get { defaults.data(forKey: earlierKey).flatMap { try? JSONDecoder().decode([HealthAttempt].self, from: $0) } ?? [] }
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: earlierKey) }
     }
 }
 
 // MARK: - Health's watcher
 
-/// Health calls the watcher when new sleep reaches the phone, waking the app in the background for it, and also once at
-/// every launch. Each call is answered when its sync ends, failures included.
-private final class HealthWatcher: SleepWatcher {
+/// Health calls the watcher when new samples of its type reach the phone, waking the app in the background for them at
+/// most as often as `frequency`, and also once at every launch. Each call is answered when its sync ends, failures
+/// included.
+private final class TypeWatcher: HealthWatcher {
+    private let type: HKSampleType
+    private let frequency: HKUpdateFrequency
+    private let words: HealthWords
+    private let log: (String) -> Void
+    private let wake: (@escaping () -> Void) -> Void
+
+    init(type: HKSampleType, frequency: HKUpdateFrequency, words: HealthWords, log: @escaping (String) -> Void, wake: @escaping (@escaping () -> Void) -> Void) {
+        self.type = type
+        self.frequency = frequency
+        self.words = words
+        self.log = log
+        self.wake = wake
+    }
+
     func register() {
-        let query = HKObserverQuery(sampleType: sleepType, predicate: nil) { _, completionHandler, error in
+        let log = self.log
+        let words = self.words
+        let wake = self.wake
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completionHandler, error in
             if let error = error {
                 log("Health's watcher failed: \(error.localizedDescription)")
                 completionHandler()
                 return
             }
-            runSync(.backgroundWake, completion: { _ in completionHandler() })
+            wake { completionHandler() }
         }
         healthStore.execute(query)
-        healthStore.enableBackgroundDelivery(for: sleepType, frequency: .immediate) { ok, error in
+        healthStore.enableBackgroundDelivery(for: type, frequency: frequency) { ok, error in
             if ok {
-                log("iOS will wake the app for new sleep")
+                log("iOS will wake the app for new \(words.kind)")
             } else {
-                log("iOS will not wake the app for new sleep: \(error?.localizedDescription ?? "no reason given"); the app sends when it opens")
+                log("iOS will not wake the app for new \(words.kind): \(error?.localizedDescription ?? "no reason given"); the app sends when it opens")
             }
         }
     }
@@ -156,9 +265,24 @@ private final class HealthWatcher: SleepWatcher {
 
 // MARK: - Syncs
 
-private let coordinator = SleepSync(
-    store: HealthSleepStore(), sender: NetworkSender(), keeping: SavedState(), watcher: HealthWatcher(),
-    now: { milliseconds(Date()) }, log: log)
+private let sender = NetworkSender()
+
+private let sleepSync = HealthSync(
+    store: HealthSleepStore(), sender: sender, keeping: SavedState(address: addressKey, anchor: anchorKey, earlier: earlierKey),
+    watcher: TypeWatcher(type: sleepType, frequency: .immediate, words: .sleep, log: log) { answered in
+        runSleepSync(.backgroundWake) { _ in answered() }
+    },
+    batch: batchLimit, words: .sleep, now: { milliseconds(Date()) }, log: log)
+
+// The Watch writes heart rate all night while the phone is locked, when Health cannot be read, so iOS wakes the app for
+// it at most hourly: each locked wake only adds a failed send.
+private let heartRateSync = HealthSync(
+    store: HealthHeartRateStore(), sender: sender,
+    keeping: SavedState(address: heartRateAddressKey, anchor: heartRateAnchorKey, earlier: heartRateEarlierKey),
+    watcher: TypeWatcher(type: heartRateType, frequency: .hourly, words: .heartRate, log: heartRateLog) { answered in
+        runHeartRateSync(.backgroundWake) { _ in answered() }
+    },
+    batch: heartRateBatchLimit, words: .heartRate, now: { milliseconds(Date()) }, log: heartRateLog)
 
 /// A file kept readable from the first unlock after a restart until the next restart, as UserDefaults is, so reading it
 /// tells a locked phone that was unlocked since it started from one that was not.
@@ -192,12 +316,20 @@ private func appState() -> (state: String, dataAvailable: Bool) {
     return Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
 }
 
+private func runSleepSync(_ trigger: HealthTrigger, state: String? = nil, completion: @escaping (HealthResult) -> Void) {
+    runSync(sleepSync, task: "app-kit.iphone-health.sync", trigger, state: state, completion: completion)
+}
+
+private func runHeartRateSync(_ trigger: HealthTrigger, state: String? = nil, completion: @escaping (HealthResult) -> Void) {
+    runSync(heartRateSync, task: "app-kit.iphone-health.heart-rate-sync", trigger, state: state, completion: completion)
+}
+
 /// Run a sync with time asked of iOS to finish it, which iOS may take back: the sync then ends as `no answer`.
-private func runSync(_ trigger: SleepTrigger, state: String? = nil, completion: @escaping (SleepResult) -> Void) {
+private func runSync<Store>(_ coordinator: HealthSync<Store>, task name: String, _ trigger: HealthTrigger, state: String? = nil, completion: @escaping (HealthResult) -> Void) {
     let (current, dataAvailable) = appState()
     let begin = {
         var task = UIBackgroundTaskIdentifier.invalid
-        task = UIApplication.shared.beginBackgroundTask(withName: "app-kit.iphone-health.sync") {
+        task = UIApplication.shared.beginBackgroundTask(withName: name) {
             coordinator.expire()
         }
         coordinator.sync(trigger, state: state ?? current, dataAvailable: dataAvailable) { result in
@@ -212,7 +344,15 @@ private func runSync(_ trigger: SleepTrigger, state: String? = nil, completion: 
 
 private var observersSetUp = false
 
-/// Sync each time the app comes to the front, and register the watcher at the first unlock after a restart.
+/// Heart rate's question checked only once an address is saved for it, so an app that never asks for heart rate never
+/// asks iOS about it either. Answers on any thread.
+private func heartRateQuestionAnsweredIfAsked(_ answer: @escaping (Bool) -> Void) {
+    heartRateSync.hasAddress { known in
+        if known { heartRateQuestionAnswered(answer) }
+    }
+}
+
+/// Sync each time the app comes to the front, and register the watchers at the first unlock after a restart.
 private func setUpObservers() {
     guard !observersSetUp else { return }
     observersSetUp = true
@@ -220,16 +360,21 @@ private func setUpObservers() {
     center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
         healthQuestionAnswered { answered in
             // Starts the watcher if the launch's check could not, as iOS answered it later.
-            coordinator.watchIfReady(dataAvailable: appState().dataAvailable, answered: answered)
+            sleepSync.watchIfReady(dataAvailable: appState().dataAvailable, answered: answered)
             // iOS still calls the app background as this arrives.
-            if answered { runSync(.front, state: "coming to the front") { _ in } }
+            if answered { runSleepSync(.front, state: "coming to the front") { _ in } }
+        }
+        heartRateQuestionAnsweredIfAsked { answered in
+            heartRateSync.watchIfReady(dataAvailable: appState().dataAvailable, answered: answered)
+            if answered { runHeartRateSync(.front, state: "coming to the front") { _ in } }
         }
     }
     center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
         // The first unlock after a restart, for an app iOS started before it: kept, so a wake once the phone locks again
         // still reads Health.
         markUnlocked()
-        healthQuestionAnswered { answered in coordinator.watchIfReady(dataAvailable: true, answered: answered) }
+        healthQuestionAnswered { answered in sleepSync.watchIfReady(dataAvailable: true, answered: answered) }
+        heartRateQuestionAnsweredIfAsked { answered in heartRateSync.watchIfReady(dataAvailable: true, answered: answered) }
     }
 }
 
@@ -269,27 +414,55 @@ private func askNow(share: Set<HKSampleType>?, read: Set<HKObjectType>) -> Error
 /// clear "still to ask" answers false: when iOS cannot say, the watcher and reads go ahead as before, since skipping
 /// them on doubt could stop every wake on a locked phone. Answers on any thread.
 private func healthQuestionAnswered(_ answer: @escaping (Bool) -> Void) {
-    healthStore.getRequestStatusForAuthorization(toShare: [], read: [sleepType]) { status, error in
-        switch status {
-        case .shouldRequest:
-            log("Health's question is not answered yet, so nothing is read or watched until the page's start asks it")
-            answer(false)
-        case .unnecessary:
-            answer(true)
-        default:
-            log("iOS could not say whether Health's question was answered (\(error?.localizedDescription ?? "no reason given")), so the plugin goes ahead")
-            answer(true)
-        }
+    questionAnswered(read: sleepType, log: log, answer)
+}
+
+/// The same for heart rate, asked of heart rate alone: an app upgraded from sleep alone has sleep's answer and not
+/// heart rate's, and a heart rate watcher started before that answer never wakes.
+private func heartRateQuestionAnswered(_ answer: @escaping (Bool) -> Void) {
+    questionAnswered(read: heartRateType, log: heartRateLog, answer)
+}
+
+private func questionAnswered(read type: HKObjectType, log: @escaping (String) -> Void, _ answer: @escaping (Bool) -> Void) {
+    healthStore.getRequestStatusForAuthorization(toShare: [], read: [type]) { status, error in
+        answerStatus(status, error, log: log, answer)
     }
 }
 
-/// On the Simulator, start asks to write sleep too when the app explains writing, so `simulatorSleep` never shows a
-/// second sheet: while any Health sheet about sleep is up, every read of it fails with "Authorization not determined"
-/// and a watcher started then never wakes (seen on the iOS 27.2 Simulator, with a sheet asking only to write). On a
-/// phone, start asks only to read.
-private func writeForMadeUpNights() -> Set<HKSampleType>? {
+private func answerStatus(_ status: HKAuthorizationRequestStatus, _ error: Error?, log: (String) -> Void, _ answer: (Bool) -> Void) {
+    switch status {
+    case .shouldRequest:
+        log("Health's question is not answered yet, so nothing is read or watched until the page's start asks it")
+        answer(false)
+    case .unnecessary:
+        answer(true)
+    default:
+        log("iOS could not say whether Health's question was answered (\(error?.localizedDescription ?? "no reason given")), so the plugin goes ahead")
+        answer(true)
+    }
+}
+
+/// Whether Health's question about `type`, with writing it on the Simulator, is still to ask, waiting for iOS's answer:
+/// a question only for what is still to ask leaves an answered sleep out of the sheet. Blocks, so never on the main
+/// thread.
+private func stillToAsk(_ type: HKSampleType) -> Bool {
+    let answered = DispatchSemaphore(value: 0)
+    var ask = true
+    healthStore.getRequestStatusForAuthorization(toShare: writeOnSimulator([type]) ?? [], read: [type]) { status, _ in
+        ask = status != .unnecessary
+        answered.signal()
+    }
+    answered.wait()
+    return ask
+}
+
+/// On the Simulator, start asks to write what it reads too when the app explains writing, so `simulatorSleep` and
+/// `simulatorHeartRate` never show a second sheet: while any Health sheet about sleep is up, every read of it fails with
+/// "Authorization not determined" and a watcher started then never wakes (seen on the iOS 27.2 Simulator, with a sheet
+/// asking only to write). On a phone, start asks only to read.
+private func writeOnSimulator(_ types: [HKSampleType]) -> Set<HKSampleType>? {
     #if targetEnvironment(simulator)
-    return explains("NSHealthUpdateUsageDescription") ? [sleepType] : nil
+    return explains("NSHealthUpdateUsageDescription") ? Set(types) : nil
     #else
     return nil
     #endif
@@ -307,18 +480,34 @@ private func json(_ object: [String: Any]) -> UnsafeMutablePointer<CChar> {
     return strdup(String(decoding: data, as: UTF8.self))!
 }
 
-private func resultJSON(_ result: SleepResult) -> UnsafeMutablePointer<CChar> {
+private func resultObject(_ result: HealthResult) -> [String: Any] {
     var object: [String: Any] = ["outcome": result.outcome.rawValue, "samples": result.samples, "deleted": result.deleted]
     object["status"] = result.status ?? NSNull()
-    return json(object)
+    return object
 }
 
-/// Save the address, ask for Health's sleep (iOS shows its sheet once), watch for new sleep and send what is new. Blocks
-/// until the send ends, so never call it on the main thread. Answers JSON `{ outcome, samples, deleted, status }`, to be
-/// freed with `iphone_health_free`.
+private func isWebAddress(_ address: String) -> Bool {
+    guard let url = URL(string: address), url.scheme == "https" || url.scheme == "http", url.host != nil else { return false }
+    return true
+}
+
+/// Ask Health for sleep, and for heart rate when `heartRate`. Sleep alone asks as it always has; with heart rate, only
+/// what is still to ask goes in the question, so an app already allowed for sleep shows a sheet for heart rate alone.
+private func askForTypes(heartRate: Bool) -> Error? {
+    guard heartRate else { return askForHealth(share: writeOnSimulator([sleepType]), read: [sleepType]) }
+    let types = [sleepType as HKSampleType, heartRateType].filter(stillToAsk)
+    guard !types.isEmpty else { return nil }
+    return askForHealth(share: writeOnSimulator(types), read: Set(types))
+}
+
+/// Save the address, ask for Health's sleep (iOS shows its sheet once), watch for new sleep and send what is new; with a
+/// heart rate address, the same for heart rate, and without one, stop sending heart rate. Blocks until the sends end,
+/// so never call it on the main thread. Answers JSON `{ outcome, samples, deleted, status }`, with `heartRate` of the
+/// same shape when its address was given, to be freed with `iphone_health_free`.
 @_cdecl("iphone_health_start")
-func startDirect(_ addressPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+func startDirect(_ addressPointer: UnsafePointer<CChar>, _ heartRatePointer: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar> {
     let address = String(cString: addressPointer)
+    let heartRateAddress = heartRatePointer.map { String(cString: $0) }
     guard HKHealthStore.isHealthDataAvailable() else {
         log("Health is not on this device")
         return json(["outcome": "no health"])
@@ -327,31 +516,59 @@ func startDirect(_ addressPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer
         log("the app's Info.plist has no NSHealthShareUsageDescription, which iOS needs before it asks for Health")
         return json(["outcome": "no permission text"])
     }
-    guard let url = URL(string: address), url.scheme == "https" || url.scheme == "http", url.host != nil else {
-        log("refused the address \(address): not a web address")
+    for given in [address] + (heartRateAddress.map { [$0] } ?? []) where !isWebAddress(given) {
+        log("refused the address \(given): not a web address")
         return json(["outcome": "bad address"])
     }
-    // iOS never says whether reading was allowed: a refusal reads as no sleep. A question that failed has no answer, and
-    // a watcher or read before one fails for good, so nothing is saved or read.
-    if let error = askForHealth(share: writeForMadeUpNights(), read: [sleepType]) {
-        log("asking for Health's sleep failed, so nothing is saved or sent: \(error.localizedDescription)")
+    // iOS never says whether reading was allowed: a refusal reads as no samples. A question that failed has no answer,
+    // and a watcher or read before one fails for good, so nothing is saved or read.
+    if let error = askForTypes(heartRate: heartRateAddress != nil) {
+        log("asking for Health's \(heartRateAddress == nil ? "sleep" : "sleep and heart rate") failed, so nothing is saved or sent: \(error.localizedDescription)")
         return json(["outcome": "health not asked"])
     }
     let (_, dataAvailable) = appState()
-    let saved = DispatchSemaphore(value: 0)
-    coordinator.setAddress(address, dataAvailable: dataAvailable) { saved.signal() }
+    let saved = DispatchGroup()
+    saved.enter()
+    sleepSync.setAddress(address, dataAvailable: dataAvailable) { saved.leave() }
+    saved.enter()
+    if let heartRateAddress = heartRateAddress {
+        heartRateSync.setAddress(heartRateAddress, dataAvailable: dataAvailable) { saved.leave() }
+    } else {
+        heartRateSync.clearAddress(dataAvailable: dataAvailable) { had in
+            if had {
+                healthStore.disableBackgroundDelivery(for: heartRateType) { _, _ in }
+            }
+            saved.leave()
+        }
+    }
     saved.wait()
-    let sent = DispatchSemaphore(value: 0)
-    var result = SleepResult(outcome: .nothingNew)
-    runSync(.open) { r in
+    let sent = DispatchGroup()
+    var result = HealthResult(outcome: .nothingNew)
+    var heartRate: HealthResult?
+    sent.enter()
+    runSleepSync(.open) { r in
         result = r
-        sent.signal()
+        sent.leave()
+    }
+    if heartRateAddress != nil {
+        sent.enter()
+        runHeartRateSync(.open) { r in
+            heartRate = r
+            sent.leave()
+        }
     }
     sent.wait()
     if result.outcome == .nothingNew {
         log("nothing new in Health's sleep; if there should be, check Settings, Health, Data Access & Devices")
     }
-    return resultJSON(result)
+    var object = resultObject(result)
+    if let heartRate = heartRate {
+        if heartRate.outcome == .nothingNew {
+            heartRateLog("nothing new in Health's heart rate; if there should be, check Settings, Health, Data Access & Devices")
+        }
+        object["heartRate"] = resultObject(heartRate)
+    }
+    return json(object)
 }
 
 @_cdecl("iphone_health_free")
@@ -430,10 +647,104 @@ func simulatorSleepDirect(_ actionPointer: UnsafePointer<CChar>) -> UnsafeMutabl
     log("simulator sleep \(action): \(answer)")
     return json(answer)
 }
+
+/// The made-up night's heart rate: a reading every 5 minutes from 22:45 to 4:40, slow and a little uneven, then a
+/// series of 60 readings 5 seconds apart from 4:40, rising as the wake at 4:45 comes. Answers the readings and the
+/// series' readings by time.
+private func madeUpHeartRate() -> (readings: [(Date, Double)], series: [(Date, Double)]) {
+    let end = lastWaking()
+    var readings: [(Date, Double)] = []
+    for n in 0..<72 {
+        let minutesBefore = Double(360 - n * 5)
+        let bpm = 54.0 + Double((n * 7) % 9)
+        readings.append((end.addingTimeInterval(-minutesBefore * 60), bpm))
+    }
+    let seriesStart = end.addingTimeInterval(-5 * 60)
+    var series: [(Date, Double)] = []
+    for n in 0..<60 {
+        let bpm = 58.0 + Double(n) * 0.6
+        series.append((seriesStart.addingTimeInterval(Double(n) * 5), bpm))
+    }
+    return (readings, series)
+}
+
+/// Add the made-up night's heart rate to the Simulator's Health (`add`), the series as one condensed series the way
+/// Health condenses a workout's, or delete the newest heart rate sample this app wrote (`delete`). Blocks; answers JSON
+/// `{ added, series: [{ uuid, count }] }`, `{ deleted }` or `{ error }`. Health may split one series into several.
+@_cdecl("iphone_health_simulator_heart_rate")
+func simulatorHeartRateDirect(_ actionPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    let action = String(cString: actionPointer)
+    guard explains("NSHealthUpdateUsageDescription") else {
+        return json(["error": "the app's Info.plist has no NSHealthUpdateUsageDescription, which iOS needs before it lets the app write to Health"])
+    }
+    if let error = askForHealth(share: [heartRateType], read: [heartRateType]) {
+        return json(["error": "asking to write Health's heart rate failed: \(error.localizedDescription)"])
+    }
+    let done = DispatchSemaphore(value: 0)
+    var answer: [String: Any] = [:]
+    switch action {
+    case "add":
+        let night = madeUpHeartRate()
+        let singles = night.readings.map { at, bpm in
+            HKQuantitySample(type: heartRateType, quantity: HKQuantity(unit: beatsPerMinute, doubleValue: bpm), start: at, end: at)
+        }
+        healthStore.save(singles) { ok, error in
+            guard ok else {
+                answer = ["error": error?.localizedDescription ?? "Health did not save the readings"]
+                done.signal()
+                return
+            }
+            let builder = HKQuantitySeriesSampleBuilder(healthStore: healthStore, quantityType: heartRateType, startDate: night.series[0].0, device: nil)
+            do {
+                for (at, bpm) in night.series {
+                    try builder.insert(HKQuantity(unit: beatsPerMinute, doubleValue: bpm), for: DateInterval(start: at, duration: 0))
+                }
+            } catch {
+                answer = ["error": "the series did not take a reading: \(error.localizedDescription)"]
+                done.signal()
+                return
+            }
+            builder.finishSeries(metadata: nil, endDate: nil) { samples, error in
+                if let samples = samples {
+                    answer = ["added": singles.count, "series": samples.map { ["uuid": $0.uuid.uuidString, "count": $0.count] }]
+                } else {
+                    answer = ["error": error?.localizedDescription ?? "Health did not finish the series"]
+                }
+                done.signal()
+            }
+        }
+    case "delete":
+        let mine = HKQuery.predicateForObjects(from: HKSource.default())
+        let newest = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: heartRateType, predicate: mine, limit: 1, sortDescriptors: [newest]) { _, samples, error in
+            guard let sample = samples?.first else {
+                answer = ["error": error?.localizedDescription ?? "no heart rate of this app's to delete"]
+                done.signal()
+                return
+            }
+            healthStore.delete(sample) { ok, error in
+                answer = ok ? ["deleted": sample.uuid.uuidString] : ["error": error?.localizedDescription ?? "Health did not delete it"]
+                done.signal()
+            }
+        }
+        healthStore.execute(query)
+    default:
+        answer = ["error": "the action is add or delete, not \(action)"]
+        done.signal()
+    }
+    done.wait()
+    log("simulator heart rate \(action): \(answer)")
+    return json(answer)
+}
 #else
 @_cdecl("iphone_health_simulator_sleep")
 func simulatorSleepDirect(_ actionPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
     json(["error": "made-up nights are only on the Simulator"])
+}
+
+@_cdecl("iphone_health_simulator_heart_rate")
+func simulatorHeartRateDirect(_ actionPointer: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar> {
+    json(["error": "made-up heart rate is only on the Simulator"])
 }
 #endif
 
@@ -446,20 +757,26 @@ public class IphoneHealthPlugin: Plugin {
     }
 }
 
-/// Runs before launch finishes. Once iOS says Health's question is answered, a moment later, the watcher is registered
-/// when an address is saved, and a launch into the front sends what is new. A watcher registered after launch still
-/// misses nothing: its first callback, at registration, runs a sync, which reads all that is new since the last send.
+/// Runs before launch finishes. Once iOS says Health's question is answered, a moment later, each watcher is registered
+/// when an address is saved for it, and a launch into the front sends what is new. A watcher registered after launch
+/// still misses nothing: its first callback, at registration, runs a sync, which reads all that is new since the last
+/// send. Heart rate goes only by heart rate's own answer.
 @_cdecl("init_plugin_iphone_health")
 func initPlugin() -> Plugin {
     let start = {
         setUpObservers()
         let (state, dataAvailable) = appState()
         healthQuestionAnswered { answered in
-            coordinator.watchIfReady(dataAvailable: dataAvailable, answered: answered)
+            sleepSync.watchIfReady(dataAvailable: dataAvailable, answered: answered)
             guard answered, state != "in the background" else { return }
-            coordinator.hasAddress { known in
-                if known { runSync(.open) { _ in } }
+            sleepSync.hasAddress { known in
+                if known { runSleepSync(.open) { _ in } }
             }
+        }
+        heartRateQuestionAnsweredIfAsked { answered in
+            heartRateSync.watchIfReady(dataAvailable: dataAvailable, answered: answered)
+            guard answered, state != "in the background" else { return }
+            runHeartRateSync(.open) { _ in }
         }
     }
     if Thread.isMainThread { start() } else { DispatchQueue.main.async(execute: start) }

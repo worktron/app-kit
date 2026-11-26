@@ -59,7 +59,7 @@ swiftc -warnings-as-errors tauri/iphone-dictation/plugin/ios/Sources/DictationRu
 rm -rf "$dictation_test"
 # The iPhone Health plugin's rules for when to send, what to keep and how every wake is answered, the same way.
 health_test="$(mktemp -d)"
-swiftc -warnings-as-errors tauri/iphone-health/plugin/ios/Sources/SleepSync.swift tauri/iphone-health/plugin/ios/Tests/main.swift -o "$health_test/rules"
+swiftc -warnings-as-errors tauri/iphone-health/plugin/ios/Sources/HealthSync.swift tauri/iphone-health/plugin/ios/Tests/main.swift -o "$health_test/rules"
 "$health_test/rules"
 rm -rf "$health_test"
 

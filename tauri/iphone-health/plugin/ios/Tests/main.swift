@@ -1,7 +1,8 @@
 import Foundation
 
-// The send rules (Sources/SleepSync.swift), run on the Mac by scripts/gates.sh with bare swiftc, since the plugin's own
-// package builds only for iOS against Tauri. Health, the network and the phone's saved state are fakes here.
+// The send rules (Sources/HealthSync.swift), run on the Mac by scripts/gates.sh with bare swiftc, since the plugin's own
+// package builds only for iOS against Tauri. Health, the network and the phone's saved state are fakes here. The sleep
+// checks come first, then heart rate's.
 
 var failures = 0
 func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
@@ -17,13 +18,14 @@ func sample(_ n: Int) -> SleepSample {
     SleepSample(uuid: "u\(n)", start: Int64(n) * 1000, end: Int64(n) * 1000 + 500, value: "asleepCore", source: "com.apple.health.x", device: "Watch7,1")
 }
 
-/// Health as a list of changes, each stretch added or deleted, read after an anchor that is the index of the next one.
-final class FakeStore: SleepStore {
+/// Health's sleep as a list of changes, each stretch added or deleted, read after an anchor that is the index of the
+/// next one.
+final class FakeStore: HealthStore {
     enum Change { case add(SleepSample), delete(String) }
     var changes: [Change] = []
     var locked = false
     var reads = 0
-    func read(after anchor: Data?, limit: Int, done: @escaping (SleepRead) -> Void) {
+    func read(after anchor: Data?, limit: Int, done: @escaping (HealthRead<SleepSample>) -> Void) {
         reads += 1
         if locked { return done(.locked) }
         let from = anchor.map { Int(String(decoding: $0, as: UTF8.self))! } ?? 0
@@ -36,22 +38,69 @@ final class FakeStore: SleepStore {
             case .delete(let id): deleted.append(id)
             }
         }
-        done(.batch(samples: samples, deleted: deleted, anchor: Data(String(from + slice.count).utf8)))
+        done(.batch(samples: samples, deleted: deleted, anchor: Data(String(from + slice.count).utf8),
+                    more: filledLimit(samples: samples.count, deleted: deleted.count, limit: limit)))
     }
 }
 
+/// Health's heart rate as a list of changes, each a sample added (one reading, or a condensed series with its readings)
+/// or deleted, read through the plugin's own `readHeartRate`, as the phone's store reads Health.
+final class FakeHeartRateStore: HealthStore {
+    enum Change { case add(HeartRateObject, [SeriesReading]), delete(String) }
+    var changes: [Change] = []
+    var locked = false
+    var seriesFails = false
+    var reads = 0
+    /// The limits Health was asked with, in order, the smaller reads included.
+    var limits: [Int] = []
+    func read(after anchor: Data?, limit: Int, done: @escaping (HealthRead<HeartRateSample>) -> Void) {
+        reads += 1
+        let from = anchor.map { Int(String(decoding: $0, as: UTF8.self))! } ?? 0
+        let changes = self.changes
+        readHeartRate(limit: limit, cap: limit, query: { limit, answer in
+            self.limits.append(limit)
+            if self.locked { return answer(.locked) }
+            let slice = changes[min(from, changes.count)..<min(from + limit, changes.count)]
+            var objects: [HeartRateObject] = []
+            var deleted: [String] = []
+            for change in slice {
+                switch change {
+                case .add(let object, _): objects.append(object)
+                case .delete(let id): deleted.append(id)
+                }
+            }
+            answer(.value(HeartRateRead(objects: objects, deleted: deleted, anchor: Data(String(from + slice.count).utf8))))
+        }, series: { uuids, answer in
+            if self.seriesFails { return answer(.failed("the series could not be read")) }
+            var readings: [String: [SeriesReading]] = [:]
+            for case let .add(object, values) in changes where uuids.contains(object.uuid) { readings[object.uuid] = values }
+            answer(.value(readings))
+        }, done: done)
+    }
+}
+
+func reading(_ n: Int) -> HeartRateObject {
+    HeartRateObject(uuid: "r\(n)", count: 1, start: Int64(n) * 1000, end: Int64(n) * 1000, bpm: 50 + Double(n), source: "com.apple.health.x", device: "Watch7,1")
+}
+
+/// A condensed series of `count` readings, one second apart from `from`, as Health makes it: the iPhone as its device.
+func series(_ uuid: String, from: Int, count: Int) -> (HeartRateObject, [SeriesReading]) {
+    let values = (0..<count).map { SeriesReading(start: Int64(from + $0) * 1000, end: Int64(from + $0) * 1000 + 1000, bpm: 50 + Double(from + $0)) }
+    return (HeartRateObject(uuid: uuid, count: count, start: values.first!.start, end: values.last!.end, bpm: 60, source: "com.apple.health.x", device: "iPhone12,1"), values)
+}
+
 /// The server: answers each request with the next of `answers` (200 when they run out), or holds it until let go.
-final class FakeSender: SleepSender {
+final class FakeSender<Sample: Codable & Equatable>: HealthSender {
     var answers: [SendAnswer] = []
     var hold = false
     var held: [() -> Void] = []
-    var bodies: [SleepPayload] = []
+    var bodies: [HealthPayload<Sample>] = []
     /// Signalled once per request, after it is recorded.
     let posted = DispatchSemaphore(value: 0)
     let lock = NSLock()
     func post(_ body: Data, to address: String, done: @escaping (SendAnswer) -> Void) {
         lock.lock()
-        bodies.append(try! JSONDecoder().decode(SleepPayload.self, from: body))
+        bodies.append(try! JSONDecoder().decode(HealthPayload<Sample>.self, from: body))
         posted.signal()
         let answer = answers.isEmpty ? .status(200) : answers.removeFirst()
         if hold {
@@ -89,44 +138,45 @@ final class FakeDeadlines {
     }
 }
 
-final class FakeKeeping: SleepKeeping {
+final class FakeKeeping: HealthKeeping {
     var address: String?
     var anchors: (address: String, anchor: Data?)?
-    var earlier: [SleepAttempt] = []
+    var earlier: [HealthAttempt] = []
     func anchor(for address: String) -> Data? { anchors?.address == address ? anchors?.anchor : nil }
     func setAnchor(_ anchor: Data?, for address: String) { anchors = (address, anchor) }
 }
 
-final class FakeWatcher: SleepWatcher {
+final class FakeWatcher: HealthWatcher {
     var registered = 0
     func register() { registered += 1 }
 }
 
-struct Rig {
-    let store = FakeStore()
-    let sender = FakeSender()
+struct Rig<Store: HealthStore> {
+    let store: Store
+    let sender = FakeSender<Store.Sample>()
     let keeping = FakeKeeping()
     let watcher = FakeWatcher()
     let deadlines = FakeDeadlines()
-    let sync: SleepSync
-    init(address: String? = "https://hub.example.com/sleep") {
+    let sync: HealthSync<Store>
+    init(store: Store, address: String?, batch: Int, words: HealthWords) {
+        self.store = store
         keeping.address = address
         var clock: Int64 = 0
         let deadlines = self.deadlines
-        sync = SleepSync(store: store, sender: sender, keeping: keeping, watcher: watcher,
-                         schedule: { after, work in deadlines.schedule(after, work) },
-                         now: { clock += 1; return clock }, log: { _ in })
+        sync = HealthSync(store: store, sender: sender, keeping: keeping, watcher: watcher, batch: batch, words: words,
+                          schedule: { after, work in deadlines.schedule(after, work) },
+                          now: { clock += 1; return clock }, log: { _ in })
     }
 
     /// Run one sync and wait for its answer.
-    func run(_ trigger: SleepTrigger = .front, state: String = "coming to the front", dataAvailable: Bool = true) -> SleepResult {
+    func run(_ trigger: HealthTrigger = .front, state: String = "coming to the front", dataAvailable: Bool = true) -> HealthResult {
         let done = DispatchSemaphore(value: 0)
-        var result: SleepResult?
+        var result: HealthResult?
         sync.sync(trigger, state: state, dataAvailable: dataAvailable) { r in
             result = r
             done.signal()
         }
-        if done.wait(timeout: .now() + 10) == .timedOut { return SleepResult(outcome: .nothingNew, samples: -1) }
+        if done.wait(timeout: .now() + 10) == .timedOut { return HealthResult(outcome: .nothingNew, samples: -1) }
         return result!
     }
 
@@ -137,6 +187,31 @@ struct Rig {
         _ = done.wait(timeout: .now() + 10)
     }
 }
+
+extension Rig where Store == FakeStore {
+    init(address: String? = "https://hub.example.com/sleep") {
+        self.init(store: FakeStore(), address: address, batch: batchLimit, words: .sleep)
+    }
+}
+
+extension Rig where Store == FakeHeartRateStore {
+    init(heartRate address: String? = "https://hub.example.com/heart-rate", batch: Int = heartRateBatchLimit) {
+        self.init(store: FakeHeartRateStore(), address: address, batch: batch, words: .heartRate)
+    }
+}
+
+/// The README's keeping rule, as a server holds it: each reading by its uuid and index, and a deleted uuid removes
+/// every reading under it.
+final class HeldReadings {
+    var held: [String: HeartRateSample] = [:]
+    func take(_ body: HealthPayload<HeartRateSample>) {
+        let gone = Set(body.deleted)
+        held = held.filter { !gone.contains($0.value.uuid) }
+        for sample in body.samples { held["\(sample.uuid)#\(sample.index)"] = sample }
+    }
+    var beats: [Int64] { held.values.map(\.start).sorted() }
+}
+
 
 do {
     let rig = Rig()
@@ -168,7 +243,7 @@ do {
     rig.store.changes = [.add(sample(1))]
     rig.sender.hold = true
     let done = DispatchSemaphore(value: 0)
-    var result = SleepResult(outcome: .sent)
+    var result = HealthResult(outcome: .sent)
     rig.sync.sync(.front, state: "coming to the front", dataAvailable: true) { r in
         result = r
         done.signal()
@@ -288,7 +363,7 @@ do {
     let rig = Rig()
     rig.store.changes = [.add(sample(1))]
     _ = rig.run()
-    rig.keeping.earlier = [SleepAttempt(at: 1, trigger: "front", state: "coming to the front", outcome: "locked", status: nil)]
+    rig.keeping.earlier = [HealthAttempt(at: 1, trigger: "front", state: "coming to the front", outcome: "locked", status: nil)]
     rig.sync.setAddress("https://other.example.com/sleep", dataAvailable: true)
     rig.settle()
     check("a new address starts the history over and drops what was kept", rig.keeping.anchor(for: "https://other.example.com/sleep") == nil && rig.keeping.earlier.isEmpty)
@@ -367,9 +442,9 @@ do {
 }
 
 do {
-    let body = try! JSONEncoder().encode(SleepPayload(trigger: "open", state: "in front",
+    let body = try! JSONEncoder().encode(HealthPayload<SleepSample>(trigger: "open", state: "in front",
         samples: [SleepSample(uuid: "a", start: 1_763_430_000_000, end: 1_763_431_800_000, value: "awake", source: "com.example", device: nil)],
-        deleted: [], earlier: [SleepAttempt(at: 5, trigger: "front", state: "in front", outcome: "no answer", status: nil)]))
+        deleted: [], earlier: [HealthAttempt(at: 5, trigger: "front", state: "in front", outcome: "no answer", status: nil)]))
     let json = String(decoding: body, as: UTF8.self)
     check("a stretch with no device sends null, not nothing", json.contains("\"device\":null"), json)
     check("an attempt with no status sends null", json.contains("\"status\":null"), json)
@@ -390,7 +465,7 @@ do {
     rig.sender.hold = true
     let first = DispatchSemaphore(value: 0)
     let second = DispatchSemaphore(value: 0)
-    var secondResult: SleepResult?
+    var secondResult: HealthResult?
     rig.sync.sync(.backgroundWake, state: "in the background", dataAvailable: true) { _ in first.signal() }
     _ = rig.sender.posted.wait(timeout: .now() + 10)
     rig.sync.sync(.backgroundWake, state: "in the background", dataAvailable: true) { r in
@@ -409,6 +484,173 @@ do {
     rig.sender.letGo()
     rig.deadlines.fire()
     rig.settle()
+}
+
+// MARK: - Heart rate
+
+do {
+    // An app upgraded from sleep alone: sleep's question was answered long ago, heart rate's is still to ask.
+    let sleep = Rig()
+    let heart = Rig(heartRate: nil)
+    sleep.sync.watchIfReady(dataAvailable: true, answered: true)
+    heart.sync.watchIfReady(dataAvailable: true, answered: false)
+    sleep.settle()
+    heart.settle()
+    check("sleep answered, heart rate not yet asked: sleep's watcher registers", sleep.watcher.registered == 1)
+    check("sleep answered, heart rate not yet asked: heart rate's does not", heart.watcher.registered == 0)
+    let result = heart.run(.open, state: "in front")
+    check("sleep answered, heart rate not yet asked: heart rate reads nothing and keeps nothing",
+          result.outcome == .noAddress && heart.store.reads == 0 && heart.keeping.earlier.isEmpty)
+    // The page's start asks heart rate's question, then saves its address.
+    heart.sync.setAddress("https://hub.example.com/heart-rate", dataAvailable: true)
+    heart.settle()
+    check("sleep answered, heart rate not yet asked: the start's answer registers heart rate's watcher", heart.watcher.registered == 1)
+    check("sleep answered, heart rate not yet asked: sleep's watcher is not registered twice", sleep.watcher.registered == 1)
+}
+
+do {
+    // A heart-rate address kept from before, with heart rate's question still to ask, as after Health's permissions
+    // were reset: nothing is watched until it is answered, whatever sleep's answer.
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    heart.sync.watchIfReady(dataAvailable: true, answered: false)
+    heart.settle()
+    check("a kept heart-rate address with its question unanswered watches nothing", heart.watcher.registered == 0)
+    heart.sync.watchIfReady(dataAvailable: true, answered: true)
+    heart.settle()
+    check("once heart rate's question is answered its watcher registers", heart.watcher.registered == 1)
+}
+
+do {
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    let server = HeldReadings()
+    heart.store.changes = (1...3).map { .add(reading($0), []) }
+    _ = heart.run()
+    heart.sender.bodies.forEach(server.take)
+    check("single readings are sent as themselves", heart.sender.bodies.first?.samples.map { "\($0.uuid)#\($0.index)#\($0.series)" } == ["r1#0#false", "r2#0#false", "r3#0#false"])
+    // Months later Health condenses the three into one series and deletes them.
+    let (condensed, values) = series("s1", from: 1, count: 3)
+    heart.store.changes += [.delete("r1"), .delete("r2"), .delete("r3"), .add(condensed, values)]
+    _ = heart.run()
+    let second = heart.sender.bodies.last!
+    server.take(second)
+    check("a condensed series replacing its originals deletes the originals", second.deleted == ["r1", "r2", "r3"])
+    check("a condensed series replacing its originals sends its readings under new keys",
+          second.samples.map { "\($0.uuid)#\($0.index)#\($0.series)" } == ["s1#0#true", "s1#1#true", "s1#2#true"])
+    check("a condensed series replacing its originals keeps every reading once", server.beats == [1000, 2000, 3000] && server.held.count == 3, "\(server.held.keys.sorted())")
+    // Health may condense more than once: the first series goes and a new one takes its place.
+    let (again, againValues) = series("s2", from: 1, count: 3)
+    heart.store.changes += [.delete("s1"), .add(again, againValues)]
+    _ = heart.run()
+    server.take(heart.sender.bodies.last!)
+    check("a second condensation replaces the first series and keeps every reading once",
+          server.beats == [1000, 2000, 3000] && Set(server.held.values.map(\.uuid)) == ["s2"])
+}
+
+do {
+    // Reads of at most 8 readings: a read whose series hold more is read again with half the limit, down to one.
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate", batch: 8)
+    let counts = [1, 1, 1, 5, 5, 1, 1, 1]
+    heart.store.changes = counts.enumerated().map { n, count in
+        count == 1 ? .add(reading(n * 100), []) : { let (o, v) = series("s\(n)", from: n * 100, count: count); return .add(o, v) }()
+    }
+    let result = heart.run()
+    check("a read past its readings is halved until it fits", heart.store.limits == [8, 4, 8], "\(heart.store.limits)")
+    check("each request carries at most the batch of readings", heart.sender.bodies.map(\.samples.count) == [8, 8], "\(heart.sender.bodies.map(\.samples.count))")
+    check("a read that fills its limit is followed by the next, one that does not ends", result.outcome == .sent && result.samples == 16 && heart.sender.bodies.count == 2)
+}
+
+do {
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate", batch: 8)
+    let (long, values) = series("long", from: 0, count: 20)
+    heart.store.changes = [.add(long, values), .add(reading(50), [])]
+    _ = heart.run()
+    check("one series longer than a request goes whole, alone", heart.store.limits == [8, 4, 2, 1, 8] && heart.sender.bodies.map(\.samples.count) == [20, 1], "\(heart.store.limits) \(heart.sender.bodies.map(\.samples.count))")
+}
+
+do {
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    let (condensed, values) = series("s1", from: 1, count: 3)
+    heart.store.changes = [.add(condensed, values)]
+    heart.store.seriesFails = true
+    let failed = heart.run()
+    check("a series query that fails fails the read, keeps the place and is kept",
+          failed.outcome == .readFailed && heart.sender.bodies.isEmpty && heart.keeping.anchor(for: heart.keeping.address!) == nil && heart.keeping.earlier.map(\.outcome) == ["read failed"])
+    heart.store.seriesFails = false
+    let sent = heart.run()
+    check("the next read sends the series and carries the failure", sent.outcome == .sent && sent.samples == 3 && heart.sender.bodies.first?.earlier.map(\.outcome) == ["read failed"])
+}
+
+do {
+    let (condensed, _) = series("empty", from: 1, count: 4)
+    let samples = heartRateSamples([condensed, reading(9)], series: [:])
+    check("a series the query gave no readings for sends none", samples.map(\.uuid) == ["r9"])
+}
+
+do {
+    // A read that fills its limit but whose only series gave no readings still moves its place on, so the next read
+    // does not ask for the same empty series for ever.
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate", batch: 2)
+    let empty = HeartRateObject(uuid: "e", count: 2, start: 0, end: 1, bpm: 60, source: "com.apple.health.x", device: nil)
+    heart.store.changes = [.add(empty, []), .add(reading(7), [])]
+    let result = heart.run()
+    check("a full read of empty series moves its place on", result.outcome == .sent && heart.sender.bodies.map { $0.samples.map(\.uuid) } == [[], ["r7"]], "\(heart.sender.bodies.map { $0.samples.map(\.uuid) })")
+}
+
+do {
+    let sleep = Rig()
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    sleep.store.changes = [.add(sample(1))]
+    heart.store.changes = [.add(reading(1), [])]
+    heart.store.locked = true
+    let sleepResult = sleep.run(.backgroundWake, state: "in the background")
+    let heartResult = heart.run(.backgroundWake, state: "in the background")
+    check("a heart-rate failure is kept in heart rate's list and not sleep's",
+          heartResult.outcome == .locked && heart.keeping.earlier.map(\.outcome) == ["locked"] && sleepResult.outcome == .sent && sleep.keeping.earlier.isEmpty)
+}
+
+do {
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    heart.store.changes = [.add(reading(1), [])]
+    _ = heart.run()
+    heart.keeping.earlier = [HealthAttempt(at: 1, trigger: "background wake", state: "in the background", outcome: "locked", status: nil)]
+    let cleared = DispatchSemaphore(value: 0)
+    var had = false
+    heart.sync.clearAddress(dataAvailable: true) { h in had = h; cleared.signal() }
+    _ = cleared.wait(timeout: .now() + 10)
+    heart.store.changes.append(.add(reading(2), []))
+    let result = heart.run()
+    check("a start without a heart-rate address stops heart rate's sends",
+          had && result.outcome == .noAddress && heart.sender.bodies.count == 1 && heart.keeping.address == nil && heart.keeping.earlier.isEmpty)
+    heart.sync.setAddress("https://hub.example.com/heart-rate", dataAvailable: true)
+    heart.settle()
+    _ = heart.run()
+    check("given again, the address starts heart rate's history over", heart.sender.bodies.last?.samples.map(\.uuid) == ["r1", "r2"])
+}
+
+do {
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    heart.store.changes = [.add(reading(1), [])]
+    let cleared = DispatchSemaphore(value: 0)
+    var had = true
+    heart.sync.clearAddress(dataAvailable: false) { h in had = h; cleared.signal() }
+    _ = cleared.wait(timeout: .now() + 10)
+    check("before the first unlock the heart-rate address is not cleared", !had && heart.keeping.address == "https://hub.example.com/heart-rate")
+}
+
+do {
+    let body = try! JSONEncoder().encode(HealthPayload(trigger: "open", state: "in front",
+        samples: [HeartRateSample(uuid: "a", index: 0, start: 1_763_430_000_000, end: 1_763_430_000_000, bpm: 58, series: false, source: "com.example", device: nil)],
+        deleted: [], earlier: []))
+    let json = String(decoding: body, as: UTF8.self)
+    check("a reading with no device sends null, not nothing", json.contains("\"device\":null"), json)
+    check("a reading says whether it came from a series", json.contains("\"series\":false"), json)
+    check("beats per minute is a number", json.contains("\"bpm\":58"), json)
+}
+
+do {
+    check("a read that fits needs no smaller one", nextLimit(limit: 5000, total: 5000, cap: 5000) == nil)
+    check("a read past its cap is halved", nextLimit(limit: 5000, total: 5001, cap: 5000) == 2500)
+    check("a read of one object is never made smaller", nextLimit(limit: 1, total: 9000, cap: 5000) == nil)
 }
 
 if failures > 0 {
