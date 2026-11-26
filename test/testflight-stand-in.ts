@@ -96,7 +96,7 @@ export type StandInBuild = {
 };
 
 /**
- * App Store Connect, for one app, whose builds list comes back in the order of their numbers read as text, as Apple's
+ * App Store Connect, for one app and any others `apps` names, whose builds list comes back in the order of their numbers read as text, as Apple's
  * need not be by number, and with only the attributes `fields[builds]` names, as Apple's sparse fieldsets do. A
  * node:http server, since the unit tests' simulated page replaces the global Response; the client is handed Bun's own
  * fetch for the same reason (`options` below).
@@ -116,10 +116,13 @@ export async function appStoreConnect(config: {
   refuseBundleIds?: boolean;
   /** The App Groups assigned to each bundle id, by identifier, which a profile made for it allows. */
   groups?: Record<string, string[]>;
+  /** The team's other app records, each with its own builds, as two apps of one repository have. */
+  apps?: { bundleId: string; appId: string; builds?: StandInBuild[] }[];
 }) {
   const appId = config.appId ?? '1000000001';
   const bundleResource = 'BUNDLE0001';
   const builds: StandInBuild[] = config.builds ?? [];
+  const apps = [{ bundleId: config.bundleId, appId, builds }, ...(config.apps ?? []).map((app) => ({ ...app, builds: app.builds ?? [] }))];
   const certificates = config.certificates ?? [CERTIFICATE_RECORD];
   const profiles: StandInProfile[] = config.profiles ?? [{ id: 'PROFILE001', uuid: 'uuid-0001', content: profileContent('uuid-0001'), type: 'IOS_APP_STORE', state: 'ACTIVE', certificates: [CERTIFICATE_RECORD.id] }];
   const requests: string[] = [];
@@ -186,9 +189,11 @@ export async function appStoreConnect(config: {
       return [201, { data: profileResource(profile) }];
     }
     if (url.pathname === '/v1/apps') {
-      return [200, { data: q('filter[bundleId]') === config.bundleId ? [{ type: 'apps', id: appId, attributes: { bundleId: config.bundleId } }] : [] }];
+      return [200, { data: apps.filter((app) => app.bundleId === q('filter[bundleId]')).map((app) => ({ type: 'apps', id: app.appId, attributes: { bundleId: app.bundleId } })) }];
     }
-    if (url.pathname === '/v1/builds' && q('filter[app]') === appId) {
+    const askedApp = apps.find((app) => app.appId === q('filter[app]'));
+    if (url.pathname === '/v1/builds' && askedApp) {
+      const builds = askedApp.builds;
       // Apple answers every platform's builds when none is named; a caller that names none would mix them, so it is refused.
       const platform = q('filter[preReleaseVersion.platform]');
       if (!platform) return [400, { errors: [{ status: '400', title: 'the stand-in needs filter[preReleaseVersion.platform]' }] }];
@@ -222,7 +227,7 @@ export async function appStoreConnect(config: {
       const sorted = [...ofPlatform].sort((a, b) => b.number.localeCompare(a.number));
       const size = config.pageSize ?? Number(q('limit') ?? 50);
       const from = Number(q('cursor') ?? 0);
-      const next = from + size < sorted.length ? new URL(`/v1/builds?filter[app]=${appId}&filter[preReleaseVersion.platform]=${platform}&limit=${size}&cursor=${from + size}`, url).href : undefined;
+      const next = from + size < sorted.length ? new URL(`/v1/builds?filter[app]=${askedApp.appId}&filter[preReleaseVersion.platform]=${platform}&limit=${size}&cursor=${from + size}`, url).href : undefined;
       return [200, { data: sorted.slice(from, from + size).map((b) => resource(b, b.states[b.states.length - 1])), links: { next } }];
     }
     return [404, { errors: [{ status: '404', title: 'Not found' }] }];
@@ -240,6 +245,8 @@ export async function appStoreConnect(config: {
   return {
     baseUrl,
     builds,
+    /** Each app record's builds by its bundle id, the first app's being `builds`. */
+    buildsOf: (bundleId: string) => apps.find((app) => app.bundleId === bundleId)!.builds,
     profiles,
     requests,
     madeBundles,

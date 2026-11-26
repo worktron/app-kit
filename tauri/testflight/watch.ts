@@ -1,12 +1,13 @@
 /*
- * `app-kit testflight watch <git url>[#<folder>]...`: one pass over each iPhone app's main, which a background job runs
+ * `app-kit testflight watch <git url>[#<folder>[=<name>]]...`: one pass over each iPhone app's main, which a background job runs
  * every five minutes. When an app's main has moved and the change touches its iPhone app, or the newest TestFlight build
  * is near the day Apple expires it, it builds main's exact commit in a clone of its own and runs the app's own
  * `bun run app-kit testflight upload --token-only` there, so the app's pinned kit decides how it is built. An app whose
  * Tauri project is in a subfolder of its repository names it after a `#`, and everything runs in that folder. A native
  * Xcode app's folder, one holding an XcodeGen project.yml and no Tauri project (native.ts), is named the same way; its
  * bundle id is read from project.yml, and its files are the folder's but its documentation, a check/ folder and its test
- * targets' folders. Every
+ * targets' folders. A second app of one repository, in another folder, gives its own name after the folder, as
+ * `metamax.git#tv=metamax-tv`, and is kept and logged under it; every other app under its repository's name. Every
  * decision is one line in testflight.log, with its reason.
  *
  * What has already gone up is read from App Store Connect, never kept here, so an upload by hand is never repeated and
@@ -31,11 +32,11 @@ import { appendLog, stateFolder } from '../state.ts';
 import {
   appAddress,
   appKind,
-  appName,
   buildLog,
   checkOutMain,
   cloneGit,
   countsAsApp,
+  entryName,
   fetchMain,
   minutes,
   passOverApps,
@@ -49,7 +50,7 @@ import {
   type MainRecord,
 } from '../watch-main.ts';
 
-export { appAddress, appKind, appName, countsAsApp, retryDue, RETRY_MS, type AppKind, type Failure } from '../watch-main.ts';
+export { appAddress, appKind, appName, countsAsApp, entryName, retryDue, RETRY_MS, type AppKind, type Failure } from '../watch-main.ts';
 
 /** How long each step may run before it is stopped with everything it started, in milliseconds. */
 export type Limits = { fetch: number; install: number; build: number; upload: number };
@@ -162,7 +163,7 @@ async function watchApp(url: string, state: string, options: WatchOptions): Prom
   const run = options.run ?? runCommand;
   const now = options.now ?? Date.now;
   const limits = { ...LIMITS, ...options.limits };
-  const name = appName(url);
+  const name = entryName(url);
   const folder = join(state, name);
   const checkout = join(folder, 'checkout');
   const recordFile = join(folder, 'record.json');

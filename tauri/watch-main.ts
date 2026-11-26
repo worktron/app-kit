@@ -31,14 +31,30 @@ export function appName(url: string): string {
  * An app's entry in a watcher's list: its git address, then `#<folder>` when its Tauri project is in a subfolder,
  * as Timescale's `desktop/` is; the folder is '' at the repository's root. GitHub's names hold no `#`. The folder goes to
  * git clean as a pattern, so only plain path characters are taken; anything else is why the entry is refused.
+ *
+ * A second app of one repository, in another folder, gives its own name after the folder, `#tv=metamax-tv`, which is
+ * the folder its clone and record are kept in and the name its lines carry; every other entry is named by its
+ * repository. A name is lower case, since this Mac's disk takes `Metamax` and `metamax` for one folder.
  */
-export function appAddress(entry: string): { url: string; folder: string } | string {
+export function appAddress(entry: string): { url: string; folder: string; name?: string } | string {
   const at = entry.lastIndexOf('#');
   if (at < 0) return { url: entry, folder: '' };
-  const folder = entry.slice(at + 1).replace(/\/+$/, '');
+  const after = entry.slice(at + 1);
+  const equals = after.indexOf('=');
+  const written = equals < 0 ? after : after.slice(0, equals);
+  const folder = written.replace(/\/+$/, '');
   const plain = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(folder) && !folder.split('/').some((part) => part === '.' || part === '..');
-  if (!plain) return `the folder "${entry.slice(at + 1)}" after # is not a folder inside the repository, named in letters, digits, ., _, - and /`;
-  return { url: entry.slice(0, at), folder };
+  if (!plain) return `the folder "${written}" after # is not a folder inside the repository, named in letters, digits, ., _, - and /`;
+  if (equals < 0) return { url: entry.slice(0, at), folder };
+  const name = after.slice(equals + 1);
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return `the name "${name}" after = is not a name, which takes lower-case letters, digits and -, starting with a letter or digit`;
+  return { url: entry.slice(0, at), folder, name };
+}
+
+/** The name an entry's app is kept and logged under: the one written after its folder, else its repository's. */
+export function entryName(entry: string): string {
+  const address = appAddress(entry);
+  return typeof address !== 'string' && address.name ? address.name : appName(entry);
 }
 
 /** Whether the commit judged last should be built again: it failed for a reason other than its own code, an hour ago. */
@@ -123,16 +139,23 @@ export async function passOverApps(input: {
   let failures = 0;
   try {
     const urls = typeof input.urls === 'function' ? await input.urls() : input.urls;
-    // Each app has one clone and one record, by its repository's name, so a repository is watched once, at one folder.
+    // Each app has one clone and one record, by its name, so no two entries are watched under one name, compared
+    // in lower case since the Mac's disk takes Metamax and metamax for one folder; an entry refused for how it is
+    // written claims no name, so a typo never blocks the app it was meant to sit beside.
     const watched = new Set<string>();
     for (const url of urls) {
       try {
-        if (watched.has(appName(url))) throw new Error(`${url} is a repository an earlier entry already watches; each is watched at one folder`);
-        watched.add(appName(url));
+        const address = appAddress(url);
+        if (typeof address === 'string') throw new Error(address);
+        const name = entryName(url);
+        if (watched.has(name.toLowerCase())) {
+          throw new Error(`${url} is named ${name}, as an earlier entry is; a second folder of one repository gives its own name, as <git url>#<folder>=<name>`);
+        }
+        watched.add(name.toLowerCase());
         if (await input.app(url)) failures++;
       } catch (error) {
         // Nothing an app does stops the pass over the others.
-        appendLog(input.logFile, `${new Date(input.now()).toISOString()} ${appName(url)}: failed: ${error instanceof Error ? error.message : String(error)}`);
+        appendLog(input.logFile, `${new Date(input.now()).toISOString()} ${entryName(url)}: failed: ${error instanceof Error ? error.message : String(error)}`);
         failures++;
       }
     }

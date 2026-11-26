@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaul
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCommand, type Run, type RunOptions, type RunResult } from '../command-line/run.ts';
-import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, watch, type Limits } from '../tauri/testflight/watch.ts';
+import { appAddress, appKind, appName, commitForNumber, countsAsApp, decide, entryName, watch, type Limits } from '../tauri/testflight/watch.ts';
 import { lock } from '../tauri/state.ts';
 import { appStoreConnect, commit, emptyCommits, exit, git, GIT_IDENTITY_ENV, ITEM_JSON, ok, pathWithGitItself, repository, scratch, standInRunner, TOKEN } from './testflight-stand-in.ts';
 
@@ -485,11 +485,92 @@ test('a Tauri project in a subfolder is installed, judged and uploaded from its 
   expect(inside.named('testflight upload')[0].options.cwd).toBe(join(checkout, 'desktop'));
   expect(existsSync(join(checkout, 'desktop/src-tauri/target/release/cache'))).toBe(true);
   expect(existsSync(join(checkout, 'desktop/node_modules/app-kit/tauri/testflight/upload.ts'))).toBe(true);
+});
 
-  // A second folder of the same repository would share its clone and record, and be skipped unseen, so it is refused.
+test('a second folder of one repository is watched under the name its entry gives, with its own clone, record and App Store Connect record', async () => {
+  // Metamax's layout: the iPhone app's Tauri project in mobile/, and its Apple TV app, a native XcodeGen project, in tv/,
+  // each with its own record in App Store Connect.
+  await asc.stop();
+  asc = await appStoreConnect({ bundleId: 'app.pastthebreak', apps: [{ bundleId: 'app.pastthebreak.tv', appId: '1000000002' }] });
+  const yml = 'name: CouchTV\ntargets:\n  CouchTV:\n    type: application\n    platform: tvOS\n    settings:\n      PRODUCT_BUNDLE_IDENTIFIER: app.pastthebreak.tv\n';
+  const metamax = repository(join(place.folder, 'metamax'), {
+    'mobile/src-tauri/tauri.conf.json': JSON.stringify({ identifier: 'app.pastthebreak', build: { frontendDist: '../dist' } }),
+    'mobile/src/app.ts': 'export {};\n',
+    'mobile/package.json': '{}\n',
+    'mobile/bun.lock': '{}\n',
+    'tv/project.yml': yml,
+    'tv/CouchTV/App.swift': 'import SwiftUI\n',
+    'tv/package.json': '{}\n',
+    'tv/bun.lock': '{}\n',
+  });
+  const urls = [`file://${metamax}#mobile`, `file://${metamax}#tv=metamax-tv`];
+  const phone = (ms: number) => `${new Date(ms).toISOString()} metamax:`;
+  const tv = (ms: number) => `${new Date(ms).toISOString()} metamax-tv:`;
+  const first = git(metamax, 'rev-parse', 'HEAD');
+
+  const both = await pass(runner(), {}, urls);
+  expect(failures).toBe(0);
+  expect(logLines()).toEqual([
+    `${phone(START)} uploading build 1 (${first.slice(0, 7)}): App Store Connect has no build yet`,
+    `${phone(START)} uploaded build 1 (${first.slice(0, 7)}), processed`,
+    `${tv(START)} uploading build 1 (${first.slice(0, 7)}): App Store Connect has no build yet`,
+    `${tv(START)} uploaded build 1 (${first.slice(0, 7)}), processed`,
+  ]);
+  // Each from its own clone, under its own name, the iPhone app keeping the repository's.
+  expect(both.named('testflight upload').map((upload) => upload.options.cwd)).toEqual([join(folder(), 'metamax/checkout/mobile'), join(folder(), 'metamax-tv/checkout/tv')]);
+  for (const name of ['metamax', 'metamax-tv']) expect(JSON.parse(readFileSync(join(folder(), name, 'record.json'), 'utf8')).judgedHead).toBe(first);
+  // Each asked for its own App Store Connect record by its own bundle id, and that record's builds for its platform.
+  const asked = asc.requests.map((request) => decodeURIComponent(request));
+  expect(asked.filter((request) => request.startsWith('/v1/apps')).map((request) => new URLSearchParams(request.split('?')[1]).get('filter[bundleId]'))).toEqual(['app.pastthebreak', 'app.pastthebreak.tv']);
+  expect(asked.some((request) => request.includes('filter[app]=1000000001') && request.includes('platform]=IOS'))).toBe(true);
+  expect(asked.some((request) => request.includes('filter[app]=1000000002') && request.includes('platform]=TV_OS'))).toBe(true);
+
+  // A landing in tv/ alone goes up for the Apple TV app only.
+  asc.buildsOf('app.pastthebreak').push({ number: '1', states: ['VALID'] });
+  asc.buildsOf('app.pastthebreak.tv').push({ number: '1', states: ['VALID'], platform: 'TV_OS' });
   clock += 5 * MINUTE;
-  await pass(runner(), {}, [url, `file://${timescale}#mobile`]);
-  expect(logLines().at(-1)).toBe(`${line(clock)} failed: file://${timescale}#mobile is a repository an earlier entry already watches; each is watched at one folder`);
+  const change = commit(metamax, { 'tv/CouchTV/App.swift': 'import SwiftUI // now\n' });
+  const tvOnly = await pass(runner(), {}, urls);
+  expect(logLines().slice(4)).toEqual([
+    `${phone(clock)} skipped: no app files changed since build 1`,
+    `${tv(clock)} uploading build 2 (${change.slice(0, 7)}): app files changed since build 1 (tv/CouchTV/App.swift)`,
+    `${tv(clock)} uploaded build 2 (${change.slice(0, 7)}), processed`,
+  ]);
+  expect(tvOnly.named('testflight upload').map((upload) => upload.options.cwd)).toEqual([join(folder(), 'metamax-tv/checkout/tv')]);
+});
+
+test('two entries under one name are refused, and an entry refused for how it is written claims no name', async () => {
+  const timescale = repository(join(place.folder, 'timescale'), PAST_THE_BREAK);
+  const line = (ms: number) => `${new Date(ms).toISOString()} timescale:`;
+  // A second folder with no name would share the first one's clone and record, and be skipped unseen; so would a
+  // second entry given a name already in use.
+  await pass(runner(), {}, [`file://${timescale}`, `file://${timescale}#mobile`, `file://${origin}#mobile=timescale`]);
+  expect(logLines().slice(-2)).toEqual([
+    `${line(START)} failed: file://${timescale}#mobile is named timescale, as an earlier entry is; a second folder of one repository gives its own name, as <git url>#<folder>=<name>`,
+    `${line(START)} failed: file://${origin}#mobile=timescale is named timescale, as an earlier entry is; a second folder of one repository gives its own name, as <git url>#<folder>=<name>`,
+  ]);
+  expect(failures).toBe(2);
+
+  // This Mac's disk takes Couch and couch for one folder, so names that differ only in case are one name.
+  clock += 5 * MINUTE;
+  const couch = repository(join(place.folder, 'Couch'), PAST_THE_BREAK);
+  await pass(runner(), {}, [`file://${couch}`, `file://${origin}#mobile=couch`]);
+  expect(logLines().at(-1)).toBe(
+    `${new Date(clock).toISOString()} couch: failed: file://${origin}#mobile=couch is named couch, as an earlier entry is; a second folder of one repository gives its own name, as <git url>#<folder>=<name>`,
+  );
+  expect(failures).toBe(1);
+
+  // A name with a capital or an underscore is refused with its own reason, listed first, and the app it sits beside
+  // still runs under the repository's name.
+  clock += 5 * MINUTE;
+  const change = commit(timescale, { 'src/app.ts': 'export const a = 1;\n' });
+  const before = logLines().length;
+  await pass(runner(), {}, [`file://${timescale}#mobile=Timescale_tv`, `file://${timescale}`]);
+  expect(logLines().slice(before)).toEqual([
+    `${line(clock)} failed: the name "Timescale_tv" after = is not a name, which takes lower-case letters, digits and -, starting with a letter or digit`,
+    `${line(clock)} uploading build 2 (${change.slice(0, 7)}): App Store Connect has no build yet`,
+    `${line(clock)} uploaded build 2 (${change.slice(0, 7)}), processed`,
+  ]);
   expect(failures).toBe(1);
 });
 
@@ -551,6 +632,11 @@ test('a folder that is missing, leaves the repository or holds pattern character
   expect(appAddress('https://github.com/worktron/argon-watcher.git')).toEqual({ url: 'https://github.com/worktron/argon-watcher.git', folder: '' });
   // git clean reads the folder as a pattern, so a wildcard or a leading ! would keep or wipe something else.
   for (const folder of ['', '/desktop', '../desktop', 'a/./b', 'desk*top', '!desktop', 'a//b']) expect(typeof appAddress(`x.git#${folder}`)).toBe('string');
+  // A second app of one repository names itself after its folder, in lower case, since this Mac's disk takes
+  // Metamax and metamax for one folder; a root app has no second folder to be.
+  expect(appAddress('git@github.com:worktron/metamax.git#tv=metamax-tv')).toEqual({ url: 'git@github.com:worktron/metamax.git', folder: 'tv', name: 'metamax-tv' });
+  expect(appAddress('git@github.com:worktron/metamax.git#apps/tv/=tv2')).toEqual({ url: 'git@github.com:worktron/metamax.git', folder: 'apps/tv', name: 'tv2' });
+  for (const entry of ['x.git#tv=', 'x.git#tv=Metamax', 'x.git#tv=metamax_tv', 'x.git#tv=-tv', 'x.git#tv=a/b', 'x.git#tv=a=b', 'x.git#=tv']) expect(typeof appAddress(entry)).toBe('string');
 
   // The other apps' passes go on.
   const argon = repository(join(place.folder, 'argon-watcher'), PAST_THE_BREAK);
@@ -709,7 +795,18 @@ describe('what counts as the iPhone app', () => {
   });
 });
 
-test("an app's name is its repository's", () => {
+test("an app's name is its repository's, unless its entry gives one, so every entry written without one keeps its folder", () => {
+  // An entry of each shape watched before names could be given: at the root, a Tauri project in a folder, a native
+  // project in a folder; each keeps its repository's name, and so its clone and record.
+  const today = {
+    'git@github.com:example/example-app.git': 'example-app',
+    'https://github.com/example/example-desktop.git#desktop': 'example-desktop',
+    'git@github.com:example/example-couch.git#tvos': 'example-couch',
+    'git@github.com:example/example-shell.git#apps/iphone/': 'example-shell',
+  };
+  for (const [entry, name] of Object.entries(today)) expect(entryName(entry)).toBe(name);
+  expect(entryName('git@github.com:worktron/metamax.git#tv=metamax-tv')).toBe('metamax-tv');
+
   expect(appName('ssh://github.com/worktron/argon-watcher.git')).toBe('argon-watcher');
   expect(appName('github.com:worktron/argon-watcher.git')).toBe('argon-watcher');
   expect(appName('https://github.com/worktron/urge-surfer')).toBe('urge-surfer');

@@ -291,6 +291,15 @@ test('a release that never finishes is stopped at its time limit, naming the ste
   );
 });
 
+test('an entry that gives a name after its folder, which only the TestFlight watcher takes, fails with a line, and the other apps still release', async () => {
+  commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
+  const stand = await pass({ urls: [`file://${origin}#shell=example-app-tv`, `file://${origin}`] });
+  expect(logLines()[0]).toBe(`${at(START)} failed: file://${origin}#shell=example-app-tv gives a name after its folder, which only the TestFlight watcher takes; a repository releases one Mac app`);
+  expect(stand.named('mac release')).toHaveLength(1);
+  expect(stand.named('mac release')[0]!.options.cwd).toBe(join(folder(), 'example-app/checkout'));
+  expect(failures).toBe(1);
+});
+
 test('gh with no token for the named account fails the app before anything is built', async () => {
   commit(origin, { 'src/app.ts': 'export const changed = true;\n' });
   const stand = await pass({ ghUser: 'another-owner' });

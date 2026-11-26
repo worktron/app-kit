@@ -250,10 +250,16 @@ async function watchApp(url: string, state: string, options: WatchOptions, known
   const folder = join(state, name);
   const checkout = join(folder, 'checkout');
   const recordFile = join(folder, 'record.json');
+  const line = (message: string) => appendLog(join(state, 'mac-release.log'), `${new Date(now()).toISOString()} ${name}: ${message}`);
+  // A name after the folder is the TestFlight watcher's, for a second app of one repository; a Mac release is one app.
+  const named = appAddress(url);
+  if (typeof named !== 'string' && named.name) {
+    line(`failed: ${url} gives a name after its folder, which only the TestFlight watcher takes; a repository releases one Mac app`);
+    return true;
+  }
   mkdirSync(folder, { recursive: true });
   const record = readRecord<MainRecord>(recordFile, { judgedHead: null, failure: null });
   const save = (next: MainRecord) => saveRecord(recordFile, next);
-  const line = (message: string) => appendLog(join(state, 'mac-release.log'), `${new Date(now()).toISOString()} ${name}: ${message}`);
   const address = appAddress(url);
   if (typeof address === 'string') {
     line(`failed: ${address}`);
