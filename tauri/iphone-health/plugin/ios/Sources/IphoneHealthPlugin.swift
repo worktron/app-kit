@@ -224,13 +224,14 @@ private final class SavedState: HealthKeeping {
 
 /// Health calls the watcher when new samples of its type reach the phone, waking the app in the background for them at
 /// most as often as `frequency`, and also once at every launch. Each call is answered when its sync ends, failures
-/// included.
+/// included. Registered again after its kind's address was cleared, it keeps its one query and turns the wakes back on.
 private final class TypeWatcher: HealthWatcher {
     private let type: HKSampleType
     private let frequency: HKUpdateFrequency
     private let words: HealthWords
     private let log: (String) -> Void
     private let wake: (@escaping () -> Void) -> Void
+    private var query: HKObserverQuery?
 
     init(type: HKSampleType, frequency: HKUpdateFrequency, words: HealthWords, log: @escaping (String) -> Void, wake: @escaping (@escaping () -> Void) -> Void) {
         self.type = type
@@ -244,15 +245,18 @@ private final class TypeWatcher: HealthWatcher {
         let log = self.log
         let words = self.words
         let wake = self.wake
-        let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completionHandler, error in
-            if let error = error {
-                log("Health's watcher failed: \(error.localizedDescription)")
-                completionHandler()
-                return
+        if query == nil {
+            let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completionHandler, error in
+                if let error = error {
+                    log("Health's watcher failed: \(error.localizedDescription)")
+                    completionHandler()
+                    return
+                }
+                wake { completionHandler() }
             }
-            wake { completionHandler() }
+            self.query = query
+            healthStore.execute(query)
         }
-        healthStore.execute(query)
         healthStore.enableBackgroundDelivery(for: type, frequency: frequency) { ok, error in
             if ok {
                 log("iOS will wake the app for new \(words.kind)")

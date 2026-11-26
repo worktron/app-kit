@@ -158,7 +158,9 @@ struct HeartRateRead {
 /// Read heart rate after the store's place: `query(limit)` reads up to `limit` samples and deletions from that place,
 /// and while their readings and deletions come to more than `cap`, it reads again with half the limit, down to one, so
 /// a request stays near `cap` whatever the condensed series hold. Then `series(uuids)` gives the readings of each
-/// condensed series in the read, in one query. A series query that fails fails the read, so its place is kept.
+/// condensed series in the read, in one query. A series query that fails, or gives a series fewer readings than its
+/// count, fails the read, so its place is kept and no reading is skipped: a series Health deleted between the two
+/// queries comes back on the next read as a deletion instead.
 func readHeartRate(limit: Int, cap: Int,
                    query: @escaping (Int, @escaping (HealthPart<HeartRateRead>) -> Void) -> Void,
                    series: @escaping ([String], @escaping (HealthPart<[String: [SeriesReading]]>) -> Void) -> Void,
@@ -184,7 +186,12 @@ func readHeartRate(limit: Int, cap: Int,
                 switch part {
                 case .locked: done(.locked)
                 case .failed(let reason): done(.failed("a condensed series could not be read: \(reason)"))
-                case .value(let readings): finish(readings)
+                case .value(let readings):
+                    if let short = read.objects.first(where: { $0.count > 1 && (readings[$0.uuid]?.count ?? 0) < $0.count }) {
+                        done(.failed("the condensed series \(short.uuid) gave \(readings[short.uuid]?.count ?? 0) of its \(short.count) readings"))
+                    } else {
+                        finish(readings)
+                    }
                 }
             }
         }
@@ -285,7 +292,8 @@ protocol HealthKeeping: AnyObject {
 }
 
 protocol HealthWatcher {
-    /// Register Health's watcher and ask iOS to wake the app for new samples. Called at most once per process.
+    /// Register Health's watcher and ask iOS to wake the app for new samples. Called once per process, and again when an
+    /// address is given after one was cleared, which turned the wakes off.
     func register()
 }
 
@@ -379,6 +387,8 @@ final class HealthSync<Store: HealthStore> {
             self.keeping.address = nil
             self.keeping.setAnchor(nil, for: old)
             self.keeping.earlier = []
+            // The caller turns iOS's wakes off, so an address given again registers the watcher again to turn them on.
+            self.watching = false
             done(true)
         }
     }
@@ -486,7 +496,7 @@ final class HealthSync<Store: HealthStore> {
                     self.end(.readFailed, status: nil)
                 case let .batch(samples, deleted, anchor, more):
                     let earlier = self.keeping.earlier
-                    if samples.isEmpty && deleted.isEmpty && earlier.isEmpty && !more {
+                    if samples.isEmpty && deleted.isEmpty && earlier.isEmpty {
                         self.end(self.progress.samples + self.progress.deleted > 0 ? .sent : .nothingNew, status: nil)
                         return
                     }

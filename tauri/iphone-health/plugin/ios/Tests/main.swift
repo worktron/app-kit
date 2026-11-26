@@ -583,17 +583,22 @@ do {
 do {
     let (condensed, _) = series("empty", from: 1, count: 4)
     let samples = heartRateSamples([condensed, reading(9)], series: [:])
-    check("a series the query gave no readings for sends none", samples.map(\.uuid) == ["r9"])
+    check("a series the query gave no readings for makes no readings of its own", samples.map(\.uuid) == ["r9"])
 }
 
 do {
-    // A read that fills its limit but whose only series gave no readings still moves its place on, so the next read
-    // does not ask for the same empty series for ever.
-    let heart = Rig(heartRate: "https://hub.example.com/heart-rate", batch: 2)
-    let empty = HeartRateObject(uuid: "e", count: 2, start: 0, end: 1, bpm: 60, source: "com.apple.health.x", device: nil)
-    heart.store.changes = [.add(empty, []), .add(reading(7), [])]
-    let result = heart.run()
-    check("a full read of empty series moves its place on", result.outcome == .sent && heart.sender.bodies.map { $0.samples.map(\.uuid) } == [[], ["r7"]], "\(heart.sender.bodies.map { $0.samples.map(\.uuid) })")
+    // Health says the series holds 4 readings but its query gives 2, as when Health deletes it between the two queries.
+    let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    let (condensed, values) = series("s1", from: 1, count: 4)
+    heart.store.changes = [.add(reading(0), []), .add(condensed, Array(values.prefix(2)))]
+    let short = heart.run()
+    check("a series that gives fewer readings than its count fails the read and keeps its place",
+          short.outcome == .readFailed && heart.sender.bodies.isEmpty && heart.keeping.anchor(for: heart.keeping.address!) == nil && heart.keeping.earlier.map(\.outcome) == ["read failed"])
+    // Read again once Health has deleted it: its deletion comes in place of the short series, and nothing is skipped.
+    heart.store.changes = [.add(reading(0), []), .delete("s1")]
+    let again = heart.run()
+    check("the next read sends what it holds and the series' deletion",
+          again.outcome == .sent && heart.sender.bodies.first?.samples.map(\.uuid) == ["r0"] && heart.sender.bodies.first?.deleted == ["s1"])
 }
 
 do {
@@ -610,6 +615,7 @@ do {
 
 do {
     let heart = Rig(heartRate: "https://hub.example.com/heart-rate")
+    heart.sync.watchIfReady(dataAvailable: true, answered: true)
     heart.store.changes = [.add(reading(1), [])]
     _ = heart.run()
     heart.keeping.earlier = [HealthAttempt(at: 1, trigger: "background wake", state: "in the background", outcome: "locked", status: nil)]
@@ -621,10 +627,16 @@ do {
     let result = heart.run()
     check("a start without a heart-rate address stops heart rate's sends",
           had && result.outcome == .noAddress && heart.sender.bodies.count == 1 && heart.keeping.address == nil && heart.keeping.earlier.isEmpty)
+    check("the watcher was registered once before", heart.watcher.registered == 1)
     heart.sync.setAddress("https://hub.example.com/heart-rate", dataAvailable: true)
     heart.settle()
     _ = heart.run()
     check("given again, the address starts heart rate's history over", heart.sender.bodies.last?.samples.map(\.uuid) == ["r1", "r2"])
+    check("given again, the address registers the watcher again, which turns iOS's wakes back on",
+          heart.watcher.registered == 2, "\(heart.watcher.registered)")
+    heart.sync.watchIfReady(dataAvailable: true, answered: true)
+    heart.settle()
+    check("and only once", heart.watcher.registered == 2)
 }
 
 do {

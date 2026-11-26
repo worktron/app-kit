@@ -3,7 +3,7 @@
  * its Swift tests (tauri/iphone-health/plugin/ios/Tests/main.swift), run in scripts/gates.sh.
  */
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { simulatorHeartRate, simulatorSleep, startIphoneHealth, type Invoke } from '../tauri/iphone-health';
+import { simulatorHeartRate, simulatorSleep, startIphoneHealth, type HealthSend, type Invoke } from '../tauri/iphone-health';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
 const realAgent = navigator.userAgent;
@@ -45,7 +45,7 @@ test('on an iPhone app the start gives the plugin the address and answers how th
 
 test('the start passes the heart-rate address and answers both counts', async () => {
   onIphoneApp();
-  const heartRate = { outcome: 'sent', samples: 5000, deleted: 3, status: 200 };
+  const heartRate: HealthSend = { outcome: 'sent', samples: 5000, deleted: 3, status: 200 };
   const { calls, invoke } = plugin({ outcome: 'nothing new', samples: 0, deleted: 0, status: null, heartRate });
   const answer = await startIphoneHealth({ endpoint: 'https://hub.example.com/api/sleep', heartRateEndpoint: 'https://hub.example.com/api/heart-rate', invoke });
   expect(calls).toEqual([
