@@ -504,6 +504,21 @@ private func askForTypes(heartRate: Bool) -> Error? {
     return askForHealth(share: writeOnSimulator(types), read: Set(types))
 }
 
+/// Stop sending heart rate: forget its address, place and kept attempts, and turn its background wakes off. Waits for
+/// iOS to turn them off, so a start that gives the address again right after turns them on after this, not before.
+/// Blocks, so never on the main thread.
+private func stopHeartRate() {
+    let stopped = DispatchSemaphore(value: 0)
+    heartRateSync.clearAddress(dataAvailable: appState().dataAvailable) { had in
+        guard had else {
+            stopped.signal()
+            return
+        }
+        healthStore.disableBackgroundDelivery(for: heartRateType) { _, _ in stopped.signal() }
+    }
+    stopped.wait()
+}
+
 /// Save the address, ask for Health's sleep (iOS shows its sheet once), watch for new sleep and send what is new; with a
 /// heart rate address, the same for heart rate, and without one, stop sending heart rate. Blocks until the sends end,
 /// so never call it on the main thread. Answers JSON `{ outcome, samples, deleted, status }`, with `heartRate` of the
@@ -512,6 +527,9 @@ private func askForTypes(heartRate: Bool) -> Error? {
 func startDirect(_ addressPointer: UnsafePointer<CChar>, _ heartRatePointer: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar> {
     let address = String(cString: addressPointer)
     let heartRateAddress = heartRatePointer.map { String(cString: $0) }
+    // A start without heart rate stops it before anything else, so a start that then fails still stops it: stopping
+    // needs no answer from Health.
+    if heartRateAddress == nil { stopHeartRate() }
     guard HKHealthStore.isHealthDataAvailable() else {
         log("Health is not on this device")
         return json(["outcome": "no health"])
@@ -534,15 +552,9 @@ func startDirect(_ addressPointer: UnsafePointer<CChar>, _ heartRatePointer: Uns
     let saved = DispatchGroup()
     saved.enter()
     sleepSync.setAddress(address, dataAvailable: dataAvailable) { saved.leave() }
-    saved.enter()
     if let heartRateAddress = heartRateAddress {
+        saved.enter()
         heartRateSync.setAddress(heartRateAddress, dataAvailable: dataAvailable) { saved.leave() }
-    } else {
-        heartRateSync.clearAddress(dataAvailable: dataAvailable) { had in
-            guard had else { return saved.leave() }
-            // Waited for, so a start that gives the address again right after turns the wakes on after this, not before.
-            healthStore.disableBackgroundDelivery(for: heartRateType) { _, _ in saved.leave() }
-        }
     }
     saved.wait()
     let sent = DispatchGroup()
