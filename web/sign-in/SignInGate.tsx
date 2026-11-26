@@ -343,7 +343,7 @@ function Gate({
       (signInWith: SignInWith) =>
       async (account: GoogleAccount): Promise<Outcome> => {
         setNotice(null);
-        noteTripWith(signInWith);
+        // The sheet's address notes the provider itself, after deciding whether its secret can be asked with again.
         if (iphoneSignIn?.opensSheet()) {
           setSheetWith(signInWith);
           setInSheet(true);
@@ -351,6 +351,7 @@ function Gate({
           if (!(await iphoneSignIn.open(account, lastAccount(), signInWith))) setInSheet(false);
           return { ok: true };
         }
+        noteTripWith(signInWith);
         const address = currentAddress();
         rememberReturn(address);
         if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };

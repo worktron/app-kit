@@ -256,6 +256,25 @@ test("in the iPhone app, Microsoft opens the sheet for Microsoft, with Microsoft
   expect(heading()).toBe('Sign in');
 });
 
+test("the kit's iPhone sheet asks with a new secret when the provider changes, as the Mac window does", async () => {
+  const addresses: string[] = [];
+  const sheet = iphoneSignInForGate({
+    scheme: 'com.example.app',
+    invoke: async (_command: string, args?: unknown) => {
+      addresses.push((args as { payload: { url: string } }).payload.url);
+      return {};
+    },
+  });
+  draw(standInSignIn(), { ...sheet, opensSheet: () => true });
+  await press('Google');
+  await press('Google');
+  await press('Microsoft');
+  const nonces = addresses.map((address) => new URL(address).searchParams.get('nonce'));
+  expect(nonces).toHaveLength(3);
+  expect(nonces[1]).toBe(nonces[0]);
+  expect(nonces[2]).not.toBe(nonces[0]);
+});
+
 test("on the page Apple's sheet opens for Microsoft, the gate goes to Microsoft, with Microsoft's line", async () => {
   goTo('/desktop-sign-in?nonce=abc&account=choose&with=microsoft');
   const provider = standInSignIn({ leaveForGoogle: () => {} });
