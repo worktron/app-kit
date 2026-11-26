@@ -121,6 +121,11 @@ test.describe('the quiet sign-in step', () => {
     await expect(expectQuietSignIn(page, tap(page))).rejects.toThrow('/tap: sign-in');
   });
 
+  test("fails an open gate's app drawn signed out between the tap and the app", async ({ page }) => {
+    await standIn(page, `mark('app-signed-out'); await later(() => mark('placeholder-with-line')); await later(() => mark('app'));`);
+    await expect(expectQuietSignIn(page, tap(page))).rejects.toThrow('/tap: app-signed-out');
+  });
+
   test('fails a gate gone from the page between the line and the app, a blank screen', async ({ page }) => {
     await standIn(page, `mark('placeholder-with-line'); await later(() => document.documentElement.removeAttribute('data-sign-in-gate')); await later(() => mark('app'));`);
     await expect(expectQuietSignIn(page, tap(page))).rejects.toThrow('/tap: gone');

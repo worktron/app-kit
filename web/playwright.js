@@ -319,7 +319,8 @@ export async function expectQuietSignIn(page, start, { timeout = 10_000 } = {}) 
   done = true;
   const steps = seen.map((step) => `${step.address}: ${step.shows ?? 'the page loading'}${step.disabled.length ? `, with disabled ${step.disabled.join(', ')}` : ''}`);
   if (!reached) throw new Error(`expectQuietSignIn: the app's screen was not drawn within ${timeout}ms. The gate showed:\n${steps.join('\n')}`);
-  const loud = seen.filter((step) => step.shows === 'sign-in' || step.shows === 'gone' || step.disabled.length > 0);
+  // An open gate's app with nobody signed in, after the tap, is the screen sign-in should have left.
+  const loud = seen.filter((step) => step.shows === 'sign-in' || step.shows === 'app-signed-out' || step.shows === 'gone' || step.disabled.length > 0);
   if (loud.length) {
     throw new Error(
       `expectQuietSignIn: between the start and the app's screen, every screen should be the wordmark with at most one line, but the gate showed:\n${steps.join('\n')}`,

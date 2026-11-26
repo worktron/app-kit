@@ -9,6 +9,10 @@ export const GOOGLE_CALLBACK_PATH = '/sso-callback';
 
 export const GOOGLE_UNFINISHED = 'Signing in with Google did not finish. Try again, or use an emailed code.';
 export const SESSION_ENDED = 'Your session ended. Sign in again to carry on where you were.';
+/** What a sign-in pressed in an open app says when the provider has not loaded within `PROVIDER_LOAD_WAIT_MS`. */
+export const SIGN_IN_NOT_LOADED = 'Sign-in could not load. Check your connection and try again.';
+/** How long a sign-in pressed in an open app before the provider has loaded waits for it. */
+export const PROVIDER_LOAD_WAIT_MS = 20_000;
 
 /** The line under the wordmark on the page Apple's sheet opens, while it goes to Google, unless the app gives its own. */
 export const OPENING_GOOGLE = 'Opening Google.';
@@ -17,10 +21,11 @@ export const SIGNING_IN_WITH_GOOGLE = 'Signing in with Google.';
 
 /**
  * The attribute the gate puts on `<html>` saying what it shows: `placeholder`, `placeholder-with-line`, `sign-in` (the
- * app's sign-in screen) or `app` (the app, drawn). `expectQuietSignIn` in `app-kit/web/playwright` reads it.
+ * app's sign-in screen), `app` (the app, drawn, someone signed in) or `app-signed-out` (an open gate's app, drawn with
+ * nobody signed in). `expectQuietSignIn` in `app-kit/web/playwright` reads it.
  */
 export const GATE_SHOWS_ATTRIBUTE = 'data-sign-in-gate';
-type GateShows = 'placeholder' | 'placeholder-with-line' | 'sign-in' | 'app';
+type GateShows = 'placeholder' | 'placeholder-with-line' | 'sign-in' | 'app' | 'app-signed-out';
 
 /** Which Google account a sign-in asks for. */
 export type GoogleAccount = 'remembered' | 'choose' | { account: string };
@@ -42,6 +47,11 @@ export interface SignIn {
   /** Something to say above the buttons: Google did not finish, or the server ended the session. */
   notice: string | null;
   /**
+   * In an open gate, while it draws this screen because the server ended the session: puts the app back, signed out.
+   * Null otherwise, so the screen offers it only then.
+   */
+  continueSignedOut: (() => void) | null;
+  /**
    * Google, returning to this address. `remembered` names the last account to Google, so it shows no page while it is
    * still signed in to it; `choose` has Google list its accounts, as does `remembered` with no account remembered. An
    * account named outright is for a choice made elsewhere, as in a desktop app's window that hands sign-in to the browser.
@@ -57,10 +67,10 @@ const SignOutContext = createContext<(() => void) | null>(null);
 const AppDrawnContext = createContext<() => void>(() => {});
 const PersonContext = createContext<SignedInPerson | null>(null);
 
-/** For the app's sign-in screen, which the gate draws while nobody is signed in. */
+/** For the app's sign-in screen: the one the gate draws while nobody is signed in, or, in an open gate, anywhere in the app. */
 export function useSignIn(): SignIn {
   const signIn = useContext(SignInContext);
-  if (!signIn) throw new Error('useSignIn is for the screen the sign-in gate draws while nobody is signed in.');
+  if (!signIn) throw new Error('useSignIn is for the screen the sign-in gate draws while nobody is signed in, or for any screen inside an open gate.');
   return signIn;
 }
 
@@ -81,8 +91,17 @@ interface GateProps {
   provider: SignInProvider | null;
   /** The one steady placeholder: the app's wordmark on its own background. */
   placeholder: ReactNode;
-  /** The app's sign-in screen, which uses `useSignIn`. */
+  /** The app's sign-in screen, which uses `useSignIn`: in an open gate, drawn only when the server ends the session. */
   signedOut: ReactNode;
+  /**
+   * The app is drawn for people who are not signed in too, with `usePerson()` null, and puts its own sign-in screen at
+   * its own address, with `useSignIn`, which works anywhere inside the gate. A browser that was not signed in last time
+   * draws the app at once, without waiting for the provider, and its requests go without a token until the provider
+   * has loaded; one that was holds `whileReturning` until it has, as a closed gate does. The app starts again at the
+   * same address whenever the person changes, so nothing of one person's stays on screen. The server ending a session
+   * draws `signedOut` over the address, with `continueSignedOut` to put the app back.
+   */
+  open?: boolean;
   /**
    * What to draw while the provider loads in a browser that was signed in last time, and, with `waitForFirstDraw`,
    * until the app is drawn. The placeholder unless the app says otherwise, as when its own bar draws the wordmark in
@@ -150,6 +169,7 @@ function Gate({
   whileReturning = placeholder,
   waitForFirstDraw = false,
   signUp = false,
+  open = false,
   callbackPath = GOOGLE_CALLBACK_PATH,
   lines,
   iphoneSignIn,
@@ -162,10 +182,17 @@ function Gate({
   const [signingOut, setSigningOut] = useState(false);
   // Whether this page has shown the sign-in screen, and so holds the placeholder up until the app is drawn rather than going blank.
   const [cameThroughSignIn, setCameThroughSignIn] = useState(() => lastSignedIn() !== true);
-  const [appDrawn, setAppDrawn] = useState(false);
+  // Which app the app has drawn: in an open gate, the one for this person or for nobody, since it starts again on each
+  // change; in a closed one there is only the signed-in app, and a sign-out forgets it was drawn.
+  const drawnKey = open ? (person?.id ?? 'signed-out') : 'signed-in';
+  const drawnKeyNow = useRef(drawnKey);
+  drawnKeyNow.current = drawnKey;
+  const [drawnFor, setDrawnFor] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // In an open gate: the server ended the session, so the app's sign-in screen stands over the address.
+  const [signInAsked, setSignInAsked] = useState(false);
   const [returningFromGoogle, setReturningFromGoogle] = useState(() => window.location.pathname === callbackPath);
-  const markAppDrawn = useCallback(() => setAppDrawn(true), []);
+  const markAppDrawn = useCallback(() => setDrawnFor(drawnKeyNow.current), []);
   // On the page Apple's sheet opens: whether it is leaving for Google, or shows the sign-in screen after all.
   const [googleStep, setGoogleStep] = useState<'undecided' | 'leaving' | 'form'>('undecided');
   // In the iPhone app: the sheet is open or its sign-in is being taken, and, once signed in, whether that is how.
@@ -179,6 +206,36 @@ function Gate({
   latest.current = session;
   const signedInAt = useRef(0);
   const wasSignedOut = useRef<boolean | null>(null);
+  const openNow = useRef(open);
+  openNow.current = open;
+  // In an open gate, a browser not signed in last time draws the app before the provider loads: its requests go
+  // without a token then rather than wait on the provider's script, which may never come.
+  const tokenWaits = () => !openNow.current || latest.current.loaded || lastSignedIn() === true;
+
+  // Sign-ins pressed before the provider has loaded, as an open gate allows, waiting for it. Asked only then, so a
+  // provider already in is called in the same turn as the press, as before open gates.
+  const loadWaiters = useRef(new Set<() => void>());
+  useEffect(() => {
+    if (!loaded) return;
+    for (const done of loadWaiters.current) done();
+    loadWaiters.current.clear();
+  }, [loaded]);
+  const providerLoaded = useCallback((): Promise<boolean> => {
+    if (latest.current.loaded) return Promise.resolve(true);
+    console.log('[app-kit sign-in] sign-in pressed before the provider loaded: waiting for it');
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        loadWaiters.current.delete(done);
+        console.warn(`[app-kit sign-in] the provider had not loaded ${PROVIDER_LOAD_WAIT_MS / 1000} s after sign-in was pressed: told the person to try again`);
+        resolve(false);
+      }, PROVIDER_LOAD_WAIT_MS);
+      loadWaiters.current.add(done);
+    });
+  }, []);
 
   // The person's own Sign out forgets the account; a session the server ended keeps it, so signing back in is one tap.
   // Forgotten before the provider answers, since the sign-in screen reads it as it draws.
@@ -194,12 +251,13 @@ function Gate({
   // children's effects run before their parent's, so a passive one here would let them go out without a token.
   useLayoutEffect(() => {
     setCurrentSession({
-      token: (options) => latest.current.token(options),
-      tokenNow: () => latest.current.tokenNow(),
+      token: (options) => (tokenWaits() ? latest.current.token(options) : Promise.resolve(null)),
+      tokenNow: () => (tokenWaits() ? latest.current.tokenNow() : null),
       refused: () => {
         // Already signed out, as when a second request in flight is refused after the first: the sign-in screen is up.
         if (!latest.current.person) return;
         setNotice(SESSION_ENDED);
+        if (openNow.current) setSignInAsked(true);
         endSession(false);
       },
       get signedInAt() {
@@ -218,6 +276,7 @@ function Gate({
       if (wasSignedOut.current) signedInAt.current = Date.now();
       if (email) rememberAccount(email);
       setReturningFromGoogle(false);
+      setSignInAsked(false);
       // On the sign-in itself, not when the provider fills in the email after: the line stays through the hold only for
       // this sign-in, so a later Sign out shows the sign-in screen.
       if (wasSignedOut.current !== false) {
@@ -230,7 +289,8 @@ function Gate({
       announceSignedOut();
       setCameThroughSignIn(true);
       setSigningOut(false);
-      setAppDrawn(false);
+      // An open gate's signed-out app is another app, drawn by itself; it may have drawn already, before the provider loaded.
+      if (!openNow.current) setDrawnFor(null);
       setSignedInWithGoogle(false);
     }
     wasSignedOut.current = personId === null;
@@ -242,6 +302,13 @@ function Gate({
     () => ({
       lastAccount: remembered,
       notice,
+      continueSignedOut:
+        open && signInAsked
+          ? () => {
+              setSignInAsked(false);
+              setNotice(null);
+            }
+          : null,
       google: async (account) => {
         setNotice(null);
         if (iphoneSignIn?.opensSheet()) {
@@ -252,15 +319,20 @@ function Gate({
         }
         const address = currentAddress();
         rememberReturn(address);
+        if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
         return latest.current.google({ callbackPath: googleCallback(callbackPath, address), account: accountFor(account, lastAccount()) });
       },
-      sendEmailCode: (address) => {
+      sendEmailCode: async (address) => {
         setNotice(null);
+        if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
         return latest.current.sendEmailCode(address, { signUp });
       },
-      checkEmailCode: (code, address) => latest.current.checkEmailCode(code, address),
+      checkEmailCode: async (code, address) => {
+        if (!latest.current.loaded && !(await providerLoaded())) return { ok: false, message: SIGN_IN_NOT_LOADED };
+        return latest.current.checkEmailCode(code, address);
+      },
     }),
-    [remembered, notice, callbackPath, signUp, iphoneSignIn],
+    [remembered, notice, open, signInAsked, callbackPath, signUp, iphoneSignIn, providerLoaded],
   );
 
   // The sign-in the sheet hands back: the line while it is taken, and the sign-in screen with the reason if it fails.
@@ -308,8 +380,42 @@ function Gate({
   }, [iphoneSignIn]);
 
   const withLine = (line: string): [GateShows, ReactNode] => ['placeholder-with-line', placeholderWithLine?.(line) ?? placeholder];
+  const signingInLine = () => withLine(lines?.signingInWithGoogle ?? SIGNING_IN_WITH_GOOGLE);
+  // Signed in through Apple's sheet, the line stays up until the app is drawn, so it never drops away just before.
+  const throughGoogle = iphoneSignIn !== undefined && (withGoogle || signedInWithGoogle);
+  const signInScreen: [GateShows, ReactNode] = ['sign-in', <SignInContext.Provider value={signIn}>{signedOut}</SignInContext.Provider>];
+
+  /**
+   * An open gate's app, for the person or for nobody, with what stands over it while it is hidden: the line while
+   * Apple's sheet is up, or, until the app is drawn, what stood before. It starts again whenever the person changes,
+   * and stays mounted under the sheet's line, so closing the sheet finds it as it was.
+   */
+  const openApp = (line: [GateShows, ReactNode] | null): [GateShows, ReactNode] => {
+    const holding = waitForFirstDraw && drawnFor !== drawnKey;
+    const over = line ?? (holding ? (person && throughGoogle ? signingInLine() : (['placeholder', person && !cameThroughSignIn ? whileReturning : placeholder] as [GateShows, ReactNode])) : null);
+    return [
+      over ? over[0] : person ? 'app' : 'app-signed-out',
+      <PersonContext.Provider value={person}>
+        <AppDrawnContext.Provider value={markAppDrawn}>
+          <SignInContext.Provider value={signIn}>
+            {over?.[1]}
+            <div key={drawnKey} style={{ display: 'contents', visibility: over ? 'hidden' : undefined }} aria-hidden={over ? true : undefined}>
+              <SignOutContext.Provider value={person ? signOut : null}>{children}</SignOutContext.Provider>
+            </div>
+          </SignInContext.Provider>
+        </AppDrawnContext.Provider>
+      </PersonContext.Provider>,
+    ];
+  };
+
   const [shows, drawn] = ((): [GateShows, ReactNode] => {
-    if (signingOut || !loaded) return ['placeholder', signingOut || lastSignedIn() !== true ? placeholder : whileReturning];
+    if (signingOut) return ['placeholder', placeholder];
+    if (!loaded) {
+      // An open gate draws the app at once for a browser that was not signed in last time, but not on a page where the
+      // gate itself has a step to run once the provider is in: the return from Google, and the page Apple's sheet opens.
+      if (open && lastSignedIn() !== true && !returningFromGoogle && !iphoneSignIn?.asked()) return openApp(null);
+      return ['placeholder', lastSignedIn() !== true ? placeholder : whileReturning];
+    }
 
     if (!person) {
       if (returningFromGoogle) {
@@ -332,22 +438,20 @@ function Gate({
       if (iphoneSignIn) {
         const leaving = googleStep === 'leaving' || (googleStep === 'undecided' && !iphoneSignIn.wentToGoogle());
         if (leaving && iphoneSignIn.asked()) return withLine(lines?.openingGoogle ?? OPENING_GOOGLE);
-        if (withGoogle) return withLine(lines?.signingInWithGoogle ?? SIGNING_IN_WITH_GOOGLE);
+        if (withGoogle) return open ? openApp(signingInLine()) : signingInLine();
       }
-      return ['sign-in', <SignInContext.Provider value={signIn}>{signedOut}</SignInContext.Provider>];
+      if (open && !signInAsked) return openApp(null);
+      return signInScreen;
     }
 
     // Back from Google and signed in: on to the address the person asked for, before the app reads where it is.
     if (window.location.pathname === callbackPath) window.history.replaceState(null, '', takeReturn());
+    if (open) return openApp(null);
 
     // Until the app has drawn its first data, it renders, so its requests go out, but nothing of it shows: the whole
     // screen appears at once. The wrapper is always there, with no box of its own, so drawing the app never remounts it.
-    // Signed in through Apple's sheet, the line stays up until then, so it never drops away just before the app shows.
-    const holding = waitForFirstDraw && !appDrawn;
-    const throughGoogle = iphoneSignIn !== undefined && (withGoogle || signedInWithGoogle);
-    const held: [GateShows, ReactNode] = throughGoogle
-      ? withLine(lines?.signingInWithGoogle ?? SIGNING_IN_WITH_GOOGLE)
-      : ['placeholder', cameThroughSignIn ? placeholder : whileReturning];
+    const holding = waitForFirstDraw && drawnFor !== drawnKey;
+    const held: [GateShows, ReactNode] = throughGoogle ? signingInLine() : ['placeholder', cameThroughSignIn ? placeholder : whileReturning];
     return [
       holding ? held[0] : 'app',
       <PersonContext.Provider value={person}>

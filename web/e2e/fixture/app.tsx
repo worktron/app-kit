@@ -1,4 +1,4 @@
-import { lazy, StrictMode, Suspense, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
+import { lazy, StrictMode, Suspense, useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AccountMenu,
@@ -17,6 +17,7 @@ import {
   savedCopies,
   useAppDrawn,
   useScreenData,
+  usePerson,
   useSignIn,
   useTitle,
 } from '../..';
@@ -30,12 +31,36 @@ const SCHEME = 'com.example.fixture';
 // Opened with ?sign-up, only ana@example.com has an account and the gate makes one for any other address.
 const signUp = new URLSearchParams(window.location.search).has('sign-up');
 
+// Opened with ?open, this tab's gate stays open: the app is drawn signed out, with its own sign-in page at /sign-in.
+// Kept for the tab, since the trip to Google comes back to an address without it.
+if (new URLSearchParams(window.location.search).has('open')) sessionStorage.setItem('fixture.open', '1');
+const open = sessionStorage.getItem('fixture.open') === '1';
+// Opened with ?held, the provider stays loading, as a provider's script that never arrives, until the test calls
+// window.fixtureFinishLoading.
+const held = new URLSearchParams(window.location.search).has('held');
+
 // Who is signed in lasts across page loads in this tab, as a provider's cookie would.
-const provider = standInSignIn({ store: sessionStorage, accounts: signUp ? ['ana@example.com'] : undefined });
+const provider = standInSignIn({ store: sessionStorage, accounts: signUp ? ['ana@example.com'] : undefined, loaded: !held });
+(window as { fixtureFinishLoading?: () => void }).fixtureFinishLoading = provider.finishLoading;
 
 const Later = lazy(() => import('./Later'));
 
 const copies = savedCopies('fixture');
+
+/**
+ * The open app's own sign-in page, at /sign-in?back=<address>: the sign-in screen, which moves on to `back` once
+ * someone is signed in, however they signed in.
+ */
+function SignInPage({ navigate }: { navigate: (href: string) => void }) {
+  const person = usePerson();
+  const back = new URLSearchParams(window.location.search).get('back') ?? '/';
+  const appDrawn = useAppDrawn();
+  useLayoutEffect(() => {
+    if (person) navigate(back.startsWith('/') && !back.startsWith('//') ? back : '/');
+    else appDrawn();
+  }, [person, back, navigate, appDrawn]);
+  return person ? null : <SignInScreen />;
+}
 
 function SignInScreen() {
   const signIn = useSignIn();
@@ -77,6 +102,7 @@ function SignInScreen() {
         </form>
       )}
       {message && <p>{message}</p>}
+      {signIn.continueSignedOut && <button onClick={signIn.continueSignedOut}>Continue signed out</button>}
       <p hidden>{STAND_IN_CODE}</p>
     </main>
   );
@@ -89,10 +115,10 @@ function useAddress() {
     window.addEventListener('popstate', moved);
     return () => window.removeEventListener('popstate', moved);
   }, []);
-  const navigate = (href: string) => {
+  const navigate = useCallback((href: string) => {
     window.history.pushState(null, '', href);
     setAddress(href);
-  };
+  }, []);
   return [address, navigate] as const;
 }
 
@@ -188,7 +214,9 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
   useLayoutEffect(() => {
     if (drawnAtOnce) appDrawn();
   }, [drawnAtOnce, appDrawn]);
+  const person = usePerson();
   if (path === DESKTOP_SIGN_IN_PATH) return <HandOver />;
+  if (path === '/sign-in') return <SignInPage navigate={navigate} />;
   if (!known) {
     return (
       <NavigateProvider navigate={navigate}>
@@ -205,6 +233,7 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
         <UpdateLine appName="the fixture" scheme="com.example.fixture" />
         <ConnectionLine />
         <AccountMenu items={[{ label: 'Shelf', href: '/shelf' }]} />
+        {open && !person && <RowLink href={`/sign-in?${new URLSearchParams({ back: address })}`}>Sign in</RowLink>}
       </header>
       <main>
         <h1>The app at {address}</h1>
@@ -249,6 +278,7 @@ export function start(itemsOf: (answer: Answer) => Item[]) {
           signedOut={<SignInScreen />}
           waitForFirstDraw
           signUp={signUp}
+          open={open}
         >
           <App itemsOf={itemsOf} />
         </SignInGate>

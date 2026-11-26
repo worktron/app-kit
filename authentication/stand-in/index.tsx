@@ -83,6 +83,14 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
   const session = {
     token: async (options?: { fresh?: boolean }) => {
       calls.tokens.push({ fresh: options?.fresh === true });
+      // Not before it has loaded, as Clerk's token waits for its script.
+      if (!state.loaded) await new Promise<void>((done) => {
+        const stop = subscribe(() => {
+          if (!state.loaded) return;
+          stop();
+          done();
+        });
+      });
       if (!state.person) return null;
       if (options?.fresh) tokenCount++;
       return `stand-in-token-${tokenCount}`;
