@@ -101,3 +101,19 @@ test.describe('in the iPhone app', () => {
     await expect(heading(page)).toHaveText('The app at /');
   });
 });
+
+test("Back from Google on the page Apple's sheet opens shows the open app's sign-in screen there, ready", async ({ page }) => {
+  await serve(page);
+  // This tab's gate is open from here on.
+  await page.goto('/?open');
+  await page.route(
+    (url) => url.pathname === '/sso-callback',
+    (route) => route.fulfill({ contentType: 'text/html', body: '<h1>Google</h1>' }),
+  );
+  await page.goto(`/desktop-sign-in?nonce=${'a'.repeat(64)}&account=choose`);
+  await expect(heading(page)).toHaveText('Google');
+  await page.goBack();
+  await expect(heading(page)).toHaveText('Sign in');
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeEnabled();
+  expect(new URL(page.url()).pathname).toBe('/desktop-sign-in');
+});

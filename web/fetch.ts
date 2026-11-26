@@ -55,12 +55,13 @@ function fetchWith(path: string, init: RequestInit, token: string | null | undef
   return fetch(path, { ...init, headers });
 }
 
-async function send(path: string, init: RequestInit, fresh: boolean): Promise<Response> {
-  const token = tokenFor(init, fresh);
+async function send(path: string, init: RequestInit, fresh: boolean): Promise<{ res: Response; token: string | null }> {
+  const asked = tokenFor(init, fresh);
   // A token already in hand, as a keepalive request's first send has it, starts the fetch before any await.
-  const response = token instanceof Promise ? fetchWith(path, init, await token) : fetchWith(path, init, token);
+  const token = asked instanceof Promise ? await asked : asked;
+  const response = fetchWith(path, init, token);
   try {
-    return await response;
+    return { res: await response, token: token ?? null };
   } catch (error) {
     // Aborted on purpose: not the server's fault.
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
@@ -79,9 +80,13 @@ async function send(path: string, init: RequestInit, fresh: boolean): Promise<Re
  * holds now: see tokenFor.
  */
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  let res = await send(path, init, false);
+  const first = await send(path, init, false);
+  let res = first.res;
   const session = currentSession();
-  if (res.status === 401 && session) res = await send(path, init, true);
+  // Asked once more only when a token went, or might have: a request sent with none because nobody is signed in, as in
+  // an open sign-in gate, would only be sent again without one. A keepalive request went with whatever token was held,
+  // so a fresh one may still answer.
+  if (res.status === 401 && session && (first.token || init.keepalive)) res = (await send(path, init, true)).res;
   if (isProxyFailure(res.status)) markUnreachable();
   else markReachable();
   const text = await res.text();

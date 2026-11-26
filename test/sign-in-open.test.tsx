@@ -226,11 +226,18 @@ test('a sign-in screen drawn for an ended session goes once someone signs in', a
   expect(heading()).toBe('The app, signed out');
 });
 
-test('a refusal with nobody signed in changes nothing', async () => {
-  globalThis.fetch = mock(async () => new Response('', { status: 401 })) as unknown as typeof fetch;
-  draw(standInSignIn());
+test('a refusal with nobody signed in changes nothing, and the request is not sent again without a token', async () => {
+  const sent: (string | null)[] = [];
+  globalThis.fetch = mock(async (_path: string, init: RequestInit) => {
+    sent.push(new Headers(init.headers).get('Authorization'));
+    return new Response('', { status: 401 });
+  }) as unknown as typeof fetch;
+  const provider = standInSignIn();
+  draw(provider);
   await press('Load tasks');
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+  await waitFor(() => expect(sent).toEqual([null]));
+  // The provider was asked once, for the first send, and never for a fresh token.
+  expect(provider.calls.tokens).toEqual([{ fresh: false }]);
   expect(heading()).toBe('The app, signed out');
 });
 

@@ -62,6 +62,13 @@ function SignInPage({ navigate }: { navigate: (href: string) => void }) {
   return person ? null : <SignInScreen />;
 }
 
+/** The sign-in screen as a screen of the open app, drawn at once. */
+function DrawnSignIn() {
+  const appDrawn = useAppDrawn();
+  useLayoutEffect(() => appDrawn(), [appDrawn]);
+  return <SignInScreen />;
+}
+
 function SignInScreen() {
   const signIn = useSignIn();
   const [email, setEmail] = useState('');
@@ -215,7 +222,8 @@ function App({ itemsOf }: { itemsOf: (answer: Answer) => Item[] }) {
     if (drawnAtOnce) appDrawn();
   }, [drawnAtOnce, appDrawn]);
   const person = usePerson();
-  if (path === DESKTOP_SIGN_IN_PATH) return <HandOver />;
+  // Signed out there, as only an open gate draws it, the app's sign-in screen: the gate's own trip to Google runs over it.
+  if (path === DESKTOP_SIGN_IN_PATH) return person ? <HandOver /> : <DrawnSignIn />;
   if (path === '/sign-in') return <SignInPage navigate={navigate} />;
   if (!known) {
     return (
