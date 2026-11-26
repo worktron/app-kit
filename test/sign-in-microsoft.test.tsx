@@ -156,10 +156,13 @@ test("the desktop app's window asks the browser for Microsoft by name, Google's 
   const google = new URL(desktopSignInAddress({ account: 'ana@example.com' }));
   expect(google.searchParams.has(WITH_PARAM)).toBe(false);
   expect([...google.searchParams.keys()]).toEqual(['nonce', 'account']);
+  // The same secret for a second click on the same button, which leaves the first tab's sign-in good.
+  expect(new URL(desktopSignInAddress({ account: 'ana@example.com' })).searchParams.get('nonce')).toBe(google.searchParams.get('nonce'));
   const microsoft = new URL(desktopSignInAddress({ account: 'ana@example.com' }, 'microsoft'));
   expect(microsoft.searchParams.get(WITH_PARAM)).toBe('microsoft');
-  // The same secret: a second click, on either button, leaves the first tab's sign-in good.
-  expect(microsoft.searchParams.get('nonce')).toBe(google.searchParams.get('nonce'));
+  // A new one for the other provider, so a Google tab still open cannot sign the window in as Microsoft's account.
+  expect(microsoft.searchParams.get('nonce')).not.toBe(google.searchParams.get('nonce'));
+  expect(new URL(desktopSignInAddress({ account: 'ana@example.com' }, 'microsoft')).searchParams.get('nonce')).toBe(microsoft.searchParams.get('nonce'));
 
   // The window then signs in by the ticket the browser handed back, which names no provider.
   const provider = standInSignIn({ store: sessionStorage });
