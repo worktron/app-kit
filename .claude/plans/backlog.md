@@ -1293,3 +1293,10 @@ Goal: an app on the kit lets a key for agents, such as one with a permission lik
 Today `requireCaller` refuses every write from a key, so Timescale wrote its own gate (`agentKeyRefusal` and `AGENT_KEY_ROUTES` in Timescale's server/src/app.ts, held by server/src/agent-key.test.ts): the key must be the owner's and carry the permission, every route Hono matched after the gate must be on the list, and a change to a task must be exactly `{ "isCompleted": true }`. A refused key gets a 401, and a refused change a 403 saying why.
 
 Done when: the kit's server gate takes a list of the routes, and of the bodies, a key with a given permission may send; a key reaches nothing else, which a test that walks every route holds; and Timescale could use it in place of its own gate.
+
+## time-sensitive-setting · An iPhone app's page can tell whether the person switched Time Sensitive off, so it can say its alarms will be held back in a Focus
+Written by: app-kit/focus-alerts
+
+Goal: since v0.81.1 an app's server can send alerts at Apple's time-sensitive level (`timeSensitive: true` to `sendToApple`, README, iPhone notifications), which come through a Focus only while the person allows it: the app's Time Sensitive switch in Settings, Notifications, each Focus's own allowance, and "Turn off Time Sensitive" on a notification all hold it back, and iOS gives no error. iOS reports the app-wide switch as `UNNotificationSettings.timeSensitiveSetting` (iOS 15). The plugin (tauri/iphone-notifications/plugin) could hand it to the page beside the permission, so an app like Checkpoint, whose undone-routine alarms must come through, can say in Settings that they will be held back and where to turn it on. Whether a single Focus's allowance can be read is unknown. Idea from the focus-alerts thread, 2026-11-26.
+
+Done when: the page half has a call that answers on, off or unknown for Time Sensitive, the plugin reads it from iOS's notification settings, a names test holds the command, a windowless Simulator run shows the answer, and the README says what it can and cannot see.
