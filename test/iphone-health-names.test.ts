@@ -104,6 +104,8 @@ test('heart rate goes by its own answer from Health, not sleep\'s', () => {
   // The start asks only what is still to ask once heart rate is wanted, and sleep alone as it always has.
   expect(swift).toContain('guard heartRate else { return askForHealth(share: writeOnSimulator([sleepType]), read: [sleepType]) }');
   expect(swift).toContain('.filter(stillToAsk)');
+  // A start without heart rate turns its wakes off before it ends, so one right after that gives it again turns them on last.
+  expect(swift).toMatch(/disableBackgroundDelivery\(for: heartRateType\) \{ _, _ in saved\.leave\(\) \}/);
 });
 
 test('the send refuses redirects and asks iOS for time to finish', () => {

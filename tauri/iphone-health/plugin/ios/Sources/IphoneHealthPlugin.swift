@@ -539,10 +539,9 @@ func startDirect(_ addressPointer: UnsafePointer<CChar>, _ heartRatePointer: Uns
         heartRateSync.setAddress(heartRateAddress, dataAvailable: dataAvailable) { saved.leave() }
     } else {
         heartRateSync.clearAddress(dataAvailable: dataAvailable) { had in
-            if had {
-                healthStore.disableBackgroundDelivery(for: heartRateType) { _, _ in }
-            }
-            saved.leave()
+            guard had else { return saved.leave() }
+            // Waited for, so a start that gives the address again right after turns the wakes on after this, not before.
+            healthStore.disableBackgroundDelivery(for: heartRateType) { _, _ in saved.leave() }
         }
     }
     saved.wait()
