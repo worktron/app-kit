@@ -33,7 +33,7 @@ test('a page that opens signed in renews Clerk\'s cookie once, under the placeho
     await expectQuietSignIn(page, () => page.reload(), { timeout: 30_000 });
     await expect(page.getByTestId('person')).toHaveText(user.email);
     expect(renewals).toHaveLength(1);
-    expect(new URL(renewals[0]!).searchParams.get('redirect_url')).toMatch(/\/notes\?sort=new#app-kit-cookie-renewed=$/);
+    expect(new URL(renewals[0]!).searchParams.get('redirect_url')).toMatch(/\/notes\?sort=new#app-kit-cookie-renewed$/);
     expect(new URL(page.url()).pathname + new URL(page.url()).search + new URL(page.url()).hash).toBe('/notes?sort=new');
     // The reload, then the one through Clerk's renewal back to this page.
     expect(loads.loads).toBe(2);

@@ -69,7 +69,7 @@ export function renewalDue({
   now: number;
 }): RenewalReason | null {
   if (!webkit || !sessionId || path === DESKTOP_SIGN_IN_PATH || path.startsWith(`${DESKTOP_SIGN_IN_PATH}/`)) return null;
-  if (record && record.renewedAt < record.attemptedAt && now - record.attemptedAt < RETRY_AFTER_MS) return null;
+  if (record?.sessionId === sessionId && record.renewedAt < record.attemptedAt && now - record.attemptedAt < RETRY_AFTER_MS) return null;
   if (!record || record.sessionId !== sessionId || !record.renewedAt) return 'the first for this session';
   if (now - record.renewedAt > RENEW_AGAIN_AFTER_MS) return 'the last was over six days ago';
   if (eligible && now - record.renewedAt > CLERK_WORD_AFTER_MS) return 'Clerk says its cookie is close to running out';
@@ -91,27 +91,28 @@ function writeRecord(storage: Pick<Storage, 'setItem'>, record: RenewalRecord) {
   try {
     storage.setItem(RENEWAL_KEY, JSON.stringify(record));
   } catch {
-    // Storage blocked: the renewal still runs, and the next open renews again.
+    // Storage refused: the renewal still runs, the page it comes back to takes no other, and the next open renews again.
   }
 }
 
-/** `href` with the mark added to its fragment, beside anything the fragment holds already. */
+/**
+ * `href` with the mark added to the end of its fragment, after an `&` when it has one. The fragment is left byte for
+ * byte, since an app may route on it (`#/items/3`) or read it whole (`#another`).
+ */
 export function markedAddress(href: string): string {
   const url = new URL(href);
-  const fragment = new URLSearchParams(url.hash.slice(1));
-  fragment.set(RENEWED_MARK, '');
-  url.hash = fragment.toString();
+  url.hash = url.hash.length > 1 ? `${url.hash.slice(1)}&${RENEWED_MARK}` : RENEWED_MARK;
   return url.toString();
 }
 
-/** `href` with the mark taken off, or null when it carries none. */
+/** `href` as it was before `markedAddress`, as a path, or null when it carries no mark. */
 export function unmarkedAddress(href: string): string | null {
   const url = new URL(href);
-  const fragment = new URLSearchParams(url.hash.slice(1));
-  if (!fragment.has(RENEWED_MARK)) return null;
-  fragment.delete(RENEWED_MARK);
-  url.hash = fragment.toString();
-  return url.pathname + url.search + url.hash;
+  let hash: string;
+  if (url.hash === `#${RENEWED_MARK}`) hash = '';
+  else if (url.hash.endsWith(`&${RENEWED_MARK}`)) hash = url.hash.slice(0, -`&${RENEWED_MARK}`.length);
+  else return null;
+  return url.pathname + url.search + hash;
 }
 
 /** The part of Clerk the renewal reads, so tests can pass a fake. */
@@ -162,6 +163,8 @@ export function pageRenewal(page: RenewalPage) {
     const record = readRecord(page.storage);
     if (record) writeRecord(page.storage, { ...record, renewedAt: page.now() });
     page.log(`${LOG_PREFIX} back from renewing Clerk's cookie`);
+    // A page back from a renewal never leaves for another, even when storage refused the record that says it is done.
+    state = 'none';
   }
 
   const due = (clerk: RenewingClerk) =>
