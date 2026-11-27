@@ -171,16 +171,22 @@ export async function playUpload(options: PlayUploadOptions): Promise<0 | 1 | 3>
       }
       break;
     }
+    let draft = false;
     try {
       await play.release(edit, TRACK, number, 'completed');
     } catch (error) {
       if (!(error instanceof PlayError && error.draftApp)) throw error;
       print(`[play] ${app.productName} is still a draft in Play Console, which takes only a draft release: build ${number} goes up as one. Roll it out in Play Console once the app's setup there is finished.`);
       await play.release(edit, TRACK, number, 'draft');
+      draft = true;
     }
     await play.commit(edit);
     edit = null;
-    print(`[play] build ${number} of ${app.productName} is on ${TRACK} testing`);
+    print(
+      draft
+        ? `[play] build ${number} of ${app.productName} is a draft release on ${TRACK} testing, which testers get once it is rolled out in Play Console`
+        : `[play] build ${number} of ${app.productName} is on ${TRACK} testing`,
+    );
     return 0;
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));

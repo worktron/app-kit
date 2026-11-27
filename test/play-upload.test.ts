@@ -137,12 +137,13 @@ test('a build number another upload took meanwhile is read again and the app bui
   expect(google.tracks).toEqual([{ track: 'internal', releases: [{ versionCodes: ['6'], status: 'completed' }] }]);
 });
 
-test('an app still a draft in Play Console gets its build as a draft release, and is told why', async () => {
+test('an app still a draft in Play Console gets its build as a draft release, and is told it is not with testers yet', async () => {
   google = { known: true, draft: true, bundles: [1], apks: [], takenOnce: null, calls: [], tracks: [] };
   const { printed, upload } = app();
   expect(await upload()).toBe(0);
   expect(google.tracks).toEqual([{ track: 'internal', releases: [{ versionCodes: ['2'], status: 'draft' }] }]);
   expect(printed.some((line) => line.includes('is still a draft in Play Console'))).toBe(true);
+  expect(printed.at(-1)).toBe('[play] build 2 of Fixture is a draft release on internal testing, which testers get once it is rolled out in Play Console');
 });
 
 test("an app Google does not know yet is built and signed as build 1 and its first upload's steps printed, with nothing sent", async () => {
