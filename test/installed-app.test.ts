@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
-import { isAppWindow, isInstalledApp, isIphoneApp, isTauriApp } from '../web/installed-app';
+import { isAndroidApp, isAppWindow, isInstalledApp, isIphoneApp, isTauriApp } from '../web/installed-app';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+const ANDROID = 'Mozilla/5.0 (Linux; Android 16; sdk_gphone64_arm64 Build/BP22.250325.006; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/133.0.6943.137 Mobile Safari/537.36';
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)';
 
 function place({ tauri = false, agent = MAC, standalone, displayMode = false }: { tauri?: boolean; agent?: string; standalone?: boolean; displayMode?: boolean }) {
@@ -49,4 +50,14 @@ test("every app is an app window, the Mac window included, and only a browser ta
   expect(isAppWindow()).toBe(true);
   place({});
   expect(isAppWindow()).toBe(false);
+});
+
+test("the Tauri Android app is one, and Chrome on an Android phone is not", () => {
+  place({ tauri: true, agent: ANDROID });
+  expect([isTauriApp(), isIphoneApp(), isAndroidApp(), isInstalledApp(), isAppWindow()]).toEqual([true, false, true, true, true]);
+  delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  place({ agent: ANDROID });
+  expect([isAndroidApp(), isInstalledApp()]).toEqual([false, false]);
+  place({ tauri: true, agent: MAC });
+  expect(isAndroidApp()).toBe(false);
 });

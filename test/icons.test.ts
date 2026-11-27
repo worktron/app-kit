@@ -261,6 +261,50 @@ describe('icons render', () => {
     expect(snapshot(root)).toEqual(before);
   });
 
+  test("draws an Android app's launcher icons: the adaptive icon's layers, the older square and round ones, and the Play Store icon", async () => {
+    const { root, options } = app();
+    const res = join(root, 'src-tauri/gen/android/app/src/main/res');
+    mkdirSync(res, { recursive: true });
+    const written = await renderIcons({ ...options, iconSets: [], menuBar: undefined, extension: undefined, web: undefined, androidBackground: '#1d6b4f' });
+    expect(written.filter((file) => file.includes('/gen/android/')).length).toBe(5 * 4 + 3 + 1);
+    for (const [density, scale] of [['mdpi', 1], ['hdpi', 1.5], ['xhdpi', 2], ['xxhdpi', 3], ['xxxhdpi', 4]] as const) {
+      // The older square icon is the tile filling it, as the iPhone's; the round one the same in a circle.
+      const square = await pixels(join(res, `mipmap-${density}/ic_launcher.png`));
+      expect([square.width, square.channels, ...square.at(0, 0)]).toEqual([48 * scale, 3, ...GROUND]);
+      const round = await pixels(join(res, `mipmap-${density}/ic_launcher_round.png`));
+      expect([round.width, round.at(0, 0)[3], ...round.at(24 * scale, 2 * scale)]).toEqual([48 * scale, 0, ...GROUND, 255]);
+      // The layers are 108 dp, the mark on its 48 dp keyline in the middle, the rest see-through.
+      const side = 108 * scale;
+      const foreground = await pixels(join(res, `mipmap-${density}/ic_launcher_foreground.png`));
+      expect(foreground.width).toBe(side);
+      expect(foreground.at(Math.floor(29 * scale) - 1, side / 2)[3]).toBe(0);
+      expect(foreground.at(Math.ceil(31 * scale), Math.ceil(31 * scale))).toEqual([0x2a, 0x2c, 0x30, 255]);
+      // The themed icon's layer: the same shape, in one colour Android tints.
+      const monochrome = await pixels(join(res, `mipmap-${density}/ic_launcher_monochrome.png`));
+      expect(monochrome.at(Math.ceil(31 * scale), Math.ceil(31 * scale))).toEqual([255, 255, 255, 255]);
+      expect(monochrome.at(Math.floor(29 * scale) - 1, side / 2)[3]).toBe(0);
+    }
+    const adaptive = readFileSync(join(res, 'mipmap-anydpi-v26/ic_launcher.xml'), 'utf8');
+    for (const layer of ['@color/ic_launcher_background', '@mipmap/ic_launcher_foreground', '@mipmap/ic_launcher_monochrome']) expect(adaptive).toContain(layer);
+    expect(readFileSync(join(res, 'mipmap-anydpi-v26/ic_launcher_round.xml'), 'utf8')).toBe(adaptive);
+    expect(readFileSync(join(res, 'values/ic_launcher_background.xml'), 'utf8')).toContain('<color name="ic_launcher_background">#1d6b4f</color>');
+    const play = await pixels(join(res, '../ic_launcher-playstore.png'));
+    expect([play.width, play.channels, ...play.at(0, 0)]).toEqual([512, 3, ...GROUND]);
+  });
+
+  test('a Tauri app with an Android project and no background colour is refused, and writes nothing', async () => {
+    const { root, options } = app();
+    const res = join(root, 'src-tauri/gen/android/app/src/main/res');
+    mkdirSync(res, { recursive: true });
+    const before = snapshot(root);
+    await expect(renderIcons({ ...options, run: undefined })).rejects.toThrow("has an Android project, whose icon draws the mark on the app's own background colour");
+    expect(snapshot(root)).toEqual(before);
+    // With no Android project, no colour is asked for, and the command refuses a colour with no --tauri app to use it.
+    const done = Bun.spawnSync(['bun', join(import.meta.dir, '../bin/app-kit.ts'), 'icons', 'render', '--web', 'public', '--android-background', '#123456'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    expect(done.exitCode).not.toBe(0);
+    expect(existsSync(join(root, 'public'))).toBe(false);
+  });
+
   test('names sharp with its install line when it is not installed', async () => {
     await expect(loadSharp(() => Promise.reject(new Error("Cannot find package 'sharp'")))).rejects.toThrow(
       'app-kit icons render draws with sharp, which is not installed here: run bun add -d sharp',

@@ -72,6 +72,7 @@ const USAGE = `app-kit <part> <command>
                               <address>'s own Chrome, and save the refresh token beside them
   icons render [<drawings>] [--icon-set <set>]... [--tauri <src-tauri>] [--menu-bar <imageset>]
                [--extension <folder>] [--toolbar-color <#hex>] [--web <folder>]
+               [--android-background <#hex>]
                               draw every icon an app ships from the drawings in
                               <drawings> (design/icon by default): app-icon.svg, 1024
                               square with its tile on Apple's grid, mark.svg and
@@ -84,7 +85,13 @@ const USAGE = `app-kit <part> <command>
                               and then icon-16-dark-mode and icon-32-dark-mode for
                               Chrome's dark mode in #e3e3e3;
                               --web writes favicon.ico, apple-touch-icon.png, icon-192.png
-                              and icon-512.png. Needs sharp: bun add -d sharp
+                              and icon-512.png. A --tauri app with an Android project
+                              (gen/android) gets its launcher icons too: the adaptive
+                              icon, the mark on --android-background with a one-colour
+                              layer for themed icons, the older square and round icons
+                              from the tile, and ic_launcher-playstore.png, the 512 Play
+                              Store icon, beside the res folder.
+                              Needs sharp: bun add -d sharp
   iphone run sim [<udid>]     from a Tauri app's checkout: build its iPhone app and start
                               it on this checkout's own Simulator (made once, an iPhone 17,
                               named after the app, and in a worktree after its folder too),
@@ -253,7 +260,7 @@ function iconsArguments(args: string[]) {
   const words: string[] = []
   const iconSets: string[] = []
   const flags: Record<string, string> = {}
-  const single = ['--tauri', '--menu-bar', '--extension', '--toolbar-color', '--web']
+  const single = ['--tauri', '--menu-bar', '--extension', '--toolbar-color', '--web', '--android-background']
   for (let at = 0; at < args.length; at++) {
     const flag = args[at]!
     const value = args[at + 1]
@@ -268,6 +275,8 @@ function iconsArguments(args: string[]) {
   const [drawings = 'design/icon', ...extra] = words
   const color = flags['--toolbar-color']
   if (extra.length || (color !== undefined && (!isColor(color) || !flags['--extension']))) return null
+  const background = flags['--android-background']
+  if (background !== undefined && (!isColor(background) || !flags['--tauri'])) return null
   const options = {
     drawings,
     iconSets,
@@ -276,6 +285,7 @@ function iconsArguments(args: string[]) {
     extension: flags['--extension'],
     toolbarColor: color,
     web: flags['--web'],
+    androidBackground: background,
   }
   if (!iconSets.length && !options.tauri && !options.menuBar && !options.extension && !options.web) return null
   return options

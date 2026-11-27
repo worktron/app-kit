@@ -8,7 +8,7 @@ export { FIELD_FONT_SIZE, fieldsNeverZoom, rem } from './fields';
 export { waitForFonts, FONT_WAIT_MS } from './fonts';
 export { bookTitle, colorVariables, lookTheme, readingText } from './theme';
 export { TextSizeSetting } from './TextSizeSetting';
-export { isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
+export { isAndroidApp, isInstalledApp, isIphoneApp, isTauriApp } from './installed-app';
 export { startWebPush, turnOffWebPush, turnOnWebPush, webPushState, WORKER_ADDRESS, type WebPushOptions, type WebPushState, type WebPushSubscription } from './push/page';
 export { PullToRefresh, PULL_DISTANCE, type PullToRefreshProps } from './PullToRefresh';
 export { usePullPastTop, pullPastTopTakes, PULL_PAST, type PullPastTopOptions } from './pull-past-top';

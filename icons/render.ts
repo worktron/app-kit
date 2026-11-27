@@ -8,8 +8,14 @@
  *   extension kit's toolbar-icon.js shows while Chrome is in dark mode), 48 drawn at 40 and 128 at 96, the inset Chrome's
  *   icon guidelines ask for.
  * - glyph.svg: copied into the menu bar's template image set, which keeps it as a vector.
+ * - For a Tauri app with an Android project (src-tauri/gen/android), into its res folder: an adaptive icon (Android 8
+ *   and later) of the mark on the app's own background colour, with the mark again in one colour for Android's themed
+ *   icons, and, for older Android, square and round icons cut from the app icon's tile as the iPhone's are; beside the
+ *   res folder, the 512 Play Store icon, the tile filling its square, where Android Studio keeps it
+ *   (ic_launcher-playstore.png).
  * An Xcode icon set is filled from its own Contents.json, each entry from the drawing for its kind of device; a Tauri
- * app's icons are the files its tauri.conf.json lists, the Windows .ico among them.
+ * app's icons are the files its tauri.conf.json lists, the Windows .ico among them, and its Android project's launcher
+ * icons once it has one.
  *
  * It draws with sharp, whose prebuilt binaries carry librsvg, the engine rsvg-convert draws with, so it needs neither
  * Homebrew nor a browser; sharp is an optional peer dependency, loaded only here. Each drawing is read from its file, so
@@ -43,6 +49,8 @@ export type IconsOptions = {
   toolbarColor?: string;
   /** The folder a web app serves as its root: favicon.ico, apple-touch-icon.png, icon-192.png and icon-512.png. */
   web?: string;
+  /** The adaptive icon's background behind the mark, as #rgb or #rrggbb; needed once the Tauri app has an Android project. */
+  androidBackground?: string;
   run?: Run;
   /** Loads sharp; replaced in tests. */
   load?: () => Promise<SharpModule>;
@@ -58,6 +66,31 @@ const TILE_AT = 100;
  * text is in light mode, which is the toolbar colour the kit's extensions draw with.
  */
 export const DARK_MODE_TOOLBAR_COLOR = '#e3e3e3';
+/** Where a Tauri app's Android project keeps its resources, below src-tauri. */
+const ANDROID_RES = 'gen/android/app/src/main/res';
+/** Android's screen densities and how many pixels each draws a dp in. */
+const ANDROID_DENSITIES = [['mdpi', 1], ['hdpi', 1.5], ['xhdpi', 2], ['xxhdpi', 3], ['xxxhdpi', 4]] as const;
+/** An older Android's launcher icon, and an adaptive icon's layers, in dp. */
+const ANDROID_ICON = 48;
+const ANDROID_LAYER = 108;
+/**
+ * The mark's square on an adaptive layer, in dp: Google's keyline for a logo, well inside the 66 dp circle every
+ * launcher's mask keeps, so no mask (circle, squircle, teardrop) cuts it.
+ */
+const ANDROID_MARK = 48;
+/** The adaptive icon, for both of the launcher's names, and the colour file it names for its background. */
+const ADAPTIVE_ICON = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
+</adaptive-icon>
+`;
+const adaptiveBackground = (color: string) => `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">${color}</color>
+</resources>
+`;
 /** The Mac icon set iconutil turns into an .icns: each size at 1x and 2x. */
 const ICNS_SIZES = [16, 32, 128, 256, 512];
 
@@ -195,6 +228,40 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
     for (const size of [192, 512]) add(options.web, `icon-${size}.png`, await mac(size));
   }
 
+  const res = options.tauri && join(options.tauri, ANDROID_RES);
+  if (res && existsSync(res)) {
+    const color = options.androidBackground;
+    if (!color || !isColor(color)) throw new Error(`${options.tauri} has an Android project, whose icon draws the mark on the app's own background colour: give it as #rgb or #rrggbb (--android-background)`);
+    const mark = drawing('mark.svg', "The Android icon's foreground");
+    const { width, height } = await sharp(mark).metadata();
+    if (!width || width !== height) throw new Error(`${mark} is ${width} by ${height}; the mark is drawn square`);
+    /** An adaptive layer `side` pixels square: the mark centred on its keyline, the rest see-through. */
+    const layer = (side: number) => {
+      const art = Math.round((side * ANDROID_MARK) / ANDROID_LAYER);
+      const before = Math.floor((side - art) / 2);
+      const after = side - art - before;
+      return sharp(mark, { density: Math.max(1, (72 * art) / width) })
+        .resize(art, art)
+        .extend({ top: before, bottom: after, left: before, right: after, background: { r: 0, g: 0, b: 0, alpha: 0 } });
+    };
+    const circle = (side: number) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}"><circle cx="${side / 2}" cy="${side / 2}" r="${side / 2}"/></svg>`);
+    for (const [density, scale] of ANDROID_DENSITIES) {
+      const folder = `mipmap-${density}`;
+      const icon = ANDROID_ICON * scale;
+      const square = await phone(icon);
+      add(res, `${folder}/ic_launcher.png`, square);
+      add(res, `${folder}/ic_launcher_round.png`, await sharp(square).ensureAlpha().composite([{ input: circle(icon), blend: 'dest-in' }]).png().toBuffer());
+      const side = ANDROID_LAYER * scale;
+      // Each layer drawn twice from the drawing, not copied, since a sharp pipeline is used once.
+      add(res, `${folder}/ic_launcher_foreground.png`, await layer(side).png().toBuffer());
+      add(res, `${folder}/ic_launcher_monochrome.png`, await oneColour(sharp, layer(side), '#ffffff'));
+    }
+    add(res, 'mipmap-anydpi-v26/ic_launcher.xml', Buffer.from(ADAPTIVE_ICON));
+    add(res, 'mipmap-anydpi-v26/ic_launcher_round.xml', Buffer.from(ADAPTIVE_ICON));
+    add(res, 'values/ic_launcher_background.xml', Buffer.from(adaptiveBackground(color)));
+    add(dirname(resolve(res)), 'ic_launcher-playstore.png', await phone(512));
+  }
+
   for (const [path, bytes] of files) {
     mkdirSync(dirname(path), { recursive: true });
     // Made new, never through a file or link already there under that name.
@@ -241,6 +308,9 @@ async function iconSet(
     add(set, entry.filename, await drawn(size));
   }
 }
+
+/** A colour as #rgb or #rrggbb. */
+export const isColor = (value: string) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value);
 
 /**
  * The mark drawn in one colour, every pixel keeping its own transparency: the same as recolouring the drawing, however

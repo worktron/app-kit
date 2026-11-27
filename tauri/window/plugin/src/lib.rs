@@ -219,13 +219,20 @@ impl Site {
         let for_events = self.clone();
         #[cfg(target_os = "windows")]
         let for_setup = self.clone();
-        let builder = Builder::new("app-kit-window");
-        #[cfg(target_os = "ios")]
-        let builder = builder.on_webview_ready(|webview| {
-            if on_main(webview.label()) {
+        let for_ready = self.clone();
+        let builder = Builder::new("app-kit-window").on_webview_ready(move |webview| {
+            if !on_main(webview.label()) {
+                return;
+            }
+            #[cfg(target_os = "ios")]
+            {
                 iphone::allow_swipe_back(&webview);
                 iphone::turn_off_shake_to_undo();
             }
+            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"))]
+            hand_over_kept(webview.app_handle(), &for_ready);
+            #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows")))]
+            let _ = &for_ready;
         });
         // The Settings window's switch, which only that window is granted (settings.rs).
         #[cfg(target_os = "macos")]
@@ -239,6 +246,7 @@ impl Site {
                 if app.try_state::<tauri_plugin_opener::Opener<R>>().is_none() {
                     return Err(MISSING_OPENER.into());
                 }
+                app.manage(KeptSignIn::default());
                 #[cfg(target_os = "macos")]
                 {
                     app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
@@ -411,38 +419,55 @@ fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
     }
 }
 
-/// Takes desktop sign-in's links among `urls`, from the Mac's or the iPhone's open event or the link Windows hands a
-/// second copy of the app.
+/// Takes desktop sign-in's links among `urls`, from the Mac's, the iPhone's or Android's open event or the link Windows
+/// hands a second copy of the app.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows", test))]
 fn opened<R: Runtime>(app: &AppHandle<R>, site: &Site, urls: &[Url]) {
     let Some(scheme) = site.scheme.as_deref() else { return };
     for url in urls.iter().filter(|url| url.scheme() == scheme) {
         match sign_in::sign_in_link(url, scheme) {
-            Some(sign_in) => hand_over(app, site, &sign_in),
+            Some(sign_in) => hand_over(app, site, sign_in),
             None => log::info!("ignored a link to {}: not a sign-in with a ticket and nonce it could take", loggable(url)),
         }
     }
 }
 
+/// A sign-in that came back from the browser before the window was made, kept until it is. Android often ends an app
+/// that sits behind the browser, so the link can be what starts it again, before the app has built its window.
+#[derive(Default)]
+struct KeptSignIn(std::sync::Mutex<Option<sign_in::SignIn>>);
+
 /// Moves a sign-in from the browser's link into the page. The page on the site takes it where it is; a window still
-/// on a start page, as at launch, loads the site with it. The ticket itself is never logged.
+/// on a start page, as at launch, loads the site with it; with no window yet, it is kept for the window's first page
+/// (`hand_over_kept`). The ticket itself is never logged.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows", test))]
-fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: &sign_in::SignIn) {
+fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: sign_in::SignIn) {
     let Some(window) = app.get_webview_window(MAIN) else {
-        log::warn!("a sign-in came back from the browser with no window to hand it to");
+        log::info!("a sign-in came back from the browser before the window was made, keeping it for the window");
+        if let Some(kept) = app.try_state::<KeptSignIn>() {
+            *kept.0.lock().unwrap() = Some(sign_in);
+        }
         return;
     };
     if window.url().is_ok_and(|url| site.on_site(&url)) {
         log::info!("a sign-in came back from the browser, handing it to the page");
-        let _ = window.eval(sign_in::sign_in_script(&site.address, sign_in));
+        let _ = window.eval(sign_in::sign_in_script(&site.address, &sign_in));
     } else {
         log::info!("a sign-in came back from the browser before the site loaded, loading it to sign in");
-        let _ = window.navigate(sign_in::sign_in_page(&site.address, sign_in));
+        let _ = window.navigate(sign_in::sign_in_page(&site.address, &sign_in));
     }
     #[cfg(target_os = "macos")]
     show(app);
     #[cfg(target_os = "windows")]
     windows::bring_forward(app);
+}
+
+/// Hands the window, once it is made, the sign-in that came back before it was.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"))]
+fn hand_over_kept<R: Runtime>(app: &AppHandle<R>, site: &Site) {
+    let Some(sign_in) = app.try_state::<KeptSignIn>().and_then(|kept| kept.0.lock().unwrap().take()) else { return };
+    log::info!("the window is made, handing it the sign-in that came back before it was");
+    hand_over(app, site, sign_in);
 }
 
 /// The program the app was launched from, as the window read it at launch.
