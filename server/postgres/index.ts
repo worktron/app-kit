@@ -4,7 +4,7 @@ import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import postgres from 'postgres';
 import { readyMadeEmptyDatabase } from './ready-made';
@@ -41,6 +41,9 @@ export async function openDb<TSchema extends Schema>(
     console.log(`database: opened Postgres at ${host}${pathname}, migrated`);
     return db;
   }
+  // PGlite makes only the last folder of a path, so a fresh checkout with no `.data` stopped at start; the folders made
+  // here are the account's alone, since the database holds what signed-in people kept, and existing ones keep theirs.
+  if (isFolder(location)) mkdirSync(location, { recursive: true, mode: 0o700 });
   const client = location === ':memory:' ? new PGlite({ loadDataDir: await readyMadeFiles() }) : new PGlite(location, { loadDataDir: await newFolderFiles(location) });
   const db = Object.assign(drizzlePglite(client, { schema }), { close: () => client.close() });
   await migrateOrClose(db, () => migratePglite(db, { migrationsFolder }));
@@ -54,8 +57,13 @@ export async function openDb<TSchema extends Schema>(
  * file:// or idb://, is left to PGlite, which reads the scheme where this check would look for a folder by that name.
  */
 async function newFolderFiles(location: string) {
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(location) || existsSync(join(location, 'PG_VERSION'))) return undefined;
+  if (!isFolder(location) || existsSync(join(location, 'PG_VERSION'))) return undefined;
   return readyMadeFiles();
+}
+
+/** Whether a PGlite location is a plain folder path: not `:memory:`, and with no scheme such as file:// or idb://. */
+function isFolder(location: string) {
+  return location !== ':memory:' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(location);
 }
 
 /** Runs the migration, and closes the database when it fails, so an open that throws leaves nothing open behind it. */

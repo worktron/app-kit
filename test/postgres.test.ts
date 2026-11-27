@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { eq, sql } from 'drizzle-orm';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { closeTestDbs, openDb, openTestDb, type Db } from '../server/postgres';
@@ -211,6 +211,25 @@ describe('openDb', () => {
       expect(await again.select({ body: schema.notes.body }).from(schema.notes)).toEqual([{ body: 'kept' }]);
       expect(logged).toEqual(Array(2).fill(`database: opened PGlite in ${folder}, migrated`));
       await again.close();
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+  // PGlite makes only the last folder of its path, so a fresh checkout with no `.data` stopped an app at start.
+  test('opens a folder whose parent folders do not exist, making them private to the account', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'app-kit-postgres-'));
+    const modeOf = async (path: string) => (await stat(path)).mode & 0o777;
+    const before = await modeOf(folder);
+    const location = join(folder, 'missing', 'db');
+    try {
+      const db = await openDb(location, options);
+      await db.insert(schema.notes).values({ body: 'made', length: 4 });
+      expect(await db.select({ body: schema.notes.body }).from(schema.notes)).toEqual([{ body: 'made' }]);
+      expect(logged).toEqual([`database: opened PGlite in ${location}, migrated`]);
+      await db.close();
+      expect([await modeOf(join(folder, 'missing')), await modeOf(location)]).toEqual([0o700, 0o700]);
+      expect(await modeOf(folder)).toBe(before);
     } finally {
       await rm(folder, { recursive: true, force: true });
     }

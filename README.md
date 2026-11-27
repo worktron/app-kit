@@ -2830,7 +2830,7 @@ export const db = await openDb(location, {
 | `openDb(location, ...)` with | Opens |
 | --- | --- |
 | A `postgres://` or `postgresql://` URL, such as Railway's `DATABASE_URL` | A Postgres server, through postgres-js |
-| A folder | PGlite kept on disk in that folder, for local use |
+| A folder | PGlite kept on disk in that folder, for local use, making the folder and any missing folders above it, readable only by the account |
 | `:memory:` | PGlite in memory, gone when it closes |
 
 An empty location is refused, never read as a folder. Each open logs one line naming what it opened, `database: opened Postgres at <host>/<database>, migrated` or `database: opened PGlite in <folder>, migrated`, never the password, so a deploy log shows which database the server is on. Every database it gives has `close()`, which ends the connection or shuts PGlite down; an open whose migration fails closes it before it throws. Migrations are only ever drizzle-kit's: `bunx drizzle-kit generate` writes them from the schema, and the next open runs them, on Railway as on the laptop. Drizzle applies the pending ones in one transaction and takes no lock, so two instances opening the same database at once can both try a pending migration: one applies it, the other fails to start with nothing half done, and its restart finds the migration applied. An app run as one Railway instance never meets this.
