@@ -8,7 +8,9 @@
 // an iPhone build, and watches apps' main to upload after each landing. The Mac
 // part publishes a Mac app's release, which its installed copies update to, and
 // makes the key that signs it. The icons part draws every icon an app ships from
-// its drawings. The google part sets a demo Google account's inbox and calendar
+// its drawings. The Android part builds a Tauri app and starts it on a headless
+// emulator, and the Play part uploads an Android build to Google Play's internal
+// testing. The google part sets a demo Google account's inbox and calendar
 // for an app's verification and demo videos.
 
 import { mkdirSync, readFileSync } from 'node:fs'
@@ -23,6 +25,18 @@ import packageJson from '../package.json'
 
 const USAGE = `app-kit <part> <command>
 
+  android run emulator [--reverse <port>]...
+                              from a Tauri app's checkout: build its Android app for
+                              debugging and start it on an Android emulator with no window
+                              and no sound, from the one image every checkout shares; the
+                              emulator reaches this Mac's localhost on the page's port and
+                              each --reverse port. At most two run on the Mac at once, and
+                              each shuts down 10 minutes after the app starts, or when the
+                              checkout is gone. How to tap and look at it: the README's
+                              "Testing the Android app yourself"
+  android keep <serial> [<minutes>]
+                              move the shut-down time of an emulator android run started
+                              to <minutes> from now, 10 by default and 30 at most
   extension copy <folder>     write the kit's worker files directly into <folder>, the
                               folder the worker imports them from, as extension/kit,
                               with look.css, the plain look's stylesheet for its pages;
@@ -139,6 +153,13 @@ const USAGE = `app-kit <part> <command>
                               1Password's TestFlight vault, and print the plugins.updater
                               block for tauri.conf.json, with <owner>/<repository> the
                               releases' public repository; refuses when the key exists
+  play upload                 from a Tauri app's checkout: build its Android App Bundle
+                              signed with its upload key from 1Password's TestFlight vault,
+                              numbered one past every build Google Play holds, and put it
+                              on the internal testing track; an app Play does not know yet
+                              is built as build 1 with the steps to upload it by hand
+  play key                    make the app's upload key, once, and keep it in 1Password's
+                              TestFlight vault; refuses when the key exists
   testflight upload [--token-only]
                               from a Tauri app's checkout at a commit of origin/main,
                               or a folder holding an XcodeGen project.yml: build its
@@ -169,8 +190,9 @@ const USAGE = `app-kit <part> <command>
   --version                   this kit's version and the commit it runs from
 
 Exit codes: 0 done; 1 the command failed; 2 wrong usage; 3 check found worker
-files that differ, or testflight upload's or mac release's app did not compile; 4 status found no
-host answering.`
+files that differ, or testflight upload's or mac release's app did not compile, or
+play upload needs a person first (a tool, the signing block, a 1Password item);
+4 status found no host answering.`
 
 
 /** install-host's arguments: three words at most, and its two flags. Null for wrong usage. */
@@ -327,6 +349,47 @@ async function mac([command, ...args]: string[]): Promise<boolean> {
   return true
 }
 
+async function android([command, ...args]: string[]): Promise<boolean> {
+  const port = (text: string | undefined) => Number.isInteger(Number(text)) && Number(text) > 0 && Number(text) < 65536
+  if (command === 'run' && args[0] === 'emulator') {
+    const rest = args.slice(1)
+    if (rest.length % 2 !== 0 || rest.some((arg, index) => (index % 2 === 0 ? arg !== '--reverse' : !port(arg)))) return false
+    const reverse = rest.filter((_arg, index) => index % 2 === 1).map(Number)
+    const code = await (await import('../tauri/android-run/index.ts')).runAndroid({ cwd: process.cwd(), reverse })
+    if (code !== 0) process.exit(code)
+    return true
+  }
+  const [serial, ...extra] = args
+  if (!serial || !/^emulator-\d+$/.test(serial)) return false
+  const { stateFolder } = await import('../tauri/state.ts')
+  const lifetime = await import('../tauri/android-run/lifetime.ts')
+  const folder = stateFolder('emulators')
+  // The watcher android run starts for each emulator, in a session of its own; not a command for people.
+  if (command === 'watch' && extra.length === 0) {
+    await lifetime.watchEmulator({ folder }, serial)
+    return true
+  }
+  if (command !== 'keep' || extra.length > 1 || (extra.length === 1 && !(Number.isInteger(Number(extra[0])) && Number(extra[0]) >= 1))) return false
+  const minutes = extra.length ? Number(extra[0]) : lifetime.MINUTES
+  const held = await lifetime.keep({ folder }, serial, minutes)
+  if (!held) {
+    console.error(`[android] app-kit holds no running emulator ${serial}`)
+    process.exit(1)
+  }
+  console.log(`[android] ${serial} shuts down at ${lifetime.clock(held.until)}, in ${Math.min(minutes, lifetime.MOST_MINUTES)} minutes`)
+  return true
+}
+
+async function play([command, ...args]: string[]): Promise<boolean> {
+  if (args.length) return false
+  let code: number
+  if (command === 'upload') code = await (await import('../tauri/play/upload.ts')).playUpload({ cwd: process.cwd() })
+  else if (command === 'key') code = await (await import('../tauri/play/key.ts')).makeUploadKey({ cwd: process.cwd() })
+  else return false
+  if (code !== 0) process.exit(code)
+  return true
+}
+
 async function testflight([command, ...args]: string[]): Promise<boolean> {
   if (command === 'upload' && (args.length === 0 || (args.length === 1 && args[0] === '--token-only'))) {
     const code = await (await import('../tauri/testflight/upload.ts')).upload({ cwd: process.cwd(), tokenOnly: args[0] === '--token-only' })
@@ -399,12 +462,14 @@ async function web([command, ...args]: string[]): Promise<boolean> {
 async function main(args: string[]) {
   if (answerHelpOrVersion(args, { usage: USAGE, version: () => versionLine(packageJson, join(import.meta.dir, '..')) })) return
   const [part, ...rest] = args
+  if (part === 'android' && (await android(rest))) return
   if (part === 'extension' && (await extension(rest))) return
   if (part === 'google' && (await (await import('../server/google/demo-command.ts')).google(rest))) return
   if (part === 'icons' && (await icons(rest))) return
   if (part === 'iphone' && (await iphone(rest))) return
   if (part === 'iphone-simulator' && (await iphoneSimulator(rest))) return
   if (part === 'mac' && (await mac(rest))) return
+  if (part === 'play' && (await play(rest))) return
   if (part === 'testflight' && (await testflight(rest))) return
   if (part === 'web' && (await web(rest))) return
   wrongUsage(USAGE)
