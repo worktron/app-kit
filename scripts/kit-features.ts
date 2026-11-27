@@ -400,28 +400,42 @@ const OPEN_AT_LOGIN: Feature = {
 // relative to that folder; any other plist, the iPhone's and Xcode's generated ones included, never reaches the Mac app.
 // AppMenu is the Mac's alone, so a shell that builds it ships on the Mac.
 const DOWNLOADS_REASON = 'NSDownloadsFolderUsageDescription'
-/** The bundle.macOS.infoPlist a JSON config names, or undefined. */
-function namedInfoPlist(text: string): string | undefined {
+/** Tauri's config files in the order it picks them, the first in a folder being the one it reads. */
+const BASE_CONFIGS = ['tauri.conf.json', 'tauri.conf.json5', 'Tauri.toml']
+const MAC_CONFIGS = ['tauri.macos.conf.json', 'tauri.macos.conf.json5', 'Tauri.macos.toml']
+/** What the config Tauri reads in `folder` names as the Mac Info.plist: a name, none, or unread when it cannot be read. */
+function namedInfoPlist(app: Landed, folder: string, names: string[]): { named?: string } | 'unread' {
+  const config = names.map((name) => posix.join(folder, name)).find((path) => app.tracked.includes(path))
+  if (!config) return {}
+  // Tauri reads JSON5 and TOML too, and JSON5 inside a .json file; this reads strict JSON alone.
+  if (!config.endsWith('.json')) return 'unread'
   try {
-    const named = (JSON.parse(text || '{}') as { bundle?: { macOS?: { infoPlist?: unknown } } }).bundle?.macOS?.infoPlist
-    return typeof named === 'string' ? named : undefined
+    const named = (JSON.parse(app.show(config)) as { bundle?: { macOS?: { infoPlist?: unknown } } }).bundle?.macOS?.infoPlist
+    return typeof named === 'string' ? { named } : {}
   } catch {
-    return undefined
+    return 'unread'
   }
 }
 /**
- * The plists Tauri merges into the Mac app's Info.plist, for each tauri.conf.json the app tracks: the Info.plist beside
- * it, and the file bundle.macOS.infoPlist names, where tauri.macos.conf.json's, merged over the base, wins. `unread` is a
- * config this entry cannot read (JSON5 or TOML, which Tauri also takes), which could name another.
+ * The plists Tauri merges into the Mac app's Info.plist, for each folder with a Tauri config: the Info.plist beside it,
+ * and the file bundle.macOS.infoPlist names, where the Mac config's, merged over the base, wins. `unread` is a config
+ * Tauri reads that this cannot, which could name another.
  */
 function macInfoPlists(app: Landed): { plists: string[]; unread?: string } {
   const plists: string[] = []
-  const configs = app.tracked.filter((path) => !path.includes('node_modules/'))
-  const unread = configs.find((path) => /(^|\/)(tauri(\.macos)?\.conf\.json5|Tauri(\.macos)?\.toml)$/.test(path))
-  for (const conf of configs.filter((path) => /(^|\/)tauri\.conf\.json$/.test(path))) {
-    const folder = posix.dirname(conf)
+  let unread: string | undefined
+  const folders = new Set(
+    app.tracked.filter((path) => !path.includes('node_modules/') && BASE_CONFIGS.includes(posix.basename(path))).map((path) => posix.dirname(path)),
+  )
+  for (const folder of folders) {
     plists.push(posix.join(folder, 'Info.plist'))
-    const named = namedInfoPlist(app.show(posix.join(folder, 'tauri.macos.conf.json'))) ?? namedInfoPlist(app.show(conf))
+    const mac = namedInfoPlist(app, folder, MAC_CONFIGS)
+    const base = namedInfoPlist(app, folder, BASE_CONFIGS)
+    if (mac === 'unread' || (base === 'unread' && !mac.named)) {
+      unread ??= `${mac === 'unread' ? 'the Mac config' : 'the config'} in ${folder}`
+      continue
+    }
+    const named = mac.named ?? (base === 'unread' ? undefined : base.named)
     if (named) plists.push(posix.join(folder, named))
   }
   return { plists, unread }
@@ -436,7 +450,7 @@ const DOWNLOADS: Feature = {
   present: async (app) => {
     const { plists, unread } = macInfoPlists(app)
     if (plists.some((plist) => app.show(plist).includes(DOWNLOADS_REASON))) return 'has'
-    return unread ? { unknown: `${unread} is a config this report does not read, which could name the Mac Info.plist` } : 'lacks'
+    return unread ? { unknown: `${unread} is in a form this report does not read (JSON5 or TOML), which could name the Mac Info.plist` } : 'lacks'
   },
 }
 
