@@ -400,22 +400,31 @@ const OPEN_AT_LOGIN: Feature = {
 // relative to that folder; any other plist, the iPhone's and Xcode's generated ones included, never reaches the Mac app.
 // AppMenu is the Mac's alone, so a shell that builds it ships on the Mac.
 const DOWNLOADS_REASON = 'NSDownloadsFolderUsageDescription'
-/** The plists Tauri merges into the Mac app's Info.plist, for each tauri.conf.json the app tracks. */
-function macInfoPlists(app: Landed): string[] {
+/** The bundle.macOS.infoPlist a JSON config names, or undefined. */
+function namedInfoPlist(text: string): string | undefined {
+  try {
+    const named = (JSON.parse(text || '{}') as { bundle?: { macOS?: { infoPlist?: unknown } } }).bundle?.macOS?.infoPlist
+    return typeof named === 'string' ? named : undefined
+  } catch {
+    return undefined
+  }
+}
+/**
+ * The plists Tauri merges into the Mac app's Info.plist, for each tauri.conf.json the app tracks: the Info.plist beside
+ * it, and the file bundle.macOS.infoPlist names, where tauri.macos.conf.json's, merged over the base, wins. `unread` is a
+ * config this entry cannot read (JSON5 or TOML, which Tauri also takes), which could name another.
+ */
+function macInfoPlists(app: Landed): { plists: string[]; unread?: string } {
   const plists: string[] = []
-  for (const conf of app.tracked.filter((path) => /(^|\/)tauri\.conf\.json$/.test(path) && !path.includes('node_modules/'))) {
+  const configs = app.tracked.filter((path) => !path.includes('node_modules/'))
+  const unread = configs.find((path) => /(^|\/)(tauri(\.macos)?\.conf\.json5|Tauri(\.macos)?\.toml)$/.test(path))
+  for (const conf of configs.filter((path) => /(^|\/)tauri\.conf\.json$/.test(path))) {
     const folder = posix.dirname(conf)
     plists.push(posix.join(folder, 'Info.plist'))
-    for (const file of [conf, posix.join(folder, 'tauri.macos.conf.json')]) {
-      try {
-        const named = (JSON.parse(app.show(file) || '{}') as { bundle?: { macOS?: { infoPlist?: unknown } } }).bundle?.macOS?.infoPlist
-        if (typeof named === 'string') plists.push(posix.join(folder, named))
-      } catch {
-        // A file that is not JSON names no plist.
-      }
-    }
+    const named = namedInfoPlist(app.show(posix.join(folder, 'tauri.macos.conf.json'))) ?? namedInfoPlist(app.show(conf))
+    if (named) plists.push(posix.join(folder, named))
   }
-  return plists
+  return { plists, unread }
 }
 const DOWNLOADS: Feature = {
   feature: 'its reason for the Downloads folder in the Mac Info.plist',
@@ -424,7 +433,11 @@ const DOWNLOADS: Feature = {
   appliesTo: (app) =>
     app.grep('tauri-plugin-app-kit-window', [':(glob)**/Cargo.toml', ':(exclude,glob)**/node_modules/**']).length > 0 &&
     app.grep('AppMenu::new', SHELL_RUST).length > 0,
-  present: async (app) => has(macInfoPlists(app).some((plist) => app.show(plist).includes(DOWNLOADS_REASON))),
+  present: async (app) => {
+    const { plists, unread } = macInfoPlists(app)
+    if (plists.some((plist) => app.show(plist).includes(DOWNLOADS_REASON))) return 'has'
+    return unread ? { unknown: `${unread} is a config this report does not read, which could name the Mac Info.plist` } : 'lacks'
+  },
 }
 
 // An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on

@@ -307,6 +307,11 @@ test("a Mac app on the window plugin gives its reason for the Downloads folder i
   expect(await verdict(DOWNLOADS, { ...shell, 'src-tauri/tauri.conf.json': '{}', 'src-tauri/Info.plist': reason })).toBe('has');
   const macConf = { 'src-tauri/tauri.macos.conf.json': JSON.stringify({ bundle: { macOS: { infoPlist: 'mac/Info.plist' } } }) };
   expect(await verdict(DOWNLOADS, { ...shell, 'src-tauri/tauri.conf.json': '{}', ...macConf, 'src-tauri/mac/Info.plist': reason })).toBe('has');
+  // tauri.macos.conf.json's plist is merged over the base's, so the base's is not the Mac app's.
+  expect(await verdict(DOWNLOADS, { ...named, ...macConf, 'src-tauri/Info.macos.plist': reason, 'src-tauri/mac/Info.plist': microphone })).toBe('lacks');
+  // A config in JSON5 or TOML, which Tauri reads and this report does not, leaves it unknown rather than lacking.
+  const json5 = await verdict(DOWNLOADS, { ...named, 'src-tauri/tauri.macos.conf.json5': "{ bundle: { macOS: { infoPlist: 'mac/Info.plist' } } }", 'src-tauri/Info.macos.plist': microphone });
+  expect(json5).toEqual({ unknown: 'src-tauri/tauri.macos.conf.json5 is a config this report does not read, which could name the Mac Info.plist' });
   // A plist Tauri never merges into the Mac app: one nothing names, the iPhone's, Xcode's generated one.
   expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone, 'src-tauri/Old.plist': reason })).toBe('lacks');
   expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone, 'src-tauri/Info.ios.plist': reason })).toBe('lacks');
