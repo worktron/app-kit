@@ -7,7 +7,6 @@ What an app does when it moves to each version, newest first, written by the lan
 Urgency: rides along
 
 - a Mac app that should open when the person logs in replaces .settings_window() with .open_at_login_by_default() in its AppMenu; its next release turns the switch on once (README, A window onto the hosted site, Opening at login by default). An app that already shipped .settings_window() turns it on once for everyone, people who had turned it off included. Other apps change nothing.
-- a Mac app that should open when the person logs in replaces .settings_window() with .open_at_login_by_default() in its AppMenu; its next release turns the switch on once (README, A window onto the hosted site, Opening at login by default). Other apps change nothing.
 
 ## v0.84.0
 

@@ -142,9 +142,11 @@ pub(crate) fn open_at_login_status() -> Answer {
 }
 
 /// Turns the login item on or off; the answer is the state macOS reports after it. The app's data folder keeps the
-/// mark that the person set it, which a first launch never overrides.
+/// mark that the person set it, which a first launch never overrides. It waits for a first launch's turn-on that
+/// macOS is still answering (login_item.rs), so it is async, which Tauri runs off the main thread: a plain command
+/// runs on it, and the app's windows and menus would stop answering for that wait.
 #[tauri::command]
-pub(crate) fn open_at_login_set<R: Runtime>(app: AppHandle<R>, on: bool) -> Answer {
+pub(crate) async fn open_at_login_set<R: Runtime>(app: AppHandle<R>, on: bool) -> Answer {
     login_item::set(&login_item::ThisMac, on, app.path().app_data_dir().ok().as_deref())
 }
 

@@ -157,8 +157,11 @@ test('the Settings window, its page and its commands go by the names the page an
   // Tauri names each command's permission allow-<command, with dashes>, which the window's grant names.
   for (const command of OPEN_AT_LOGIN_COMMANDS) {
     expect(settings).toContain(`"app-kit-window:allow-${command.replaceAll('_', '-')}"`);
-    expect(settings).toMatch(new RegExp(`pub\\(crate\\) fn ${command}[<(]`));
+    expect(settings).toMatch(new RegExp(`pub\\(crate\\) (async )?fn ${command}[<(]`));
   }
+  // The switch waits for a first launch's turn-on macOS is still answering, so it runs off the main thread, which
+  // Tauri does for an async command alone: a plain one would stop the app's windows and menus for that wait.
+  expect(settings).toMatch(/#\[tauri::command\]\npub\(crate\) async fn open_at_login_set</);
   const page = readFileSync(join(import.meta.dir, '../tauri/window/start', SETTINGS_PAGE), 'utf8');
   expect(page).toContain(`window.${SETTINGS_PAGE_SETTINGS}`);
   expect(page).toContain('`plugin:app-kit-window|${command}`');
