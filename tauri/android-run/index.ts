@@ -17,12 +17,12 @@
  *
  * Exit codes: 0 running; 1 anything else.
  */
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
-import { androidProblem, ANDROID_PROJECT, BUILD_GRADLE } from '../play/upload.ts';
-import { readApp } from '../play/app.ts';
+import { androidProblem } from '../play/upload.ts';
+import { ANDROID_PROJECT, readApp } from '../play/app.ts';
 import { alive, stateFolder } from '../state.ts';
 import { lastLine } from '../testflight/key.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
@@ -62,13 +62,6 @@ export type AndroidRunOptions = {
 export function tools(env: Env): { adb: string; emulator: string; avdmanager: string } {
   const sdk = env.ANDROID_HOME ?? '';
   return { adb: join(sdk, 'platform-tools/adb'), emulator: join(sdk, 'emulator/emulator'), avdmanager: join(sdk, 'cmdline-tools/latest/bin/avdmanager') };
-}
-
-/** The Android app's id, from its build.gradle.kts: Tauri writes the identifier there, with `-` made `_`. */
-export function applicationId(cwd: string, identifier: string): string {
-  const file = join(cwd, BUILD_GRADLE);
-  const written = existsSync(file) ? /applicationId\s*=\s*"([^"]+)"/.exec(readFileSync(file, 'utf8'))?.[1] : undefined;
-  return written ?? identifier.replace(/-/g, '_');
 }
 
 /** The ports on this Mac the page lives on, when its address is this Mac's own. */
@@ -140,7 +133,7 @@ async function runSteps(options: AndroidRunOptions, holding: Holding): Promise<0
   const problem = androidProblem(cwd, env, { signed: false });
   if (problem) return fail(problem);
   const { adb, emulator, avdmanager } = tools(env);
-  const id = applicationId(cwd, app.identifier);
+  const id = app.packageName;
 
   const avds = await run([emulator, '-list-avds'], { env });
   if (avds.code !== 0) return fail(`could not list the emulator images (${lastLine(avds.out)}): the emulator comes from fleet's machine setup`);

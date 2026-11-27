@@ -15,7 +15,9 @@ import { serviceAccountFromItem, uploadKeyFromItem, uploadKeyTemplate } from '..
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const ACCOUNT = { client_email: 'uploader@example.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() };
 const KEY = { keystore: Buffer.from('a keystore').toString('base64'), password: 'stand-in password', alias: 'upload' };
-const PACKAGE = 'com.example.fixture';
+// The app's identifier has a `-`, which Tauri makes `_` in the Android package name that Google knows it by.
+const IDENTIFIER = 'com.example.fixture-app';
+const PACKAGE = 'com.example.fixture_app';
 
 /** What the stand-in Google holds and answers, set by each test. */
 type Google = { known: boolean; draft: boolean; bundles: number[]; apks: number[]; takenOnce: number | null; calls: string[]; tracks: unknown[] };
@@ -38,9 +40,10 @@ function respond(method: string, url: URL, authorization: string, text: string):
     return answer(200, { access_token: 'stand-in-access', expires_in: 3600 });
   }
   if (authorization !== 'Bearer stand-in-access') return refusal(401, 'no token');
+  const asked = /^\/(upload\/)?androidpublisher\/v3\/applications\/([^/:]+)/.exec(url.pathname)?.[2];
   const path = url.pathname.replace(/^\/(upload\/)?androidpublisher\/v3\/applications\/[^/]+/, '');
   google.calls.push(`${method} ${path}`);
-  if (!google.known) return refusal(404, 'Package not found: com.example.fixture.');
+  if (!google.known || asked !== PACKAGE) return refusal(404, `Package not found: ${asked}.`);
   if (method === 'POST' && path === '/edits') return answer(200, { id: `edit-${google.calls.length}` });
   if (method === 'DELETE') return answer(204, null);
   if (path.endsWith('/bundles') && method === 'GET') return answer(200, { bundles: google.bundles.map((versionCode) => ({ versionCode })) });
@@ -84,10 +87,10 @@ let checkout = '';
 function app() {
   checkout = mkdtempSync(join(tmpdir(), 'play-'));
   mkdirSync(join(checkout, 'src-tauri/gen/android/app'), { recursive: true });
-  writeFileSync(join(checkout, 'src-tauri/tauri.conf.json'), JSON.stringify({ productName: 'Fixture', identifier: PACKAGE }));
+  writeFileSync(join(checkout, 'src-tauri/tauri.conf.json'), JSON.stringify({ productName: 'Fixture', identifier: IDENTIFIER }));
   writeFileSync(
     join(checkout, 'src-tauri/gen/android/app/build.gradle.kts'),
-    'val keystorePropertiesFile = rootProject.file("keystore.properties")\nandroid { buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } } }\n',
+    `val keystorePropertiesFile = rootProject.file("keystore.properties")\nandroid { defaultConfig { applicationId = "${PACKAGE}" }; buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } } }\n`,
   );
   const built: { versionCode: number; signedWith: string }[] = [];
   const run: Run = async (command, options) => {

@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Run, RunResult } from '../command-line/run.ts';
-import { applicationId, AVD, DEBUG_APK, localPorts, runAndroid, SYSTEM_IMAGE } from '../tauri/android-run/index.ts';
+import { AVD, DEBUG_APK, localPorts, runAndroid, SYSTEM_IMAGE } from '../tauri/android-run/index.ts';
+import { applicationId } from '../tauri/play/app.ts';
 import { type Held, keep, type Lifetime, MOST_MINUTES, readHeld, takePlace, watchEmulator } from '../tauri/android-run/lifetime.ts';
 
 const done = (stdout = '', code = 0): RunResult => ({ code, out: stdout, stdout, stderr: '', timedOut: false });

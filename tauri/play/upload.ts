@@ -23,12 +23,11 @@ import { buildEnv, type Env } from '../build-env.ts';
 import { lastLine } from '../testflight/key.ts';
 import { lock, stateFolder } from '../state.ts';
 import { GooglePlay, PlayError, type PlayOptions, type ServiceAccount } from './google-play.ts';
-import { readApp } from './app.ts';
+import { ANDROID_PROJECT, BUILD_GRADLE, readApp } from './app.ts';
 import { readServiceAccount, readUploadKey, type UploadKey } from './key.ts';
 
-export const ANDROID_PROJECT = 'src-tauri/gen/android';
+export { ANDROID_PROJECT, BUILD_GRADLE };
 export const KEYSTORE_PROPERTIES = `${ANDROID_PROJECT}/keystore.properties`;
-export const BUILD_GRADLE = `${ANDROID_PROJECT}/app/build.gradle.kts`;
 export const BUNDLE = `${ANDROID_PROJECT}/app/build/outputs/bundle/universalRelease/app-universal-release.aab`;
 export const TRACK = 'internal';
 /** What Android's build needs from the shell, which fleet's machine setup sets. */
@@ -96,9 +95,9 @@ async function build(cwd: string, env: Env, run: Run, key: UploadKey, versionCod
 }
 
 /** The steps for a new app's first build, which Google takes only in Play Console. */
-export function firstUploadSteps(productName: string, identifier: string, bundle: string): string {
+export function firstUploadSteps(productName: string, packageName: string, bundle: string): string {
   return [
-    `Google Play does not know ${identifier} yet, and takes a new app's first build only in Play Console. Build 1 is built and signed:`,
+    `Google Play does not know ${packageName} yet, and takes a new app's first build only in Play Console. Build 1 is built and signed:`,
     `  ${bundle}`,
     `1. In Play Console (https://play.google.com/console), Create app: name ${productName}, then finish the questions it asks.`,
     `2. Testing, Internal testing, Create new release: upload the file above, and let Google sign the app (Play App Signing).`,
@@ -128,9 +127,9 @@ export async function playUpload(options: PlayUploadOptions): Promise<0 | 1 | 3>
   const key = await (options.uploadKey ?? ((name: string) => readUploadKey(run, env, name)))(app.productName);
   if (typeof key === 'string') return fail(key, 3);
 
-  const lockFile = join(stateFolder('play', options.stateEnv ?? env), `${app.identifier}.lock`);
-  if (!lock(lockFile)) return fail(`another upload of ${app.identifier} is running on this Mac; run this again once it ends`);
-  const play = new GooglePlay(account, app.identifier, options.play);
+  const lockFile = join(stateFolder('play', options.stateEnv ?? env), `${app.packageName}.lock`);
+  if (!lock(lockFile)) return fail(`another upload of ${app.packageName} is running on this Mac; run this again once it ends`);
+  const play = new GooglePlay(account, app.packageName, options.play);
   let edit: string | null = null;
   try {
     /** The next build number, or null for an app Google does not know yet. */
@@ -151,7 +150,7 @@ export async function playUpload(options: PlayUploadOptions): Promise<0 | 1 | 3>
     let number = await nextNumber();
     if (number === null) {
       const bundle = await build(cwd, env, run, key, 1, print);
-      print(firstUploadSteps(app.productName, app.identifier, bundle));
+      print(firstUploadSteps(app.productName, app.packageName, bundle));
       return 0;
     }
     for (let attempt = 1; ; attempt++) {
