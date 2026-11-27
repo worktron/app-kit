@@ -20,12 +20,12 @@ const IDENTIFIER = 'com.example.fixture-app';
 const PACKAGE = 'com.example.fixture_app';
 
 /** What the stand-in Google holds and answers, set by each test. */
-type Google = { known: boolean; draft: boolean; bundles: number[]; apks: number[]; takenOnce: number | null; calls: string[]; tracks: unknown[] };
+type Google = { html?: boolean; known: boolean; draft: boolean; bundles: number[]; apks: number[]; takenOnce: number | null; calls: string[]; tracks: unknown[] };
 let google: Google;
 let server: Server;
 let origin = '';
 
-type Answer = { status: number; body: unknown };
+type Answer = { status: number; body: unknown; html?: string };
 const answer = (status: number, body: unknown): Answer => ({ status, body });
 const refusal = (status: number, message: string, reason = '') => answer(status, { error: { code: status, message, errors: [{ reason }] } });
 
@@ -40,6 +40,7 @@ function respond(method: string, url: URL, authorization: string, text: string):
     return answer(200, { access_token: 'stand-in-access', expires_in: 3600 });
   }
   if (authorization !== 'Bearer stand-in-access') return refusal(401, 'no token');
+  if (google.html) return { status: 502, body: null, html: '<html><body>502 Bad Gateway</body></html>' };
   const asked = /^\/(upload\/)?androidpublisher\/v3\/applications\/([^/:]+)/.exec(url.pathname)?.[2];
   const path = url.pathname.replace(/^\/(upload\/)?androidpublisher\/v3\/applications\/[^/]+/, '');
   google.calls.push(`${method} ${path}`);
@@ -72,9 +73,9 @@ beforeAll(async () => {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {
-      const { status, body } = respond(request.method ?? 'GET', new URL(request.url ?? '/', origin), request.headers.authorization ?? '', Buffer.concat(chunks).toString());
-      response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(body === null ? '' : JSON.stringify(body));
+      const { status, body, html } = respond(request.method ?? 'GET', new URL(request.url ?? '/', origin), request.headers.authorization ?? '', Buffer.concat(chunks).toString());
+      response.writeHead(status, { 'content-type': html === undefined ? 'application/json' : 'text/html' });
+      response.end(html ?? (body === null ? '' : JSON.stringify(body)));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -159,6 +160,14 @@ test("an app Google does not know yet is built and signed as build 1 and its fir
   expect(readFileSync(join(checkout, BUNDLE), 'utf8')).toBe('1');
 });
 
+test("an answer from Google that is not JSON, as a proxy's error page, is told by its status", async () => {
+  google = { html: true, known: true, draft: false, bundles: [], apks: [], takenOnce: null, calls: [], tracks: [] };
+  const { built, printed, upload } = app();
+  expect(await upload()).toBe(1);
+  expect(built).toEqual([]);
+  expect(printed.some((line) => line.includes('Google answered 502'))).toBe(true);
+});
+
 test('stops before building when the Android tools, the signing block or 1Password are not there', async () => {
   google = { known: true, draft: false, bundles: [], apks: [], takenOnce: null, calls: [], tracks: [] };
   const { built, printed } = app();
@@ -192,4 +201,15 @@ test('an upload stopped by a signal mid-build stops and removes the upload key a
   expect(properties).toBe(join(checkout, KEYSTORE_PROPERTIES));
   expect(existsSync(properties!)).toBe(false);
   expect(existsSync(dirname(store))).toBe(false);
+});
+
+test('a key maker stopped by a signal while keytool runs removes the keystore before exiting', async () => {
+  app();
+  const marker = join(checkout, 'marker');
+  const stopped = await runCommand(['bun', join(import.meta.dir, 'play-key-child.ts'), checkout, marker]);
+  expect(stopped.code).toBe(1);
+  expect(stopped.out).toContain('[play key] stopped by SIGTERM; stopping and removing the keystore');
+  const keystore = readFileSync(marker, 'utf8');
+  expect(keystore).toEndWith('upload.keystore');
+  expect(existsSync(dirname(keystore))).toBe(false);
 });

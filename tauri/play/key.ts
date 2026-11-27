@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCommand, type Run } from '../../command-line/run.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 import type { Env } from '../build-env.ts';
 import { itemFields, lastLine, notFound, readItem, VAULT } from '../testflight/key.ts';
 import type { ServiceAccount } from './google-play.ts';
@@ -105,6 +105,16 @@ export async function makeUploadKey(options: PlayKeyOptions): Promise<0 | 1> {
   if (!notFound(existing.out)) return fail(`op could not look for "${item}" in the vault "${VAULT}": ${lastLine(existing.out)}`);
 
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-play-key-'));
+  // A stop by signal (Ctrl-C, or a supervisor's SIGTERM) skips the finally below, so it stops keytool or op, each in a
+  // process group of its own, and removes the keystore before exiting, as play upload does.
+  const onSignal = (signal: NodeJS.Signals) => {
+    print(`[play key] stopped by ${signal}; stopping and removing the keystore`);
+    stopRunning('SIGTERM');
+    rmSync(folder, { recursive: true, force: true });
+    stopRunning('SIGKILL');
+    process.exit(1);
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
     const keystore = join(folder, 'upload.keystore');
     const password = randomBytes(24).toString('base64url');
@@ -118,6 +128,7 @@ export async function makeUploadKey(options: PlayKeyOptions): Promise<0 | 1> {
     const created = await run(['op', 'item', 'create', '--vault', VAULT, '-'], { env, input: uploadKeyTemplate(item, key) });
     if (created.code !== 0) return fail(`op could not save "${item}" in the vault "${VAULT}": ${lastLine(created.out)}`);
   } finally {
+    for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
     rmSync(folder, { recursive: true, force: true });
   }
   print(`Saved "${item}" in 1Password's ${VAULT} vault. app-kit play upload signs every build of ${app.productName} with it.`);

@@ -102,7 +102,7 @@ export class GooglePlay {
     else if (body !== undefined) headers['content-type'] = 'application/json';
     const answer = await this.fetch(url, { method, headers, body: upload ?? (body === undefined ? undefined : JSON.stringify(body)) });
     const text = await answer.text();
-    const parsed = text ? (JSON.parse(text) as unknown) : {};
+    const parsed = parse(text);
     if (!answer.ok) {
       const error = (parsed as { error?: { message?: string; errors?: { reason?: string }[] } }).error;
       throw new PlayError(error?.message ?? `Google answered ${answer.status}`, answer.status, error?.errors?.[0]?.reason ?? '');
@@ -141,5 +141,15 @@ export class GooglePlay {
   /** Commits the edit, which is when testers get the build. */
   async commit(edit: string): Promise<void> {
     await this.call('POST', `/edits/${edit}:commit`);
+  }
+}
+
+/** Google's answer as JSON; an answer that is not, such as a proxy's HTML error page, is read as empty, so its status
+ * still names it. */
+function parse(text: string): unknown {
+  try {
+    return text ? (JSON.parse(text) as unknown) : {};
+  } catch {
+    return {};
   }
 }
