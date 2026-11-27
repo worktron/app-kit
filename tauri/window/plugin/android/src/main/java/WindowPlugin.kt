@@ -4,7 +4,10 @@ import android.app.Activity
 import android.os.Build
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -19,8 +22,12 @@ import app.tauri.plugin.Plugin
  * sets (src/android.rs).
  *
  * When Android recreates the activity for a change it does not hand to the app (a font size or a theme overlay), wry
- * builds a new web view in the new activity, but Tauri calls a plugin's `load` only once, for the first. So the frame is
- * padded again as each activity resumes, which Tauri does tell plugins, with the activity.
+ * builds a new web view in the new activity, but Tauri calls a plugin's `load` only once, for the first. So the frame
+ * is padded again as each activity resumes, which Tauri does tell plugins, with the activity. wry also gives only the
+ * first activity its Back handling, which goes back a page in the web view before it closes the app, so every activity
+ * the plugin pads gets the same from here: without it Back in a recreated activity closes the app. Android recreates the
+ * activity on its own on a newly installed app's first launch, when the system's language list reaches the app after it
+ * opened, sometimes before Tauri loads the plugin, so the first activity the plugin sees can already be a recreated one.
  */
 @TauriPlugin
 class WindowPlugin(activity: Activity) : Plugin(activity) {
@@ -56,6 +63,7 @@ class WindowPlugin(activity: Activity) : Plugin(activity) {
             }
             Log.i(TAG, "the recreated window keeps the strips behind Android's bars as they were")
         }
+        goBackInPage(activity)
         padded = frame
         told = ""
         ViewCompat.setOnApplyWindowInsetsListener(frame) { view, insets ->
@@ -71,6 +79,35 @@ class WindowPlugin(activity: Activity) : Plugin(activity) {
             WindowInsetsCompat.CONSUMED
         }
         ViewCompat.requestApplyInsets(frame)
+    }
+
+    /**
+     * Back goes back a page in the activity's own web view, and closes the app only on the first page, as wry's handling
+     * does in the first activity.
+     */
+    private fun goBackInPage(activity: Activity) {
+        val component = activity as? ComponentActivity ?: return
+        component.onBackPressedDispatcher.addCallback(component, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val webView = component.findViewById<View>(android.R.id.content)?.let(::webViewIn)
+                if (webView != null && webView.canGoBack()) {
+                    webView.goBack()
+                } else {
+                    isEnabled = false
+                    component.onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
+        Log.i(TAG, "Back goes back a page in this window, and closes the app only on the first page")
+    }
+
+    /** The first web view in `view` or under it. */
+    private fun webViewIn(view: View): WebView? {
+        if (view is WebView) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) webViewIn(view.getChildAt(index))?.let { return it }
+        return null
     }
 
     private companion object {

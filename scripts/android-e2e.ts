@@ -7,7 +7,8 @@
  * Clerk.
  *
  * Steps, each with a screenshot: the start page while the site does not answer, the site once it does, the site still
- * between the bars after Android recreated the activity for a font size change, a link to another site opening in Chrome, and Continue with Google through Chrome's stand-in page back into the app, while the
+ * between the bars after Android recreated the activity for a font size change, Android's Back going back a page and not
+ * closing the app on the first launch, after a fresh install and in the recreated activity, a link to another site opening in Chrome, and Continue with Google through Chrome's stand-in page back into the app, while the
  * app runs and again after Android ended it behind Chrome (`am kill`). The app's log (logcat) is kept beside them.
  *
  * Usage: bun scripts/android-e2e.ts, leaving its evidence in test-results/android-e2e, a folder of its own that each run
@@ -24,7 +25,7 @@ import { DESKTOP_SIGN_IN_ROUTES } from '../tauri/sign-in/names.ts';
 import { desktopSignInRoutes } from '../tauri/sign-in/server.ts';
 import { testsFolder, useOwnFolder } from '../testing/temporary-folder.ts';
 import { serveBuiltPage } from '../web/server.ts';
-import { tools } from '../tauri/android-run/index.ts';
+import { DEBUG_APK, tools } from '../tauri/android-run/index.ts';
 
 const ROOT = resolve(import.meta.dir, '..');
 const FIXTURE = join(ROOT, 'test/fixtures/android-app');
@@ -211,6 +212,19 @@ async function signIn(name: string, kill: boolean): Promise<void> {
   if ((await inFront()) !== APP_ID) throw new Error(`${name}: the app is signed in but ${await inFront()} is in front`);
 }
 
+/**
+ * Android's Back button on the site: from another page of the site it goes back a page, with the app still in front,
+ * and does not close the app. `name` says which launch it is.
+ */
+async function backGoesBack(name: string): Promise<void> {
+  await tap(`${name} link within the site`, /^Another page of the site$/);
+  await waitFor(`${name} another page`, /^Page another$/);
+  await adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  await waitFor(`${name} Back to the first page`, /^Page first$/);
+  if ((await inFront()) !== APP_ID) throw new Error(`${name}: Back closed the app instead of going back a page; ${await inFront()} is in front`);
+  say(`${name}: Back went back a page in the app`);
+}
+
 let failed: unknown = null;
 try {
   // Android's project and icons, as an app makes them once.
@@ -237,6 +251,14 @@ try {
   if (Date.now() > deadline) throw new Error('the start page took more than 45 seconds to go on to the site');
   await screenshot('2-site');
   await pageInsideBars();
+  await backGoesBack('first launch');
+
+  // As Google Play gives a person the app: installed where no copy of it has been, and opened for the first time.
+  await adb('uninstall', APP_ID);
+  await adb('install', join(FIXTURE, DEBUG_APK));
+  await adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
+  await waitFor('site after a fresh install', /^Signed in as nobody$/, [/^Try again$/]);
+  await backGoesBack('first launch after a fresh install');
 
   // A font size change, which the app does not take itself, makes Android recreate the activity, and wry moves the
   // same web view into the new window without telling plugins: the page must stay between the bars there too.
@@ -245,6 +267,7 @@ try {
   await waitFor('site after the recreate', /^Signed in as nobody$/);
   await screenshot('2b-site-recreated');
   await pageInsideBars();
+  await backGoesBack('recreated activity');
   await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
   await waitFor('site at the usual font size', /^Signed in as nobody$/);
 

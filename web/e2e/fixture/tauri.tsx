@@ -7,7 +7,8 @@ import { signInInSheet } from '../../../tauri/iphone-sign-in';
 
 // A page run as a Tauri app's, with the kit's real page halves of desktop sign-in, iPhone notifications and iPhone
 // sign-in, for the Tauri steps' browser test: the shell's bridge is the steps' stand-in, and the page prints what each
-// half did. scripts/android-e2e.ts opens it in the Android app, whose link to another site goes to Chrome.
+// half did. scripts/android-e2e.ts opens it in the Android app, whose link to another site goes to Chrome, and whose
+// link to another page of the site moves within it, for Android's Back button to come back from.
 
 const provider = standInSignIn({ store: sessionStorage });
 listenForDesktopSignIn();
@@ -15,6 +16,7 @@ listenForDesktopSignIn();
 let registered = 'none';
 const opened: string[] = [];
 let redraw = () => {};
+addEventListener('hashchange', () => redraw());
 startIphoneNotifications({
   register: async (device) => {
     registered = `${device.environment} ${device.token.slice(0, 8)}`;
@@ -37,7 +39,8 @@ function App() {
       <p>Window {window_.state === 'failed' ? `failed: ${window_.message}` : window_.state}</p>
       <p>Registered {registered}</p>
       <p>Opened {opened.join(', ') || 'nothing'}</p>
-      <a href="https://example.com/">An outside site</a>
+      <p>Page {location.hash === '#another' ? 'another' : 'first'}</p>
+      <a href="#another">Another page of the site</a> <a href="https://example.com/">An outside site</a>
       <button onClick={() => void window.open(desktopSignInAddress(null))}>Continue with Google in the Mac app</button>
       <button onClick={() => void signInInSheet(desktopSignInAddress(null), { scheme: 'com.example.app' })}>Continue with Google in the iPhone app</button>
       <button onClick={() => void window.open(desktopSignInAddress(null, 'microsoft'))}>Continue with Microsoft in the Mac app</button>
