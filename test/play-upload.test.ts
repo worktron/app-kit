@@ -20,7 +20,7 @@ const IDENTIFIER = 'com.example.fixture-app';
 const PACKAGE = 'com.example.fixture_app';
 
 /** What the stand-in Google holds and answers, set by each test. */
-type Google = { html?: boolean; known: boolean; draft: boolean; bundles: number[]; apks: number[]; takenOnce: number | null; calls: string[]; tracks: unknown[] };
+type Google = { html?: number; known: boolean; draft: boolean; bundles: number[]; apks: number[]; takenOnce: number | null; calls: string[]; tracks: unknown[] };
 let google: Google;
 let server: Server;
 let origin = '';
@@ -40,7 +40,7 @@ function respond(method: string, url: URL, authorization: string, text: string):
     return answer(200, { access_token: 'stand-in-access', expires_in: 3600 });
   }
   if (authorization !== 'Bearer stand-in-access') return refusal(401, 'no token');
-  if (google.html) return { status: 502, body: null, html: '<html><body>502 Bad Gateway</body></html>' };
+  if (google.html) return { status: google.html, body: null, html: '<html><body>a proxy answered</body></html>' };
   const asked = /^\/(upload\/)?androidpublisher\/v3\/applications\/([^/:]+)/.exec(url.pathname)?.[2];
   const path = url.pathname.replace(/^\/(upload\/)?androidpublisher\/v3\/applications\/[^/]+/, '');
   google.calls.push(`${method} ${path}`);
@@ -161,11 +161,19 @@ test("an app Google does not know yet is built and signed as build 1 and its fir
 });
 
 test("an answer from Google that is not JSON, as a proxy's error page, is told by its status", async () => {
-  google = { html: true, known: true, draft: false, bundles: [], apks: [], takenOnce: null, calls: [], tracks: [] };
+  google = { html: 502, known: true, draft: false, bundles: [], apks: [], takenOnce: null, calls: [], tracks: [] };
   const { built, printed, upload } = app();
   expect(await upload()).toBe(1);
   expect(built).toEqual([]);
   expect(printed.some((line) => line.includes('Google answered 502'))).toBe(true);
+});
+
+test('a success from Google that is not JSON stops the upload instead of reporting the build on testing', async () => {
+  google = { html: 200, known: true, draft: false, bundles: [], apks: [], takenOnce: null, calls: [], tracks: [] };
+  const { built, printed, upload } = app();
+  expect(await upload()).toBe(1);
+  expect(built).toEqual([]);
+  expect(printed.some((line) => line.includes('internal testing'))).toBe(false);
 });
 
 test('stops before building when the Android tools, the signing block or 1Password are not there', async () => {

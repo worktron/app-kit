@@ -102,7 +102,7 @@ export class GooglePlay {
     else if (body !== undefined) headers['content-type'] = 'application/json';
     const answer = await this.fetch(url, { method, headers, body: upload ?? (body === undefined ? undefined : JSON.stringify(body)) });
     const text = await answer.text();
-    const parsed = parse(text);
+    const parsed = answer.ok ? (text ? (JSON.parse(text) as unknown) : {}) : refusal(text);
     if (!answer.ok) {
       const error = (parsed as { error?: { message?: string; errors?: { reason?: string }[] } }).error;
       throw new PlayError(error?.message ?? `Google answered ${answer.status}`, answer.status, error?.errors?.[0]?.reason ?? '');
@@ -144,9 +144,9 @@ export class GooglePlay {
   }
 }
 
-/** Google's answer as JSON; an answer that is not, such as a proxy's HTML error page, is read as empty, so its status
- * still names it. */
-function parse(text: string): unknown {
+/** A refusal's body as JSON; one that is not, such as a proxy's HTML error page, is read as empty, so its status still
+ * names it. A success that is not JSON throws instead, since nothing in it says Google did what was asked. */
+function refusal(text: string): unknown {
   try {
     return text ? (JSON.parse(text) as unknown) : {};
   } catch {
