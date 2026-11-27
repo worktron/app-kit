@@ -70,6 +70,11 @@ for (const where of ['window', 'box'] as const) {
   test.describe(`on the ${where}'s scroll`, () => {
     test('a pull of 40 points past the top opens nothing, and one of 110 opens them, the newest message staying where it was', async ({ page }, testInfo) => {
       await load(page, where);
+      // Chrome's stretch past the top never shows in the page's scroll place, so no pull can wait for it to spring
+      // back, and what is left of the spring once the earlier messages are drawn scrolls the page by up to 11 points
+      // (7 of 24 runs with the stretch, none of 24 without). The iPhone's stretch reads below zero, which the pull
+      // waits for (test/pull-past-top.test.tsx); here the page has none, so the newest message's place is the pull's.
+      await page.addStyleTag({ content: 'html, body, #box { overscroll-behavior: none; }' });
       const touch = await finger(page);
       await touch.slide({ x: 195, y: 300 }, { x: 195, y: 340 });
       await settled(page);
