@@ -296,16 +296,21 @@ test("a Mac app that opens on the kit's start page opens at login from the kit's
 test("a Mac app on the window plugin gives its reason for the Downloads folder in its Mac Info.plist, and an iPhone shell is not asked", async () => {
   const DOWNLOADS = 'its reason for the Downloads folder in the Mac Info.plist';
   const cargo = { 'src-tauri/Cargo.toml': 'tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }\n' };
-  const mac = { ...cargo, 'src-tauri/src/lib.rs': 'let menu = AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app)?;\n' };
+  const shell = { ...cargo, 'src-tauri/src/lib.rs': 'let menu = AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app)?;\n' };
+  const named = { ...shell, 'src-tauri/tauri.conf.json': JSON.stringify({ bundle: { macOS: { infoPlist: 'Info.macos.plist' } } }) };
   const reason = '<key>NSDownloadsFolderUsageDescription</key><string>Example saves the files you download to your Downloads folder.</string>\n';
   const microphone = '<key>NSMicrophoneUsageDescription</key><string>Example listens to calls.</string>\n';
   // Matter's shell, before and after.
-  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.macos.plist': microphone })).toBe('lacks');
-  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.macos.plist': microphone + reason })).toBe('has');
-  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.plist': reason })).toBe('has');
-  // The reason in the iPhone's plist, or in Xcode's generated one, never reaches the Mac app.
-  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.ios.plist': reason })).toBe('lacks');
-  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/gen/apple/example_iOS/Info.plist': reason })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone + reason })).toBe('has');
+  // The Info.plist beside tauri.conf.json, which Tauri merges with no setting, and one tauri.macos.conf.json names.
+  expect(await verdict(DOWNLOADS, { ...shell, 'src-tauri/tauri.conf.json': '{}', 'src-tauri/Info.plist': reason })).toBe('has');
+  const macConf = { 'src-tauri/tauri.macos.conf.json': JSON.stringify({ bundle: { macOS: { infoPlist: 'mac/Info.plist' } } }) };
+  expect(await verdict(DOWNLOADS, { ...shell, 'src-tauri/tauri.conf.json': '{}', ...macConf, 'src-tauri/mac/Info.plist': reason })).toBe('has');
+  // A plist Tauri never merges into the Mac app: one nothing names, the iPhone's, Xcode's generated one.
+  expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone, 'src-tauri/Old.plist': reason })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone, 'src-tauri/Info.ios.plist': reason })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...named, 'src-tauri/Info.macos.plist': microphone, 'src-tauri/gen/apple/example_iOS/Info.plist': reason })).toBe('lacks');
   // An iPhone shell, with no Mac menu, and a Tauri app not on the window plugin.
   expect(await verdict(DOWNLOADS, { ...cargo, 'src-tauri/src/lib.rs': 'let window = site.start_page_window(app, page).build()?;\n' })).toBe('not asked');
   expect(await verdict(DOWNLOADS, { 'src-tauri/Cargo.toml': 'tauri = "2"\n', 'src-tauri/src/lib.rs': 'AppMenu::new()\n' })).toBe('not asked');

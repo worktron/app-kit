@@ -59,6 +59,10 @@ mod mac {
     fn finish(code: i32, line: &str) -> ! {
         if let Some(home) = HOME.get() {
             let _ = std::fs::remove_dir_all(home);
+            // The process's folder goes too once nothing else of this process is in it.
+            if let Some(process) = home.parent() {
+                let _ = std::fs::remove_dir(process);
+            }
         }
         if code == 0 {
             println!("{line}");

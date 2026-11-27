@@ -395,10 +395,28 @@ const OPEN_AT_LOGIN: Feature = {
 }
 
 // A Mac app on the window plugin saves its downloads to the Downloads folder, and macOS may ask the person once whether
-// it may, showing the app's reason from its Mac Info.plist: the file tauri.conf.json's bundle.macOS.infoPlist names, which
-// Tauri merges into the Mac app alone. AppMenu is the Mac's alone, so a shell that builds it ships on the Mac. An iPhone
-// plist and Xcode's generated ones are not counted.
+// it may, showing the app's reason from its Mac Info.plist. Tauri merges into the Mac app's Info.plist the Info.plist
+// beside tauri.conf.json and the file bundle.macOS.infoPlist names, from tauri.conf.json or tauri.macos.conf.json,
+// relative to that folder; any other plist, the iPhone's and Xcode's generated ones included, never reaches the Mac app.
+// AppMenu is the Mac's alone, so a shell that builds it ships on the Mac.
 const DOWNLOADS_REASON = 'NSDownloadsFolderUsageDescription'
+/** The plists Tauri merges into the Mac app's Info.plist, for each tauri.conf.json the app tracks. */
+function macInfoPlists(app: Landed): string[] {
+  const plists: string[] = []
+  for (const conf of app.tracked.filter((path) => /(^|\/)tauri\.conf\.json$/.test(path) && !path.includes('node_modules/'))) {
+    const folder = posix.dirname(conf)
+    plists.push(posix.join(folder, 'Info.plist'))
+    for (const file of [conf, posix.join(folder, 'tauri.macos.conf.json')]) {
+      try {
+        const named = (JSON.parse(app.show(file) || '{}') as { bundle?: { macOS?: { infoPlist?: unknown } } }).bundle?.macOS?.infoPlist
+        if (typeof named === 'string') plists.push(posix.join(folder, named))
+      } catch {
+        // A file that is not JSON names no plist.
+      }
+    }
+  }
+  return plists
+}
 const DOWNLOADS: Feature = {
   feature: 'its reason for the Downloads folder in the Mac Info.plist',
   readme: 'A window onto the hosted site',
@@ -406,17 +424,7 @@ const DOWNLOADS: Feature = {
   appliesTo: (app) =>
     app.grep('tauri-plugin-app-kit-window', [':(glob)**/Cargo.toml', ':(exclude,glob)**/node_modules/**']).length > 0 &&
     app.grep('AppMenu::new', SHELL_RUST).length > 0,
-  present: async (app) =>
-    has(
-      app.tracked.some(
-        (path) =>
-          path.endsWith('.plist') &&
-          !path.endsWith('Info.ios.plist') &&
-          !path.includes('/gen/apple/') &&
-          !path.includes('node_modules/') &&
-          app.show(path).includes(DOWNLOADS_REASON),
-      ),
-    ),
+  present: async (app) => has(macInfoPlists(app).some((plist) => app.show(plist).includes(DOWNLOADS_REASON))),
 }
 
 // An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on
