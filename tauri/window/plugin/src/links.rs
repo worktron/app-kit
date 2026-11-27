@@ -21,11 +21,12 @@ pub(crate) const ALWAYS_KEPT: &[&str] = &["challenges.cloudflare.com"];
 
 /// Whether an address is a page bundled in the app: Tauri serves those at tauri://localhost on the Mac and the iPhone,
 /// and at http://tauri.localhost (https with `use_https`) on Windows and Android, where a web view cannot take an
-/// app's own scheme. The window keeps its start page by this, and the Settings window its page.
+/// app's own scheme, always on the scheme's own port: a server of any other on that host is not the app's. The window
+/// keeps its start page by this, and the Settings window its page.
 pub(crate) fn bundled(url: &Url) -> bool {
     match url.scheme() {
         "tauri" => url.host_str() == Some("localhost"),
-        "http" | "https" => url.host_str() == Some("tauri.localhost"),
+        "http" | "https" => url.host_str() == Some("tauri.localhost") && url.port().is_none(),
         _ => false,
     }
 }
@@ -114,7 +115,7 @@ mod tests {
     // Only Tauri's own host is the bundled page: a site named like it is another site.
     #[test]
     fn a_site_named_like_the_bundled_page_goes_out() {
-        for link in ["http://tauri.localhost.example.com/", "https://evil.tauri.localhost.example.com/", "http://localhost/"] {
+        for link in ["http://tauri.localhost.example.com/", "https://evil.tauri.localhost.example.com/", "http://localhost/", "http://tauri.localhost:3000/"] {
             assert_eq!(decide(link), Link::SendOut, "{link}");
         }
     }
