@@ -173,11 +173,16 @@ async function waitInFront(step: string, wanted: string): Promise<void> {
   throw new Error(`${step}: ${wanted} never came to the front; ${front || 'nothing'} is there, showing ${JSON.stringify(seen.map((node) => node.text).slice(0, 30))}`);
 }
 
-/** Waits for the app's log (logcat, as the run keeps it) to have a line matching `wanted`, failing as `step`. */
-async function waitForLog(step: string, wanted: RegExp): Promise<void> {
+/** How much of the app's log (logcat, as the run keeps it) is written so far. */
+function logLength(): number {
+  return readFileSync(join(EVIDENCE, 'logcat.txt'), 'utf8').length;
+}
+
+/** Waits for the app's log to have a line matching `wanted` written after `from`, failing as `step`. */
+async function waitForLog(step: string, wanted: RegExp, from: number): Promise<void> {
   const deadline = Date.now() + STEP_MS;
   while (Date.now() < deadline) {
-    if (wanted.test(readFileSync(join(EVIDENCE, 'logcat.txt'), 'utf8'))) return;
+    if (wanted.test(readFileSync(join(EVIDENCE, 'logcat.txt'), 'utf8').slice(from))) return;
     await Bun.sleep(500);
   }
   await screenshot(`failed-${step.replaceAll(' ', '-')}`);
@@ -225,6 +230,11 @@ async function backGoesBack(name: string): Promise<void> {
   say(`${name}: Back went back a page in the app`);
 }
 
+/** Opens the app as the home screen's icon does, so Back on its first page sends it to the background as on a phone. */
+async function openApp(): Promise<void> {
+  await adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-n', `${APP_ID}/.MainActivity`);
+}
+
 let failed: unknown = null;
 try {
   // Android's project and icons, as an app makes them once.
@@ -256,18 +266,34 @@ try {
   // As Google Play gives a person the app: installed where no copy of it has been, and opened for the first time.
   await adb('uninstall', APP_ID);
   await adb('install', join(FIXTURE, DEBUG_APK));
-  await adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
+  await openApp();
   await waitFor('site after a fresh install', /^Signed in as nobody$/, [/^Try again$/]);
   await backGoesBack('first launch after a fresh install');
 
   // A font size change, which the app does not take itself, makes Android recreate the activity, and wry moves the
   // same web view into the new window without telling plugins: the page must stay between the bars there too.
+  const beforeRecreate = logLength();
   await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.15');
-  await waitForLog('recreated window', /the recreated window keeps the strips behind Android's bars/);
+  await waitForLog('recreated window', /the recreated window keeps the strips behind Android's bars/, beforeRecreate);
   await waitFor('site after the recreate', /^Signed in as nobody$/);
   await screenshot('2b-site-recreated');
   await pageInsideBars();
   await backGoesBack('recreated activity');
+  // On the first page Back leaves the app, as on any Android app, and its icon opens it again on the site.
+  await adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  for (const end = Date.now() + STEP_MS; (await inFront()) === APP_ID; await Bun.sleep(500)) {
+    if (Date.now() > end) throw new Error('recreated activity: Back on the first page left the app in front');
+  }
+  say(`recreated activity: Back on the first page left the app; ${(await inFront()) || 'the launcher'} is in front`);
+  // Leaving the last window ends Tauri's app, whose process then exits; the icon opens a new one.
+  let running = '';
+  for (const end = Date.now() + 15_000; Date.now() < end; await Bun.sleep(500)) {
+    running = (await runCommand([adbPath, '-s', serial, 'shell', 'pidof', APP_ID], { env })).stdout.trim();
+    if (!running) break;
+  }
+  say(running ? `recreated activity: the app's process ${running} still runs 15 seconds after Back left it` : "recreated activity: the app's process ended after Back left it");
+  await openApp();
+  await waitFor('site after Back left the app', /^Signed in as nobody$/, [/^Try again$/]);
   await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
   await waitFor('site at the usual font size', /^Signed in as nobody$/);
 
@@ -275,14 +301,14 @@ try {
   await waitInFront('outside link opens Chrome', 'com.android.chrome');
   await waitFor('Chrome shows example.com', /Example Domain/, CHROME_PASSING);
   await screenshot('3-outside-site-in-chrome');
-  await adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
+  await openApp();
   await waitInFront('back to the app', APP_ID);
 
   await signIn('4-running', false);
 
   // A fresh, signed-out app, ended by Android while Chrome signs in.
   await adb('shell', 'am', 'force-stop', APP_ID);
-  await adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
+  await openApp();
   await waitFor('fresh app', /^Signed in as nobody$/);
   await signIn('5-ended-behind-chrome', true);
   say('passed');

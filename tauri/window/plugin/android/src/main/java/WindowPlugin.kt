@@ -23,11 +23,13 @@ import app.tauri.plugin.Plugin
  *
  * When Android recreates the activity for a change it does not hand to the app (a font size or a theme overlay), wry
  * builds a new web view in the new activity, but Tauri calls a plugin's `load` only once, for the first. So the frame
- * is padded again as each activity resumes, which Tauri does tell plugins, with the activity. wry also gives only the
- * first activity its Back handling, which goes back a page in the web view before it closes the app, so every activity
- * the plugin pads gets the same from here: without it Back in a recreated activity closes the app. Android recreates the
- * activity on its own on a newly installed app's first launch, when the system's language list reaches the app after it
- * opened, sometimes before Tauri loads the plugin, so the first activity the plugin sees can already be a recreated one.
+ * is padded again as each activity resumes, which Tauri does tell plugins, with the activity. wry and Tauri also give
+ * only the first activity their Back handling, which goes back a page in the web view before it closes the app, so an
+ * activity the plugin pads with no Back handling of its own gets the same from here: without it Back in a recreated
+ * activity closes the app. Android recreates the activity on its own on a newly installed app's first launch, when the
+ * system's language list reaches the app after it opened, sometimes before Tauri loads the plugin, so the first activity
+ * the plugin sees can already be a recreated one. The first activity keeps Tauri's own, which an app's `back-button`
+ * listener takes.
  */
 @TauriPlugin
 class WindowPlugin(activity: Activity) : Plugin(activity) {
@@ -83,10 +85,11 @@ class WindowPlugin(activity: Activity) : Plugin(activity) {
 
     /**
      * Back goes back a page in the activity's own web view, and closes the app only on the first page, as wry's handling
-     * does in the first activity.
+     * does in the first activity; an activity that already has Back handling, the first one, keeps it.
      */
     private fun goBackInPage(activity: Activity) {
         val component = activity as? ComponentActivity ?: return
+        if (component.onBackPressedDispatcher.hasEnabledCallbacks()) return
         component.onBackPressedDispatcher.addCallback(component, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val webView = component.findViewById<View>(android.R.id.content)?.let(::webViewIn)
