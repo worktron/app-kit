@@ -34,6 +34,7 @@ pub struct AppMenu {
     settings: Settings,
     sign_out: bool,
     commit: Option<String>,
+    open_at_login_by_default: bool,
 }
 
 /// What Settings… does, if the app has it: hand it to the page, or open the kit's own Settings window.
@@ -50,9 +51,11 @@ impl AppMenu {
         Self::default()
     }
 
-    /// Settings… (⌘,), which the page opens.
+    /// Settings… (⌘,), which the page opens. Called after `open_at_login_by_default`, it takes that one's place too,
+    /// since the switch that turns it off is in the kit's window.
     pub fn settings(mut self) -> Self {
         self.settings = Settings::Page;
+        self.open_at_login_by_default = false;
         self
     }
 
@@ -61,6 +64,15 @@ impl AppMenu {
     /// Called after `settings`, it takes that one's place, and the other way round.
     pub fn settings_window(mut self) -> Self {
         self.settings = Settings::Window;
+        self
+    }
+
+    /// The kit's Settings window, as `settings_window`, with the app opening at login by default: the first launch of a
+    /// copy the release command built turns the switch on, once, and after that the app never changes it again, so a
+    /// person who turns it off keeps it off (login_item.rs).
+    pub fn open_at_login_by_default(mut self) -> Self {
+        self.settings = Settings::Window;
+        self.open_at_login_by_default = true;
         self
     }
 
@@ -97,6 +109,9 @@ impl AppMenu {
     }
 
     pub fn build<R: Runtime>(&self, app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+        if self.open_at_login_by_default {
+            crate::login_item::asked(app);
+        }
         let info = app.package_info();
         let about = self.about(info, app.config().bundle.copyright.clone());
         // macOS would name About, Hide and Quit after the program's file; the app's own name is the one it shows.
@@ -208,6 +223,15 @@ mod tests {
         // The later call wins, so an app never has two Settings… items.
         assert_eq!(AppMenu::new().settings().settings_window().settings_item(), Some(SETTINGS_WINDOW_ITEM));
         assert_eq!(AppMenu::new().settings_window().settings().settings_item(), Some(SETTINGS_ITEM));
+        // Open at login by default is the kit's window's, whose switch turns it off.
+        let by_default = AppMenu::new().open_at_login_by_default();
+        assert_eq!(by_default.settings_item(), Some(SETTINGS_WINDOW_ITEM));
+        assert!(by_default.open_at_login_by_default);
+        assert!(AppMenu::new().settings().open_at_login_by_default().open_at_login_by_default);
+        assert!(by_default.clone().settings_window().open_at_login_by_default);
+        let handed_to_the_page = by_default.settings();
+        assert_eq!(handed_to_the_page.settings_item(), Some(SETTINGS_ITEM));
+        assert!(!handed_to_the_page.open_at_login_by_default, "never on with no switch to turn it off");
         // The kit's window is the plugin's to open, never handed to the page.
         assert_eq!(page_command(SETTINGS_WINDOW_ITEM), None);
     }

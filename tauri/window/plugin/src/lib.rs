@@ -17,7 +17,8 @@
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
 //!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), updates from the app's
 //!   releases when its tauri.conf.json has plugins.updater (updates.rs), and the kit's Settings window, with its switch
-//!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it;
+//!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it, on by itself once at
+//!   the first launch of a release for an app that asks for that too;
 //! - on Windows: one copy of the app, so desktop sign-in's link, which Windows hands a second copy, reaches the window,
 //!   which comes forward (windows.rs), and the window shown only once it is back where it was. Closing it quits the app,
 //!   as Windows apps do, and the Mac's menu bar, Settings window and updates are not there.
@@ -258,6 +259,8 @@ impl Site {
                 {
                     app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });
                     app.manage(settings::SettingsState::default());
+                    // After the log plugin's setup, so the first launch's line reaches the log.
+                    login_item::ready(app);
                     updates::start(app);
                     menu_check::start_if_asked(app);
                 }

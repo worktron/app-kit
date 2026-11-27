@@ -49,6 +49,7 @@ import {
   MENU_CHECK_STOPPED,
   MENU_CHECK_STOPPED_END,
   MENU_CHECK_VARIABLE,
+  MAC_RELEASE_VARIABLE,
   OPEN_AT_LOGIN_COMMANDS,
   OPEN_AT_LOGIN_STATES,
   SETTINGS_PAGE,
@@ -156,7 +157,7 @@ test('the Settings window, its page and its commands go by the names the page an
   // Tauri names each command's permission allow-<command, with dashes>, which the window's grant names.
   for (const command of OPEN_AT_LOGIN_COMMANDS) {
     expect(settings).toContain(`"app-kit-window:allow-${command.replaceAll('_', '-')}"`);
-    expect(settings).toContain(`pub(crate) fn ${command}(`);
+    expect(settings).toMatch(new RegExp(`pub\\(crate\\) fn ${command}[<(]`));
   }
   const page = readFileSync(join(import.meta.dir, '../tauri/window/start', SETTINGS_PAGE), 'utf8');
   expect(page).toContain(`window.${SETTINGS_PAGE_SETTINGS}`);
@@ -165,6 +166,9 @@ test('the Settings window, its page and its commands go by the names the page an
   for (const state of OPEN_AT_LOGIN_STATES) expect(page).toContain(`'${state}'`);
   // The Rust's states, as serde names them from the enum's variants in kebab case.
   const loginItem = read('src/login_item.rs');
+  // Only a copy the release command built turns open at login on by itself: the plugin reads the variable it sets.
+  expect(constant(loginItem, 'MAC_RELEASE_VARIABLE')).toBe(MAC_RELEASE_VARIABLE);
+  expect(loginItem).toContain(`option_env!("${MAC_RELEASE_VARIABLE}")`);
   const variants = loginItem.match(/pub\(crate\) enum State \{([^}]*)\}/)![1]!.match(/\w+/g)!;
   expect(variants.map((variant) => variant.replace(/(?<!^)[A-Z]/g, (letter) => `-${letter}`).toLowerCase())).toEqual([...OPEN_AT_LOGIN_STATES]);
 });

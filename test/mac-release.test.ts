@@ -11,6 +11,7 @@ import { identityName, NOTARY_KEY_FOLDER, release, type ReleaseOptions } from '.
 import { USERS } from '../tauri/mac-release/build-paths.ts';
 import { NOTE } from '../tauri/mac-release/menu-check-entry.ts';
 import { LSREGISTER } from '../tauri/built-apps.ts';
+import { MAC_RELEASE_VARIABLE } from '../tauri/window/names.ts';
 import {
   DEVELOPER_ID_IDENTITIES,
   DEVELOPER_ID_NAME,
@@ -90,6 +91,8 @@ test('a landed app is built with the key in its environment alone and published 
   expect(build!.options.env?.TAURI_SIGNING_PRIVATE_KEY).toBe(PRIVATE_KEY);
   expect(build!.options.env?.TAURI_SIGNING_PRIVATE_KEY_PASSWORD).toBe('');
   expect(build!.options.env?.APP_COMMIT).toBe(head.slice(0, 7));
+  // The mark of a copy the release command built, which alone turns open at login on by itself at its first launch.
+  expect(build!.options.env?.[MAC_RELEASE_VARIABLE]).toBe(head.slice(0, 7));
   // The config's identity signs, never one the shell holds.
   expect(build!.options.env?.APPLE_SIGNING_IDENTITY).toBeUndefined();
   // The bundle lands in the app's own src-tauri/target, where the release looks for it.

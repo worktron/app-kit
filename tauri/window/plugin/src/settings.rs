@@ -138,13 +138,14 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>) {
 /// The login item's state as macOS reports it.
 #[tauri::command]
 pub(crate) fn open_at_login_status() -> Answer {
-    login_item::read()
+    login_item::read(&login_item::ThisMac)
 }
 
-/// Turns the login item on or off; the answer is the state macOS reports after it.
+/// Turns the login item on or off; the answer is the state macOS reports after it. The app's data folder keeps the
+/// mark that the person set it, which a first launch never overrides.
 #[tauri::command]
-pub(crate) fn open_at_login_set(on: bool) -> Answer {
-    login_item::set(on)
+pub(crate) fn open_at_login_set<R: Runtime>(app: AppHandle<R>, on: bool) -> Answer {
+    login_item::set(&login_item::ThisMac, on, app.path().app_data_dir().ok().as_deref())
 }
 
 /// Opens System Settings at Login Items.

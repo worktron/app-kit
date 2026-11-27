@@ -65,6 +65,13 @@ export const OPEN_AT_LOGIN_STATES = ['enabled', 'requires-approval', 'off', 'not
  * item was chosen.
  */
 export const MENU_CHECK_VARIABLE = 'APP_KIT_MENU_CHECK';
+
+/**
+ * The variable `app-kit mac release` builds with, set to the commit it builds (tauri/mac-release/release.ts), which the
+ * window plugin reads at compile time (plugin/src/login_item.rs): only a copy the release command built turns open at
+ * login on by itself at its first launch, for an app whose menu asks for that (`AppMenu::open_at_login_by_default`).
+ */
+export const MAC_RELEASE_VARIABLE = 'APP_KIT_MAC_RELEASE';
 export const MENU_CHECK_LINE = 'menu check: ';
 export const MENU_CHECK_STARTING = 'starting';
 export const MENU_CHECK_HOLDS = 'the menu holds ';

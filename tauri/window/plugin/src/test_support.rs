@@ -79,20 +79,27 @@ fn a_permission_file_listed_in_another_checkout_is_read_from_this_one() {
     assert_eq!(in_this_checkout("/gone/app-kit-checkout/tauri/window/plugin/permissions/default.toml"), this_checkout().join("permissions/default.toml"));
 }
 
-/// A folder of this test's own, in this test process's folder outside the system's temporary folder, removed when the
-/// test ends however it ends.
+/// A folder of this test's own, in this test process's folder outside the system's temporary folder, made empty when
+/// the test starts and removed when it ends however it ends.
 pub(crate) struct Folder(pub(crate) PathBuf);
+
+/// Held while a folder is made or removed. Without it, one test's end removed the process's folder, empty for that
+/// moment, between another test making it and making its own folder inside it, and that test's folder was never made.
+static FOLDERS: Mutex<()> = Mutex::new(());
 
 impl Folder {
     pub(crate) fn new(name: &str) -> Self {
+        let _folders = FOLDERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let path = Path::new("/tmp/app-kit-tests").join(std::process::id().to_string()).join(name);
         let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         Folder(path)
     }
 }
 
 impl Drop for Folder {
     fn drop(&mut self) {
+        let _folders = FOLDERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let _ = std::fs::remove_dir_all(&self.0);
         // The process's folder goes too once no other test of it has a folder there.
         if let Some(process) = self.0.parent() {

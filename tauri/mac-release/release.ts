@@ -60,6 +60,7 @@ import { compileFailed } from '../testflight/upload.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { MAC_BUNDLE_FOLDER, macApps, removeApps, removeAppsNow, sweepGoneCheckouts, type BuildStarted } from '../built-apps.ts';
 import { foundPathsMessage, pathRewriteEnv, searchForPaths, unrewritable } from './build-paths.ts';
+import { MAC_RELEASE_VARIABLE } from '../window/names.ts';
 import { runCommand, STOP_SIGNALS, stopRunning, type Run, type RunResult } from '../../command-line/run.ts';
 import { menuCheck } from './menu-check.ts';
 
@@ -320,6 +321,8 @@ async function releaseSteps(options: ReleaseOptions, folders: Set<string>, check
     TAURI_SIGNING_PRIVATE_KEY: key['private key'],
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: key.password ?? '',
     APP_COMMIT: short,
+    // Only a copy built here turns open at login on by itself at its first launch, never a hand build (names.ts).
+    [MAC_RELEASE_VARIABLE]: short,
   };
   let keyFolder: string | null = null;
   if (notary) {
