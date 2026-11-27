@@ -305,6 +305,18 @@ test('the README shows the shell that plugin/tests/readme.rs compiles', () => {
   expect(read('tests/readme.rs')).toContain(shell);
 });
 
+// On Windows a second copy of the app runs every plugin registered before single-instance before it quits, and the
+// window plugin finds the sign-in link through the deep-link plugin, so the shell apps copy registers them in that order.
+test("the README's shell registers single-instance before every plugin on Windows, and deep-link before the window", () => {
+  const shell = read('tests/readme.rs');
+  const singleInstance = shell.indexOf('let builder = tauri_plugin_app_kit_window::single_instance(builder);');
+  expect(singleInstance).toBeGreaterThan(-1);
+  expect(shell.slice(0, singleInstance).split('\n').at(-2)).toBe('    #[cfg(target_os = "windows")]');
+  expect(shell.slice(0, singleInstance)).not.toContain('.plugin(');
+  expect(shell.indexOf('.plugin(tauri_plugin_deep_link::init())')).toBeLessThan(shell.indexOf('.plugin(site.plugin())'));
+  expect(shell.indexOf('tauri_plugin_window_state::Builder')).toBeLessThan(shell.indexOf('.plugin(site.plugin())'));
+});
+
 test('a menu hook runs for its own item each time it is chosen, with the newest act, and stops when the page leaves', () => {
   const choose = (item: string) => window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail: item }));
   const chosen: string[] = [];

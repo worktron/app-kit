@@ -58,7 +58,7 @@ const snapshot = (folder: string): Record<string, string> =>
 describe('icons render', () => {
   test('draws every icon an app ships from its drawings, and the same bytes again on a second run', async () => {
     const { root, sets, options, printed } = app();
-    expect((await renderIcons(options)).length).toBe(10 + 18 + 3 + 5 + 2 + 6 + 4);
+    expect((await renderIcons(options)).length).toBe(10 + 18 + 3 + 6 + 2 + 6 + 4);
 
     // The Mac's: the app icon as drawn, its margins see-through and its tile solid.
     const mac = JSON.parse(readFileSync(join(sets.mac, 'Contents.json'), 'utf8')).images as { filename: string; size: string; scale: string }[];
@@ -87,16 +87,22 @@ describe('icons render', () => {
     expect((await pixels(join(sets.xcode, 'AppIcon-mac-32@2x.png'))).at(0, 0)[3]).toBe(0);
     expect(printed.filter((line) => line.startsWith('skipped universal 1024x1024'))).toHaveLength(2);
 
-    // Tauri's: the files its config lists, the .icns holding the Mac sizes; Windows and Liquid Glass icons skipped.
+    // Tauri's: the files its config lists, the .icns holding the Mac sizes and the .ico Windows'; Liquid Glass icons skipped.
     for (const [name, side] of [['32x32.png', 32], ['128x128.png', 128], ['128x128@2x.png', 256], ['icon.png', 512]] as const) {
       expect((await pixels(join(root, 'src-tauri/icons', name))).width).toBe(side);
     }
     const icns = readFileSync(join(root, 'src-tauri/icons/icon.icns'));
     expect(icns.subarray(0, 4).toString()).toBe('icns');
     for (const type of ['ic07', 'ic08', 'ic09', 'ic10']) expect(icns.includes(type)).toBe(true);
-    expect(printed).toContain('skipped icons/icon.ico: Windows and Liquid Glass icons are not drawn here');
-    expect(printed).toContain('skipped icons/AppIcon.icon: Windows and Liquid Glass icons are not drawn here');
-    expect(existsSync(join(root, 'src-tauri/icons/icon.ico'))).toBe(false);
+    // Windows': icon.ico with four sizes of the tile, drawn to the square's edges as the favicon is, its corners rounded.
+    const windows = readFileSync(join(root, 'src-tauri/icons/icon.ico'));
+    expect([windows.readUInt16LE(2), windows.readUInt16LE(4)]).toEqual([1, 4]);
+    // An entry's width byte is 0 for 256, as the format writes it.
+    expect([0, 1, 2, 3].map((at) => windows.readUInt8(6 + 16 * at))).toEqual([16, 32, 48, 0]);
+    const big = await sharp(windows.subarray(windows.readUInt32LE(6 + 48 + 12))).raw().toBuffer({ resolveWithObject: true });
+    expect([big.info.width, big.info.height, big.data[3]]).toEqual([256, 256, 0]);
+    expect([...big.data.subarray((10 * 256 + 128) * 4, (10 * 256 + 128) * 4 + 4)]).toEqual([...GROUND, 255]);
+    expect(printed).toContain('skipped icons/AppIcon.icon: Liquid Glass icons are not drawn here');
 
     // The menu bar's: the glyph itself, kept a vector template image.
     expect(readFileSync(join(options.menuBar, 'glyph.svg'), 'utf8')).toBe(readFileSync(join(FIXTURES, 'drawings/glyph.svg'), 'utf8'));

@@ -1,4 +1,4 @@
-# app-kit's window onto an app's hosted site, for a Tauri app's Mac and iPhone shell: desktop sign-in's shell half,
+# app-kit's window onto an app's hosted site, for a Tauri app's Mac, Windows and iPhone shell: desktop sign-in's shell half,
 # links out, close hides, and the rest README.md's "A window onto the hosted site" lists. An app's shell builds it from
 # the kit bun installed, by a Cargo path into node_modules.
 [package]
@@ -32,6 +32,12 @@ objc2-service-management = { version = "0.3", default-features = false, features
 # The menu check a Mac release runs on a worker Mac (src/menu_check.rs) walks and chooses the app's own menu bar.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# Windows hands desktop sign-in's link to a second copy of the app, which passes it to the running one and quits through
+# the single-instance plugin, whose deep-link feature hands it on to the deep-link plugin (windows.rs).
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
 
@@ -48,6 +54,8 @@ tauri = { version = "2.12.5", features = ["test"] }
 # The README's shell registers these, and tests/readme.rs compiles it.
 tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
+# windows.rs, which the tests run on the Mac too.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 # tests/menu.rs builds the menu bar on the main thread, which macOS requires, and reads back what macOS holds.
 [[test]]

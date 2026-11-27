@@ -1,4 +1,5 @@
-//! A Tauri window onto an app's hosted site, for the Mac and the iPhone: what every such app's shell wrote by hand.
+//! A Tauri window onto an app's hosted site, for the Mac, Windows and the iPhone: what every such app's shell wrote by
+//! hand.
 //!
 //! The window loads the app's own site, so sign-in, data and every deploy are the site's. This plugin adds:
 //! - desktop sign-in's shell half: the browser's `<scheme>://sign-in` link handed to the page (app-kit/tauri/sign-in);
@@ -14,7 +15,10 @@
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
 //!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), updates from the app's
 //!   releases when its tauri.conf.json has plugins.updater (updates.rs), and the kit's Settings window, with its switch
-//!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it.
+//!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it;
+//! - on Windows: one copy of the app, so desktop sign-in's link, which Windows hands a second copy, reaches the window,
+//!   which comes forward (windows.rs), and the window shown only once it is back where it was. Closing it quits the app,
+//!   as Windows apps do, and the Mac's menu bar, Settings window and updates are not there.
 //!
 //! Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be. README.md's
 //! "A window onto the hosted site" shows an app's shell.
@@ -40,6 +44,8 @@ mod relaunch;
 mod settings;
 #[cfg(target_os = "macos")]
 mod updates;
+#[cfg(any(target_os = "windows", test))]
+mod windows;
 #[cfg(all(test, target_os = "macos"))]
 mod test_support;
 
@@ -47,6 +53,8 @@ mod test_support;
 pub use menu::{update_item, AppMenu, FILE_MENU, VIEW_MENU};
 #[cfg(target_os = "macos")]
 pub use settings::SETTINGS_WINDOW;
+#[cfg(target_os = "windows")]
+pub use windows::single_instance;
 
 use links::{link_decision, loggable, new_window_decision, Link};
 use tauri::ipc::CapabilityBuilder;
@@ -152,8 +160,8 @@ impl Site {
     }
 
     /// The window, opening on `start`: the site itself, or a page the app bundles that goes on to it. The app adds
-    /// its title, size and first-frame color, and builds it. On the Mac it opens centered and hidden: show it with
-    /// `show_once_placed`, after the window-state plugin has put it back where it was.
+    /// its title, size and first-frame color, and builds it. On the Mac and Windows it opens centered and hidden: show
+    /// it with `show_once_placed`, after the window-state plugin has put it back where it was.
     pub fn window<'a, R: Runtime, M: Manager<R>>(&self, manager: &'a M, start: WebviewUrl) -> WebviewWindowBuilder<'a, R, M> {
         let app = manager.app_handle().clone();
         let builder = WebviewWindowBuilder::new(manager, MAIN, start).on_new_window(move |url, _features| {
@@ -165,13 +173,12 @@ impl Site {
             }
             NewWindowResponse::Deny
         });
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let builder = builder.center().visible(false);
         // WebKit suspends a hidden page after about five minutes, which would stop a page's polls and alerts while the
         // window is closed, when they matter most.
         #[cfg(target_os = "macos")]
-        let builder = builder
-            .center()
-            .visible(false)
-            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+        let builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
         #[cfg(any(target_os = "ios", target_os = "android"))]
         let builder = builder.initialization_script(iphone::WINDOW_OPEN_SCRIPT);
         builder
@@ -205,10 +212,13 @@ impl Site {
         format!("if (location.origin !== {origin}) window.{START_PAGE_SETTINGS} = {settings};")
     }
 
-    /// The plugin, registered after the opener plugin, and on the Mac after the window-state plugin.
+    /// The plugin, registered after the opener plugin, on the Mac and Windows after the window-state plugin, and on
+    /// Windows after `single_instance` and, for an app with a `scheme`, the deep-link plugin.
     pub fn plugin<R: Runtime>(&self) -> TauriPlugin<R> {
         let for_navigation = self.clone();
         let for_events = self.clone();
+        #[cfg(target_os = "windows")]
+        let for_setup = self.clone();
         let builder = Builder::new("app-kit-window");
         #[cfg(target_os = "ios")]
         let builder = builder.on_webview_ready(|webview| {
@@ -225,7 +235,7 @@ impl Site {
             settings::open_login_items
         ]);
         builder
-            .setup(|app, _api| {
+            .setup(move |app, _api| {
                 if app.try_state::<tauri_plugin_opener::Opener<R>>().is_none() {
                     return Err(MISSING_OPENER.into());
                 }
@@ -235,6 +245,11 @@ impl Site {
                     app.manage(settings::SettingsState::default());
                     updates::start(app);
                     menu_check::start_if_asked(app);
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    windows::check_order(app, &for_setup)?;
+                    windows::listen(app, &for_setup);
                 }
                 Ok(())
             })
@@ -283,7 +298,8 @@ pub fn show<R: Runtime>(app: &AppHandle<R>) {
 
 /// The log plugin as every app on the kit sets it up: warnings from anything, and every decision of the app's own
 /// crate (`app_crate`, as its Cargo.toml names it with dashes as underscores) and of this plugin, written to
-/// ~/Library/Logs/<identifier>/, one file of up to a megabyte, as well as to the app's output.
+/// ~/Library/Logs/<identifier>/ on the Mac and %LOCALAPPDATA%\<identifier>\logs\ on Windows, one file of up to a
+/// megabyte, as well as to the app's output.
 pub fn log_to_file<R: Runtime>(app_crate: &'static str) -> TauriPlugin<R> {
     tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Warn)
@@ -367,15 +383,9 @@ fn settings_navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
 fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
     match event {
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
-        RunEvent::Opened { urls } => {
-            let Some(scheme) = site.scheme.as_deref() else { return };
-            for url in urls.iter().filter(|url| url.scheme() == scheme) {
-                match sign_in::sign_in_link(url, scheme) {
-                    Some(sign_in) => hand_over(app, site, &sign_in),
-                    None => log::info!("ignored a link to {}: not a sign-in with a ticket and nonce it could take", loggable(url)),
-                }
-            }
-        }
+        RunEvent::Opened { urls } => opened(app, site, urls),
+        #[cfg(target_os = "windows")]
+        RunEvent::Ready => windows::launched_with_link(app, site),
         #[cfg(target_os = "macos")]
         RunEvent::WindowEvent { label, event, .. } if on_main(label) => mac_window_event(app, event),
         #[cfg(target_os = "macos")]
@@ -392,9 +402,22 @@ fn run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent, site: &Site) {
     }
 }
 
+/// Takes desktop sign-in's links among `urls`, from the Mac's or the iPhone's open event or the link Windows hands a
+/// second copy of the app.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows", test))]
+fn opened<R: Runtime>(app: &AppHandle<R>, site: &Site, urls: &[Url]) {
+    let Some(scheme) = site.scheme.as_deref() else { return };
+    for url in urls.iter().filter(|url| url.scheme() == scheme) {
+        match sign_in::sign_in_link(url, scheme) {
+            Some(sign_in) => hand_over(app, site, &sign_in),
+            None => log::info!("ignored a link to {}: not a sign-in with a ticket and nonce it could take", loggable(url)),
+        }
+    }
+}
+
 /// Moves a sign-in from the browser's link into the page. The page on the site takes it where it is; a window still
 /// on a start page, as at launch, loads the site with it. The ticket itself is never logged.
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows", test))]
 fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: &sign_in::SignIn) {
     let Some(window) = app.get_webview_window(MAIN) else {
         log::warn!("a sign-in came back from the browser with no window to hand it to");
@@ -409,6 +432,8 @@ fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: &sign_in::Sig
     }
     #[cfg(target_os = "macos")]
     show(app);
+    #[cfg(target_os = "windows")]
+    windows::bring_forward(app);
 }
 
 /// The program the app was launched from, as the window read it at launch.

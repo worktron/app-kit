@@ -9,7 +9,7 @@
  *   icon guidelines ask for.
  * - glyph.svg: copied into the menu bar's template image set, which keeps it as a vector.
  * An Xcode icon set is filled from its own Contents.json, each entry from the drawing for its kind of device; a Tauri
- * app's icons are the files its tauri.conf.json lists.
+ * app's icons are the files its tauri.conf.json lists, the Windows .ico among them.
  *
  * It draws with sharp, whose prebuilt binaries carry librsvg, the engine rsvg-convert draws with, so it needs neither
  * Homebrew nor a browser; sharp is an optional peer dependency, loaded only here. Each drawing is read from its file, so
@@ -150,8 +150,10 @@ export async function renderIcons(options: IconsOptions): Promise<string[]> {
       if (sized && sized[1] === sized[2]) keep(await mac(Number(sized[1]) * (sized[3] ? 2 : 1)));
       else if (basename(name) === 'icon.png') keep(await mac(512));
       else if (name.endsWith('.icns')) keep(await icns(mac, run));
-      else if (/\.(ico|icon|car)$/.test(name)) print(`skipped ${name}: Windows and Liquid Glass icons are not drawn here`);
-      else throw new Error(`${config} lists ${name}, which is not an icon this command draws (NxN.png, NxN@2x.png, icon.png, icon.icns)`);
+      // Windows draws its icon to the edges of the square, as the favicon is, so the .ico is the tile, not the Mac's margins.
+      else if (name.endsWith('.ico')) keep(ico(await Promise.all([16, 32, 48, 256].map((size) => tile(size).png().toBuffer()))));
+      else if (/\.(icon|car)$/.test(name)) print(`skipped ${name}: Liquid Glass icons are not drawn here`);
+      else throw new Error(`${config} lists ${name}, which is not an icon this command draws (NxN.png, NxN@2x.png, icon.png, icon.icns, icon.ico)`);
     }
   }
 
@@ -276,7 +278,7 @@ async function icns(mac: (size: number) => Promise<Buffer>, run: Run): Promise<B
   }
 }
 
-/** A Windows icon file holding each PNG as it is, as browsers read favicon.ico. */
+/** A Windows icon file holding each PNG as it is, as browsers read favicon.ico and Windows reads an app's icon.ico. */
 function ico(pngs: Buffer[]): Buffer {
   const header = Buffer.alloc(6 + 16 * pngs.length);
   header.writeUInt16LE(1, 2);

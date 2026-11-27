@@ -22,11 +22,13 @@ const COMMIT: &str = match option_env!("APP_COMMIT") {
 
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     let site = Site::new(PAGE.parse().expect("PAGE is an address")).scheme("com.example.app");
+    #[cfg(target_os = "windows")]
+    let builder = tauri_plugin_app_kit_window::single_instance(builder);
     let builder = builder
         .plugin(log_to_file("example_app"))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init());
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let builder = builder.plugin(
         tauri_plugin_window_state::Builder::new()
             .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
