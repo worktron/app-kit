@@ -1332,3 +1332,12 @@ Asked 2026-11-27 by Icarus Labs (mythic), whose site now follows the device's li
 Done when: on a Mac and an iPhone in light mode, an app built with a light and a dark pair shows no dark frame between launch and its light site, and in dark mode no light one; a test holds both pairs reaching the start page and the launch screen.
 
 **Then, in Icarus Labs.** `app/src-tauri` passes `LIGHT` and `DARK` from `demo/src/theme.ts`, and `app/shell.test.ts` holds both.
+
+## pull-past-top-chrome-stretch · A fault: Chrome's stretch past the top moves the newest message after a pull opens earlier messages
+Written by: app-kit/paced-finger-swipes
+
+A fault, not an idea. When a pull down past the top opens a conversation's earlier messages (usePullPastTop, web/pull-past-top.ts), headless Chrome is still springing back from its stretch past the top, which never shows in the page's scroll place, so the pull's wait for three still frames passes during it. What is left of the spring once the earlier messages are drawn scrolls the page, and the newest message ends 2 to 11 points from where it was. Measured 2026-11-27 with web/e2e/fixture/pull-past-top.html at an iPhone 13's size, 24 runs each: 7 of 24 moved with the stretch on, none with `overscroll-behavior: none`; 1 of 24 on the old awaited finger, 4 to 8 of 24 on the paced one (v0.82.1). Ruled out: a fling from the lift (a settle three times as long changed nothing) and the touches' times (stamping each with its send time changed nothing). The iPhone's stretch reads below zero, which the pull waits for (test/pull-past-top.test.tsx). Since v0.82.1, web/e2e/pull-past-top.e2e.ts "a pull of 40 points past the top opens nothing, and one of 110 opens them, the newest message staying where it was" runs with the stretch off, so no test sees this. Unknown: whether Chrome on Android, whose stretch is drawn the same way, moves the newest message for real people.
+
+To reproduce: delete the `addStyleTag` line in that test and run `bash scripts/e2e.sh pull-past-top.e2e.ts -g "40 points" --repeat-each 12` beside other browser tests.
+
+Done when: Chrome on Android (an emulator, once app-kit has one) is checked for the move; if it moves there, the pull waits until the stretch has sprung back, and that test runs with the stretch on again and passes repeated runs; if it never does, the test's comment says so and this is closed.
