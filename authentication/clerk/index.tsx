@@ -90,6 +90,7 @@ function renewalHere(): PageRenewal {
     tabStorage: pageStorage('sessionStorage'),
     href: () => window.location.href,
     replace: (address) => window.history.replaceState(window.history.state, '', address),
+    navigationType: () => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type ?? 'navigate',
     assign: (address) => window.location.assign(address),
     log: (line) => console.log(line),
     now: () => Date.now(),

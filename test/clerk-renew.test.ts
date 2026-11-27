@@ -79,7 +79,13 @@ test('a record that is not one reads as none', () => {
 /** A page with an address, storage and a clock, which records each load and console line. */
 function fakePage(
   href: string,
-  { userAgent = MAC_WINDOW, now = NOW, stored = {} as Record<string, string>, tab = {} as Record<string, string> } = {},
+  {
+    userAgent = MAC_WINDOW,
+    now = NOW,
+    stored = {} as Record<string, string>,
+    tab = {} as Record<string, string>,
+    navigation = 'navigate',
+  } = {},
 ) {
   const loads: string[] = [];
   const lines: string[] = [];
@@ -95,6 +101,7 @@ function fakePage(
     },
     href: () => address,
     replace: (to) => void (address = new URL(to, address).toString()),
+    navigationType: () => navigation,
     assign: (to) => void loads.push(to),
     log: (line) => void lines.push(line),
     now: () => clock,
@@ -176,13 +183,31 @@ describe("one page's renewal", () => {
     expect(loads).toEqual([]);
   });
 
-  test('a tab note that cannot be taken off counts every load as back, so it never loops', () => {
+  test('a person back by hand after a trip that did not finish counts no renewal, and the hour holds off the next', () => {
+    for (const [navigation, after] of [['back_forward', 2000], ['reload', 2000], ['navigate', 10 * 60 * 1000]] as const) {
+      const first = fakePage('https://app.example.com/notes#/items/3');
+      pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
+      expect(first.loads).toHaveLength(1);
+      const back = fakePage('https://app.example.com/notes#/items/3', { now: NOW + after, stored: first.stored, tab: first.tab, navigation });
+      const again = pageRenewal(back.page);
+      expect(back.lines.join('\n')).toContain("a renewal of Clerk's cookie did not come back");
+      expect(back.tab[LEAVING_KEY]).toBeUndefined();
+      expect(JSON.parse(back.stored[RENEWAL_KEY]!)).toEqual({ sessionId: 'sess_1', renewedAt: 0, attemptedAt: NOW });
+      expect(again.renewing(fakeClerk('sess_1'), true)).toBe(after > RETRY_AFTER_MS);
+      again.decideAtOpen(fakeClerk('sess_1'));
+      expect(back.loads).toHaveLength(after > RETRY_AFTER_MS ? 1 : 0);
+    }
+  });
+
+  test('a tab note that cannot be taken off counts Clerk\'s return once, and a reload after it nothing, so it never loops', () => {
     const stuck = { getItem: () => JSON.stringify({ at: NOW, hash: '' }), setItem: () => {}, removeItem: () => { throw new Error('SecurityError'); } };
-    const { page, loads } = fakePage('https://app.example.com/notes');
-    const renewal = pageRenewal({ ...page, tabStorage: stuck });
+    const returned = fakePage('https://app.example.com/notes', { now: NOW + 800 });
+    expect(pageRenewal({ ...returned.page, tabStorage: stuck }).renewing(fakeClerk('sess_1'), true)).toBe(false);
+    const reloaded = fakePage('https://app.example.com/notes', { now: NOW + 5000, navigation: 'reload' });
+    const renewal = pageRenewal({ ...reloaded.page, tabStorage: stuck, storage: { getItem: () => JSON.stringify({ sessionId: 'sess_1', renewedAt: 0, attemptedAt: NOW }), setItem: () => {} } });
     expect(renewal.renewing(fakeClerk('sess_1'), true)).toBe(false);
     renewal.decideAtOpen(fakeClerk('sess_1'));
-    expect(loads).toEqual([]);
+    expect(reloaded.loads).toEqual([]);
   });
 
   test('a page that opens signed out never renews, not even after a sign-in in the page', () => {
