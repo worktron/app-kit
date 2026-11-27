@@ -65,7 +65,7 @@ pub(crate) fn page_script(name: &str, colors: Option<&StartPage>) -> String {
 /// Whether the app's bundle holds the settings page itself. Tauri's own lookup answers a missing page with the bundle's
 /// index.html, so it would pass for an app whose frontendDist is a folder of its own; the bundle's list of files does
 /// not. A debug build with a devUrl bundles nothing, so Settings opens there only in a build without one.
-fn bundles_settings_page<R: Runtime>(app: &AppHandle<R>) -> bool {
+pub(crate) fn bundles_settings_page<R: Runtime>(app: &AppHandle<R>) -> bool {
     let page = format!("/{SETTINGS_PAGE}");
     app.asset_resolver().iter().any(|(key, _)| key == page)
 }

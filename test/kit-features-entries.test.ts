@@ -275,6 +275,9 @@ test("a Mac app that opens on the kit's start page opens at login from the kit's
   const after = 'let menu = AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app)?;\n';
   expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': before })).toBe('lacks');
   expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': after })).toBe('has');
+  // The same window, with the switch on by default.
+  const byDefault = 'let menu = AppMenu::new().open_at_login_by_default().sign_out().commit(COMMIT).build(app)?;\n';
+  expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': byDefault })).toBe('has');
   // The autostart plugin is not counted.
   expect(
     await verdict(OPEN_AT_LOGIN, {

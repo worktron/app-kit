@@ -379,17 +379,19 @@ const START_PAGE: Feature = {
 // A Mac app on the window plugin's menu opens when the person logs in, which practices' desktop app rule asks of every
 // Mac app, through the kit's Settings window. Only an app whose window opens on the kit's start page can take it, since
 // the window is a page bundled beside it; an app whose bundle is its hosted site, as Argon's, is not asked. The
-// autostart plugin is not counted: its switch can say on after System Settings turned it off.
+// autostart plugin is not counted: its switch can say on after System Settings turned it off. `open_at_login_by_default`
+// gives the same window, so it counts too.
 const OPEN_AT_LOGIN_CALL = 'settings_window'
+const OPEN_AT_LOGIN_BY_DEFAULT_CALL = 'open_at_login_by_default'
 const OPEN_AT_LOGIN: Feature = {
   feature: 'opens at login on the Mac, from Settings',
   readme: 'A window onto the hosted site',
-  names: ['tauri-plugin-app-kit-window', 'AppMenu', OPEN_AT_LOGIN_CALL],
+  names: ['tauri-plugin-app-kit-window', 'AppMenu', OPEN_AT_LOGIN_CALL, OPEN_AT_LOGIN_BY_DEFAULT_CALL],
   appliesTo: (app) =>
     app.grep('tauri-plugin-app-kit-window', [':(glob)**/Cargo.toml', ':(exclude,glob)**/node_modules/**']).length > 0 &&
     app.grep('AppMenu::new', SHELL_RUST).length > 0 &&
     app.tracked.some((path) => /(^|\/)tauri\.conf\.json$/.test(path) && app.show(path).includes('app-kit/tauri/window/start')),
-  present: async (app) => has(app.grep(`\\.${OPEN_AT_LOGIN_CALL}\\(`, SHELL_RUST).length > 0),
+  present: async (app) => has(app.grep(`\\.(${OPEN_AT_LOGIN_CALL}|${OPEN_AT_LOGIN_BY_DEFAULT_CALL})\\(`, SHELL_RUST).length > 0),
 }
 
 // An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on

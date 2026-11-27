@@ -143,6 +143,7 @@ pub(crate) fn read(items: &impl LoginItems) -> Answer {
 /// after it. The person chose, so the mark that it was set once is written whatever macOS answered, and a first launch
 /// never overrides them.
 pub(crate) fn set(items: &impl LoginItems, on: bool, data: Option<&Path>) -> Answer {
+    let _changing = changing();
     keep_mark(data, &format!("turned {} through the Settings switch", on_or_off(on)));
     let error = items.change(on);
     let after = items.status();
@@ -231,6 +232,8 @@ pub(crate) enum FirstLaunch {
     HandBuild,
     /// Started by a release's menu check on a worker Mac, whose Login Items it leaves alone.
     MenuCheck,
+    /// The app bundles no Settings page, so the person would have no switch in the app to turn it off.
+    NoSwitch,
     /// The app has no data folder to keep its mark in, so it cannot know whether it set the item before.
     NoDataFolder,
     /// Set once already, at an earlier launch or by the person through the switch, so left as the person has it.
@@ -243,17 +246,40 @@ pub(crate) enum FirstLaunch {
     Refused { after: Status, error: Option<MacError> },
 }
 
-/// Turns the login item on once, at the first launch of a copy the release command built (`release`, the commit),
-/// unless the menu check started the app or its data folder (`data`) holds the mark that it was set before. The mark
-/// is written only once macOS reports the item on or waiting for approval, so a refusal is tried again next launch.
-pub(crate) fn first_launch(items: &impl LoginItems, release: Option<&str>, menu_check: bool, data: Option<&Path>) -> FirstLaunch {
-    if release.is_none() {
+/// What a launch knows when it decides: the commit, in a copy the release command built; whether the release's menu
+/// check started it; whether the app bundles the Settings page, whose switch turns the item off; and the app's data
+/// folder, where the mark is kept.
+pub(crate) struct Launch<'a> {
+    pub(crate) release: Option<&'a str>,
+    pub(crate) menu_check: bool,
+    pub(crate) settings_page: bool,
+    pub(crate) data: Option<&'a Path>,
+}
+
+/// Held while the first launch or the switch decides and changes the login item, so a change the person makes through
+/// the switch while macOS is still answering the first launch's is made after it, and stands.
+static CHANGING: Mutex<()> = Mutex::new(());
+
+fn changing() -> std::sync::MutexGuard<'static, ()> {
+    CHANGING.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Turns the login item on once, at the first launch of a copy the release command built, unless the menu check
+/// started the app, the app has no switch to turn it off, or its data folder holds the mark that it was set before.
+/// The mark is written only once macOS reports the item on or waiting for approval, so a refusal is tried again next
+/// launch.
+pub(crate) fn first_launch(items: &impl LoginItems, launch: &Launch) -> FirstLaunch {
+    if launch.release.is_none() {
         return FirstLaunch::HandBuild;
     }
-    if menu_check {
+    if launch.menu_check {
         return FirstLaunch::MenuCheck;
     }
-    let Some(data) = data else { return FirstLaunch::NoDataFolder };
+    if !launch.settings_page {
+        return FirstLaunch::NoSwitch;
+    }
+    let Some(data) = launch.data else { return FirstLaunch::NoDataFolder };
+    let _changing = changing();
     if data.join(MARK).exists() {
         return FirstLaunch::SetBefore;
     }
@@ -278,6 +304,14 @@ pub(crate) fn first_launch_line(outcome: &FirstLaunch) -> (log::Level, String) {
             format!("open at login: left as it is at launch, since the release command did not build this copy (no {MAC_RELEASE_VARIABLE})"),
         ),
         FirstLaunch::MenuCheck => (Info, "open at login: left as it is under the menu check".into()),
+        FirstLaunch::NoSwitch => (
+            Warn,
+            format!(
+                "open at login: not turned on at first launch, since the app bundles no {} with the switch that turns it \
+                 off: its tauri.conf.json frontendDist must be the kit's start folder",
+                crate::settings::SETTINGS_PAGE
+            ),
+        ),
         FirstLaunch::NoDataFolder => {
             (Warn, "open at login: not turned on at first launch, since the app has no data folder to keep the mark that it did".into())
         }
@@ -336,9 +370,11 @@ fn step<R: Runtime>(app: &AppHandle<R>, done: impl FnOnce(&mut Steps)) -> bool {
     if start {
         let data = app.path().app_data_dir().ok();
         let menu_check = std::env::var_os(crate::menu_check::MENU_CHECK_VARIABLE).is_some();
+        let settings_page = crate::settings::bundles_settings_page(app);
         // macOS may take a moment to answer, so the launch does not wait on it.
         std::thread::spawn(move || {
-            let (level, line) = first_launch_line(&first_launch(&ThisMac, RELEASE, menu_check, data.as_deref()));
+            let launch = Launch { release: RELEASE, menu_check, settings_page, data: data.as_deref() };
+            let (level, line) = first_launch_line(&first_launch(&ThisMac, &launch));
             log::log!(level, "{line}");
         });
     }
@@ -492,18 +528,23 @@ mod tests {
 
     const RELEASE_BUILD: Option<&str> = Some("3f2a9c1");
 
+    /// A launch of an app that bundles the Settings page.
+    fn launch<'a>(release: Option<&'a str>, menu_check: bool, data: Option<&'a std::path::Path>) -> Launch<'a> {
+        Launch { release, menu_check, settings_page: true, data }
+    }
+
     #[test]
     fn a_release_turns_open_at_login_on_at_its_first_launch_and_never_again() {
         let data = Folder::new("first-launch-once");
         let mac = StandIn::new(Status::NotFound);
-        let first = first_launch(&mac, RELEASE_BUILD, false, Some(&data.0));
+        let first = first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0)));
         assert_eq!(first, FirstLaunch::TurnedOn(Status::Enabled));
         assert_eq!(first_launch_line(&first), (log::Level::Info, "open at login: turned on at first launch, macOS says enabled".into()));
         assert!(data.0.join(MARK).exists());
         // The person turns it off in System Settings; every later launch leaves it so.
         mac.status.set(Status::NotFound);
         for _ in 0..3 {
-            assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::SetBefore);
+            assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::SetBefore);
         }
         assert_eq!(mac.changes(), [true]);
         assert_eq!(mac.status(), Status::NotFound);
@@ -514,9 +555,9 @@ mod tests {
         let data = Folder::new("first-launch-approval");
         let mac = StandIn::new(Status::NotRegistered);
         *mac.on_gives.borrow_mut() = (Status::RequiresApproval, None);
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::TurnedOn(Status::RequiresApproval));
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::TurnedOn(Status::RequiresApproval));
         assert!(data.0.join(MARK).exists());
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::SetBefore);
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::SetBefore);
         assert_eq!(mac.changes(), [true]);
     }
 
@@ -524,7 +565,7 @@ mod tests {
     fn a_refusal_writes_no_mark_and_the_next_launch_tries_again() {
         let data = Folder::new("first-launch-refused");
         let mac = StandIn::new(Status::NotFound).refusing("Operation not permitted");
-        let refused = first_launch(&mac, RELEASE_BUILD, false, Some(&data.0));
+        let refused = first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0)));
         assert!(matches!(&refused, FirstLaunch::Refused { after: Status::NotFound, error: Some(_) }));
         assert_eq!(
             first_launch_line(&refused),
@@ -538,8 +579,8 @@ mod tests {
         assert!(!data.0.join(MARK).exists());
         // The next launch, with macOS willing now.
         *mac.on_gives.borrow_mut() = (Status::Enabled, None);
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::TurnedOn(Status::Enabled));
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::SetBefore);
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::TurnedOn(Status::Enabled));
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::SetBefore);
         assert_eq!(mac.changes(), [true, true]);
     }
 
@@ -552,14 +593,14 @@ mod tests {
             assert!(data.0.join(MARK).exists(), "{name}");
             // Even turned off and refused: the person chose, so a first launch leaves it.
             mac.status.set(Status::NotFound);
-            assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::SetBefore, "{name}");
+            assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::SetBefore, "{name}");
             assert_eq!(mac.changes(), [on], "{name}");
         }
         // A change macOS refused still counts as the person's choice.
         let data = Folder::new("switch-refused");
         let mac = StandIn::new(Status::NotFound).refusing("Operation not permitted");
         assert!(set(&mac, true, Some(&data.0)).error.is_some());
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::SetBefore);
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::SetBefore);
         assert_eq!(mac.changes(), [true]);
     }
 
@@ -567,9 +608,9 @@ mod tests {
     fn a_hand_build_and_the_menu_check_leave_the_login_item_and_the_mark_alone() {
         let data = Folder::new("first-launch-left");
         let mac = StandIn::new(Status::NotFound);
-        assert_eq!(first_launch(&mac, None, false, Some(&data.0)), FirstLaunch::HandBuild);
-        assert_eq!(first_launch(&mac, None, true, Some(&data.0)), FirstLaunch::HandBuild);
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, true, Some(&data.0)), FirstLaunch::MenuCheck);
+        assert_eq!(first_launch(&mac, &launch(None, false, Some(&data.0))), FirstLaunch::HandBuild);
+        assert_eq!(first_launch(&mac, &launch(None, true, Some(&data.0))), FirstLaunch::HandBuild);
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, true, Some(&data.0))), FirstLaunch::MenuCheck);
         assert!(mac.changes().is_empty());
         assert_eq!(std::fs::read_dir(&data.0).unwrap().count(), 0, "nothing written to the app's data folder");
         assert_eq!(first_launch_line(&FirstLaunch::MenuCheck).0, log::Level::Info, "the menu check refuses a warning");
@@ -578,12 +619,74 @@ mod tests {
     }
 
     #[test]
+    fn an_app_with_no_settings_page_has_no_switch_so_nothing_is_turned_on() {
+        let data = Folder::new("first-launch-no-switch");
+        let mac = StandIn::new(Status::NotFound);
+        let no_switch = Launch { settings_page: false, ..launch(RELEASE_BUILD, false, Some(&data.0)) };
+        assert_eq!(first_launch(&mac, &no_switch), FirstLaunch::NoSwitch);
+        assert!(mac.changes().is_empty());
+        assert!(!data.0.join(MARK).exists());
+        assert_eq!(first_launch_line(&FirstLaunch::NoSwitch).0, log::Level::Warn);
+    }
+
+    /// macOS answering a turn-on only once the test lets it, and saying when it is asked.
+    struct Held {
+        items: std::sync::Mutex<StandIn>,
+        asked: std::sync::mpsc::Sender<()>,
+        answer: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl LoginItems for Held {
+        fn status(&self) -> Status {
+            self.items.lock().unwrap().status()
+        }
+
+        fn change(&self, on: bool) -> Option<MacError> {
+            if on {
+                self.asked.send(()).unwrap();
+                self.answer.lock().unwrap().recv().unwrap();
+            }
+            self.items.lock().unwrap().change(on)
+        }
+    }
+
+    // The switch, used while macOS is still answering the first launch's turn-on, waits for it and then stands: the
+    // first launch holds the lock from reading the mark to writing it.
+    #[test]
+    fn a_change_through_the_switch_during_the_first_launch_is_made_after_it_and_stands() {
+        use std::sync::mpsc;
+        let data = Folder::new("first-launch-overtaken");
+        let (asked, at_change) = mpsc::channel();
+        let (let_answer, answer) = mpsc::channel();
+        let mac = Held { items: std::sync::Mutex::new(StandIn::new(Status::NotFound)), asked, answer: std::sync::Mutex::new(answer) };
+        let (switch_started, switch_is_waiting) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data.0))));
+            at_change.recv().unwrap();
+            let switch = scope.spawn(|| {
+                switch_started.send(()).unwrap();
+                set(&mac, false, Some(&data.0))
+            });
+            switch_is_waiting.recv().unwrap();
+            // The switch cannot reach macOS before the turn-on's answer, whatever the order the threads run in.
+            assert_eq!(mac.items.lock().unwrap().changes(), Vec::<bool>::new());
+            let_answer.send(()).unwrap();
+            assert_eq!(first.join().unwrap(), FirstLaunch::TurnedOn(Status::Enabled));
+            assert_eq!(switch.join().unwrap().state, State::Off);
+        });
+        let items = mac.items.lock().unwrap();
+        assert_eq!(items.changes(), [true, false]);
+        assert_eq!(items.status(), Status::NotRegistered);
+        assert_eq!(std::fs::read_to_string(data.0.join(MARK)).unwrap(), "turned off through the Settings switch\n");
+    }
+
+    #[test]
     fn with_no_data_folder_or_before_macos_13_nothing_is_turned_on_or_marked() {
         let mac = StandIn::new(Status::NotFound);
-        assert_eq!(first_launch(&mac, RELEASE_BUILD, false, None), FirstLaunch::NoDataFolder);
+        assert_eq!(first_launch(&mac, &launch(RELEASE_BUILD, false, None)), FirstLaunch::NoDataFolder);
         let data = Folder::new("first-launch-old-macos");
         let old = StandIn::new(Status::NotAvailable);
-        assert_eq!(first_launch(&old, RELEASE_BUILD, false, Some(&data.0)), FirstLaunch::NotAvailable);
+        assert_eq!(first_launch(&old, &launch(RELEASE_BUILD, false, Some(&data.0))), FirstLaunch::NotAvailable);
         assert!(mac.changes().is_empty() && old.changes().is_empty());
         assert!(!data.0.join(MARK).exists());
     }
