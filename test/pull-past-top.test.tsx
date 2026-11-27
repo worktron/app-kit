@@ -129,6 +129,28 @@ for (const where of ['window', 'box'] as const) {
     expect(opened).toHaveBeenCalledTimes(1);
   });
 
+  test(`on the ${where}'s scroll, a released pull still waiting opens nothing once a new touch begins, or once the page has left its top`, async () => {
+    const opened = mock(() => {});
+    render(<Page where={where} act={opened} />);
+    drag(row(), 110);
+    scrollTo(-20);
+    touch('touchstart', row(), 100, 300);
+    expect(line()).toBe('Show earlier messages');
+    scrollTo(0);
+    await rest();
+    touch('touchend', row());
+    expect(opened).not.toHaveBeenCalled();
+    drag(row(), 110);
+    // Flicked on down to read before the page came to rest.
+    scrollTo(250);
+    await rest();
+    expect(opened).not.toHaveBeenCalled();
+    scrollTo(0);
+    drag(row(), 110);
+    await rest();
+    expect(opened).toHaveBeenCalledTimes(1);
+  });
+
   test(`on the ${where}'s scroll, a flick that reaches the top only after the finger lifts opens nothing`, async () => {
     const opened = mock(() => {});
     render(<Page where={where} act={opened} />);

@@ -143,6 +143,11 @@ export function usePullPastTop({ on, act, scroller }: PullPastTopOptions): boole
         }
         resting = null;
         setPast(false);
+        // Scrolled away from the top before it came to rest: the person went on reading, and asked for nothing above.
+        if (!atTop()) {
+          console.log('[app-kit] pull past the top: released past the pull, not acting, since the page left its top');
+          return;
+        }
         if (now.current.on) {
           console.log('[app-kit] pull past the top: released past the pull, acting');
           now.current.act();
@@ -150,7 +155,16 @@ export function usePullPastTop({ on, act, scroller }: PullPastTopOptions): boole
       };
       resting = requestAnimationFrame(look);
     };
+    /** A released pull still waiting to act is let go of: a new touch is a new gesture, never the end of the last. */
+    const letGo = () => {
+      if (resting === null) return;
+      cancelAnimationFrame(resting);
+      resting = null;
+      setPast(false);
+      console.log('[app-kit] pull past the top: released past the pull, not acting, since a new touch began');
+    };
     const start = (e: TouchEvent) => {
+      letGo();
       if (e.touches.length !== 1 || !now.current.on || !counts(scroll, e.target)) {
         end();
         return;
@@ -176,7 +190,7 @@ export function usePullPastTop({ on, act, scroller }: PullPastTopOptions): boole
       if (drag.way === 'down' && drag.from !== null) setPastTo(t.clientY - drag.from >= PULL_PAST);
     };
     const release = () => {
-      if (!drag?.past || !now.current.on || resting !== null) {
+      if (!drag?.past || !now.current.on) {
         end();
         return;
       }
