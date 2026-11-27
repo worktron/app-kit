@@ -45,6 +45,10 @@ tauri-plugin = { version = "2", features = ["build"] }
 # Turns on the iPhone web view's swipe back and turns off shake to undo (src/iphone.rs), which Tauri has no setting for.
 objc2 = "0.6"
 
+[target.'cfg(target_os = "android")'.dependencies]
+# Keeps the page between Android's status bar and navigation bar (src/android.rs), through the web view Tauri hands over.
+jni = "0.21"
+
 [dev-dependencies]
 base64 = "0.23"
 minisign = "0.10.0"

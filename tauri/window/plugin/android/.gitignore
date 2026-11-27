@@ -1,0 +1,3 @@
+# Written by each build: Gradle's output, and the copy of Tauri's Android library the plugin's build makes.
+/build
+/.tauri

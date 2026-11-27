@@ -4,7 +4,8 @@
 const COMMANDS: &[&str] = &["open_at_login_status", "open_at_login_set", "open_login_items"];
 
 fn main() {
-    tauri_plugin::Builder::new(COMMANDS).build();
+    // The Android half keeps the page between the system bars (android/src/main/java/WindowPlugin.kt).
+    tauri_plugin::Builder::new(COMMANDS).android_path("android").build();
     // Every app-kit checkout shares one build folder (scripts/gates.sh), so Cargo can judge this script up to date from
     // a run in another checkout and never write this checkout's generated permission files, which the tests read
     // (src/test_support.rs). A path that does not exist makes Cargo run the script again, so a checkout without them

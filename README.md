@@ -2108,7 +2108,7 @@ Each upload fetches the app's active App Store profile for that certificate from
 
 ### Android
 
-A Tauri app on the window plugin builds for Android with nothing else in its shell: README's shell above runs there as it is, its window opening on the start page, going on to the site, sending other sites to the phone's browser and taking desktop sign-in's link back, Google refusing sign-in inside a web view. On Android the plugin's iPhone-only parts (the edge swipes, shake to undo) do nothing, and the Mac's (the menu bar, close hides, updates, Settings) are not built.
+A Tauri app on the window plugin builds for Android with nothing else in its shell: README's shell above runs there as it is, its window opening on the start page, going on to the site, sending other sites to the phone's browser and taking desktop sign-in's link back, Google refusing sign-in inside a web view. On Android the plugin's iPhone-only parts (the edge swipes, shake to undo) do nothing, and the Mac's (the menu bar, close hides, updates, Settings) are not built. Android draws an app edge to edge and its web view gives the page no safe-area insets, so the plugin keeps the page between the status bar and the navigation bar, and above the keyboard, with a small Kotlin half the app's Android build takes in by itself, as iOS keeps it in the safe area: the strips behind the bars take the start page's background, with the bars' icons dark on a light one and light on a dark one.
 
 An app takes it in five steps:
 
@@ -2154,7 +2154,7 @@ For an agent: the same order as [Testing the iPhone app yourself](#testing-the-i
 7. **The app's log.** `adb -s <serial> logcat -d`, or `logcat -c` first to see only what follows.
 8. **Shut it down** once the check is done: `adb -s <serial> emu kill`, its own emulator only.
 
-The kit's own check of all of this is `bun scripts/android-e2e.ts`, which builds a test app on the plugin and takes it through the start page, the site, a link to Chrome and the sign-in round trip, with the app running and after Android ended it behind Chrome, leaving a screenshot of each step and the app's log in `test-results/android-e2e/`.
+The kit's own check of all of this is `bun scripts/android-e2e.ts`, which builds a test app on the plugin and takes it through the start page, the site, the page measured between the bars, a link to Chrome and the sign-in round trip, with the app running and after Android ended it behind Chrome, leaving a screenshot of each step and the app's log in `test-results/android-e2e/`.
 
 #### Shipping to Google Play
 

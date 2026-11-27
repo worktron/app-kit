@@ -28,6 +28,8 @@
 mod links;
 mod sign_in;
 
+#[cfg(target_os = "android")]
+mod android;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod iphone;
 #[cfg(target_os = "macos")]
@@ -195,6 +197,8 @@ impl Site {
         let script = self.start_page_script(&manager.package_info().name, &page);
         #[cfg(target_os = "macos")]
         settings::keep_colors(manager, &page);
+        #[cfg(target_os = "android")]
+        manager.manage(android::BarColor(page.background));
         log::info!("the window opens on the start page, which goes on to {} once it answers", loggable(&self.address));
         self.window(manager, WebviewUrl::App(START_PAGE.into())).background_color(page.background).initialization_script(script)
     }
@@ -228,7 +232,11 @@ impl Site {
                 iphone::allow_swipe_back(&webview);
                 iphone::turn_off_shake_to_undo();
             }
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(target_os = "android")]
+            if on_main(webview.label()) {
+                android::colour_bars(&webview);
+            }
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
             let _ = webview;
         });
         // The Settings window's switch, which only that window is granted (settings.rs).
@@ -244,6 +252,8 @@ impl Site {
                     return Err(MISSING_OPENER.into());
                 }
                 app.manage(KeptSignIn::default());
+                #[cfg(target_os = "android")]
+                _api.register_android_plugin(android::IDENTIFIER, "WindowPlugin")?;
                 #[cfg(target_os = "macos")]
                 {
                     app.manage(MacWindow { launched: mac::Launched::now(), full_screen_told: Mutex::new(None), zoom: Mutex::new(None) });

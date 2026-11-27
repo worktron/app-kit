@@ -111,6 +111,21 @@ async function screen(): Promise<Node[]> {
 }
 
 /**
+ * Throws unless the page sits between Android's status bar and its navigation bar: the web view's top below the
+ * screen's top edge, where the status bar is, and its bottom above the screen's bottom edge, where the navigation bar is.
+ */
+async function pageInsideBars(): Promise<void> {
+  await adb('shell', 'uiautomator', 'dump', '/sdcard/window.xml');
+  const xml = await adb('exec-out', 'cat', '/sdcard/window.xml');
+  const page = /<node [^>]*?class="android\.webkit\.WebView"[^>]*?bounds="\[\d+,(\d+)\]\[\d+,(\d+)\]"/.exec(xml);
+  const size = /(\d+)x(\d+)\s*$/.exec((await adb('shell', 'wm', 'size')).trim());
+  if (!page || !size) throw new Error('page inside the bars: no web view or no screen size to measure');
+  const [top, bottom, height] = [Number(page[1]), Number(page[2]), Number(size[2])];
+  if (top <= 0 || bottom >= height) throw new Error(`page inside the bars: the page runs from ${top} to ${bottom} on a screen ${height} high, under the bars`);
+  say(`the page runs from ${top} to ${bottom} on a screen ${height} high, between the bars`);
+}
+
+/**
  * Waits for the screen to show `wanted`, tapping through any of `passing` (Chrome's first-run screens) on the way.
  * Fails naming the step and what the screen showed instead.
  */
@@ -209,6 +224,7 @@ try {
   await waitFor('site', /^Signed in as nobody$/, [/^Try again$/]);
   if (Date.now() > deadline) throw new Error('the start page took more than 45 seconds to go on to the site');
   await screenshot('2-site');
+  await pageInsideBars();
 
   await tap('outside link', /^An outside site$/);
   await waitInFront('outside link opens Chrome', 'com.android.chrome');

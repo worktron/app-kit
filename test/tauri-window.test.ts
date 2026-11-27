@@ -331,3 +331,18 @@ test('a menu hook runs for its own item each time it is chosen, with the newest 
   choose(MENU_SETTINGS);
   expect(chosen).toEqual(['first', 'second']);
 });
+
+// The Rust registers the Kotlin half by its package and class name, which Tauri's Android build finds only if they match
+// what the Kotlin and its Gradle file declare; nothing here builds the Android app, so this reads the three. The
+// emulator check (scripts/android-e2e.ts) measures the page between the bars.
+test('the Android half is registered by the package and class its Kotlin declares, and padded by the bars', () => {
+  const identifier = /pub\(crate\) const IDENTIFIER: &str = "([^"]+)";/.exec(read('src/android.rs'))?.[1];
+  expect(identifier).toBe('app.kit.window');
+  expect(read('android/build.gradle.kts')).toContain(`namespace = "${identifier}"`);
+  const kotlin = read('android/src/main/java/WindowPlugin.kt');
+  expect(kotlin).toContain(`package ${identifier}\n`);
+  expect(kotlin).toMatch(/@TauriPlugin\s*class WindowPlugin\(/);
+  expect(read('src/lib.rs')).toContain('register_android_plugin(android::IDENTIFIER, "WindowPlugin")');
+  expect(read('build.rs')).toContain('.android_path("android")');
+  expect(kotlin).toContain('WindowInsetsCompat.Type.systemBars()');
+});

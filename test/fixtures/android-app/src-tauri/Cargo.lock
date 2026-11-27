@@ -4204,6 +4204,7 @@ name = "tauri-plugin-app-kit-window"
 version = "0.1.0"
 dependencies = [
  "dispatch2",
+ "jni 0.21.1",
  "log",
  "objc2",
  "objc2-app-kit",
