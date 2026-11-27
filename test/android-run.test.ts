@@ -215,6 +215,44 @@ test('the watcher asks the emulator to quit at its time, kills it when it will n
   rmSync(folder, { recursive: true, force: true });
 });
 
+test("an old watcher that wakes while a later run starts on its serial leaves that run's emulator alone, and the one started for it takes it when the run dies", async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'emulators-'));
+  const { state, lifetime } = machine();
+  const goneCheckout = mkdtempSync(join(tmpdir(), 'checkout-'));
+  const taken = await takePlace(lifetime(folder, { run: async () => done(), pid: 4 }), goneCheckout);
+  if (!('held' in taken)) throw new Error(taken.refused);
+  // The later run has started its emulator and not yet written its watcher's id; its checkout is gone, which would
+  // have the old watcher shut the emulator down at once.
+  const starting = { ...taken.held, emulatorPid: 104 };
+  writeFileSync(join(folder, `${starting.serial}.json`), JSON.stringify(starting));
+  rmSync(goneCheckout, { recursive: true });
+  const asked: string[] = [];
+  const old = lifetime(folder, {
+    run: async (command) => (asked.push(command.join(' ')), done()),
+    pid: 299,
+    sleep: async (ms) => {
+      state.time += ms;
+      writeFileSync(join(folder, `${starting.serial}.json`), JSON.stringify({ ...starting, watcherPid: 204 }));
+    },
+  });
+  expect(await watchEmulator(old, starting.serial)).toBe('nothing to do');
+  expect(asked).toEqual([]);
+  expect(readHeld(folder, starting.serial)).toMatchObject({ emulatorPid: 104, watcherPid: 204 });
+
+  // A run that died before writing its watcher's id: an old watcher stops, and the one started for its emulator takes
+  // the record, and shuts the emulator down since its checkout is gone.
+  const abandoned = { ...starting, serial: 'emulator-5556', port: 5556, runPid: 5, emulatorPid: 105 };
+  writeFileSync(join(folder, `${abandoned.serial}.json`), JSON.stringify(abandoned));
+  state.dead.add(5);
+  expect(await watchEmulator(lifetime(folder, { run: async () => done(), pid: 299 }), abandoned.serial, 104)).toBe('nothing to do');
+  expect(asked).toEqual([]);
+  const own = lifetime(folder, { run: async (command) => (asked.push(command.join(' ')), state.dead.add(105), done()), pid: 205 });
+  expect(await watchEmulator(own, abandoned.serial, 105)).toBe('shut down');
+  expect(asked).toEqual(['adb -s emulator-5556 emu kill']);
+  expect(readHeld(folder, abandoned.serial)).toBeNull();
+  rmSync(folder, { recursive: true, force: true });
+});
+
 test("the page's port on this Mac's localhost, and the Android app's id from its gradle file", () => {
   expect(localPorts('http://localhost:5173/app', [9000])).toEqual([9000, 5173]);
   expect(localPorts('https://app.example.com/')).toEqual([]);

@@ -67,8 +67,8 @@ export type Lifetime = {
   sleep?: (ms: number) => Promise<void>;
   /** Starts the emulator's process in a session of its own, its output to `out`, and gives its process id; tests replace it. */
   spawn?: (command: string[], env: Record<string, string | undefined>, out: string) => number | null;
-  /** Starts the watcher for an emulator and gives its process id. */
-  startWatcher?: (serial: string) => number;
+  /** Starts the watcher for an emulator, given the emulator's process id, and gives the watcher's. */
+  startWatcher?: (serial: string, emulatorPid: number | null) => number;
   /** Whether a process runs; tests replace it. */
   alive?: (pid: number) => boolean;
   /** Stops a process that would not quit. */
@@ -196,7 +196,7 @@ export function startEmulator(lifetime: Lifetime, held: Held, command: string[],
   const emulatorPid = (lifetime.spawn ?? spawnDetached(lifetime.folder))(command, env, join(lifetime.folder, `${held.serial}.out`));
   const started = { ...held, emulatorPid };
   writeHeld(lifetime.folder, started);
-  const watcherPid = (lifetime.startWatcher ?? startWatcher(lifetime.folder))(held.serial);
+  const watcherPid = (lifetime.startWatcher ?? startWatcher(lifetime.folder))(held.serial, emulatorPid);
   const watched = { ...started, watcherPid };
   writeHeld(lifetime.folder, watched);
   log(lifetime, `${held.serial}: emulator ${emulatorPid} started, watcher ${watcherPid}`);
@@ -272,12 +272,12 @@ export function releaseNow(folder: string, serial: string, why: string): void {
   appendLog(join(folder, 'emulators.log'), `${new Date().toISOString()} ${serial}: shut down, ${why}`);
 }
 
-/** Starts `app-kit android watch <serial>` in a session of its own, from the state folder, and gives its process id. */
-export function startWatcher(folder: string): (serial: string) => number {
-  return (serial) => {
+/** Starts `app-kit android watch <serial> <emulator pid>` in a session of its own, from the state folder, and gives its process id. */
+export function startWatcher(folder: string): (serial: string, emulatorPid: number | null) => number {
+  return (serial, emulatorPid) => {
     mkdirSync(folder, { recursive: true });
     const bin = join(import.meta.dir, '../../bin/app-kit.ts');
-    const child = spawn(process.execPath, [bin, 'android', 'watch', serial], { cwd: folder, detached: true, stdio: 'ignore' });
+    const child = spawn(process.execPath, [bin, 'android', 'watch', serial, String(emulatorPid ?? 0)], { cwd: folder, detached: true, stdio: 'ignore' });
     child.unref();
     return child.pid ?? 0;
   };
@@ -286,8 +286,8 @@ export function startWatcher(folder: string): (serial: string) => number {
 /** Why the watcher stopped. */
 export type Watched = 'shut down' | 'nothing to do';
 
-/** The watcher's loop, as the module's comment says. */
-export async function watchEmulator(lifetime: Lifetime, serial: string): Promise<Watched> {
+/** The watcher's loop, as the module's comment says, for the emulator whose process id it was started with. */
+export async function watchEmulator(lifetime: Lifetime, serial: string, emulatorPid: number | null = null): Promise<Watched> {
   const now = lifetime.now ?? Date.now;
   const sleep = lifetime.sleep ?? sleepFor;
   const isAlive = lifetime.alive ?? alive;
@@ -295,8 +295,20 @@ export async function watchEmulator(lifetime: Lifetime, serial: string): Promise
   for (;;) {
     const held = readHeld(lifetime.folder, serial);
     if (!held) return 'nothing to do';
-    // Another run took this serial since; null is the moment before the run writes this watcher's id.
-    if (held.watcherPid !== null && held.watcherPid !== pid) return 'nothing to do';
+    // Null is the moment between a run starting its watcher and writing the watcher's id, which may be a later run's
+    // on this serial. The watcher started for this record's emulator names itself, so the emulator keeps a watcher when
+    // its run dies in that moment; any other waits for the record to name its watcher, or stops once the run is gone.
+    if (held.watcherPid === null) {
+      if (emulatorPid !== null && held.emulatorPid === emulatorPid) {
+        writeHeld(lifetime.folder, { ...held, watcherPid: pid });
+        continue;
+      }
+      if (!isAlive(held.runPid)) return 'nothing to do';
+      await sleep(lifetime.watchEveryMs ?? WATCH_EVERY_MS);
+      continue;
+    }
+    // Another run took this serial since.
+    if (held.watcherPid !== pid) return 'nothing to do';
     if (held.emulatorPid !== null && !isAlive(held.emulatorPid)) {
       forget(lifetime.folder, serial);
       log(lifetime, `${serial}: shut down by someone else, before its time; its place is free`);

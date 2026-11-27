@@ -370,8 +370,9 @@ async function android([command, ...args]: string[]): Promise<boolean> {
   const run: import('../command-line/run.ts').Run = (command, more) => runCommand(command[0] === 'adb' ? [adb, ...command.slice(1)] : command, more)
   const folder = stateFolder('emulators')
   // The watcher android run starts for each emulator, in a session of its own; not a command for people.
-  if (command === 'watch' && extra.length === 0) {
-    await lifetime.watchEmulator({ folder, run }, serial)
+  if (command === 'watch' && extra.length === 1 && /^\d+$/.test(extra[0] ?? '')) {
+    const emulatorPid = Number(extra[0])
+    await lifetime.watchEmulator({ folder, run }, serial, emulatorPid > 0 ? emulatorPid : null)
     return true
   }
   if (command !== 'keep' || extra.length > 1 || (extra.length === 1 && !(Number.isInteger(Number(extra[0])) && Number(extra[0]) >= 1))) return false
