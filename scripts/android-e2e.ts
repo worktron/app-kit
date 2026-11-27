@@ -10,7 +10,8 @@
  * another site opening in Chrome, and Continue with Google through Chrome's stand-in page back into the app, while the
  * app runs and again after Android ended it behind Chrome (`am kill`). The app's log (logcat) is kept beside them.
  *
- * Usage: bun scripts/android-e2e.ts [<evidence folder>], by default test-results/android-e2e. Needs the Android tools
+ * Usage: bun scripts/android-e2e.ts, leaving its evidence in test-results/android-e2e, a folder of its own that each run
+ * empties first, so it takes no folder to empty. Needs the Android tools
  * (README.md's "Testing the Android app yourself"). The run ends its emulator; with ANDROID_E2E_KEEP=1 a failed run
  * keeps it and the site up until the run is stopped, for looking into the failure with adb.
  */
@@ -27,7 +28,7 @@ import { tools } from '../tauri/android-run/index.ts';
 
 const ROOT = resolve(import.meta.dir, '..');
 const FIXTURE = join(ROOT, 'test/fixtures/android-app');
-const EVIDENCE = resolve(process.argv[2] ?? join(ROOT, 'test-results/android-e2e'));
+const EVIDENCE = join(ROOT, 'test-results/android-e2e');
 const APP_ID = 'com.example.fixture';
 /** Who the browser is signed in as: the stand-in's Google picks this account when none is named. */
 const PERSON = 'chosen@example.com';

@@ -346,3 +346,14 @@ test('the Android half is registered by the package and class its Kotlin declare
   expect(read('build.rs')).toContain('.android_path("android")');
   expect(kotlin).toContain('WindowInsetsCompat.Type.systemBars()');
 });
+
+test('a sign-in that comes back while the start page waits is kept, and handed to the site once its page loads', () => {
+  const lib = read('src/lib.rs');
+  // Kept, not loaded straight away, when the window is missing or not on the site yet.
+  const handOver = lib.slice(lib.indexOf('fn hand_over<'), lib.indexOf('fn hand_over_kept<'));
+  expect(handOver).toMatch(/get_webview_window\(MAIN\) else \{[^}]*keep\(sign_in\);\s*return;/);
+  expect(handOver).toMatch(/if window\.url\(\)\.is_ok_and\(\|url\| site\.on_site\(&url\)\) \{[^}]*window\.eval\(sign_in::sign_in_script[\s\S]*\} else \{[^}]*keep\(sign_in\);/);
+  // Handed over as a page of the site finishes loading, on every platform that takes sign-in back.
+  expect(lib).toMatch(/\.on_page_load\(move \|webview, payload\| \{\s*if on_main\(webview\.label\(\)\) && payload\.event\(\) == PageLoadEvent::Finished \{[\s\S]*?#\[cfg\(any\(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"\)\)\]\s*if for_load\.on_site\(payload\.url\(\)\) \{\s*hand_over_kept\(webview, &for_load\);/);
+  expect(lib).toMatch(/fn hand_over_kept<R: Runtime>\(webview: &Webview<R>, site: &Site\) \{\s*let Some\(sign_in\) = webview\.app_handle\(\)\.try_state::<KeptSignIn>\(\)\.and_then\(\|kept\| kept\.0\.lock\(\)\.unwrap\(\)\.take\(\)\)/);
+});

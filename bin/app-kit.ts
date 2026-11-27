@@ -363,15 +363,20 @@ async function android([command, ...args]: string[]): Promise<boolean> {
   if (!serial || !/^emulator-\d+$/.test(serial)) return false
   const { stateFolder } = await import('../tauri/state.ts')
   const lifetime = await import('../tauri/android-run/lifetime.ts')
+  const { tools } = await import('../tauri/android-run/index.ts')
+  const { runCommand } = await import('../command-line/run.ts')
+  const { adb } = tools(process.env)
+  // adb by its path in the SDK, as android run calls it, since a shell's PATH may lack it.
+  const run: import('../command-line/run.ts').Run = (command, more) => runCommand(command[0] === 'adb' ? [adb, ...command.slice(1)] : command, more)
   const folder = stateFolder('emulators')
   // The watcher android run starts for each emulator, in a session of its own; not a command for people.
   if (command === 'watch' && extra.length === 0) {
-    await lifetime.watchEmulator({ folder }, serial)
+    await lifetime.watchEmulator({ folder, run }, serial)
     return true
   }
   if (command !== 'keep' || extra.length > 1 || (extra.length === 1 && !(Number.isInteger(Number(extra[0])) && Number(extra[0]) >= 1))) return false
   const minutes = extra.length ? Number(extra[0]) : lifetime.MINUTES
-  const held = await lifetime.keep({ folder }, serial, minutes)
+  const held = await lifetime.keep({ folder, run }, serial, minutes)
   if (!held) {
     console.error(`[android] app-kit holds no running emulator ${serial}`)
     process.exit(1)

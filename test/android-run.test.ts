@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Run, RunResult } from '../command-line/run.ts';
-import { applicationId, AVD, localPorts, runAndroid, SYSTEM_IMAGE } from '../tauri/android-run/index.ts';
+import { applicationId, AVD, DEBUG_APK, localPorts, runAndroid, SYSTEM_IMAGE } from '../tauri/android-run/index.ts';
 import { type Held, keep, type Lifetime, MOST_MINUTES, readHeld, takePlace, watchEmulator } from '../tauri/android-run/lifetime.ts';
 
 const done = (stdout = '', code = 0): RunResult => ({ code, out: stdout, stdout, stderr: '', timedOut: false });
@@ -38,6 +38,30 @@ function checkout(): string {
 
 const ENV = { ANDROID_HOME: SDK, NDK_HOME: `${SDK}/ndk`, JAVA_HOME: '/java', PATH: '/usr/bin', TAURI_PAGE_ADDRESS: 'http://localhost:4123/' };
 
+/** What the debug build writes, as the fake build makes it. */
+function buildApk(cwd: string) {
+  mkdirSync(join(cwd, 'src-tauri/gen/android/app/build/outputs/apk/universal/debug'), { recursive: true });
+  writeFileSync(join(cwd, DEBUG_APK), 'apk');
+}
+
+test('an APK an earlier build left is never installed: a build that writes none fails, naming the file', async () => {
+  const cwd = checkout();
+  buildApk(cwd);
+  const calls: string[] = [];
+  const printed: string[] = [];
+  const run: Run = async (command) => {
+    calls.push(command.join(' '));
+    if (command.join(' ').endsWith('-list-avds')) return done(`${AVD}\n`);
+    return done();
+  };
+  const { lifetime } = machine();
+  const code = await runAndroid({ cwd, run, env: ENV, home: cwd, print: () => {}, fail: (line) => printed.push(line), output: () => {}, lifetime: lifetime(join(cwd, 'state')) });
+  expect(code).toBe(1);
+  expect(printed).toEqual([`the build made no ${DEBUG_APK}`]);
+  expect(calls.some((line) => line.includes(' install '))).toBe(false);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
 test('builds the app, makes the shared image once, boots an emulator with no window, opens the app and gives it ten minutes', async () => {
   const cwd = checkout();
   const folder = join(cwd, 'state');
@@ -48,10 +72,7 @@ test('builds the app, makes the shared image once, boots an emulator with no win
     const line = command.join(' ').replaceAll(SDK, '$SDK');
     calls.push(line);
     if (line === '$SDK/emulator/emulator -list-avds') return done('Pixel_8\n');
-    if (line.startsWith('bunx tauri android build')) {
-      mkdirSync(join(cwd, 'src-tauri/gen/android/app/build/outputs/apk/universal/debug'), { recursive: true });
-      writeFileSync(join(cwd, 'src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk'), 'apk');
-    }
+    if (line.startsWith('bunx tauri android build')) buildApk(cwd);
     if (line === '$SDK/platform-tools/adb devices') return done('List of devices attached\nemulator-5554\tdevice\n\n');
     if (line.endsWith('getprop sys.boot_completed')) return done(++bootPolls < 3 ? '' : '1\n', bootPolls < 2 ? 1 : 0);
     if (line.includes('resolve-activity')) return done('priority=0 preferredOrder=0\ncom.example.fixture_app/.MainActivity\n');
@@ -100,9 +121,8 @@ test('an emulator that quits as it boots is let go, its place freed, and the rea
   const cwd = checkout();
   const folder = join(cwd, 'state');
   const { state, lifetime } = machine();
-  mkdirSync(join(cwd, 'src-tauri/gen/android/app/build/outputs/apk'), { recursive: true });
-  writeFileSync(join(cwd, 'src-tauri/gen/android/app/build/outputs/apk/app.apk'), 'apk');
   const run: Run = async (command) => {
+    if (command.join(' ').startsWith('bunx tauri android build')) buildApk(cwd);
     if (command.join(' ').endsWith('-list-avds')) return done(`${AVD}\n`);
     if (command.join(' ').endsWith('boot_completed')) {
       state.dead.add(8000);

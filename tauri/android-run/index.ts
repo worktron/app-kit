@@ -17,7 +17,7 @@
  *
  * Exit codes: 0 running; 1 anything else.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { buildEnv, type Env } from '../build-env.ts';
@@ -85,20 +85,11 @@ export function localPorts(address: string | undefined, more: number[] = []): nu
   return [...ports];
 }
 
-/** The newest .apk the debug build left, or null. */
-function builtApk(cwd: string): string | null {
-  const found: string[] = [];
-  const walk = (folder: string) => {
-    if (!existsSync(folder)) return;
-    for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      const path = join(folder, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith('.apk')) found.push(path);
-    }
-  };
-  walk(join(cwd, APK_FOLDER));
-  return found.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0] ?? null;
-}
+/**
+ * The APK the debug build writes. Tauri builds its one flavor, universal, even for one target, and the file is deleted
+ * before each build, so what is installed is that build's and never one an earlier build left.
+ */
+export const DEBUG_APK = `${APK_FOLDER}/universal/debug/app-universal-debug.apk`;
 
 /** The emulator a run holds a place for, which a stop by signal shuts down. */
 type Holding = { current: { folder: string; serial: string } | null };
@@ -160,10 +151,11 @@ async function runSteps(options: AndroidRunOptions, holding: Holding): Promise<0
     print(`made the emulator image "${AVD}", a ${DEVICE} on ${SYSTEM_IMAGE}`);
   }
 
+  const apk = join(cwd, DEBUG_APK);
+  rmSync(apk, { force: true });
   const built = await run(['bunx', 'tauri', 'android', 'build', '--ci', '--debug', '--apk', '--target', 'aarch64'], { cwd, env, output });
   if (built.code !== 0) return fail('the Android build failed; its output is above');
-  const apk = builtApk(cwd);
-  if (!apk) return fail(`the build made no .apk in ${APK_FOLDER}`);
+  if (!existsSync(apk)) return fail(`the build made no ${DEBUG_APK}`);
 
   const lifetime: Lifetime = {
     folder: stateFolder('emulators', options.env ?? process.env, home),

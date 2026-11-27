@@ -8,7 +8,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Run } from '../command-line/run.ts';
+import { runCommand, type Run } from '../command-line/run.ts';
 import { BUNDLE, firstUploadSteps, KEYSTORE_PROPERTIES, playUpload } from '../tauri/play/upload.ts';
 import { serviceAccountFromItem, uploadKeyFromItem, uploadKeyTemplate } from '../tauri/play/key.ts';
 
@@ -175,4 +175,17 @@ test("reads the service account's JSON key and the upload key from their 1Passwo
   const template = JSON.parse(uploadKeyTemplate('Fixture Google Play upload key', KEY)) as { fields: { label: string; value: string }[] };
   expect(uploadKeyFromItem(JSON.stringify(template), 'Fixture Google Play upload key')).toEqual(KEY);
   expect(uploadKeyFromItem(item({ keystore: 'x' }), 'k')).toBe('the 1Password item "k" in the vault "TestFlight" has no "password", "alias"');
+});
+
+test('an upload stopped by a signal mid-build stops and removes the upload key and its password before exiting', async () => {
+  app();
+  const marker = join(checkout, 'marker');
+  const stopped = await runCommand(['bun', join(import.meta.dir, 'play-upload-child.ts'), checkout, marker]);
+  expect(stopped.code).toBe(1);
+  expect(stopped.out).toContain('[play] stopped by SIGTERM; stopping the build and removing the upload key');
+  const [properties, ...written] = readFileSync(marker, 'utf8').split('\n');
+  const store = /storeFile=(.*)/.exec(written.join('\n'))![1]!;
+  expect(properties).toBe(join(checkout, KEYSTORE_PROPERTIES));
+  expect(existsSync(properties!)).toBe(false);
+  expect(existsSync(dirname(store))).toBe(false);
 });

@@ -10,14 +10,15 @@
  *   the bundle is built and signed all the same, as build 1, and the steps to upload it there are printed.
  * - The service account's JSON key and the app's upload key are read from 1Password (play/key.ts). The upload key
  *   goes into a folder of the build's own for the build alone, named by gen/android/keystore.properties, the file the
- *   app's build.gradle.kts signs from as Tauri's guide writes it; both are deleted however the build ends.
+ *   app's build.gradle.kts signs from as Tauri's guide writes it; both are deleted however the build ends, a stop by
+ *   signal included.
  * - Google re-signs each build with the app's own key (Play App Signing), so a lost upload key is reset in Play
  *   Console, not the app lost.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCommand, type Run } from '../../command-line/run.ts';
+import { runCommand, STOP_SIGNALS, stopRunning, type Run } from '../../command-line/run.ts';
 import { buildEnv, type Env } from '../build-env.ts';
 import { lastLine } from '../testflight/key.ts';
 import { lock, stateFolder } from '../state.ts';
@@ -64,6 +65,20 @@ async function build(cwd: string, env: Env, run: Run, key: UploadKey, versionCod
   const folder = mkdtempSync(join(tmpdir(), 'app-kit-play-'));
   const keystore = join(folder, 'upload.keystore');
   const properties = join(cwd, KEYSTORE_PROPERTIES);
+  const removeKey = () => {
+    rmSync(properties, { force: true });
+    rmSync(folder, { recursive: true, force: true });
+  };
+  // A stop by signal (Ctrl-C, or a supervisor's SIGTERM) skips the finally below, so it stops the build, each program in
+  // a process group of its own, and removes the key before exiting, as testflight upload does.
+  const onSignal = (signal: NodeJS.Signals) => {
+    print(`[play] stopped by ${signal}; stopping the build and removing the upload key`);
+    stopRunning('SIGTERM');
+    removeKey();
+    stopRunning('SIGKILL');
+    process.exit(1);
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
   try {
     writeFileSync(keystore, Buffer.from(key.keystore, 'base64'), { mode: 0o600 });
     writeFileSync(properties, `password=${key.password}\nkeyAlias=${key.alias}\nstoreFile=${keystore}\n`, { mode: 0o600, flag: 'wx' });
@@ -75,8 +90,8 @@ async function build(cwd: string, env: Env, run: Run, key: UploadKey, versionCod
     if (!existsSync(join(cwd, BUNDLE))) throw new Error(`the Android build made no ${BUNDLE}`);
     return join(cwd, BUNDLE);
   } finally {
-    rmSync(properties, { force: true });
-    rmSync(folder, { recursive: true, force: true });
+    for (const signal of STOP_SIGNALS) process.off(signal, onSignal);
+    removeKey();
   }
 }
 
