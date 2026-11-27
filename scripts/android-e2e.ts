@@ -291,7 +291,8 @@ try {
     running = (await runCommand([adbPath, '-s', serial, 'shell', 'pidof', APP_ID], { env })).stdout.trim();
     if (!running) break;
   }
-  say(running ? `recreated activity: the app's process ${running} still runs 15 seconds after Back left it` : "recreated activity: the app's process ended after Back left it");
+  if (running) throw new Error(`recreated activity: the app's process ${running} still runs 15 seconds after Back left it`);
+  say("recreated activity: the app's process ended after Back left it");
   await openApp();
   await waitFor('site after Back left the app', /^Signed in as nobody$/, [/^Try again$/]);
   await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
