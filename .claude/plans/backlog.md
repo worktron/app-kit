@@ -1341,3 +1341,10 @@ A fault, not an idea. When a pull down past the top opens a conversation's earli
 To reproduce: delete the `addStyleTag` line in that test and run `bash scripts/e2e.sh pull-past-top.e2e.ts -g "40 points" --repeat-each 12` beside other browser tests.
 
 Done when: Chrome on Android (an emulator, once app-kit has one) is checked for the move; if it moves there, the pull waits until the stretch has sprung back, and that test runs with the stretch on again and passes repeated runs; if it never does, the test's comment says so and this is closed.
+
+## login-default-new-installs · An app that already shipped the kit's Settings window can open at login by default for new installs alone
+Written by: app-kit/login-default
+
+Goal: `AppMenu::open_at_login_by_default()` (tauri/window/plugin/src/menu.rs, login_item.rs's `first_launch`, v0.85.0) turns the login item on once at a release's first launch unless the app's data folder holds the `open-at-login-set-once` mark. The Settings switch writes that mark only from v0.85.0 on, and macOS reports an item turned off (`NotFound`) the same as one never turned on, so an app that shipped `.settings_window()` before v0.85.0 (Matter's shell does) would turn login back on once for people who had turned it off. The README's "Opening at login by default" entry and v0.85.0's CHANGES line say so, and the user chose to leave it rather than build this before v0.85.0 landed (2026-11-27). A second form, for such an app, would skip the turn-on when the app's data folder already holds files from earlier launches, so only a new install opens at login by default. Found by the login-default thread, 2026-11-27.
+
+Done when: an app can ask for the new-installs form on its AppMenu, a launch whose data folder already holds files from an earlier launch leaves the login item alone, a fresh one turns it on once as `open_at_login_by_default()` does, each tested against the stand-in for macOS's login items (no test touches this Mac's, which tests/stays_off_the_machine.rs holds), and the README entry says which form an app that already shipped `.settings_window()` takes.
