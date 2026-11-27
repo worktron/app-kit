@@ -6,8 +6,8 @@
  * the emulator reaches as its own localhost through `adb reverse`, with desktop sign-in's routes on the stand-in for
  * Clerk.
  *
- * Steps, each with a screenshot: the start page while the site does not answer, the site once it does, a link to
- * another site opening in Chrome, and Continue with Google through Chrome's stand-in page back into the app, while the
+ * Steps, each with a screenshot: the start page while the site does not answer, the site once it does, the site still
+ * between the bars after Android recreated the activity for a font size change, a link to another site opening in Chrome, and Continue with Google through Chrome's stand-in page back into the app, while the
  * app runs and again after Android ended it behind Chrome (`am kill`). The app's log (logcat) is kept beside them.
  *
  * Usage: bun scripts/android-e2e.ts, leaving its evidence in test-results/android-e2e, a folder of its own that each run
@@ -172,6 +172,17 @@ async function waitInFront(step: string, wanted: string): Promise<void> {
   throw new Error(`${step}: ${wanted} never came to the front; ${front || 'nothing'} is there, showing ${JSON.stringify(seen.map((node) => node.text).slice(0, 30))}`);
 }
 
+/** Waits for the app's log (logcat, as the run keeps it) to have a line matching `wanted`, failing as `step`. */
+async function waitForLog(step: string, wanted: RegExp): Promise<void> {
+  const deadline = Date.now() + STEP_MS;
+  while (Date.now() < deadline) {
+    if (wanted.test(readFileSync(join(EVIDENCE, 'logcat.txt'), 'utf8'))) return;
+    await Bun.sleep(500);
+  }
+  await screenshot(`failed-${step.replaceAll(' ', '-')}`);
+  throw new Error(`${step}: the app's log never had ${wanted}`);
+}
+
 /** Chrome's first-run screens and its prompt to open the app, which a fresh emulator shows once. */
 const CHROME_PASSING = [/^Accept & continue$/i, /^Use without an account$/i, /^No thanks$/i, /^Continue$/i, /^Got it$/i, /^Open$/i, /^Android Fixture$/];
 
@@ -226,6 +237,16 @@ try {
   if (Date.now() > deadline) throw new Error('the start page took more than 45 seconds to go on to the site');
   await screenshot('2-site');
   await pageInsideBars();
+
+  // A font size change, which the app does not take itself, makes Android recreate the activity, and wry moves the
+  // same web view into the new window without telling plugins: the page must stay between the bars there too.
+  await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.15');
+  await waitForLog('recreated window', /the recreated window keeps the strips behind Android's bars/);
+  await waitFor('site after the recreate', /^Signed in as nobody$/);
+  await screenshot('2b-site-recreated');
+  await pageInsideBars();
+  await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
+  await waitFor('site at the usual font size', /^Signed in as nobody$/);
 
   await tap('outside link', /^An outside site$/);
   await waitInFront('outside link opens Chrome', 'com.android.chrome');

@@ -345,6 +345,11 @@ test('the Android half is registered by the package and class its Kotlin declare
   expect(read('src/lib.rs')).toContain('register_android_plugin(android::IDENTIFIER, "WindowPlugin")');
   expect(read('build.rs')).toContain('.android_path("android")');
   expect(kotlin).toContain('WindowInsetsCompat.Type.systemBars()');
+  // A recreated activity gets a new web view, but Tauri calls `load` once: the content frame is padded as each activity
+  // resumes too, and a new frame takes the old one's background, which the Rust half painted.
+  expect(kotlin).toContain('override fun onResume(activity: AppCompatActivity) = pad(activity)');
+  expect(kotlin).toContain('activity.findViewById<View>(android.R.id.content)');
+  expect(kotlin).toMatch(/if \(before === frame\) return\s*if \(before != null\) \{\s*frame\.background = before\.background/);
 });
 
 test('a sign-in that comes back while the start page waits is kept, and handed to the site once its page loads', () => {
