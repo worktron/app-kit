@@ -11,7 +11,7 @@ use crate::login_item::{self, Answer};
 use crate::StartPage;
 use std::sync::Mutex;
 use tauri::ipc::CapabilityBuilder;
-use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
 /// The window's label, the only one granted the switch's commands (names.ts's `SETTINGS_WINDOW`).
 pub const SETTINGS_WINDOW: &str = "app-kit-settings";
@@ -60,16 +60,6 @@ pub(crate) fn page_script(name: &str, colors: Option<&StartPage>) -> String {
         settings["text"] = crate::css(colors.text).into();
     }
     format!("window.{SETTINGS_PAGE_SETTINGS} = {settings};")
-}
-
-/// Whether the Settings window keeps an address: only a page bundled in the app, which Tauri serves at
-/// tauri://localhost, or http(s)://tauri.localhost on the platforms where it cannot use its own scheme.
-pub(crate) fn bundled(url: &Url) -> bool {
-    match url.scheme() {
-        "tauri" => url.host_str() == Some("localhost"),
-        "http" | "https" => url.host_str() == Some("tauri.localhost"),
-        _ => false,
-    }
 }
 
 /// Whether the app's bundle holds the settings page itself. Tauri's own lookup answers a missing page with the bundle's
@@ -166,6 +156,7 @@ pub(crate) fn open_login_items() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::links::bundled;
     use crate::test_support::{plugin_authority, Bundled, OWN_FOLDER, START_FOLDER};
     use tauri::window::Color;
 

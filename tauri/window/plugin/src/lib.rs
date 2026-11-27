@@ -256,6 +256,7 @@ impl Site {
             .on_navigation(move |webview, url| navigation(webview, url, &for_navigation))
             .on_page_load(|webview, payload| {
                 if on_main(webview.label()) && payload.event() == PageLoadEvent::Finished {
+                    log::info!("{}", loaded_line(payload.url()));
                     #[cfg(target_os = "macos")]
                     mac_page_loaded(webview);
                 }
@@ -319,15 +320,23 @@ pub fn zoom_items<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<[Menu
     ])
 }
 
-/// Hands `url` to the default browser, or to the app for a mail, phone or text link.
+/// The line the window logs each time its page finishes loading, the start page and the site alike, with the page's
+/// scheme and host and never its path or fragment, which can hold a sign-in ticket. A check of an installed app reads
+/// it to know the window reached the site.
+fn loaded_line(url: &Url) -> String {
+    format!("the window finished loading {}", loggable(url))
+}
+
+/// Hands `url` to the default browser, or to the app for a mail, phone or text link. The decision is logged before the
+/// browser is asked, since asking can wait on the browser starting, and the app can be stopped before it answers.
 fn send_out<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &str) {
+    log::info!(
+        "sending {what} for {} out of the window, since it is not the site; a frame from another site lands here too, and Site::keep_in_window keeps it",
+        loggable(url)
+    );
     // The opener's error can quote the whole address, so it is not logged.
-    match app.opener().open_url(url.as_str(), None::<&str>) {
-        Ok(()) => log::info!(
-            "sent {what} for {} out of the window, since it is not the site; a frame from another site lands here too, and Site::keep_in_window keeps it",
-            loggable(url)
-        ),
-        Err(_) => log::warn!("could not send {what} for {} out of the window", loggable(url)),
+    if app.opener().open_url(url.as_str(), None::<&str>).is_err() {
+        log::warn!("could not send {what} for {} out of the window", loggable(url));
     }
 }
 
@@ -366,7 +375,7 @@ fn navigation<R: Runtime>(webview: &Webview<R>, url: &Url, site: &Site) -> bool 
 /// link goes out as from the main window, and anything else does nothing.
 #[cfg(target_os = "macos")]
 fn settings_navigation<R: Runtime>(app: &AppHandle<R>, url: &Url) -> bool {
-    if settings::bundled(url) {
+    if links::bundled(url) {
         return true;
     }
     match new_window_decision(url) {
@@ -595,6 +604,15 @@ mod tests {
     fn the_start_page_reads_its_settings_where_the_window_puts_them() {
         let page = include_str!("../../start/index.html");
         assert!(page.contains(&format!("window.{START_PAGE_SETTINGS};")), "the page reads window.{START_PAGE_SETTINGS}");
+    }
+
+    // A check of an installed app reads this line to know the window reached the site; a sign-in ticket in the
+    // address's fragment never reaches the log.
+    #[test]
+    fn a_finished_page_logs_its_scheme_and_host_alone() {
+        let site = "https://app.example.com/#desktop_sign_in_ticket=abc.def_1&desktop_sign_in_nonce=0f1e".parse().unwrap();
+        assert_eq!(loaded_line(&site), "the window finished loading https://app.example.com");
+        assert_eq!(loaded_line(&"http://tauri.localhost/index.html".parse().unwrap()), "the window finished loading http://tauri.localhost");
     }
 
     #[test]

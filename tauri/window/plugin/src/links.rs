@@ -19,6 +19,17 @@ pub(crate) enum Link {
 /// The hosts the window always keeps, beside the site: Cloudflare's bot check, which Clerk's sign-up shows in a frame.
 pub(crate) const ALWAYS_KEPT: &[&str] = &["challenges.cloudflare.com"];
 
+/// Whether an address is a page bundled in the app: Tauri serves those at tauri://localhost on the Mac and the iPhone,
+/// and at http://tauri.localhost (https with `use_https`) on Windows and Android, where a web view cannot take an
+/// app's own scheme. The window keeps its start page by this, and the Settings window its page.
+pub(crate) fn bundled(url: &Url) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => url.host_str() == Some("tauri.localhost"),
+        _ => false,
+    }
+}
+
 /// Whether `host` is `site` or under it, as clerk.app.example.com is under app.example.com.
 fn under(host: &str, site: &str) -> bool {
     host == site || host.strip_suffix(site).is_some_and(|rest| rest.ends_with('.'))
@@ -30,7 +41,7 @@ fn under(host: &str, site: &str) -> bool {
 pub(crate) fn link_decision(url: &Url, site: &Url, kept: &[String]) -> Link {
     match url.scheme() {
         "about" | "blob" | "data" => Link::Keep,
-        "tauri" if url.host_str() == Some("localhost") => Link::Keep,
+        _ if bundled(url) => Link::Keep,
         "http" | "https" => {
             let host = url.host_str().unwrap_or_default();
             let ours = site.host_str().is_some_and(|site| under(host, site));
@@ -91,8 +102,20 @@ mod tests {
             "blob:https://app.example.com/0b6e",
             "data:text/html,hi",
             "tauri://localhost/index.html",
+            // Windows serves the bundled start page here, so a window that sent it out would never reach the site.
+            "http://tauri.localhost/",
+            "http://tauri.localhost/index.html",
+            "https://tauri.localhost/index.html",
         ] {
             assert_eq!(decide(link), Link::Keep, "{link}");
+        }
+    }
+
+    // Only Tauri's own host is the bundled page: a site named like it is another site.
+    #[test]
+    fn a_site_named_like_the_bundled_page_goes_out() {
+        for link in ["http://tauri.localhost.example.com/", "https://evil.tauri.localhost.example.com/", "http://localhost/"] {
+            assert_eq!(decide(link), Link::SendOut, "{link}");
         }
     }
 
