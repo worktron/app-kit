@@ -91,7 +91,11 @@ done
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
   && cargo test --locked --quiet)
+# The window plugin's Windows-only lines (single-instance, its order check, the launch link) build for no Mac target,
+# so it is linted for Windows too, which compiles it without linking and needs no Windows toolchain beyond the target.
+rustup target list --installed | grep -qx x86_64-pc-windows-msvc || { echo "gates: no Windows target; run: rustup target add x86_64-pc-windows-msvc" >&2; exit 1; }
 (cd tauri/window/plugin \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
+  && cargo clippy --locked --quiet --target x86_64-pc-windows-msvc -- -D warnings \
   && cargo test --locked --quiet)
