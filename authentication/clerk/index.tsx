@@ -68,8 +68,8 @@ function CaptchaPlace() {
   return userId ? null : <div id="clerk-captcha" />;
 }
 
-// One per page, made as the page first reads a session, before the app reads its address, since a page back from a
-// renewal has a mark on it to take off.
+// One per page, made as this module loads in a browser, before an app's screen code reads its address, since a page
+// back from a renewal has a mark on it to take off.
 let thisPage: PageRenewal | null = null;
 /** One of the page's storages, or null when the browser refuses it, as some do with storage blocked. */
 function pageStorage(which: 'localStorage' | 'sessionStorage'): Storage | null {
@@ -90,13 +90,13 @@ function renewalHere(): PageRenewal {
     tabStorage: pageStorage('sessionStorage'),
     href: () => window.location.href,
     replace: (address) => window.history.replaceState(window.history.state, '', address),
-    navigationType: () => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type ?? 'navigate',
     assign: (address) => window.location.assign(address),
     log: (line) => console.log(line),
     now: () => Date.now(),
   });
   return thisPage;
 }
+if (typeof window !== 'undefined') renewalHere();
 
 /**
  * The Clerk adapter's session, read from whatever ClerkProvider it is inside: the gate's, or an app's own when it has

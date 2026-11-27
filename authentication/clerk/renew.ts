@@ -14,12 +14,19 @@ import { DESKTOP_SIGN_IN_PATH } from '../../tauri/sign-in/names';
 export const RENEWAL_KEY = 'app-kit.clerk-cookie-renewal';
 
 /**
- * Where the page notes, in this tab's session storage, that it left for a renewal and the fragment of its address, so
- * the page Clerk sends back counts it and gets its fragment back. Clerk is sent the address without a fragment, since
- * its development instance puts a `#` in the address it returns to into the path (`/notes%23/items/3`), which opens an
- * address the app does not know.
+ * Where the page notes, in this tab's session storage, that it left for a renewal, when, and its address's query and
+ * fragment, so the page Clerk sends back counts it and gets its address back byte for byte. Clerk is sent the address
+ * without a fragment, since its development instance puts a `#` in the address it returns to into the path
+ * (`/notes%23/items/3`), which opens an address the app does not know.
  */
 export const LEAVING_KEY = 'app-kit.clerk-cookie-renewal.leaving';
+
+/**
+ * The query mark on the address Clerk is sent back to, whose value is the time the note holds. Only Clerk's redirect
+ * reaches an address with it, so a person back by Back, a reload or the address bar after a trip that failed counts
+ * nothing, and the hour's hold applies. It comes off as the kit loads, before an app's screen code reads the address.
+ */
+export const RETURN_MARK = 'app-kit-cookie-renewed';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -29,13 +36,6 @@ export const RENEW_AGAIN_AFTER_MS = 6 * DAY_MS;
 
 /** How long a renewal that never came back holds off the next one, so one that fails never loops at every open. */
 export const RETRY_AFTER_MS = HOUR_MS;
-
-/**
- * How soon after leaving a page must be back for its load to count as Clerk's return: the trip takes about a second.
- * Together with a plain load, never Back or a reload, it tells Clerk's return from a person coming back by hand after
- * a trip that failed, whose renewal then holds off the next for an hour, not six days.
- */
-export const RETURN_WITHIN_MS = 5 * 60 * 1000;
 
 /** How long after the last renewal Clerk's own word that the cookie is close to running out is taken. */
 export const CLERK_WORD_AFTER_MS = DAY_MS;
@@ -110,12 +110,13 @@ function writeRecord(storage: Pick<Storage, 'setItem'>, record: RenewalRecord) {
 /** What this tab noted as it left for a renewal. */
 interface LeavingNote {
   at: number;
+  search: string;
   hash: string;
 }
 
 /**
  * What this tab noted as it left for a renewal, taking the note off, or null when it did not leave for one. A note that
- * cannot be taken off is read again at the next load, which is then a reload or long after, so it counts no return.
+ * cannot be taken off is read again at the next load, whose address then has no mark, so it counts no return.
  */
 function leftForRenewal(tabStorage: RenewalPage['tabStorage']): LeavingNote | null {
   let note: string | null;
@@ -131,16 +132,16 @@ function leftForRenewal(tabStorage: RenewalPage['tabStorage']): LeavingNote | nu
     // Left in place, as above.
   }
   try {
-    const { at, hash } = JSON.parse(note) as Partial<LeavingNote>;
-    return { at: typeof at === 'number' ? at : 0, hash: typeof hash === 'string' ? hash : '' };
+    const { at, search, hash } = JSON.parse(note) as Partial<LeavingNote>;
+    return { at: typeof at === 'number' ? at : 0, search: typeof search === 'string' ? search : '', hash: typeof hash === 'string' ? hash : '' };
   } catch {
-    return { at: 0, hash: '' };
+    return { at: 0, search: '', hash: '' };
   }
 }
 
-/** Notes in this tab that it is leaving for a renewal from an address with this fragment; false when refused. */
-function noteLeaving(tabStorage: RenewalPage['tabStorage'], at: number, hash: string): boolean {
-  const note = JSON.stringify({ at, hash });
+/** Notes in this tab that it is leaving for a renewal from an address with this query and fragment; false when refused. */
+function noteLeaving(tabStorage: RenewalPage['tabStorage'], left: LeavingNote): boolean {
+  const note = JSON.stringify(left);
   try {
     if (!tabStorage) return false;
     tabStorage.setItem(LEAVING_KEY, note);
@@ -169,8 +170,6 @@ export interface RenewalPage {
   href(): string;
   /** Replaces the address without a load, as `history.replaceState` does. */
   replace(address: string): void;
-  /** How this page was loaded, as the navigation timing entry's `type` says it: `navigate`, `reload` or `back_forward`. */
-  navigationType(): string;
   /** Loads the address, as `location.assign` does. */
   assign(address: string): void;
   log(line: string): void;
@@ -195,24 +194,27 @@ export function pageRenewal(page: RenewalPage) {
   };
   const webkit = isWebKit(page.userAgent);
 
-  // Back from a renewal: Clerk's return is a plain load soon after leaving, which counts it and gets the fragment Clerk
-  // was not sent put back. Back, a reload or a late load is a person returning by hand after a trip that did not finish,
-  // which counts nothing, so the hour's hold applies.
+  // Back from a renewal: Clerk's return carries the mark the note's time, which counts it, and the address comes back
+  // as it left, query and fragment byte for byte. A note with no mark is a person back by hand after a trip that did not
+  // finish, which counts nothing, so the hour's hold applies; a mark with no note, as in a link copied from Clerk's
+  // return, comes off and counts nothing.
   const left = leftForRenewal(page.tabStorage);
-  if (left) {
-    const type = page.navigationType();
-    const fresh = page.now() - left.at < RETURN_WITHIN_MS;
-    if (type === 'navigate' && fresh) {
-      const back = new URL(page.href());
-      if (left.hash && !back.hash) page.replace(back.pathname + back.search + left.hash);
+  const back = new URL(page.href());
+  const mark = back.searchParams.get(RETURN_MARK);
+  if (mark !== null) {
+    back.searchParams.delete(RETURN_MARK);
+    const counted = left !== null && mark === String(left.at);
+    page.replace(back.pathname + (counted ? left.search : back.search) + (back.hash || (counted ? left.hash : '')));
+    if (counted) {
       const record = readRecord(page.storage);
       if (record) writeRecord(page.storage, { ...record, renewedAt: page.now() });
       page.log(`${LOG_PREFIX} back from renewing Clerk's cookie`);
       // A page back from a renewal never leaves for another, even when local storage refused the record of it.
       state = 'none';
-    } else {
-      page.log(`${LOG_PREFIX} a renewal of Clerk's cookie did not come back: this load is ${fresh ? `a ${type}` : 'too long after it'}`);
     }
+  }
+  if (left && !(mark !== null && mark === String(left.at))) {
+    page.log(`${LOG_PREFIX} a renewal of Clerk's cookie did not come back: this load is not Clerk's return`);
   }
 
   const due = (clerk: RenewingClerk) =>
@@ -234,11 +236,12 @@ export function pageRenewal(page: RenewalPage) {
     // Without the record the next open would renew again, and without the note in this tab the page Clerk sends back
     // could not tell it had renewed and would leave again: with either refused, no renewal.
     const here = new URL(page.href());
-    if (readRecord(page.storage)?.attemptedAt !== now || !noteLeaving(page.tabStorage, now, here.hash)) {
+    if (readRecord(page.storage)?.attemptedAt !== now || !noteLeaving(page.tabStorage, { at: now, search: here.search, hash: here.hash })) {
       page.log(`${LOG_PREFIX} not renewing Clerk's cookie: this browser refuses the storage that would say it was done`);
       return false;
     }
     here.hash = '';
+    here.search = `${here.search ? `${here.search}&` : '?'}${RETURN_MARK}=${now}`;
     const touch = clerk.buildUrlWithAuth(clerk.client.buildTouchUrl({ redirectUrl: here }));
     page.log(`${LOG_PREFIX} renewing Clerk's cookie with a page load, since WebKit ends it a week after a sign-in otherwise: ${reason}`);
     set('leaving');

@@ -35,10 +35,14 @@ test(`a page that opens signed in at ${address} renews Clerk's cookie once, unde
     await expectQuietSignIn(page, () => page.reload(), { timeout: 30_000 });
     await expect(page.getByTestId('person')).toHaveText(user.email);
     expect(renewals).toHaveLength(1);
-    // Clerk is sent the address without its fragment, which its development instance would put in the path.
-    const sent = new URL(address, page.url());
-    sent.hash = '';
-    expect(new URL(new URL(renewals[0]!).searchParams.get('redirect_url')!).href).toBe(sent.href);
+    // Clerk is sent the address without its fragment, which its development instance would put in the path, and with
+    // the mark only its return carries, which comes off before the app reads the address.
+    const sent = new URL(new URL(renewals[0]!).searchParams.get('redirect_url')!);
+    expect(sent.searchParams.get('app-kit-cookie-renewed')).toMatch(/^\d+$/);
+    sent.searchParams.delete('app-kit-cookie-renewed');
+    const left = new URL(address, page.url());
+    left.hash = '';
+    expect(sent.href).toBe(left.href);
     expect(page.url()).toBe(new URL(address, page.url()).href);
     // The reload, then the one through Clerk's renewal back to this page.
     expect(loads.loads).toBe(2);

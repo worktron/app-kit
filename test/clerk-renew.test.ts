@@ -84,7 +84,6 @@ function fakePage(
     now = NOW,
     stored = {} as Record<string, string>,
     tab = {} as Record<string, string>,
-    navigation = 'navigate',
   } = {},
 ) {
   const loads: string[] = [];
@@ -101,7 +100,6 @@ function fakePage(
     },
     href: () => address,
     replace: (to) => void (address = new URL(to, address).toString()),
-    navigationType: () => navigation,
     assign: (to) => void loads.push(to),
     log: (line) => void lines.push(line),
     now: () => clock,
@@ -110,6 +108,8 @@ function fakePage(
 }
 
 const touchFor = (href: string) => `https://clerk.app.example.com/v1/client/touch?redirect_url=${encodeURIComponent(href)}`;
+/** The address Clerk's renewal sends the page back to, read from the trip's address. */
+const returnOf = (touch: string) => new URL(touch).searchParams.get('redirect_url')!;
 
 function fakeClerk(sessionId: string | null, eligible = false): RenewingClerk {
   return {
@@ -131,14 +131,15 @@ describe("one page's renewal", () => {
     expect(renewal.renewing(clerk, true)).toBe(true);
     renewal.decideAtOpen(clerk);
     renewal.decideAtOpen(clerk);
-    // Clerk is sent the address without its fragment, which its development instance would put in the path.
-    expect(first.loads).toEqual([touchFor('https://app.example.com/items/3?sort=new')]);
-    expect(JSON.parse(first.tab[LEAVING_KEY]!)).toEqual({ at: NOW, hash: '#tab=notes' });
+    // Clerk is sent the address without its fragment, which its development instance would put in the path, and with
+    // the mark only its return carries.
+    expect(first.loads).toEqual([touchFor(`https://app.example.com/items/3?sort=new&app-kit-cookie-renewed=${NOW}`)]);
+    expect(JSON.parse(first.tab[LEAVING_KEY]!)).toEqual({ at: NOW, search: '?sort=new', hash: '#tab=notes' });
     expect(renewal.renewing(clerk, true)).toBe(true);
     expect(first.lines.join('\n')).toContain('renewing Clerk\'s cookie with a page load, since WebKit ends it a week after a sign-in otherwise: the first for this session');
 
-    // Back in the same tab: its fragment put back before anything reads the address, the note taken off, nothing more.
-    const back = fakePage('https://app.example.com/items/3?sort=new', { now: NOW + 800, stored: first.stored, tab: first.tab });
+    // Back in the same tab: the mark off and the fragment back before anything reads the address, the note taken off.
+    const back = fakePage(returnOf(first.loads[0]!), { now: NOW + 800, stored: first.stored, tab: first.tab });
     const again = pageRenewal(back.page);
     expect(back.address()).toBe('https://app.example.com/items/3?sort=new#tab=notes');
     expect(back.tab[LEAVING_KEY]).toBeUndefined();
@@ -152,19 +153,19 @@ describe("one page's renewal", () => {
   test('the root goes to Clerk as the root, and comes back to it', () => {
     const first = fakePage('https://app.example.com/');
     pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
-    expect(first.loads).toEqual([touchFor('https://app.example.com/')]);
-    const back = fakePage('https://app.example.com/', { tab: first.tab });
+    expect(first.loads).toEqual([touchFor(`https://app.example.com/?app-kit-cookie-renewed=${NOW}`)]);
+    const back = fakePage(returnOf(first.loads[0]!), { tab: first.tab });
     pageRenewal(back.page);
     expect(back.address()).toBe('https://app.example.com/');
   });
 
   test('a fragment an app routes on goes nowhere near Clerk and comes back byte for byte', () => {
-    const first = fakePage('https://app.example.com/notes#/items/3?x=%20y');
+    const first = fakePage('https://app.example.com/notes?q=a%20b+c#/items/3?x=%20y');
     pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
-    expect(first.loads).toEqual([touchFor('https://app.example.com/notes')]);
-    const back = fakePage('https://app.example.com/notes', { tab: first.tab });
+    expect(first.loads).toEqual([touchFor(`https://app.example.com/notes?q=a%20b+c&app-kit-cookie-renewed=${NOW}`)]);
+    const back = fakePage(returnOf(first.loads[0]!), { tab: first.tab });
     pageRenewal(back.page);
-    expect(back.address()).toBe('https://app.example.com/notes#/items/3?x=%20y');
+    expect(back.address()).toBe('https://app.example.com/notes?q=a%20b+c#/items/3?x=%20y');
   });
 
   test('with either storage refused, nothing renews, since nothing would say it was done', () => {
@@ -184,12 +185,14 @@ describe("one page's renewal", () => {
   });
 
   test('a person back by hand after a trip that did not finish counts no renewal, and the hour holds off the next', () => {
-    for (const [navigation, after] of [['back_forward', 2000], ['reload', 2000], ['navigate', 10 * 60 * 1000]] as const) {
+    // Back, a reload or the address typed in: each reaches the address as it was, without the mark of Clerk's return.
+    for (const after of [2000, 2 * RETRY_AFTER_MS]) {
       const first = fakePage('https://app.example.com/notes#/items/3');
       pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
       expect(first.loads).toHaveLength(1);
-      const back = fakePage('https://app.example.com/notes#/items/3', { now: NOW + after, stored: first.stored, tab: first.tab, navigation });
+      const back = fakePage('https://app.example.com/notes#/items/3', { now: NOW + after, stored: first.stored, tab: first.tab });
       const again = pageRenewal(back.page);
+      expect(back.address()).toBe('https://app.example.com/notes#/items/3');
       expect(back.lines.join('\n')).toContain("a renewal of Clerk's cookie did not come back");
       expect(back.tab[LEAVING_KEY]).toBeUndefined();
       expect(JSON.parse(back.stored[RENEWAL_KEY]!)).toEqual({ sessionId: 'sess_1', renewedAt: 0, attemptedAt: NOW });
@@ -199,11 +202,19 @@ describe("one page's renewal", () => {
     }
   });
 
+  test("a mark with no note, as in a link copied from Clerk's return, comes off and counts nothing", () => {
+    const { page, address, stored } = fakePage(`https://app.example.com/notes?sort=new&app-kit-cookie-renewed=${NOW}#x`);
+    pageRenewal(page);
+    expect(address()).toBe('https://app.example.com/notes?sort=new#x');
+    expect(stored[RENEWAL_KEY]).toBeUndefined();
+  });
+
   test('a tab note that cannot be taken off counts Clerk\'s return once, and a reload after it nothing, so it never loops', () => {
-    const stuck = { getItem: () => JSON.stringify({ at: NOW, hash: '' }), setItem: () => {}, removeItem: () => { throw new Error('SecurityError'); } };
-    const returned = fakePage('https://app.example.com/notes', { now: NOW + 800 });
+    const stuck = { getItem: () => JSON.stringify({ at: NOW, search: '', hash: '' }), setItem: () => {}, removeItem: () => { throw new Error('SecurityError'); } };
+    const returned = fakePage(`https://app.example.com/notes?app-kit-cookie-renewed=${NOW}`, { now: NOW + 800 });
     expect(pageRenewal({ ...returned.page, tabStorage: stuck }).renewing(fakeClerk('sess_1'), true)).toBe(false);
-    const reloaded = fakePage('https://app.example.com/notes', { now: NOW + 5000, navigation: 'reload' });
+    expect(returned.address()).toBe('https://app.example.com/notes');
+    const reloaded = fakePage('https://app.example.com/notes', { now: NOW + 5000 });
     const renewal = pageRenewal({ ...reloaded.page, tabStorage: stuck, storage: { getItem: () => JSON.stringify({ sessionId: 'sess_1', renewedAt: 0, attemptedAt: NOW }), setItem: () => {} } });
     expect(renewal.renewing(fakeClerk('sess_1'), true)).toBe(false);
     renewal.decideAtOpen(fakeClerk('sess_1'));
