@@ -3,7 +3,7 @@ import { join } from 'path';
 import { expect, test, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { FONT_WAIT_MS } from '../fonts';
-import { finger } from './finger';
+import { finger } from '../playwright';
 
 // The pieces an installed app adds (fixture/pieces.html), the font wait (fixture/fonts.html), the first frame every
 // fixture page paints, and the wordmark drawn in the first frame's face (fixture/wordmark.html), in Chromium with touch.

@@ -87,7 +87,10 @@ for (const where of ['window', 'box'] as const) {
     test('one drag from below the top that runs on past it opens them', async ({ page }) => {
       await load(page, where);
       await scrollTo(page, 200);
-      await (await finger(page)).slide({ x: 195, y: 150 }, { x: 195, y: 150 + 200 + 130 }, { steps: 40 });
+      // A slow pull, about a quarter point a millisecond. The page learns it is at its top a frame after the scroll gets
+      // there, and Playwright's headless Chrome on a Mac can leave 133ms between frames, so at a fast drag's speed the
+      // pull would count only about half of the 130 points past the top; at this speed it loses about 35.
+      await (await finger(page)).slide({ x: 195, y: 150 }, { x: 195, y: 150 + 200 + 130 }, { steps: 100 });
       await expect(opens(page)).toHaveText('1');
     });
 

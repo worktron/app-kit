@@ -57,7 +57,10 @@ export interface Point {
 export function finger(page: Page): Promise<{
   /**
    * Lands at `from`, holds for `holdMs` (none by default; a hold of a quarter second or more is a long press), moves to
-   * `to` in `steps` moves (20 by default), settles there and lifts.
+   * `to` in `steps` moves (20 by default) 16ms apart, settles there for about a tenth of a second and lifts. The moves
+   * are sent on that clock without waiting for Chrome to take each one, since Chrome holds each until the page's next
+   * frame; the slide waits for Chrome to have taken every move, then for the lift. Moves the page gets between two
+   * frames come to it as one touchmove.
    */
   slide(from: Point, to: Point, options?: { holdMs?: number; steps?: number }): Promise<void>;
 }>;

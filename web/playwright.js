@@ -136,31 +136,42 @@ export async function finger(page) {
    * @param {number} [y]
    */
   const send = (type, x = 0, y = 0) => session.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  /** @param {number} ms */
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   return {
+    // Chrome holds each touch command until the page's next frame before it hands the touch on, and on some Macs
+    // headless Chrome starts a frame only every 17 to 133ms, for a reason nobody has found (not the display, the
+    // process's priority, the page or the machine's load, nor any launch flag tried). A move awaited before the next
+    // is sent so costs a frame or more, and a slide several seconds. So the moves go out on the slide's own clock,
+    // each without waiting for the one before, and the lift waits for all of them. Chrome stamps each touch with the
+    // time its command arrived, so the page and the fling at the lift see the moves spaced as sent; moves that reach
+    // the page between two frames come as one touchmove, as a real finger's do.
     async slide(from, to, { holdMs = 0, steps = 20 } = {}) {
       /** @param {number} i */
       const at = (i) => /** @type {const} */ ([from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps]);
+      /** @type {Promise<unknown>[]} */
+      const sent = [];
       let i = 1;
       if (holdMs) {
         await send('touchStart', from.x, from.y);
         await page.waitForTimeout(holdMs);
       } else {
-        // The landing and the first moves past the browser's touch slop go together rather than a round trip apart: on
-        // a busy machine a round trip can take a tenth of a second, and a finger still for a quarter second is a long
-        // press, which stops the page from scrolling.
-        await Promise.all([send('touchStart', from.x, from.y), send('touchMove', ...at(1)), send('touchMove', ...at(2))]);
+        // The landing and the first moves past the browser's touch slop go together, since a finger still for a
+        // quarter second is a long press, which stops the page from scrolling.
+        sent.push(send('touchStart', from.x, from.y), send('touchMove', ...at(1)), send('touchMove', ...at(2)));
         i = 3;
       }
       for (; i <= steps; i++) {
-        await page.waitForTimeout(16);
-        await send('touchMove', ...at(i));
+        await pause(16);
+        sent.push(send('touchMove', ...at(i)));
       }
       // The finger settles before it lifts. A lift at full speed leaves Chromium a fling, which takes the next tap as
       // the fling's stop, so that tap makes no click.
       for (let still = 0; still < 4; still++) {
-        await page.waitForTimeout(30);
-        await send('touchMove', to.x, to.y);
+        await pause(30);
+        sent.push(send('touchMove', to.x, to.y));
       }
+      await Promise.all(sent);
       await send('touchEnd');
     },
   };

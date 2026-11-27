@@ -208,7 +208,7 @@ test('a frame with nothing drawn, or in another background, is not steady', () =
   expect(() => expectSteady([drawn, { ...drawn, background: 'rgb(255, 255, 255)' }], 'rgb(0, 0, 0)')).toThrow('the backgrounds the page showed');
 });
 
-test('a finger\'s slide is touch from landing to lift, ending where it was sent', async ({ page }) => {
+test('a finger\'s slide is touch from landing to lift, passing through the points between its ends and ending where it was sent', async ({ page }) => {
   await page.goto(plainPage);
   await page.evaluate(() => {
     // As a row that takes swipes does, so the browser leaves the finger to the page rather than panning it.
@@ -226,7 +226,12 @@ test('a finger\'s slide is touch from landing to lift, ending where it was sent'
   const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen);
   expect(seen[0]).toBe('pointerdown touch 300');
   expect(seen.at(-1)).toBe('pointerup touch 60');
-  expect(seen.filter((line) => line.startsWith('pointermove')).every((line) => line.includes(' touch '))).toBe(true);
+  const moves = seen.filter((line) => line.startsWith('pointermove'));
+  expect(moves.every((line) => line.includes(' touch '))).toBe(true);
+  // The page sees the finger on its way, not only where it landed and lifted, and always moving the way it was sent.
+  const xs = moves.map((line) => Number(line.split(' ').at(-1)));
+  expect(xs.filter((x) => x > 60 && x < 300).length, `moves between the ends, of ${xs.join(', ')}`).toBeGreaterThan(0);
+  expect(xs, 'moves in the order sent').toEqual([...xs].sort((a, b) => b - a));
 });
 
 test.describe('no new windows', () => {
