@@ -2,6 +2,15 @@
 
 What an app does when it moves to each version, newest first, written by the landing from each change's Urgency and Apps lines. A version not listed asks nothing of an app. The kit starts no upgrades: each app keeps itself current by reading this, when it is next worked on, from the oldest version any of its package.json files installs, and taking in what that work needs. Urgency says what a version asks: now (a security hole, lost data, or something broken people hit; take it first, and its landing names the apps on an older version to the owner and files a catch-up ticket in each), next round (something an app must change or will want, taken when the app is next worked on) or rides along (nothing for an app to do). scripts/owed.ts lists the now and next round versions an app has not taken, for metamax's landing of the app's code to hold on once one is more than 14 days old.
 
+## v0.84.0
+
+Urgency: rides along
+
+- none; a Tauri app on the window plugin keeps its Android page clear of the bars once it moves to this version.
+- a Tauri app on the window plugin builds for Android as README's Android section says; a desktop sign-in link that arrives before the site loads now waits for the site's page instead of reloading it.
+- a Tauri app that ships on Android runs app-kit android run emulator to try it and app-kit play upload to send it to testers, as the README's Android sections say.
+- a Tauri app that ships on Android gives app-kit icons render its androidBackground colour and reruns it for the Android icons, as README's Android section says.
+
 ## v0.83.1
 
 Urgency: next round
