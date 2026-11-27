@@ -18,7 +18,8 @@
 //!   only once it is back where it was and inside its screen (mac.rs, fit.rs), the menu bar every app shows (menu.rs), updates from the app's
 //!   releases when its tauri.conf.json has plugins.updater (updates.rs), and the kit's Settings window, with its switch
 //!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it, on by itself once at
-//!   the first launch of a release for an app that asks for that too;
+//!   the first launch of a release for an app that asks for that too, and a download saved to the Downloads folder and
+//!   selected in Finder, never opened (downloads.rs);
 //! - on Windows: one copy of the app, so desktop sign-in's link, which Windows hands a second copy, reaches the window,
 //!   which comes forward (windows.rs), and the window shown only once it is back where it was and inside its screen. Closing it quits the app,
 //!   as Windows apps do, and the Mac's menu bar, Settings window and updates are not there.
@@ -35,6 +36,8 @@ mod sign_in;
 mod android;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 mod iphone;
+#[cfg(target_os = "macos")]
+mod downloads;
 #[cfg(target_os = "macos")]
 mod login_item;
 #[cfg(target_os = "macos")]
@@ -121,12 +124,29 @@ pub struct Site {
     address: Url,
     scheme: Option<String>,
     kept: Vec<String>,
+    #[cfg(target_os = "macos")]
+    select_download: fn(&std::path::Path),
 }
 
 impl Site {
     /// The site at `address`. A page under its host, or a subdomain of it, stays in the window.
     pub fn new(address: Url) -> Self {
-        Site { address, scheme: None, kept: Vec::new() }
+        Site {
+            address,
+            scheme: None,
+            kept: Vec::new(),
+            #[cfg(target_os = "macos")]
+            select_download: downloads::select_in_finder,
+        }
+    }
+
+    /// What the window does with a download once it has arrived, in place of selecting it in Finder: for a test, which
+    /// must never bring Finder forward.
+    #[cfg(target_os = "macos")]
+    #[doc(hidden)]
+    pub fn on_downloaded(mut self, downloaded: fn(&std::path::Path)) -> Self {
+        self.select_download = downloaded;
+        self
     }
 
     /// The app's own link scheme, as tauri.conf.json registers it: desktop sign-in's link from the browser arrives on
@@ -186,6 +206,19 @@ impl Site {
         // window is closed, when they matter most.
         #[cfg(target_os = "macos")]
         let builder = builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+        // wry cancels every download in a window with no download handler, so a Download link did nothing.
+        #[cfg(target_os = "macos")]
+        let builder = {
+            let downloads = downloads::Downloads::new(self.select_download);
+            builder.on_download(move |_webview, event| match event {
+                tauri::webview::DownloadEvent::Requested { url, destination } => downloads.requested(&url, destination),
+                tauri::webview::DownloadEvent::Finished { url, success, .. } => {
+                    downloads.finished(&url, success);
+                    true
+                }
+                _ => true,
+            })
+        };
         #[cfg(any(target_os = "ios", target_os = "android"))]
         let builder = builder.initialization_script(iphone::WINDOW_OPEN_SCRIPT);
         builder

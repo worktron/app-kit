@@ -293,6 +293,24 @@ test("a Mac app that opens on the kit's start page opens at login from the kit's
   expect(await verdict(OPEN_AT_LOGIN, { ...cargo, ...onStartPage, 'src-tauri/src/lib.rs': 'let window = site.start_page_window(app, page).build()?;\n' })).toBe('not asked');
 });
 
+test("a Mac app on the window plugin gives its reason for the Downloads folder in its Mac Info.plist, and an iPhone shell is not asked", async () => {
+  const DOWNLOADS = 'its reason for the Downloads folder in the Mac Info.plist';
+  const cargo = { 'src-tauri/Cargo.toml': 'tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }\n' };
+  const mac = { ...cargo, 'src-tauri/src/lib.rs': 'let menu = AppMenu::new().settings_window().sign_out().commit(COMMIT).build(app)?;\n' };
+  const reason = '<key>NSDownloadsFolderUsageDescription</key><string>Example saves the files you download to your Downloads folder.</string>\n';
+  const microphone = '<key>NSMicrophoneUsageDescription</key><string>Example listens to calls.</string>\n';
+  // Matter's shell, before and after.
+  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.macos.plist': microphone })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.macos.plist': microphone + reason })).toBe('has');
+  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.plist': reason })).toBe('has');
+  // The reason in the iPhone's plist, or in Xcode's generated one, never reaches the Mac app.
+  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/Info.ios.plist': reason })).toBe('lacks');
+  expect(await verdict(DOWNLOADS, { ...mac, 'src-tauri/gen/apple/example_iOS/Info.plist': reason })).toBe('lacks');
+  // An iPhone shell, with no Mac menu, and a Tauri app not on the window plugin.
+  expect(await verdict(DOWNLOADS, { ...cargo, 'src-tauri/src/lib.rs': 'let window = site.start_page_window(app, page).build()?;\n' })).toBe('not asked');
+  expect(await verdict(DOWNLOADS, { 'src-tauri/Cargo.toml': 'tauri = "2"\n', 'src-tauri/src/lib.rs': 'AppMenu::new()\n' })).toBe('not asked');
+});
+
 test("an extension drawn in one toolbar colour turns on the toolbar icon for dark mode in its worker; the kit's copies alone are not it", async () => {
   const TOOLBAR_ICON = 'toolbar icon that follows dark mode';
   const icons = { 'package.json': JSON.stringify({ scripts: { icons: "app-kit icons render --extension extension/icons --toolbar-color '#1f1f1f'" } }) };

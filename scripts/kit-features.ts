@@ -394,6 +394,31 @@ const OPEN_AT_LOGIN: Feature = {
   present: async (app) => has(app.grep(`\\.(${OPEN_AT_LOGIN_CALL}|${OPEN_AT_LOGIN_BY_DEFAULT_CALL})\\(`, SHELL_RUST).length > 0),
 }
 
+// A Mac app on the window plugin saves its downloads to the Downloads folder, and macOS may ask the person once whether
+// it may, showing the app's reason from its Mac Info.plist: the file tauri.conf.json's bundle.macOS.infoPlist names, which
+// Tauri merges into the Mac app alone. AppMenu is the Mac's alone, so a shell that builds it ships on the Mac. An iPhone
+// plist and Xcode's generated ones are not counted.
+const DOWNLOADS_REASON = 'NSDownloadsFolderUsageDescription'
+const DOWNLOADS: Feature = {
+  feature: 'its reason for the Downloads folder in the Mac Info.plist',
+  readme: 'A window onto the hosted site',
+  names: ['tauri-plugin-app-kit-window', 'AppMenu', DOWNLOADS_REASON],
+  appliesTo: (app) =>
+    app.grep('tauri-plugin-app-kit-window', [':(glob)**/Cargo.toml', ':(exclude,glob)**/node_modules/**']).length > 0 &&
+    app.grep('AppMenu::new', SHELL_RUST).length > 0,
+  present: async (app) =>
+    has(
+      app.tracked.some(
+        (path) =>
+          path.endsWith('.plist') &&
+          !path.endsWith('Info.ios.plist') &&
+          !path.includes('/gen/apple/') &&
+          !path.includes('node_modules/') &&
+          app.show(path).includes(DOWNLOADS_REASON),
+      ),
+    ),
+}
+
 // An extension whose toolbar icons are drawn in one colour (--toolbar-color in a package.json script) shows them dark on
 // a dark toolbar unless its worker turns on toolbar-icon.js. The kit's copy of that file defines the function and the
 // copied hidden page imports from it, so what counts is a file that imports it and calls it. Chrome's own Light or Dark
@@ -474,6 +499,7 @@ export const FEATURES: Feature[] = [
   PUBLIC_PAGES,
   START_PAGE,
   OPEN_AT_LOGIN,
+  DOWNLOADS,
   TOOLBAR_ICON,
 ]
 
