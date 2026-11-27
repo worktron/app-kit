@@ -136,18 +136,20 @@ mod tests {
         app.emit("deep-link://new-url", vec![link]).unwrap();
     }
 
-    // The second copy's link reaches the window on the start page, which loads the site with the sign-in in its
-    // fragment, as the Mac's open event does at launch.
+    fn kept(app: &tauri::App<tauri::test::MockRuntime>) -> bool {
+        app.state::<crate::KeptSignIn>().0.lock().unwrap().is_some()
+    }
+
+    // The second copy's link reaches the window on the start page, which keeps the sign-in for the site's page, as
+    // the Mac's open event does at launch: the start page goes on to the site by itself.
     #[test]
-    fn a_link_a_second_copy_hands_over_loads_the_site_with_the_sign_in() {
+    fn a_link_a_second_copy_hands_over_is_kept_for_the_sites_page() {
         let app = app();
         let window = site().start_page_window(&app, start_page()).build().unwrap();
         listen(app.handle(), &site());
         hand_on(&app, LINK);
-        assert_eq!(
-            window.url().unwrap().as_str(),
-            "https://app.example.com/#desktop_sign_in_ticket=abc.def_1&desktop_sign_in_nonce=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
-        );
+        assert!(kept(&app));
+        assert_eq!(window.url().unwrap().as_str(), "tauri://localhost");
     }
 
     #[test]
@@ -157,6 +159,7 @@ mod tests {
         listen(app.handle(), &site());
         hand_on(&app, "com.example.app://sign-in?ticket=%3Cscript%3E&nonce=0f1e");
         hand_on(&app, "com.other.app://sign-in?ticket=abc&nonce=0f1e");
+        assert!(!kept(&app));
         assert_eq!(window.url().unwrap().as_str(), "tauri://localhost");
     }
 

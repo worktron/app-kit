@@ -1,4 +1,4 @@
-import { local, read, session, write, type KeyValueStore } from '../storage';
+import { local, read, session, thisWindow, write, type KeyValueStore } from '../storage';
 import { SIGNED_IN_KEY } from './names.js';
 import type { SignInWith } from './provider';
 
@@ -55,15 +55,15 @@ export function rememberAccountWith(signedInWith: SignInWith | null, store: () =
 }
 
 /**
- * Notes, in this tab, which provider a sign-in starting now goes to: the gate's trip, or a desktop app's window asking
+ * Notes, in this window's storage (`thisWindow`), which provider a sign-in starting now goes to: the gate's trip, or a desktop app's window asking
  * the browser, whose sign-in comes back by ticket. Read and removed when someone signs in here.
  */
-export function noteTripWith(signInWith: SignInWith | null, store: () => KeyValueStore = session): void {
+export function noteTripWith(signInWith: SignInWith | null, store: () => KeyValueStore = thisWindow): void {
   write(store, TRIP_WITH_KEY, signInWith);
 }
 
 /** The provider this tab's sign-in went to, or null when none was noted. */
-export function tripWith(store: () => KeyValueStore = session): SignInWith | null {
+export function tripWith(store: () => KeyValueStore = thisWindow): SignInWith | null {
   const noted = read(store, TRIP_WITH_KEY);
   return noted === 'google' || noted === 'microsoft' ? noted : null;
 }

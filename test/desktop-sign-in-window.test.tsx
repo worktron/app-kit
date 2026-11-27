@@ -20,6 +20,7 @@ const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   window.history.replaceState(null, '', '/');
   resetDesktopSignIn();
   listenForDesktopSignIn();
@@ -86,6 +87,26 @@ test("a link with this window's fingerprint turns its code into a ticket with th
   // Signed out, the window has no token for the redeem; the code and secret go in the body only.
   expect(sent[0]).toEqual({ path: '/api/desktop-sign-in/redeem', authorization: null, body: { code, secret: expect.stringMatching(/^[0-9a-f]{64}$/) } });
   expect(sent[1]).toEqual({ path: '/api/desktop-sign-in/taken', authorization: 'Bearer stand-in-token-0', body: { code } });
+});
+
+test("in the Android app, a link that starts the app afresh, as Android ends it behind the browser, still signs in, and its secret is used up", async () => {
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 16; sdk_gphone64_arm64; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/133.0.6943.137 Mobile Safari/537.36';
+  Object.defineProperty(window, '__TAURI_INTERNALS__', { value: {}, configurable: true });
+  Object.defineProperty(navigator, 'userAgent', { value: ANDROID, configurable: true });
+  try {
+    const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+    const nonce = nonceIn(desktopSignInAddress(null));
+    // Android ended the app: its tab's storage went with it.
+    sessionStorage.clear();
+    const provider = standInSignIn();
+    render(<Window provider={provider} />);
+    await handOver({ ticket: await codeFor(nonce), nonce });
+    await waitFor(() => expect(heading()).toBe('Signed in as ana@example.com'));
+    expect(Object.keys(localStorage).filter((key) => key.includes('desktopSignInSecret'))).toEqual([]);
+  } finally {
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    delete (navigator as { userAgent?: unknown }).userAgent;
+  }
 });
 
 test('a link the window did not ask for is refused, and its code never redeemed', async () => {

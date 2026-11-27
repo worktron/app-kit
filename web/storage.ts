@@ -1,3 +1,5 @@
+import { isAndroidApp } from './installed-app';
+
 /** The parts of `Storage` the kit uses, so tests can pass stand-ins. */
 export type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -22,3 +24,10 @@ export function write(store: () => KeyValueStore, key: string, value: string | n
 
 export const local = () => window.localStorage;
 export const session = () => window.sessionStorage;
+
+/**
+ * The storage that lasts as long as this window: its tab's, except in the Android app, where Android ends an app it
+ * keeps behind the browser, its tab's storage with it, and the browser's link back starts it afresh. There it is the
+ * app's own lasting storage, which no other app or site reads, so a sign-in the window asked for still finds its note.
+ */
+export const thisWindow = (): KeyValueStore => (isAndroidApp() ? local() : session());

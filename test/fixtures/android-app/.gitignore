@@ -1,0 +1,4 @@
+# What `tauri android init`, `app-kit icons render` and the build write, made again by scripts/android-e2e.ts.
+src-tauri/gen
+src-tauri/target
+src-tauri/icons

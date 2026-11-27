@@ -7,7 +7,7 @@ import { signInInSheet } from '../../../tauri/iphone-sign-in';
 
 // A page run as a Tauri app's, with the kit's real page halves of desktop sign-in, iPhone notifications and iPhone
 // sign-in, for the Tauri steps' browser test: the shell's bridge is the steps' stand-in, and the page prints what each
-// half did.
+// half did. scripts/android-e2e.ts opens it in the Android app, whose link to another site goes to Chrome.
 
 const provider = standInSignIn({ store: sessionStorage });
 listenForDesktopSignIn();
@@ -37,6 +37,7 @@ function App() {
       <p>Window {window_.state === 'failed' ? `failed: ${window_.message}` : window_.state}</p>
       <p>Registered {registered}</p>
       <p>Opened {opened.join(', ') || 'nothing'}</p>
+      <a href="https://example.com/">An outside site</a>
       <button onClick={() => void window.open(desktopSignInAddress(null))}>Continue with Google in the Mac app</button>
       <button onClick={() => void signInInSheet(desktopSignInAddress(null), { scheme: 'com.example.app' })}>Continue with Google in the iPhone app</button>
       <button onClick={() => void window.open(desktopSignInAddress(null, 'microsoft'))}>Continue with Microsoft in the Mac app</button>

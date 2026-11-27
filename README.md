@@ -551,7 +551,7 @@ It reads "Same as the phone", with the phone's own size beside it in the menu, o
 
 ### Pull to refresh
 
-An installed app has no browser controls, so without a pull a stuck page or a new deploy means killing the app. `<PullToRefresh />`, mounted once outside the app's `ErrorBoundary` so a crashed page can still be pulled, reloads the page on a pull past the line from the top. `isInstalledApp()` says where it runs: the Tauri iPhone app, or a web app opened from the home screen; a browser tab keeps its own reload and Safari's own pull, and a Tauri app's Mac window has no touch.
+An installed app has no browser controls, so without a pull a stuck page or a new deploy means killing the app. `<PullToRefresh />`, mounted once outside the app's `ErrorBoundary` so a crashed page can still be pulled, reloads the page on a pull past the line from the top. `isInstalledApp()` says where it runs: the Tauri iPhone or Android app, or a web app opened from the home screen; a browser tab keeps its own reload and Safari's own pull, and a Tauri app's Mac window has no touch.
 
 ```tsx
 <ErrorBoundary placeholder={<Wordmark />}>…</ErrorBoundary>
@@ -1207,13 +1207,13 @@ An extension's first Store release is Unlisted, as practices' extensions rule sa
 
 ## tauri/: Mac and iPhone apps
 
-What a Tauri app's page, shell and server share: a window onto the hosted site, Mac releases the installed app updates itself to, desktop sign-in, reading Apple Messages on the Mac, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, and TestFlight builds after each landing.
+What a Tauri app's page, shell and server share: a window onto the hosted site, Mac releases the installed app updates itself to, desktop sign-in, reading Apple Messages on the Mac, iPhone notifications, iPhone sign-in, a run on the Simulator or an iPhone, an iPhone Simulator that runs silent, TestFlight builds after each landing, and the Android app, with a run on a windowless emulator and Google Play's internal testing.
 
 ### A window onto the hosted site
 
 A Tauri plugin for the shell, in `tauri/window/plugin/` (`tauri-plugin-app-kit-window`), and `app-kit/tauri/window` for the page: a Mac, Windows or iPhone app whose window loads its own hosted site gets what every such shell wrote by hand. The window loads the site, so sign-in, data and every deploy are the site's. The plugin adds:
 
-- Desktop sign-in's shell half (step 3 below). It reads the browser's `<scheme>://sign-in` link off Tauri's own open event, takes only a code (in the link's `ticket` field) and a nonce in the characters they are written in, and hands both to the page as JSON in a window event, or, while the window is still on a start page, loads the site with them in its fragment. The kit holds the names, so an app keeps no copy of them and no test that reads its Rust.
+- Desktop sign-in's shell half (step 3 below). It reads the browser's `<scheme>://sign-in` link off Tauri's own open event, takes only a code (in the link's `ticket` field) and a nonce in the characters they are written in, and hands both to the page as JSON in a window event; one that comes while the window is still on its start page, or before the window is made, as when Android ends the app behind the browser and the link starts it again, is kept until the site's page has loaded and then handed to it. The kit holds the names, so an app keeps no copy of them and no test that reads its Rust.
 - Links. The site and its subdomains stay in the window; other sites go to the default browser, and mail, phone and text links to their apps; files, scripts and other schemes do nothing; desktop sign-in's browser page always goes out. A request for a new window (a link with target=_blank, `window.open`) goes out the same way, on the iPhone too, whose web view otherwise drops it.
 - On the iPhone, the swipe from the left edge back, and from the right edge forward, as in every iOS app, which iOS keeps off unless an app turns it on and Tauri has no setting for. It goes through the site's page loads and its in-page moves (`history.pushState`), except a move the page made without a tap (on scroll or on a timer), which WebKit skips on purpose. The page goes back as it does with a browser's Back, so a page that moves within itself listens for `popstate`.
 - On the iPhone, no "Undo Typing" alert when the phone is shaken after typing: the plugin turns off iOS's shake to undo for the whole app. Typed text still undoes with a three-finger swipe left or a three-finger double tap.
@@ -1234,6 +1234,8 @@ tauri = "2.12.5"
 tauri-plugin-app-kit-window = { path = "../node_modules/app-kit/tauri/window/plugin" }
 tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
+# tauri::generate_context! writes the plugins' settings from tauri.conf.json as serde_json values.
+serde_json = "1"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-window-state = "2"
@@ -2103,6 +2105,95 @@ The upload signs with the team's Apple Distribution certificate, kept in 1Passwo
 Never revoke the certificate while builds are in testing: Apple says builds uploaded but not yet submitted for review may then be marked invalid. Its expiry does not affect apps already on the App Store.
 
 Each upload fetches the app's active App Store profile for that certificate from App Store Connect, writes it into Xcode's profile folder by its uuid, and makes it when the app has none. Where Apple refuses the key making it, the upload says so and names the bundle id: make it once on the developer site (Profiles, +, App Store Connect, the app's bundle id, the certificate), and again after each new certificate. Tauri's way of signing with a given certificate leaves things behind that the upload puts back: a keychain of its own holding the private key, which is deleted, a copy of the profile, which is removed, and the signing settings in the committed Xcode project, which is put back when nothing else in it changed. One signing build runs on a Mac at a time; a second is refused while the first holds the lock. The upload needs Tauri CLI 2.12.1 or later, since earlier ones put the profile setting outside the iPhone target. `tauri/testflight/signing.ts` says the details.
+
+### Android
+
+A Tauri app on the window plugin builds for Android with nothing else in its shell: README's shell above runs there as it is, its window opening on the start page, going on to the site, sending other sites to the phone's browser and taking desktop sign-in's link back, Google refusing sign-in inside a web view. On Android the plugin's iPhone-only parts (the edge swipes, shake to undo) do nothing, and the Mac's (the menu bar, close hides, updates, Settings) are not built.
+
+An app takes it in five steps:
+
+1. `bunx tauri android init`, once, which writes `src-tauri/gen/android`; commit it, as an iPhone app commits `gen/apple`.
+2. In `tauri.conf.json`, its link scheme for mobile too, which the deep-link plugin writes into the Android manifest, so the browser's sign-in link opens the app:
+
+   ```json
+   "plugins": { "deep-link": { "desktop": { "schemes": ["com.example.app"] }, "mobile": [{ "scheme": ["com.example.app"], "appLink": false }] } }
+   ```
+
+3. `app-kit icons render --tauri src-tauri --android-background '#rrggbb'`, which draws the launcher icons into the Android project (icons/, below).
+4. On the page, `isAndroidApp()` from `app-kit/web` says it runs in the Android app; `isInstalledApp()` counts it, so pull to refresh works there, and desktop sign-in through the phone's browser already takes it in, as for every Tauri app that is not the iPhone's.
+5. Android's tools on the Mac that builds it: Java, the Android command-line tools with the platform, the NDK, the emulator and its Android 36 image with Google Play, and Rust's `aarch64-linux-android` target, with `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set in every shell. Fleet's machine setup installs them; elsewhere, Tauri's prerequisites page lists them.
+
+The plugin's log goes to Android's own (logcat) rather than a file: `adb logcat -d | grep -i <app's crate name>`.
+
+#### Running on an Android emulator
+
+`app-kit android run emulator`, from a Tauri app's checkout, builds the app's debug APK for the 64-bit ARM emulator a Mac with Apple silicon runs (`bunx tauri android build --ci --debug --apk --target aarch64`), starts an emulator with no window and no sound, installs the app and opens it. Tauri's own `tauri android dev` opens the emulator's window, so the kit does not use it.
+
+- Every run uses one emulator image, `app-kit`, a Pixel 7 on Android 36 with Google Play, made the first time it is missing, and starts it read-only, so runs from two checkouts at once never write over each other's, and each boot starts from the same clean state. Its first boot takes a few minutes; Chrome then shows its first-run screens once per boot.
+- When the page's address (`TAURI_PAGE_ADDRESS`) is this Mac's localhost, the run lets the emulator reach that port as its own localhost (`adb reverse`), and `--reverse <port>` adds another, such as the API's.
+- **An emulator it starts shuts itself down.** Each shuts down 10 minutes after its app opens, which the run prints as a time; `app-kit android keep <serial> [<minutes>]` moves that to so many minutes from now (10 by default, 30 at most). A watcher started with it, in a session of its own, asks it to quit at that time, and kills it 20 seconds later if it will not, or at once when the checkout it belongs to is deleted. A run that fails after the start, or is stopped, shuts its emulator down itself.
+- **At most two run on the Mac at once.** A third run waits for the soonest shut-down time among them, saying which emulators hold the places and until when, and fails naming them when they are still there 30 seconds past it. Each decision is a line in `~/.local/state/app-kit/emulators/emulators.log` (under `$XDG_STATE_HOME` when set), beside one file per emulator.
+- It prints the emulator's serial (`emulator-5554`), the screenshot and log commands, and this README's section on testing it. Every line starts `[android]`; it exits 0 once the app is open and 1 otherwise, with the reason.
+
+An app adds it to its package.json, as it does `iphone`:
+
+```json
+"android": "app-kit android run emulator"
+```
+
+#### Testing the Android app yourself
+
+For an agent: the same order as [Testing the iPhone app yourself](#testing-the-iphone-app-yourself). A phone-sized browser test checks what the page alone does; the emulator is for what only Android draws or does: the shell opening the right address, links to other sites in Chrome, the sign-in round trip through Chrome, the launcher icon, the back button, the keyboard and the app's log. None of this puts a window on the screen.
+
+1. **Choose the page**, as for the iPhone: build with `TAURI_PAGE_ADDRESS=http://localhost:<port> bun run android`, with the port this checkout's dev server printed, after checking it answers with `curl`.
+2. **Run it.** `bun run android` prints the serial and the time it shuts down. Drive only that one.
+3. **Look.** `adb -s <serial> exec-out screencap -p > <file.png>`, then read the file. The Pixel 7's screen is 1080 by 2400 pixels, and `adb shell input` taps in those pixels.
+4. **Read what is on the screen.** `adb -s <serial> shell uiautomator dump /sdcard/window.xml && adb -s <serial> exec-out cat /sdcard/window.xml` lists every piece with its text and its bounds, the page's text and buttons included, so a tap goes to the middle of a piece's bounds.
+5. **Tap and type.** `adb -s <serial> shell input tap <x> <y>`, `input swipe <x1> <y1> <x2> <y2> <ms>`, `input text '<text>'` (spaces as `%s`), and `input keyevent 4` for Back. Look after every step.
+6. **Which app is in front.** `adb -s <serial> shell dumpsys activity activities | grep ResumedActivity`: `com.android.chrome` once a link went to the browser.
+7. **The app's log.** `adb -s <serial> logcat -d`, or `logcat -c` first to see only what follows.
+8. **Shut it down** once the check is done: `adb -s <serial> emu kill`, its own emulator only.
+
+The kit's own check of all of this is `bun scripts/android-e2e.ts`, which builds a test app on the plugin and takes it through the start page, the site, a link to Chrome and the sign-in round trip, with the app running and after Android ended it behind Chrome, leaving a screenshot of each step and the app's log in `test-results/android-e2e/`.
+
+#### Shipping to Google Play
+
+`app-kit play upload`, from the app's checkout: builds the app's Android App Bundle signed with its upload key, numbered one past every build Google holds for it, and releases it to the internal testing track, which reaches its testers within minutes. `app-kit play key` makes the upload key once.
+
+Once per team, in Play Console and Google Cloud: a service account in a Google Cloud project with the Google Play Android Developer API turned on, invited in Play Console's Users and permissions with permission to release to testing tracks, and its JSON key kept in 1Password as the item "Google Play service account" in the vault "TestFlight", in the field "json key".
+
+Once per app:
+
+1. `bun run app-kit play key`, which makes the app's upload key with Java's keytool and keeps it in 1Password as "<productName> Google Play upload key" (fields "keystore", "password" and "alias"). It never replaces one already there.
+2. The release build signs from `keystore.properties`, which the upload writes for its build and deletes after, as Tauri's Android signing guide has it, in `src-tauri/gen/android/app/build.gradle.kts`:
+
+   ```kotlin
+   import java.io.FileInputStream
+   import java.util.Properties
+
+   android {
+       signingConfigs {
+           create("release") {
+               val keystorePropertiesFile = rootProject.file("keystore.properties")
+               val keystoreProperties = Properties()
+               if (keystorePropertiesFile.exists()) keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+               keyAlias = keystoreProperties["keyAlias"] as String?
+               keyPassword = keystoreProperties["password"] as String?
+               storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+               storePassword = keystoreProperties["password"] as String?
+           }
+       }
+       buildTypes {
+           getByName("release") {
+               signingConfig = signingConfigs.getByName("release")
+           }
+       }
+   }
+   ```
+
+3. The app in Play Console, made by hand, and its first build uploaded there by hand, since Google takes a new app's first build only in Play Console: the first `play upload` finds Google does not know the app, builds and signs build 1 anyway and prints where the bundle is and the steps. Google re-signs every build with the app's own key (Play App Signing), so a lost upload key is reset in Play Console, not the app lost.
+
+After that every `bun run app-kit play upload` sends the next build. A build number another upload took meanwhile is read again and the app built once more; an app whose store listing is not finished yet is still a draft in Play Console, which takes its builds only as draft releases, so the upload sends it as one and says so. Every line starts `[play]`; it exits 3 before building when the Android tools, the signing block or 1Password are missing, and 1 for any other failure.
 
 ## swift/: Mac apps built in Swift
 
@@ -2975,7 +3066,7 @@ The command names where each set goes, so an app keeps it as a script in `packag
 ```
 
 - `--icon-set <AppIcon.appiconset>`, as often as the app has sets: every image its `Contents.json` lists, at its size and scale, to its file name, a Mac entry from the app icon and an iPhone, iPad or App Store entry from the tile. Dark and tinted entries are left to the system, which makes them from the light one. A set with no `Contents.json` is refused: Xcode makes the set, and for a Tauri iPhone app `bunx tauri ios init` makes `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset`. An Icon Composer icon (`AppIcon.icon`) beside a set is what macOS and iOS 26 and later show; the command says so, and the set covers older systems.
-- `--tauri <src-tauri>`: the icons `tauri.conf.json` lists under `bundle.icon`, from the app icon: `NxN.png`, `NxN@2x.png`, `icon.png` at 512, `icon.icns`, made by macOS's `iconutil`, and Windows' `icon.ico` (16, 32, 48 and 256), the tile drawn to the square's edges as the favicon is. A Liquid Glass `.icon` or `Assets.car` is left as it is.
+- `--tauri <src-tauri>`: the icons `tauri.conf.json` lists under `bundle.icon`, from the app icon: `NxN.png`, `NxN@2x.png`, `icon.png` at 512, `icon.icns`, made by macOS's `iconutil`, and Windows' `icon.ico` (16, 32, 48 and 256), the tile drawn to the square's edges as the favicon is. A Liquid Glass `.icon` or `Assets.car` is left as it is. Once the app has an Android project (`src-tauri/gen/android`), its launcher icons too, which need `--android-background <#hex>`, the app's own background colour: an adaptive icon of `mark.svg` on that colour, with the mark again in one colour for Android's themed icons, the older square and round icons cut from the app icon's tile as the iPhone's are, and the 512 Play Store icon beside the res folder (`ic_launcher-playstore.png`). Android's mask crops about a sixth off each edge of an adaptive icon, so the mark is drawn inside its middle two thirds.
 - `--menu-bar <MenuBarIcon.imageset>`: `glyph.svg`, under the `.svg` name the set's `Contents.json` gives, with a template `Contents.json` written when it has none.
 - `--extension <folder>`: `icon-16.png` and `icon-32.png` for the toolbar, and `icon-48.png` drawn at 40 and `icon-128.png` at 96 with see-through edges, the inset Chrome's image guidelines ask for. `--toolbar-color <#hex>` draws the 16 and 32 in one colour, every pixel keeping its own transparency, however the mark's shapes are coloured, where a mark's shades blur together at toolbar size, and then `icon-16-dark-mode.png` and `icon-32-dark-mode.png` in `#e3e3e3`, Chrome's text grey in dark mode and the mirror of the `#1f1f1f` of its text in light mode, which the extension kit's toolbar icon in dark mode shows (above).
 - `--web <folder>`, the folder the app serves as its root: `favicon.ico` (16, 32 and 48), `apple-touch-icon.png` (180), and `icon-192.png` and `icon-512.png` for the manifest, the app icon as it is, which Chrome on the Mac shows in the Mac's own shape. The page and the manifest name them:

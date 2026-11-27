@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { TICKET_FAILED, type Outcome, type ProviderSession, type SignInWith } from '../../web/sign-in/provider';
 import { noteTripWith, tripWith } from '../../web/sign-in/remembered';
-import { read, session as thisTab, write, type KeyValueStore } from '../../web/storage';
+import { read, thisWindow, write, type KeyValueStore } from '../../web/storage';
 import { DESKTOP_SIGN_IN_EVENT, DESKTOP_SIGN_IN_LISTENING, DESKTOP_SIGN_IN_PATH, LOG_PREFIX, NONCE_PARAM, TICKET_PARAM } from './names';
 import { fingerprint, HEX_32, randomHex } from './fingerprint';
 import { post } from './requests';
@@ -44,11 +44,11 @@ export const WITH_PARAM = 'with';
  * The browser page to open for Google, or for Microsoft with `signInWith`, as a full address, since the iPhone's
  * sign-in sheet takes only one, asking for the account chosen in the window, with the fingerprint of the window's
  * secret as its nonce. A secret already kept and not yet used is asked with again for the same provider, so a second
- * click leaves the first browser tab's sign-in good. The provider is noted in the window's tab, so the account it signs
+ * click leaves the first browser tab's sign-in good. The provider is noted in the window's storage, so the account it signs
  * in as by ticket is remembered as that provider's, for Continue as; a click for the other provider asks with a new
  * secret, so only a tab sent to the provider noted can hand the window a sign-in.
  */
-export function desktopSignInAddress(account: DesktopSignInAccount, signInWith: SignInWith = 'google', store: () => KeyValueStore = thisTab): string {
+export function desktopSignInAddress(account: DesktopSignInAccount, signInWith: SignInWith = 'google', store: () => KeyValueStore = thisWindow): string {
   let secret = read(store, SECRET_KEY);
   if (!secret || !HEX_32.test(secret) || tripWith(store) !== signInWith) {
     secret = randomHex();
@@ -84,7 +84,7 @@ async function redeem(session: Pick<ProviderSession, 'token'>, code: string, sec
 export async function takeDesktopSignIn(
   session: Pick<ProviderSession, 'ticket' | 'token'>,
   link: DesktopSignInLink,
-  store: () => KeyValueStore = thisTab,
+  store: () => KeyValueStore = thisWindow,
 ): Promise<Outcome> {
   const secret = read(store, SECRET_KEY);
   if (!secret || !HEX_32.test(link.nonce) || fingerprint(secret) !== link.nonce) return { ok: false, message: NOT_FROM_THIS_WINDOW };

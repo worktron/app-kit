@@ -1,5 +1,5 @@
-//! A Tauri window onto an app's hosted site, for the Mac, Windows and the iPhone: what every such app's shell wrote by
-//! hand.
+//! A Tauri window onto an app's hosted site, for the Mac, Windows, the iPhone and Android: what every such app's shell
+//! wrote by hand.
 //!
 //! The window loads the app's own site, so sign-in, data and every deploy are the site's. This plugin adds:
 //! - desktop sign-in's shell half: the browser's `<scheme>://sign-in` link handed to the page (app-kit/tauri/sign-in);
@@ -11,6 +11,8 @@
 //! - on the iPhone, window.open handed to Safari, which the iPhone's web view drops, and the swipe from the left edge
 //!   back through the site's pages and in-page moves, which iOS keeps off, and no "Undo Typing" alert on a shake
 //!   (iphone.rs);
+//! - on Android, the same window, links and sign-in, with a sign-in that came back before the window was made kept
+//!   until it is, since Android often ends an app behind the browser;
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
 //!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), updates from the app's
@@ -219,20 +221,15 @@ impl Site {
         let for_events = self.clone();
         #[cfg(target_os = "windows")]
         let for_setup = self.clone();
-        let for_ready = self.clone();
-        let builder = Builder::new("app-kit-window").on_webview_ready(move |webview| {
-            if !on_main(webview.label()) {
-                return;
-            }
+        let for_load = self.clone();
+        let builder = Builder::new("app-kit-window").on_webview_ready(|webview| {
             #[cfg(target_os = "ios")]
-            {
+            if on_main(webview.label()) {
                 iphone::allow_swipe_back(&webview);
                 iphone::turn_off_shake_to_undo();
             }
-            #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"))]
-            hand_over_kept(webview.app_handle(), &for_ready);
-            #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows")))]
-            let _ = &for_ready;
+            #[cfg(not(target_os = "ios"))]
+            let _ = webview;
         });
         // The Settings window's switch, which only that window is granted (settings.rs).
         #[cfg(target_os = "macos")]
@@ -262,11 +259,19 @@ impl Site {
                 Ok(())
             })
             .on_navigation(move |webview, url| navigation(webview, url, &for_navigation))
-            .on_page_load(|webview, payload| {
+            .on_page_load(move |webview, payload| {
                 if on_main(webview.label()) && payload.event() == PageLoadEvent::Finished {
                     log::info!("{}", loaded_line(payload.url()));
                     #[cfg(target_os = "macos")]
                     mac_page_loaded(webview);
+                    // The site's page has loaded and listens for a sign-in, so one kept while the start page waited
+                    // for the site is handed to it now.
+                    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"))]
+                    if for_load.on_site(payload.url()) {
+                        hand_over_kept(webview, &for_load);
+                    }
+                    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows")))]
+                    let _ = &for_load;
                 }
             })
             .on_event(move |app, event| run_event(app, event, &for_events))
@@ -308,7 +313,7 @@ pub fn show<R: Runtime>(app: &AppHandle<R>) {
 /// The log plugin as every app on the kit sets it up: warnings from anything, and every decision of the app's own
 /// crate (`app_crate`, as its Cargo.toml names it with dashes as underscores) and of this plugin, written to
 /// ~/Library/Logs/<identifier>/ on the Mac and %LOCALAPPDATA%\<identifier>\logs\ on Windows, one file of up to a
-/// megabyte, as well as to the app's output.
+/// megabyte, as well as to the app's output, which on Android is its log (`adb logcat`).
 pub fn log_to_file<R: Runtime>(app_crate: &'static str) -> TauriPlugin<R> {
     tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Warn)
@@ -335,9 +340,25 @@ fn loaded_line(url: &Url) -> String {
     format!("the window finished loading {}", loggable(url))
 }
 
-/// Hands `url` to the default browser, or to the app for a mail, phone or text link. The decision is logged before the
-/// browser is asked, since asking can wait on the browser starting, and the app can be stopped before it answers.
-fn send_out<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &str) {
+/// Hands `url` to the default browser, or to the app for a mail, phone or text link.
+///
+/// On Android the navigation that asks arrives on the app's main thread, and the opener's Kotlin half runs there too,
+/// with its Rust half waiting for the answer: called in place it waits on itself, and Android calls the app not
+/// responding after five seconds. So there it is handed over from a thread of its own.
+#[cfg(target_os = "android")]
+fn send_out<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &'static str) {
+    let (app, url) = (app.clone(), url.clone());
+    std::thread::spawn(move || open_outside(&app, &url, what));
+}
+
+#[cfg(not(target_os = "android"))]
+fn send_out<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &'static str) {
+    open_outside(app, url, what);
+}
+
+/// The decision is logged before the browser is asked, since asking can wait on the browser starting, and the app can
+/// be stopped before it answers.
+fn open_outside<R: Runtime>(app: &AppHandle<R>, url: &Url, what: &str) {
     log::info!(
         "sending {what} for {} out of the window, since it is not the site; a frame from another site lands here too, and Site::keep_in_window keeps it",
         loggable(url)
@@ -432,29 +453,33 @@ fn opened<R: Runtime>(app: &AppHandle<R>, site: &Site, urls: &[Url]) {
     }
 }
 
-/// A sign-in that came back from the browser before the window was made, kept until it is. Android often ends an app
-/// that sits behind the browser, so the link can be what starts it again, before the app has built its window.
+/// A sign-in that came back from the browser before the site's page loaded, kept until it has. Android often ends an
+/// app that sits behind the browser, so the link can be what starts it again, before the window or the site is up.
 #[derive(Default)]
 struct KeptSignIn(std::sync::Mutex<Option<sign_in::SignIn>>);
 
-/// Moves a sign-in from the browser's link into the page. The page on the site takes it where it is; a window still
-/// on a start page, as at launch, loads the site with it; with no window yet, it is kept for the window's first page
-/// (`hand_over_kept`). The ticket itself is never logged.
+/// Moves a sign-in from the browser's link into the page. The page on the site takes it where it is; with no window
+/// yet, or a window still on the start page, as at launch, it is kept until the site's page has loaded
+/// (`hand_over_kept`). Loading the site from here instead raced the start page: on Android the start page, still
+/// loading, went on to the site after it and loaded it again without the sign-in. The ticket itself is never logged.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows", test))]
 fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: sign_in::SignIn) {
-    let Some(window) = app.get_webview_window(MAIN) else {
-        log::info!("a sign-in came back from the browser before the window was made, keeping it for the window");
+    let keep = |sign_in| {
         if let Some(kept) = app.try_state::<KeptSignIn>() {
             *kept.0.lock().unwrap() = Some(sign_in);
         }
+    };
+    let Some(window) = app.get_webview_window(MAIN) else {
+        log::info!("a sign-in came back from the browser before the window was made, keeping it for the site's page");
+        keep(sign_in);
         return;
     };
     if window.url().is_ok_and(|url| site.on_site(&url)) {
         log::info!("a sign-in came back from the browser, handing it to the page");
         let _ = window.eval(sign_in::sign_in_script(&site.address, &sign_in));
     } else {
-        log::info!("a sign-in came back from the browser before the site loaded, loading it to sign in");
-        let _ = window.navigate(sign_in::sign_in_page(&site.address, &sign_in));
+        log::info!("a sign-in came back from the browser before the site loaded, keeping it for the site's page");
+        keep(sign_in);
     }
     #[cfg(target_os = "macos")]
     show(app);
@@ -462,12 +487,18 @@ fn hand_over<R: Runtime>(app: &AppHandle<R>, site: &Site, sign_in: sign_in::Sign
     windows::bring_forward(app);
 }
 
-/// Hands the window, once it is made, the sign-in that came back before it was.
+/// Hands the site's page, as it finishes loading, the sign-in that came back before the window was made or before the
+/// site's page loaded. It reads the page's address from the load, never from the window: on Android this runs on the
+/// main thread, where asking the window for its address waits on that same thread.
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android", target_os = "windows"))]
-fn hand_over_kept<R: Runtime>(app: &AppHandle<R>, site: &Site) {
-    let Some(sign_in) = app.try_state::<KeptSignIn>().and_then(|kept| kept.0.lock().unwrap().take()) else { return };
-    log::info!("the window is made, handing it the sign-in that came back before it was");
-    hand_over(app, site, sign_in);
+fn hand_over_kept<R: Runtime>(webview: &Webview<R>, site: &Site) {
+    let Some(sign_in) = webview.app_handle().try_state::<KeptSignIn>().and_then(|kept| kept.0.lock().unwrap().take()) else { return };
+    log::info!("the site's page has loaded, handing it the sign-in that came back before it did");
+    let _ = webview.eval(sign_in::sign_in_script(&site.address, &sign_in));
+    #[cfg(target_os = "macos")]
+    show(webview.app_handle());
+    #[cfg(target_os = "windows")]
+    windows::bring_forward(webview.app_handle());
 }
 
 /// The program the app was launched from, as the window read it at launch.

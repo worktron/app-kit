@@ -7,8 +7,8 @@
 # and iPhone sign-in plugins built for the iPhone simulator, and the iPhone dictation and iPhone Health plugins' for the
 # simulator and a phone, with their Swift rules run on the Mac, the Apple Messages plugin's Rust tests, which read made-up
 # Messages and Contacts databases, and its lint, for the Mac, and the iPhone simulator it builds nothing for, with no
-# warnings, and the window plugin's Rust tests and its lint, for the Mac
-# and the iPhone simulator, with no warnings, since its warnings would show in every app's build, and the Swift
+# warnings, and the window plugin's Rust tests and its lint, for the Mac,
+# the iPhone simulator and Android, with no warnings, since its warnings would show in every app's build, and the Swift
 # packages' tests and their bare swiftc builds, the menu bar theme's and the Mac app package's, with no warnings either.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -93,9 +93,16 @@ done
   && cargo test --locked --quiet)
 # The window plugin's Windows-only lines (single-instance, its order check, the launch link) build for no Mac target,
 # so it is linted for Windows too, which compiles it without linking and needs no Windows toolchain beyond the target.
+# It is linted for Android too, with the NDK's compiler for the crates whose build scripts compile C. The end-to-end
+# check of its Android code on an emulator is scripts/android-e2e.ts, run by hand for an Android change.
 rustup target list --installed | grep -qx x86_64-pc-windows-msvc || { echo "gates: no Windows target; run: rustup target add x86_64-pc-windows-msvc" >&2; exit 1; }
+rustup target list --installed | grep -qx aarch64-linux-android || { echo "gates: no Android target; run: rustup target add aarch64-linux-android (README.md's \"Testing the Android app yourself\")" >&2; exit 1; }
+android_clang="${NDK_HOME:-}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+[ -x "$android_clang" ] || { echo "gates: no Android NDK compiler at ${android_clang}; set NDK_HOME to the NDK (README.md's \"Testing the Android app yourself\")" >&2; exit 1; }
 (cd tauri/window/plugin \
   && cargo clippy --locked --quiet --all-targets -- -D warnings \
   && cargo clippy --locked --quiet --target aarch64-apple-ios-sim -- -D warnings \
   && cargo clippy --locked --quiet --target x86_64-pc-windows-msvc -- -D warnings \
+  && CC_aarch64_linux_android="$android_clang" AR_aarch64_linux_android="$(dirname "$android_clang")/llvm-ar" \
+    cargo clippy --locked --quiet --target aarch64-linux-android -- -D warnings \
   && cargo test --locked --quiet)
