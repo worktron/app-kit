@@ -13,6 +13,7 @@ Urgency: next round
 Urgency: now
 
 - move to this version; in Safari and the Mac and iPhone windows a Clerk sign-in, and one already made within its week, then lasts its full length, at the cost of one page load under the app's name.
+- Correction: never take this version. Its renewal left a WebKit page opened signed in at an address the app does not know (`/%23app-kit-cookie-renewed`); the version after it fixes that.
 
 ## v0.85.3
 
