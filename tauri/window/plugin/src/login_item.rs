@@ -236,6 +236,9 @@ pub(crate) enum FirstLaunch {
     NoSwitch,
     /// The app has no data folder to keep its mark in, so it cannot know whether it set the item before.
     NoDataFolder,
+    /// The mark could not be written, with why: an item turned on with no mark could be turned on again after the
+    /// person turned it off, so it is left off.
+    MarkNotKept(String),
     /// Set once already, at an earlier launch or by the person through the switch, so left as the person has it.
     SetBefore,
     /// This macOS has no login item service; a later launch on macOS 13 or later turns it on.
@@ -266,8 +269,9 @@ fn changing() -> std::sync::MutexGuard<'static, ()> {
 
 /// Turns the login item on once, at the first launch of a copy the release command built, unless the menu check
 /// started the app, the app has no switch to turn it off, or its data folder holds the mark that it was set before.
-/// The mark is written only once macOS reports the item on or waiting for approval, so a refusal is tried again next
-/// launch.
+/// The mark is written before macOS is asked, and nothing is turned on when it cannot be, so the item is never on
+/// without the mark that keeps a later launch from turning it on again; a refusal takes the mark away, so it is tried
+/// again next launch.
 pub(crate) fn first_launch(items: &impl LoginItems, launch: &Launch) -> FirstLaunch {
     if launch.release.is_none() {
         return FirstLaunch::HandBuild;
@@ -286,12 +290,19 @@ pub(crate) fn first_launch(items: &impl LoginItems, launch: &Launch) -> FirstLau
     if items.status() == Status::NotAvailable {
         return FirstLaunch::NotAvailable;
     }
+    if let Err(error) = write_mark(data, "turning on at first launch") {
+        return FirstLaunch::MarkNotKept(error.to_string());
+    }
     let error = items.change(true);
     let after = items.status();
     if !took(true, after.state()) {
+        if let Err(removed) = std::fs::remove_file(data.join(MARK)) {
+            log::warn!("open at login: could not take away the mark after macOS refused ({removed}), so no later launch tries again");
+        }
         return FirstLaunch::Refused { after, error };
     }
-    keep_mark(Some(data), &format!("turned on at first launch, macOS said {}", after.words()));
+    // The mark is there already; this only adds macOS's answer to it.
+    let _ = write_mark(data, &format!("turned on at first launch, macOS said {}", after.words()));
     FirstLaunch::TurnedOn(after)
 }
 
@@ -315,6 +326,10 @@ pub(crate) fn first_launch_line(outcome: &FirstLaunch) -> (log::Level, String) {
         FirstLaunch::NoDataFolder => {
             (Warn, "open at login: not turned on at first launch, since the app has no data folder to keep the mark that it did".into())
         }
+        FirstLaunch::MarkNotKept(error) => (
+            Warn,
+            format!("open at login: not turned on at first launch, since the mark that it did could not be kept ({error})"),
+        ),
         FirstLaunch::SetBefore => (Info, "open at login: set once already, so left as the person has it".into()),
         FirstLaunch::NotAvailable => (Info, "open at login: not turned on at first launch, since it needs macOS 13 or later".into()),
         FirstLaunch::TurnedOn(after) => (Info, format!("open at login: turned on at first launch, macOS says {}", after.words())),
@@ -616,6 +631,22 @@ mod tests {
         assert_eq!(first_launch_line(&FirstLaunch::MenuCheck).0, log::Level::Info, "the menu check refuses a warning");
         // A unit test is never a release, whatever the variable held when it was built.
         assert_eq!(RELEASE, None);
+    }
+
+    // An item turned on with no mark could be turned on again after the person turned it off, so the first launch keeps
+    // its mark before it asks macOS, and asks nothing when it cannot.
+    #[test]
+    fn a_data_folder_that_cannot_be_written_leaves_the_login_item_off() {
+        let folder = Folder::new("first-launch-unwritable");
+        // A file where the app's data folder would be, so no folder can be made there.
+        let data = folder.0.join("data");
+        std::fs::write(&data, "").unwrap();
+        let mac = StandIn::new(Status::NotFound);
+        let outcome = first_launch(&mac, &launch(RELEASE_BUILD, false, Some(&data)));
+        assert!(matches!(&outcome, FirstLaunch::MarkNotKept(_)), "{outcome:?}");
+        assert_eq!(first_launch_line(&outcome).0, log::Level::Warn);
+        assert!(mac.changes().is_empty(), "macOS was never asked");
+        assert_eq!(mac.status(), Status::NotFound);
     }
 
     #[test]
