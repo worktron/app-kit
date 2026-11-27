@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { isInstalledApp } from './installed-app';
 import { lookForNewBuild, unsavedInput } from './new-build';
+import { heldBelow, pullPastTopTakes } from './pull-past-top';
 
 /*
  * Pull down from the top of the page and let go to reload it, in an installed app only: the iPhone app or a web app
@@ -24,14 +25,13 @@ const DIRECTION_PX = 8;
 
 const NOT_PULLED_IN = '.MuiModal-root, [role="dialog"], [role="menu"], input, textarea, select, [contenteditable="true"]';
 
-/** Whether a touch on `target` may start a pull: the page at its top, and nothing under the finger scrolled or open. */
+/**
+ * Whether a touch on `target` may start a pull: the page at its top, nothing under the finger scrolled or open, and no
+ * pull past the top (pull-past-top.ts) taking it, since that pull opens what is above the page instead.
+ */
 export function pullMayStart(target: EventTarget | null): boolean {
   if ((document.scrollingElement?.scrollTop ?? 0) > 0) return false;
-  for (let el = target instanceof Element ? target : null; el; el = el.parentElement) {
-    if (el.matches(NOT_PULLED_IN)) return false;
-    if (el.scrollTop > 0) return false;
-  }
-  return true;
+  return !heldBelow(target, NOT_PULLED_IN, null) && !pullPastTopTakes(target);
 }
 
 export interface PullToRefreshProps {

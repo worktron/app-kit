@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { PULL_DISTANCE, PullToRefresh, pullMayStart } from '../web/PullToRefresh';
+import { usePullPastTop } from '../web/pull-past-top';
 
 // Finger travel is halved, so letting go past the line takes twice its distance of finger.
 const PAST = PULL_DISTANCE * 2 + 10;
@@ -92,6 +93,30 @@ test('a pull never reloads over text typed into a field, and the mark says why',
   expect(reload).not.toHaveBeenCalled();
   expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Not reloaded: a field holds typed text');
   expect(screen.getByText('Not reloaded: a field holds typed text')).toBeTruthy();
+});
+
+test('while a pull past the top would open something, a pull never reloads, and once nothing is left it does', () => {
+  function Earlier({ on }: { on: boolean }) {
+    usePullPastTop({ on, act: () => {} });
+    return null;
+  }
+  const { rerender } = render(
+    <>
+      <Earlier on />
+      <PullToRefresh />
+    </>,
+  );
+  const row = page().querySelector('#row')!;
+  pull(row, PAST);
+  expect(reload).not.toHaveBeenCalled();
+  rerender(
+    <>
+      <Earlier on={false} />
+      <PullToRefresh />
+    </>,
+  );
+  pull(row, PAST);
+  expect(reload).toHaveBeenCalledTimes(1);
 });
 
 test("a pull while the app's drag is on never pulls", () => {

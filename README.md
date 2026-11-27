@@ -50,6 +50,7 @@ Each app keeps itself current as it is worked on. `bun scripts/owed.ts <app chec
 | Text size | `followTextSize`, `useTextScale`, `chooseTextSize`, `useTextSize`, `TEXT_SIZES`, `TextSizeSetting` | On an iPhone or iPad, the page's root font size follows the Text Size chosen in Settings or Control Center, which a web view otherwise ignores, so every size in rem follows, at once. A size from 85% to 200% chosen on this device replaces it, everywhere, and `TextSizeSetting` is the settings row that chooses it. With no size chosen, anywhere but a phone the scale is 1. See below. |
 | Fields that never zoom | `fieldsNeverZoom`, `FIELD_FONT_SIZE`, `rem` | A text field's size is 16 pixels or the Text Size's size, whichever is larger, so iPhone Safari never zooms into it at a small Text Size and it still grows at a large one. `rem(px)` writes a pixel size as one that follows Text Size. See below. |
 | Pull to refresh | `PullToRefresh`, `isInstalledApp`, `isIphoneApp` | In an installed app, the iPhone app or a web app opened from the home screen, a pull down from the top of the page reloads it, or runs the app's own refresh and looks for a newer deploy. Never over typed text, and never from a field, a menu, a dialog, a scrolled list or a sideways swipe. See below. |
+| Pull past the top | `usePullPastTop`, `pullPastTopTakes`, `PULL_PAST` | A pull down past the top of a page opens what sits closed above it, such as a conversation's earlier messages, on the page's own scroll or a box's. While it would open something, pull to refresh stands aside. See below. |
 | The first frame | `firstPaint`, from `app-kit/web/first-paint` | A Vite plugin that paints the page in the app's colors, light or dark or the app's own choice, with the phone's bar to match, before any of the app's code loads. See below. |
 | The first draw after the fonts | `waitForFonts` | Holds the first draw until the app's faces are in, at most a second and a half, so no text swaps from a fallback face. See below. |
 | Sign-in gate | `SignInGate`, `useSignIn`, `useSignOut`, `usePerson`, `useAppDrawn` | One steady placeholder until the provider knows who is signed in and, with `waitForFirstDraw`, until the app has drawn its first data. The app's sign-in screen at whatever address was asked for, so sign-in lands there. Sign-in and sign-out with no page load beyond the provider's own trip to Google. Continue as the account last used on this device, or Use a different account, which asks Google for its list, and the same with Microsoft, remembering which of the two the account used (Microsoft beside Google, below). The person's own Sign out forgets the account, so the next sign-in screen offers Google plainly; a session the server ends keeps it, so signing back in is one tap. With `signUp`, an emailed code to an address with no account makes the account once the code is checked; without, the address is told it has none (`noAccountFor`). Given a null provider, it draws the app with no sign-in. Given `iphoneSignIn`, it runs iPhone Google sign-in's steps itself, the wordmark with one line from the tap to the app's screen (iPhone sign-in, below). With `open`, it draws the app for people who are not signed in too, before the provider loads for a browser signed out last time, and the app puts its own sign-in screen at its own address (An app open to people who are not signed in, below). |
@@ -562,6 +563,23 @@ An installed app has no browser controls, so without a pull a stuck page or a ne
 - It starts only with the page at its top, outside a field, a menu, a dialog or a scrolled element, and only when the finger moves down more than sideways, so a row swipe never turns into one. `ignoreWhile` holds it off during a drag of the app's own.
 - `top` places the mark below the app's bar; the top safe area is added. The mark draws in the theme's paper, divider and text colors.
 - The default reload loads a newer build only where no service worker holds the old page. An app with one passes an `onPull` that updates the worker first.
+
+### Pull past the top
+
+A conversation that opens on its newest message keeps its earlier messages closed above it, and a pull down past the top opens them, as metamax's thread page does. `usePullPastTop` says whether a drag under way would open them on release, for the app's own line to say so; the kit draws nothing.
+
+```tsx
+const past = usePullPastTop({ on: hasEarlier && !earlierOpen, act: openEarlier });
+<TextAct onClick={openEarlier}>{past ? 'Release for earlier messages' : 'Earlier messages'}</TextAct>
+```
+
+- It counts finger travel past the top, `PULL_PAST`, 70 points, from where the page first reaches its top in the same touch: one drag from inside the newest message that runs on past the top opens them, and a flick that reaches the top only after the finger lifts never does.
+- One finger, and only a drag more down than sideways, so a swipe back or a row's swipe is never a pull. A drag that starts in a dialog, a menu or a list scrolled inside the page is never one either.
+- It opens once the page has come to rest after the finger lifts, so iOS's spring back from its stretch, or what is left of the drag, never carries the page off the newest message as earlier ones are drawn above it. Keep the newest message where it was on the screen as they are drawn, by scrolling the page by what they added.
+- `on` false while a pull would do nothing: everything above already open, or being read.
+- Without `scroller` it watches the page's own scroll. A page that scrolls inside a box of its own passes the box's ref, `scroller: body`, and give the box `overscroll-behavior-y: contain` so iOS draws its stretch there; until the box is drawn nothing is watched.
+- In a Safari tab on an iPhone, Safari's own pull to refresh takes a pull past the top of the page's own scroll after about 40 points, and the page hears no more of it, so there the pull opens nothing: on the page's own scroll it is for an installed app, the iPhone app or a web app opened from the home screen. A box's scroll pulls in a Safari tab too.
+- While a pull would open something, the kit's `PullToRefresh` stands aside, and reloads again once nothing is left. An app with its own pull to reload calls `pullPastTopTakes(event.target)` as its pull starts and stands aside while it answers true.
 
 ### The first frame and the fonts
 
