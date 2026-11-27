@@ -71,10 +71,23 @@ function CaptchaPlace() {
 // One per page, made as the page first reads a session, before the app reads its address, since a page back from a
 // renewal has a mark on it to take off.
 let thisPage: PageRenewal | null = null;
+/** One of the page's storages, or null when the browser refuses it, as some do with storage blocked. */
+function pageStorage(which: 'localStorage' | 'sessionStorage'): Storage | null {
+  try {
+    return window[which];
+  } catch {
+    return null;
+  }
+}
+
+/** Storage that holds nothing, for a browser that refuses the page's own: the renewal then never runs. */
+const NO_STORAGE: Pick<Storage, 'getItem' | 'setItem'> = { getItem: () => null, setItem: () => {} };
+
 function renewalHere(): PageRenewal {
   thisPage ??= pageRenewal({
     userAgent: navigator.userAgent,
-    storage: localStorage,
+    storage: pageStorage('localStorage') ?? NO_STORAGE,
+    tabStorage: pageStorage('sessionStorage'),
     href: () => window.location.href,
     replace: (address) => window.history.replaceState(window.history.state, '', address),
     assign: (address) => window.location.assign(address),

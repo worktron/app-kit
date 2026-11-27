@@ -13,8 +13,13 @@ import { DESKTOP_SIGN_IN_PATH } from '../../tauri/sign-in/names';
 /** Where the kit notes, in local storage, which session it last renewed Clerk's cookie for, and when. */
 export const RENEWAL_KEY = 'app-kit.clerk-cookie-renewal';
 
-/** The mark on the address Clerk's renewal sends the page back to, taken off as the page loads. */
-export const RENEWED_MARK = 'app-kit-cookie-renewed';
+/**
+ * Where the page notes, in this tab's session storage, that it left for a renewal and the fragment of its address, so
+ * the page Clerk sends back counts it and gets its fragment back. Clerk is sent the address without a fragment, since
+ * its development instance puts a `#` in the address it returns to into the path (`/notes%23/items/3`), which opens an
+ * address the app does not know.
+ */
+export const LEAVING_KEY = 'app-kit.clerk-cookie-renewal.leaving';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -91,28 +96,46 @@ function writeRecord(storage: Pick<Storage, 'setItem'>, record: RenewalRecord) {
   try {
     storage.setItem(RENEWAL_KEY, JSON.stringify(record));
   } catch {
-    // Storage refused: the renewal still runs, the page it comes back to takes no other, and the next open renews again.
+    // Storage refused: the renewal does not run, since nothing would say it was done.
   }
 }
 
 /**
- * `href` with the mark added to the end of its fragment, after an `&` when it has one. The fragment is left byte for
- * byte, since an app may route on it (`#/items/3`) or read it whole (`#another`).
+ * The fragment this tab's address had as it left for a renewal (`''` for none), taking the note off, or null when it
+ * did not leave for one. A note that cannot be taken off still counts, so every load of the tab takes no renewal and
+ * none loops.
  */
-export function markedAddress(href: string): string {
-  const url = new URL(href);
-  url.hash = url.hash.length > 1 ? `${url.hash.slice(1)}&${RENEWED_MARK}` : RENEWED_MARK;
-  return url.toString();
+function leftForRenewal(tabStorage: RenewalPage['tabStorage']): string | null {
+  let note: string | null;
+  try {
+    note = tabStorage?.getItem(LEAVING_KEY) ?? null;
+  } catch {
+    return null;
+  }
+  if (note === null) return null;
+  try {
+    tabStorage?.removeItem(LEAVING_KEY);
+  } catch {
+    // Left in place, as above.
+  }
+  try {
+    const { hash } = JSON.parse(note) as { hash?: unknown };
+    return typeof hash === 'string' ? hash : '';
+  } catch {
+    return '';
+  }
 }
 
-/** `href` as it was before `markedAddress`, as a path, or null when it carries no mark. */
-export function unmarkedAddress(href: string): string | null {
-  const url = new URL(href);
-  let hash: string;
-  if (url.hash === `#${RENEWED_MARK}`) hash = '';
-  else if (url.hash.endsWith(`&${RENEWED_MARK}`)) hash = url.hash.slice(0, -`&${RENEWED_MARK}`.length);
-  else return null;
-  return url.pathname + url.search + hash;
+/** Notes in this tab that it is leaving for a renewal from an address with this fragment; false when refused. */
+function noteLeaving(tabStorage: RenewalPage['tabStorage'], at: number, hash: string): boolean {
+  const note = JSON.stringify({ at, hash });
+  try {
+    if (!tabStorage) return false;
+    tabStorage.setItem(LEAVING_KEY, note);
+    return tabStorage.getItem(LEAVING_KEY) === note;
+  } catch {
+    return false;
+  }
 }
 
 /** The part of Clerk the renewal reads, so tests can pass a fake. */
@@ -129,6 +152,8 @@ export interface RenewingClerk {
 export interface RenewalPage {
   userAgent: string;
   storage: Pick<Storage, 'getItem' | 'setItem'>;
+  /** This tab's session storage, which lasts through the trip to Clerk and back; null when the browser refuses it. */
+  tabStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
   href(): string;
   /** Replaces the address without a load, as `history.replaceState` does. */
   replace(address: string): void;
@@ -156,14 +181,15 @@ export function pageRenewal(page: RenewalPage) {
   };
   const webkit = isWebKit(page.userAgent);
 
-  // Back from a renewal: noted, and the mark taken off before anything reads the address.
-  const unmarked = unmarkedAddress(page.href());
-  if (unmarked !== null) {
-    page.replace(unmarked);
+  // Back from a renewal: noted, the note this tab left taken off, and the fragment Clerk was not sent put back.
+  const hash = leftForRenewal(page.tabStorage);
+  if (hash !== null) {
+    const back = new URL(page.href());
+    if (hash && !back.hash) page.replace(back.pathname + back.search + hash);
     const record = readRecord(page.storage);
     if (record) writeRecord(page.storage, { ...record, renewedAt: page.now() });
     page.log(`${LOG_PREFIX} back from renewing Clerk's cookie`);
-    // A page back from a renewal never leaves for another, even when storage refused the record that says it is done.
+    // A page back from a renewal never leaves for another, even when local storage refused the record that says it is done.
     state = 'none';
   }
 
@@ -180,9 +206,18 @@ export function pageRenewal(page: RenewalPage) {
   const leave = (clerk: RenewingClerk, reason: string): boolean => {
     const sessionId = clerk.session?.id;
     if (!clerk.client || !sessionId) return false;
-    const touch = clerk.buildUrlWithAuth(clerk.client.buildTouchUrl({ redirectUrl: new URL(markedAddress(page.href())) }));
+    const now = page.now();
     const record = readRecord(page.storage);
-    writeRecord(page.storage, { sessionId, renewedAt: record?.sessionId === sessionId ? record.renewedAt : 0, attemptedAt: page.now() });
+    writeRecord(page.storage, { sessionId, renewedAt: record?.sessionId === sessionId ? record.renewedAt : 0, attemptedAt: now });
+    // Without the record the next open would renew again, and without the note in this tab the page Clerk sends back
+    // could not tell it had renewed and would leave again: with either refused, no renewal.
+    const here = new URL(page.href());
+    if (readRecord(page.storage)?.attemptedAt !== now || !noteLeaving(page.tabStorage, now, here.hash)) {
+      page.log(`${LOG_PREFIX} not renewing Clerk's cookie: this browser refuses the storage that would say it was done`);
+      return false;
+    }
+    here.hash = '';
+    const touch = clerk.buildUrlWithAuth(clerk.client.buildTouchUrl({ redirectUrl: here }));
     page.log(`${LOG_PREFIX} renewing Clerk's cookie with a page load, since WebKit ends it a week after a sign-in otherwise: ${reason}`);
     set('leaving');
     page.assign(touch);

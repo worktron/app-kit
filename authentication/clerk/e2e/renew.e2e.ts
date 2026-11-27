@@ -5,12 +5,14 @@
 // testing token to every request to Clerk, also fetches the renewal as if it answered JSON and logs that it could not
 // read the page it was sent back to; the browser's own trip is untouched.
 import { expect, test } from '@playwright/test';
-import { expectQuietSignIn } from '../../../web/playwright.js';
-import { countLoads } from '../../../web/playwright.js';
+import { countLoads, expectQuietSignIn } from '../../../web/playwright.js';
 import { signInWithTicket, throwawayUser } from '../playwright.js';
 import { countedApi, DOMAIN, PREFIX, secretKey } from './names';
 
-test('a page that opens signed in renews Clerk\'s cookie once, under the placeholder, and lands back where it was', async ({ page }) => {
+// The root, a query, and a fragment an app routes on, each back byte for byte: Clerk's development instance returned
+// v0.85.4's address, which carried a mark in its fragment, with the `#` in the path (`/%23app-kit-cookie-renewed`).
+for (const address of ['/', '/notes?sort=new', '/notes#/items/3']) {
+test(`a page that opens signed in at ${address} renews Clerk's cookie once, under the placeholder, and lands back where it was`, async ({ page }) => {
   const user = await throwawayUser({ secretKey: secretKey(), apiUrl: countedApi('renew'), domain: DOMAIN, prefix: PREFIX });
   try {
     const lines: string[] = [];
@@ -23,7 +25,7 @@ test('a page that opens signed in renews Clerk\'s cookie once, under the placeho
     });
 
     // Signed in inside the page, as by an emailed code: no renewal then, since the page already holds the app.
-    await page.goto('/notes?sort=new');
+    await page.goto(address);
     await signInWithTicket(page, await user.ticket());
     await expect(page.getByTestId('person')).toHaveText(user.email);
     expect(renewals).toEqual([]);
@@ -33,8 +35,11 @@ test('a page that opens signed in renews Clerk\'s cookie once, under the placeho
     await expectQuietSignIn(page, () => page.reload(), { timeout: 30_000 });
     await expect(page.getByTestId('person')).toHaveText(user.email);
     expect(renewals).toHaveLength(1);
-    expect(new URL(renewals[0]!).searchParams.get('redirect_url')).toMatch(/\/notes\?sort=new#app-kit-cookie-renewed$/);
-    expect(new URL(page.url()).pathname + new URL(page.url()).search + new URL(page.url()).hash).toBe('/notes?sort=new');
+    // Clerk is sent the address without its fragment, which its development instance would put in the path.
+    const sent = new URL(address, page.url());
+    sent.hash = '';
+    expect(new URL(new URL(renewals[0]!).searchParams.get('redirect_url')!).href).toBe(sent.href);
+    expect(page.url()).toBe(new URL(address, page.url()).href);
     // The reload, then the one through Clerk's renewal back to this page.
     expect(loads.loads).toBe(2);
     expect(lines.some((line) => line.includes("renewing Clerk's cookie with a page load") && line.endsWith('the first for this session'))).toBe(true);
@@ -48,3 +53,4 @@ test('a page that opens signed in renews Clerk\'s cookie once, under the placeho
     await user.remove();
   }
 });
+}

@@ -2,14 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import {
   CLERK_WORD_AFTER_MS,
   isWebKit,
-  markedAddress,
+  LEAVING_KEY,
   pageRenewal,
   readRecord,
   RENEW_AGAIN_AFTER_MS,
   RENEWAL_KEY,
   renewalDue,
   RETRY_AFTER_MS,
-  unmarkedAddress,
   type RenewalPage,
   type RenewalRecord,
   type RenewingClerk,
@@ -69,23 +68,6 @@ describe('when a renewal is due', () => {
   });
 });
 
-test('the mark rides at the end of the fragment, which comes back byte for byte', () => {
-  for (const href of [
-    'https://app.example.com/items/3?sort=new#tab=notes',
-    'https://app.example.com/#/items/3',
-    'https://app.example.com/#another',
-    'https://app.example.com/a%20b?q=%2F#x=%20y',
-    'https://app.example.com/',
-  ]) {
-    const url = new URL(href);
-    expect(unmarkedAddress(markedAddress(href))).toBe(url.pathname + url.search + url.hash);
-  }
-  expect(markedAddress('https://app.example.com/#/items/3')).toBe('https://app.example.com/#/items/3&app-kit-cookie-renewed');
-  expect(markedAddress('https://app.example.com/')).toBe('https://app.example.com/#app-kit-cookie-renewed');
-  expect(unmarkedAddress('https://app.example.com/#tab=notes')).toBeNull();
-  expect(unmarkedAddress('https://app.example.com/#tab=app-kit-cookie-renewed')).toBeNull();
-});
-
 test('a record that is not one reads as none', () => {
   const storage = (value: string | null) => ({ getItem: () => value });
   expect(readRecord(storage(null))).toBeNull();
@@ -95,7 +77,10 @@ test('a record that is not one reads as none', () => {
 });
 
 /** A page with an address, storage and a clock, which records each load and console line. */
-function fakePage(href: string, { userAgent = MAC_WINDOW, now = NOW, stored = {} as Record<string, string> } = {}) {
+function fakePage(
+  href: string,
+  { userAgent = MAC_WINDOW, now = NOW, stored = {} as Record<string, string>, tab = {} as Record<string, string> } = {},
+) {
   const loads: string[] = [];
   const lines: string[] = [];
   let address = href;
@@ -103,14 +88,21 @@ function fakePage(href: string, { userAgent = MAC_WINDOW, now = NOW, stored = {}
   const page: RenewalPage = {
     userAgent,
     storage: { getItem: (key) => stored[key] ?? null, setItem: (key, value) => void (stored[key] = value) },
+    tabStorage: {
+      getItem: (key) => tab[key] ?? null,
+      setItem: (key, value) => void (tab[key] = value),
+      removeItem: (key) => void delete tab[key],
+    },
     href: () => address,
     replace: (to) => void (address = new URL(to, address).toString()),
     assign: (to) => void loads.push(to),
     log: (line) => void lines.push(line),
     now: () => clock,
   };
-  return { page, loads, lines, stored, address: () => address, tick: (ms: number) => void (clock += ms) };
+  return { page, loads, lines, stored, tab, address: () => address, tick: (ms: number) => void (clock += ms) };
 }
+
+const touchFor = (href: string) => `https://clerk.app.example.com/v1/client/touch?redirect_url=${encodeURIComponent(href)}`;
 
 function fakeClerk(sessionId: string | null, eligible = false): RenewingClerk {
   return {
@@ -125,24 +117,24 @@ function fakeClerk(sessionId: string | null, eligible = false): RenewingClerk {
 
 describe("one page's renewal", () => {
   test('a page that opens signed in holds from its first render, leaves once through the renewal, and comes back renewed', () => {
-    const first = fakePage('https://app.example.com/items/3?sort=new');
+    const first = fakePage('https://app.example.com/items/3?sort=new#tab=notes');
     const renewal = pageRenewal(first.page);
     const clerk = fakeClerk('sess_1');
     expect(renewal.renewing(clerk, false)).toBe(false);
     expect(renewal.renewing(clerk, true)).toBe(true);
     renewal.decideAtOpen(clerk);
     renewal.decideAtOpen(clerk);
-    expect(first.loads).toEqual([
-      `https://clerk.app.example.com/v1/client/touch?redirect_url=${encodeURIComponent('https://app.example.com/items/3?sort=new#app-kit-cookie-renewed')}`,
-    ]);
+    // Clerk is sent the address without its fragment, which its development instance would put in the path.
+    expect(first.loads).toEqual([touchFor('https://app.example.com/items/3?sort=new')]);
+    expect(JSON.parse(first.tab[LEAVING_KEY]!)).toEqual({ at: NOW, hash: '#tab=notes' });
     expect(renewal.renewing(clerk, true)).toBe(true);
     expect(first.lines.join('\n')).toContain('renewing Clerk\'s cookie with a page load, since WebKit ends it a week after a sign-in otherwise: the first for this session');
 
-    // Back at the address it left, with the mark taken off before anything reads it, and nothing more to renew.
-    first.tick(800);
-    const back = fakePage('https://app.example.com/items/3?sort=new#app-kit-cookie-renewed', { now: NOW + 800, stored: first.stored });
+    // Back in the same tab: its fragment put back before anything reads the address, the note taken off, nothing more.
+    const back = fakePage('https://app.example.com/items/3?sort=new', { now: NOW + 800, stored: first.stored, tab: first.tab });
     const again = pageRenewal(back.page);
-    expect(back.address()).toBe('https://app.example.com/items/3?sort=new');
+    expect(back.address()).toBe('https://app.example.com/items/3?sort=new#tab=notes');
+    expect(back.tab[LEAVING_KEY]).toBeUndefined();
     expect(back.lines).toEqual(["[app-kit sign-in] back from renewing Clerk's cookie"]);
     expect(JSON.parse(back.stored[RENEWAL_KEY]!)).toEqual({ sessionId: 'sess_1', renewedAt: NOW + 800, attemptedAt: NOW });
     expect(again.renewing(clerk, true)).toBe(false);
@@ -150,18 +142,47 @@ describe("one page's renewal", () => {
     expect(back.loads).toEqual([]);
   });
 
-  test('with storage refusing writes, the page back from a renewal takes no other, so it never loops', () => {
-    const refusing = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); } };
-    const first = fakePage('https://app.example.com/notes');
-    const renewal = pageRenewal({ ...first.page, storage: refusing });
+  test('the root goes to Clerk as the root, and comes back to it', () => {
+    const first = fakePage('https://app.example.com/');
+    pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
+    expect(first.loads).toEqual([touchFor('https://app.example.com/')]);
+    const back = fakePage('https://app.example.com/', { tab: first.tab });
+    pageRenewal(back.page);
+    expect(back.address()).toBe('https://app.example.com/');
+  });
+
+  test('a fragment an app routes on goes nowhere near Clerk and comes back byte for byte', () => {
+    const first = fakePage('https://app.example.com/notes#/items/3?x=%20y');
+    pageRenewal(first.page).decideAtOpen(fakeClerk('sess_1'));
+    expect(first.loads).toEqual([touchFor('https://app.example.com/notes')]);
+    const back = fakePage('https://app.example.com/notes', { tab: first.tab });
+    pageRenewal(back.page);
+    expect(back.address()).toBe('https://app.example.com/notes#/items/3?x=%20y');
+  });
+
+  test('with either storage refused, nothing renews, since nothing would say it was done', () => {
+    const refusing = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); }, removeItem: () => {} };
+    for (const which of ['storage', 'tabStorage'] as const) {
+      const { page, loads, lines } = fakePage('https://app.example.com/notes');
+      const renewal = pageRenewal({ ...page, [which]: refusing });
+      expect(renewal.renewing(fakeClerk('sess_1'), true)).toBe(true);
+      renewal.decideAtOpen(fakeClerk('sess_1'));
+      expect(loads).toEqual([]);
+      expect(renewal.renewing(fakeClerk('sess_1'), true)).toBe(false);
+      expect(lines.join('\n')).toContain('not renewing Clerk\'s cookie: this browser refuses the storage');
+    }
+    const { page, loads } = fakePage('https://app.example.com/notes');
+    pageRenewal({ ...page, tabStorage: null }).decideAtOpen(fakeClerk('sess_1'));
+    expect(loads).toEqual([]);
+  });
+
+  test('a tab note that cannot be taken off counts every load as back, so it never loops', () => {
+    const stuck = { getItem: () => JSON.stringify({ at: NOW, hash: '' }), setItem: () => {}, removeItem: () => { throw new Error('SecurityError'); } };
+    const { page, loads } = fakePage('https://app.example.com/notes');
+    const renewal = pageRenewal({ ...page, tabStorage: stuck });
+    expect(renewal.renewing(fakeClerk('sess_1'), true)).toBe(false);
     renewal.decideAtOpen(fakeClerk('sess_1'));
-    expect(first.loads).toHaveLength(1);
-    const back = fakePage('https://app.example.com/notes#app-kit-cookie-renewed');
-    const again = pageRenewal({ ...back.page, storage: refusing });
-    expect(back.address()).toBe('https://app.example.com/notes');
-    expect(again.renewing(fakeClerk('sess_1'), true)).toBe(false);
-    again.decideAtOpen(fakeClerk('sess_1'));
-    expect(back.loads).toEqual([]);
+    expect(loads).toEqual([]);
   });
 
   test('a page that opens signed out never renews, not even after a sign-in in the page', () => {
