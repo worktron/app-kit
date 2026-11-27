@@ -26,5 +26,5 @@ export interface IphoneSignIn {
    */
   open(choice: GoogleAccount, lastAccount: string | null, signInWith?: SignInWith): Promise<boolean>;
   /** Signs in with the sign-in the sheet hands back. A hook: the gate calls it on every render. */
-  useWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token'>): IphoneSignInWindow;
+  useWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token' | 'renewAfterSignIn'>): IphoneSignInWindow;
 }

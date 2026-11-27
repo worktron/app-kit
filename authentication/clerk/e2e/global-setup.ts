@@ -57,6 +57,7 @@ export default async function globalSetup() {
       want('shared', { made: 1, tickets: 1, removed: 1 });
       want('own', { made: 1, tickets: 1, removed: 1 });
       want('each', { made: 5, tickets: 5, removed: 5 });
+      want('renew', { made: 1, tickets: 1, removed: 1 });
     } finally {
       // What a run stopped before its fixtures could remove: only users past the default hour, so a run going on in
       // another checkout keeps its own.

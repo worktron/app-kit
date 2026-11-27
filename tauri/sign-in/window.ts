@@ -82,7 +82,7 @@ async function redeem(session: Pick<ProviderSession, 'token'>, code: string, sec
  * the server hears it was taken, for the browser tab that handed it over.
  */
 export async function takeDesktopSignIn(
-  session: Pick<ProviderSession, 'ticket' | 'token'>,
+  session: Pick<ProviderSession, 'ticket' | 'token' | 'renewAfterSignIn'>,
   link: DesktopSignInLink,
   store: () => KeyValueStore = thisWindow,
 ): Promise<Outcome> {
@@ -94,7 +94,10 @@ export async function takeDesktopSignIn(
   const outcome = await session.ticket(ticket).catch((): Outcome => ({ ok: false, message: TICKET_FAILED }));
   if (!outcome.ok) return outcome;
   write(store, SECRET_KEY, null);
-  await post(session, '/taken', { code: link.ticket }).catch(() => undefined);
+  // Kept alive, so the page load a renewal of the provider's cookie makes next cannot cancel it.
+  await post(session, '/taken', { code: link.ticket }, { keepalive: true }).catch(() => undefined);
+  // Only now, with the browser told: in WebKit the page may leave here for the provider's renewal and come back.
+  session.renewAfterSignIn();
   return outcome;
 }
 
@@ -157,7 +160,7 @@ export type DesktopSignInWindow = { state: 'waiting' } | { state: 'signing-in' }
  * On an iPhone the sign-in gate does all of this when given `iphoneSignInForGate`; an app that gives it calls this
  * nowhere, since only one listener takes the hand-back.
  */
-export function useDesktopSignInWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token'>): DesktopSignInWindow {
+export function useDesktopSignInWindow(session: Pick<ProviderSession, 'loaded' | 'person' | 'ticket' | 'token' | 'renewAfterSignIn'>): DesktopSignInWindow {
   const [now, setNow] = useState<DesktopSignInWindow>({ state: 'waiting' });
   const latest = useRef(session);
   latest.current = session;

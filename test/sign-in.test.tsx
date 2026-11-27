@@ -399,3 +399,35 @@ test('with no provider, the gate draws the app with no sign-in, no sign-out and 
   expect(person).toBeNull();
   expect(signOut).toBeNull();
 });
+
+test("while the provider renews its cookie the gate holds its placeholder and never starts the app, which draws once it is done", async () => {
+  const standIn = standInSignIn({ person: { id: 'p1', email: 'ana@example.com' } });
+  let renewing = true;
+  const listeners = new Set<() => void>();
+  const provider: StandInSignIn = {
+    ...standIn,
+    useSession() {
+      const session = standIn.useSession();
+      const [, redraw] = useState(0);
+      useEffect(() => {
+        const listener = () => redraw((n) => n + 1);
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      }, []);
+      return { ...session, renewing };
+    },
+  };
+  let started = 0;
+  function Counting() {
+    useEffect(() => void started++, []);
+    return <App />;
+  }
+  draw(provider, <Counting />);
+  expect(screen.getByRole('progressbar').textContent).toBe('timescale');
+  expect(document.documentElement.getAttribute('data-sign-in-gate')).toBe('placeholder');
+  expect(started).toBe(0);
+  renewing = false;
+  act(() => listeners.forEach((listener) => listener()));
+  await waitFor(() => expect(heading()).toBe('The app at /'));
+  expect(started).toBe(1);
+});

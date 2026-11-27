@@ -135,6 +135,9 @@ export function standInSignIn({ person = null, loaded = true, store, leaveForGoo
       set({ person: { id: `person-${email}`, email } });
       return ok;
     },
+    // The stand-in's cookie is never capped, so it has nothing to renew.
+    renewing: false,
+    renewAfterSignIn: () => false,
     signOut: async () => {
       calls.signOut++;
       set({ person: null });

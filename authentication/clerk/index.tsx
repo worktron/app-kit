@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { ClerkProvider, useAuth, useClerk, useSignIn, useSignUp, useUser } from '@clerk/react';
 import type { GoogleReturnProps, Outcome, ProviderSession, SignInProvider, SignInWith } from '../../web/sign-in/provider';
 import { standInSignIn } from '../stand-in';
 import { checkEmailCode, messageFor, sendEmailCode } from './email-code';
 import { clerkMove, finishGoogleReturn, startProvider } from './google';
+import { pageRenewal, type PageRenewal } from './renew';
 import { signInWithTicket } from './ticket';
 import { tokenStillGood } from './token-now';
 
@@ -67,6 +68,22 @@ function CaptchaPlace() {
   return userId ? null : <div id="clerk-captcha" />;
 }
 
+// One per page, made as the page first reads a session, before the app reads its address, since a page back from a
+// renewal has a mark on it to take off.
+let thisPage: PageRenewal | null = null;
+function renewalHere(): PageRenewal {
+  thisPage ??= pageRenewal({
+    userAgent: navigator.userAgent,
+    storage: localStorage,
+    href: () => window.location.href,
+    replace: (address) => window.history.replaceState(window.history.state, '', address),
+    assign: (address) => window.location.assign(address),
+    log: (line) => console.log(line),
+    now: () => Date.now(),
+  });
+  return thisPage;
+}
+
 /**
  * The Clerk adapter's session, read from whatever ClerkProvider it is inside: the gate's, or an app's own when it has
  * one and no gate, as one that uses only the desktop sign-in part.
@@ -80,6 +97,13 @@ export function useClerkSession(): ProviderSession {
   const email = user?.primaryEmailAddress?.emailAddress ?? null;
   const name = user?.fullName ?? null;
   const person = useMemo(() => (userId ? { id: userId, email, name } : null), [userId, email, name]);
+  const renewal = renewalHere();
+  // Read so a change in the renewal draws again; what it says is asked of the renewal with Clerk as it is now.
+  useSyncExternalStore(renewal.subscribe, renewal.state);
+  const renewing = renewal.renewing(clerk, isLoaded);
+  useEffect(() => {
+    if (isLoaded) renewal.decideAtOpen(clerk);
+  }, [isLoaded, clerk, renewal]);
 
   const start = async (signInWith: SignInWith, callbackPath: string, account: string | null): Promise<Outcome> => {
     const classic = clerk.client?.signIn;
@@ -96,7 +120,17 @@ export function useClerkSession(): ProviderSession {
     microsoft: ({ callbackPath, account }) => start('microsoft', callbackPath, account),
     sendEmailCode: (address, options) => sendEmailCode(signIn, address, options),
     checkEmailCode: (code, address) => checkEmailCode(signIn, code, address, signUp),
-    ticket: (ticket) => signInWithTicket(signIn, ticket),
+    ticket: async (ticket) => {
+      renewal.signingInByTicket();
+      const outcome = await signInWithTicket(signIn, ticket).catch((error: unknown) => {
+        renewal.ticketFailed();
+        throw error;
+      });
+      if (!outcome.ok) renewal.ticketFailed();
+      return outcome;
+    },
+    renewing,
+    renewAfterSignIn: () => renewal.afterSignIn(clerk),
     // Given a function to run instead, Clerk stays on this page rather than loading another once the session has ended.
     signOut: () => clerk.signOut(() => {}),
   };

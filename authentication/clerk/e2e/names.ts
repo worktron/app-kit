@@ -3,7 +3,7 @@
 export const DOMAIN = 'example.com';
 export const PREFIX = 'kit';
 
-export function countedApi(project: 'shared' | 'own' | 'each'): string {
+export function countedApi(project: 'shared' | 'own' | 'each' | 'renew'): string {
   const url = process.env.CLERK_COUNTED_API;
   if (!url) throw new Error('Run the Clerk browser test through scripts/e2e-clerk.sh, whose global setup counts its calls to Clerk.');
   return `${url}/${project}`;

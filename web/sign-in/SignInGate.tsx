@@ -463,6 +463,9 @@ function Gate({
 
   const [shows, drawn] = ((): [GateShows, ReactNode] => {
     if (signingOut) return ['placeholder', placeholder];
+    // Leaving for the provider's renewal of its cookie: what stood before stays until the page goes, and the app, not yet
+    // drawn, never starts, so its requests do not go out for a page about to load again.
+    if (session.renewing) return throughSheet ? signingInLine() : ['placeholder', person && !cameThroughSignIn ? whileReturning : placeholder];
     if (!loaded) {
       // An open gate draws the app at once for a browser that was not signed in last time, but not on a page where the
       // gate itself has a step to run once the provider is in: the return from Google, and the page Apple's sheet opens.

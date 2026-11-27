@@ -149,6 +149,28 @@ async function take(session: ProviderSession, link: DesktopSignInLink) {
   return outcome;
 }
 
+test("the provider's renewal after a ticket sign-in waits until the server has heard it was taken, which is kept alive past a page load", async () => {
+  const { sent, keptAlive, codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+  const provider = standInSignIn();
+  const session = sessionOf(provider);
+  const seenAtRenewal: string[][] = [];
+  const renewing = { ...session, renewAfterSignIn: () => (seenAtRenewal.push(sent.map((r) => r.path)), true) };
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
+  expect(await take(renewing, { ticket: await codeFor(nonce), nonce })).toEqual({ ok: true });
+  expect(seenAtRenewal).toEqual([['/api/desktop-sign-in/redeem', '/api/desktop-sign-in/taken']]);
+  expect(keptAlive).toEqual(['/api/desktop-sign-in/taken']);
+});
+
+test('a ticket that fails asks for no renewal', async () => {
+  const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
+  const session = sessionOf(standInSignIn());
+  let asked = 0;
+  const nonce = nonceIn(desktopSignInAddress({ account: 'ana@example.com' }));
+  const failing = { ...session, ticket: async () => ({ ok: false as const, message: TICKET_FAILED }), renewAfterSignIn: () => (asked++, false) };
+  expect(await take(failing, { ticket: await codeFor(nonce), nonce })).toEqual({ ok: false, message: TICKET_FAILED });
+  expect(asked).toBe(0);
+});
+
 test('a secret works once: after a sign-in, the same link or a fresh code with its fingerprint is refused', async () => {
   const { codeFor } = serveDesktopSignIn(() => 'ana@example.com');
   const provider = standInSignIn();

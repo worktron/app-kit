@@ -60,6 +60,17 @@ export interface ProviderSession {
    * does with the sign-in its browser hands it, and makes its session the active one.
    */
   ticket(ticket: string): Promise<Outcome>;
+  /**
+   * True while the page is leaving, or about to leave, for the provider's own trip that keeps the sign-in going: in
+   * WebKit, Clerk's renewal of its cookie, which WebKit ends a week after a sign-in otherwise. The gate holds its
+   * placeholder meanwhile, so nothing of the app draws before the page goes. A provider with no such trip says false.
+   */
+  renewing: boolean;
+  /**
+   * Once a sign-in by `ticket` has finished handing over, as the window has told the app's server it was taken: takes
+   * that trip when the sign-in asked for it, and says whether the page is leaving. A provider with no such trip says false.
+   */
+  renewAfterSignIn(): boolean;
   /** Ends the session and stays on this page: no page load. */
   signOut(): Promise<void>;
 }
