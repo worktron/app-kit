@@ -1314,3 +1314,21 @@ Written by: collider/revisit-collider
 Goal: on collider (2026-11-26) the owner signed in with Google as an address not on the Clerk allowlist and read "Signing in with Google did not finish. Try again, or use an emailed code." (web/sign-in/SignInGate.tsx GOOGLE_UNFINISHED), which sent them looking at Google. Clerk had refused the account for the allowlist, but authentication/clerk/google.ts finishGoogleReturn drops Clerk's reason: a thrown handleRedirectCallback and an end with no session both call onUnfinished with nothing. The emailed-code path keeps the reason (email-code.ts messageFor, not_allowed_access and the sign_up_mode cases) but says "This app is not taking new accounts for <address>", which does not say what to do. Both should say "<address> is not invited to <app>. Ask whoever runs it for an invitation." with the app's name and the address Google or the form gave, and keep the "did not finish" line for a Google trip that really did not finish (closed, or another browser profile).
 
 Done when: finishGoogleReturn reads Clerk's refusal on the return (its error code, or the sign-in or sign-up left with not_allowed_access) and the gate shows the not-invited line with the address; messageFor's not_allowed_access and restricted cases say the same; the gate takes the app's name; a test on the Clerk adapter with Clerk's recorded refusal and a stand-in browser test for each path hold the wording; and the README's sign-in section names the lines.
+
+## light-start-page · The Mac and iPhone start page in light and dark
+Written by: mythic/light-mode
+
+Goal: an app whose site follows the device's light or dark setting launches with no flash of the other scheme on a Mac or an iPhone.
+
+Asked 2026-11-27 by Icarus Labs (mythic), whose site now follows the device's light or dark setting.
+
+**What goes wrong.** The window plugin's start page, `StartPage::new(background, text)`, takes one pair of colors. An app whose hosted site follows the device opens on its dark start page for a moment in light mode, then the light site appears: a dark flash on every launch. The iPhone's launch screen is one color for the same reason.
+
+**Ask.**
+- `StartPage` takes a light and a dark pair and paints the one the system's appearance is in, with the start page's own `prefers-color-scheme`. The window's first frame (its background before the page loads) takes the same pair.
+- `app-kit iphone` writes the launch screen's background as a named color with both appearances, so the launch screen follows the phone too.
+- An app that passes one pair keeps today's behavior.
+
+Done when: on a Mac and an iPhone in light mode, an app built with a light and a dark pair shows no dark frame between launch and its light site, and in dark mode no light one; a test holds both pairs reaching the start page and the launch screen.
+
+**Then, in Icarus Labs.** `app/src-tauri` passes `LIGHT` and `DARK` from `demo/src/theme.ts`, and `app/shell.test.ts` holds both.
