@@ -8,8 +8,9 @@
 //!
 //! An app whose menu asks for it (`AppMenu::open_at_login_by_default`) turns the login item on by itself once, at the
 //! first launch of a copy the release command built (`first_launch`), and never again: a mark in the app's data folder
-//! says it set the item once, written only once macOS reports it on or waiting for approval, and by every change made
-//! through the switch, so the person's own choice is never overridden. The mark is the app's own past, never the login
+//! says it set the item once, written before macOS is asked and taken away again when macOS refuses, so nothing is
+//! turned on without it and a refusal is tried again next launch, and written by every change made through the switch,
+//! so the person's own choice is never overridden. The mark is the app's own past, never the login
 //! item's state, which is read from macOS every time. Tests pass a stand-in for macOS (`LoginItems`), never this Mac's.
 
 use serde::Serialize;
