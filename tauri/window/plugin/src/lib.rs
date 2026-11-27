@@ -15,17 +15,19 @@
 //!   until it is, since Android often ends an app behind the browser;
 //! - on the Mac: closing hides the window and a Dock click brings it back, the page keeps running hidden, Restart once
 //!   a newer build is installed, View's zoom kept across launches, the page told about full screen, and a window shown
-//!   only once it is back where it was (mac.rs), the menu bar every app shows (menu.rs), updates from the app's
+//!   only once it is back where it was and inside its screen (mac.rs, fit.rs), the menu bar every app shows (menu.rs), updates from the app's
 //!   releases when its tauri.conf.json has plugins.updater (updates.rs), and the kit's Settings window, with its switch
 //!   that opens the app at login (settings.rs, login_item.rs), for an app whose menu asks for it, on by itself once at
 //!   the first launch of a release for an app that asks for that too;
 //! - on Windows: one copy of the app, so desktop sign-in's link, which Windows hands a second copy, reaches the window,
-//!   which comes forward (windows.rs), and the window shown only once it is back where it was. Closing it quits the app,
+//!   which comes forward (windows.rs), and the window shown only once it is back where it was and inside its screen. Closing it quits the app,
 //!   as Windows apps do, and the Mac's menu bar, Settings window and updates are not there.
 //!
 //! Each decision is logged by host only, never a path, query or fragment, where a sign-in ticket can be. README.md's
 //! "A window onto the hosted site" shows an app's shell.
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+mod fit;
 mod links;
 mod sign_in;
 
@@ -300,14 +302,21 @@ fn on_main(label: &str) -> bool {
 /// block queued on the main dispatch queue, and a showing window zooms there with an animation; a hidden one zooms at
 /// once, so the window is shown by a block queued after that one, already maximized. The window-state plugin's own
 /// showing is left out (`StateFlags::all() - StateFlags::VISIBLE`), or it shows the window before it zooms.
+///
+/// Just before it shows, a window larger than the work area of its screen, or partly off it, is made to fit inside it,
+/// never below the app's minimum size, whether its size is the one the app asked for or the one the window-state plugin
+/// put back (fit.rs). A window that fits is shown where it is.
 pub fn show_once_placed<R: Runtime>(window: &WebviewWindow<R>) {
     #[cfg(target_os = "macos")]
     {
         let window = window.clone();
         dispatch2::DispatchQueue::main().exec_async(move || {
+            fit::fit_to_screen(&window);
             let _ = window.show();
         });
     }
+    #[cfg(target_os = "windows")]
+    fit::fit_to_screen(window);
     #[cfg(not(target_os = "macos"))]
     let _ = window.show();
 }
