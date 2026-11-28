@@ -14,14 +14,21 @@ import { CHROME } from '../signed-in-chrome.ts'
 const dir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-chrome-quits-e2e-')))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-// The caller: drive() on the profile its environment names, "up" once it returns, then nothing until it is killed.
+// The caller: drive() on the profile its environment names, "up" once it returns, then nothing until it is killed, or
+// until the test run has gone, so a run killed outright leaves no caller behind (and, with the guard, no Chrome).
 const caller = join(dir, 'caller.ts')
 writeFileSync(
   caller,
   `import { drive } from ${JSON.stringify(join(import.meta.dir, '..', 'signed-in-chrome.ts'))}
 const chrome = await drive(process.env.CHROME_QUITS_PROFILE!, () => {})
 console.log("up " + chrome.pid)
-setInterval(() => {}, 60_000)
+setInterval(() => {
+  try {
+    process.kill(Number(process.env.CHROME_QUITS_TEST_PID), 0)
+  } catch {
+    process.exit(0)
+  }
+}, 200)
 `,
 )
 
@@ -51,7 +58,7 @@ async function until(check: () => boolean, limit: number): Promise<boolean> {
 async function killedCaller(name: string, ready: (profile: string, said: () => string) => Promise<boolean>): Promise<string[]> {
   const profile = join(dir, name)
   mkdirSync(profile)
-  const child = spawn(process.execPath, [caller], { cwd: dir, env: { ...process.env, CHROME_QUITS_PROFILE: profile }, stdio: ['ignore', 'pipe', 'inherit'] })
+  const child = spawn(process.execPath, [caller], { cwd: dir, env: { ...process.env, CHROME_QUITS_PROFILE: profile, CHROME_QUITS_TEST_PID: String(process.pid) }, stdio: ['ignore', 'pipe', 'inherit'] })
   let out = ''
   child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()))
   try {

@@ -243,9 +243,13 @@ export function quitWithCaller(pid: number, profile: string): Guard {
   guard.on('error', () => {})
   // A child's standard input has no unref of its own here: unref on the child is what lets the caller exit.
   guard.unref()
-  const ended = new Promise<void>((resolve) => guard.on('exit', () => resolve()))
+  // 'close' as well as 'exit': a guard that never started gives 'error' and 'close' with no 'exit'.
+  const ended = new Promise<void>((resolve) => {
+    guard.on('exit', () => resolve())
+    guard.on('close', () => resolve())
+  })
   const stop = async () => {
-    if (guard.exitCode !== null || guard.signalCode !== null) return
+    if (!guard.pid || guard.exitCode !== null || guard.signalCode !== null) return
     // Held again while it is ended, so a caller awaiting this keeps running until the guard has gone.
     guard.ref()
     guard.kill('SIGKILL')
@@ -274,9 +278,20 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
   log(`drive: starting Chrome ${how} at its profile "${inside}" with DevTools on 127.0.0.1:${port}`)
   const chrome = spawn(CHROME, driveArguments({ profile, inside, port, userAgent: ordinaryUserAgent(version.stdout), window }), { stdio: 'ignore' })
   // Started at once, with nothing waited on between, so a caller killed while Chrome is still starting takes it too.
-  const guard = chrome.pid ? quitWithCaller(chrome.pid, profile) : undefined
+  let guard: Guard | undefined
+  try {
+    guard = chrome.pid ? quitWithCaller(chrome.pid, profile) : undefined
+  } catch {
+    // Told below, with Chrome quit.
+  }
   // Once Chrome has gone there is nothing left to guard, and the guard goes too.
   const exited = new Promise<void>((resolve) => chrome.on('close', () => void (guard?.stop() ?? Promise.resolve()).then(resolve)))
+  if (chrome.pid && !guard?.pid) {
+    // A Chrome with no guard would outlive a caller killed outright, so the run does not go on with it.
+    chrome.kill('SIGKILL')
+    await exited
+    throw new Error('The guard that quits Chrome with its caller could not start (/bin/sh), so Chrome was quit.')
+  }
   let browser: Browser
   let page: Page | undefined
   try {

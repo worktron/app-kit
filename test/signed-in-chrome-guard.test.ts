@@ -1,7 +1,7 @@
 // The guard drive() starts beside every Chrome, held against a stand-in program instead of a real Google Chrome: while a
 // real one runs, macOS sends AppleScript's messages to "Google Chrome" to it instead of the owner's own, and many
-// threads run these tests on one Mac. The stand-in is /bin/sleep whose command line carries a made-up
-// --user-data-dir, as Chrome's does. Each caller is a program of its own, so it can be killed the ways a real one dies.
+// threads run these tests on one Mac. The stand-in is a shell whose command line carries a made-up --user-data-dir, as
+// Chrome's does. Each caller is a program of its own, so it can be killed the ways a real one dies.
 // command-line/e2e/signed-in-chrome-quits.e2e.ts holds the same with a real Chrome, run by hand.
 import { afterAll, expect, test } from 'bun:test'
 import { type ChildProcess, spawn } from 'node:child_process'
@@ -15,7 +15,8 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 // The caller: starts a guard over the program its environment names and says the guard's pid. Then it waits to be
 // killed ("wait"), or stops the guard as drive() does once Chrome has closed and returns ("stop"), or returns at once
-// ("return"), with nothing else keeping it running.
+// ("return"), with nothing else keeping it running. A waiting caller ends once the test run has gone, so a run killed
+// outright leaves nothing behind: its end closes the guard's pipe, and the guard ends the stand-in.
 const caller = join(dir, 'caller.ts')
 writeFileSync(
   caller,
@@ -23,7 +24,15 @@ writeFileSync(
 const guard = quitWithCaller(Number(process.env.GUARD_PID), process.env.GUARD_PROFILE!)
 console.log("guard " + guard.pid)
 if (process.env.GUARD_MODE === 'stop') await guard.stop()
-else if (process.env.GUARD_MODE === 'wait') setInterval(() => {}, 60_000)
+else if (process.env.GUARD_MODE === 'wait') {
+  setInterval(() => {
+    try {
+      process.kill(Number(process.env.GUARD_TEST_PID), 0)
+    } catch {
+      process.exit(0)
+    }
+  }, 200)
+}
 `,
 )
 
@@ -33,15 +42,18 @@ function started(child: ChildProcess): Started {
   return { child, exited: new Promise((resolve) => child.on('exit', () => resolve())) }
 }
 
-/** A program whose command line holds `--user-data-dir=<profile>` as Chrome's does, or no profile when `profile` is undefined. */
+/**
+ * A program whose command line holds `--user-data-dir=<profile>` as Chrome's does, or no profile when `profile` is
+ * undefined. It ends by itself once the test run has gone, so a run killed outright leaves none behind.
+ */
 function standIn(profile: string | undefined): Started {
   const name = profile ? `stand-in --user-data-dir=${profile}` : 'stand-in'
-  return started(spawn('/bin/sh', ['-c', 'exec -a "$0" /bin/sleep 600', name], { stdio: 'ignore' }))
+  return started(spawn('/bin/sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done', name, String(process.pid)], { stdio: 'ignore' }))
 }
 
 /** A caller guarding `pid`; `guard` gives its guard's pid once it has said it. */
 function guarding(pid: number, profile: string, mode: 'wait' | 'stop' | 'return'): Started & { guard: Promise<number> } {
-  const one = started(spawn(process.execPath, [caller], { cwd: dir, env: { ...process.env, GUARD_PID: String(pid), GUARD_PROFILE: profile, GUARD_MODE: mode }, stdio: ['ignore', 'pipe', 'inherit'] }))
+  const one = started(spawn(process.execPath, [caller], { cwd: dir, env: { ...process.env, GUARD_PID: String(pid), GUARD_PROFILE: profile, GUARD_MODE: mode, GUARD_TEST_PID: String(process.pid) }, stdio: ['ignore', 'pipe', 'inherit'] }))
   const guard = new Promise<number>((resolve, reject) => {
     let out = ''
     one.child.stdout!.on('data', (chunk: Buffer) => {
