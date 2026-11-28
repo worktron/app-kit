@@ -203,6 +203,57 @@ async function devtoolsAnswers(port: number, limit = 30_000): Promise<void> {
   }
 }
 
+/**
+ * The guard's script: it waits for its standard input to end, which happens when the caller that holds the other end
+ * goes, however it goes, killed outright included. Then it asks the program `$1` to quit, and kills it 5 seconds later
+ * if it has not, each only while that number's command line still holds `--user-data-dir=$2`, so a number macOS has
+ * since given another program is never signaled.
+ */
+const GUARD = `
+while read -r _; do :; done
+holds() { case " $(ps -ww -o command= -p "$1" 2>/dev/null) " in *" --user-data-dir=$2 "*) return 0;; esac; return 1; }
+holds "$1" "$2" || exit 0
+kill -TERM "$1" 2>/dev/null
+tries=0
+while [ $tries -lt 20 ]; do
+  sleep 0.25
+  holds "$1" "$2" || exit 0
+  tries=$((tries + 1))
+done
+kill -KILL "$1" 2>/dev/null
+exit 0
+`
+
+/** A guard started by `quitWithCaller`: its own pid, and `stop`, which ends it and returns once it has gone. */
+export type Guard = { pid: number; stop: () => Promise<void> }
+
+/**
+ * Starts a guard that quits the program `pid`, a Chrome started on `profile`, when the caller ends without closing it:
+ * killed outright, or stopped by a signal before it set up its own stop handling. macOS has no signal to a child when
+ * its parent dies, so a Chrome started as a plain child would otherwise run on forever, and while it runs macOS sends
+ * every AppleScript message to "Google Chrome" to it instead of the owner's own Chrome. The guard is a small shell
+ * holding a pipe from the caller, which the system closes when the caller goes. It runs in a process group of its own,
+ * so a Ctrl-C to the caller's group leaves it to see the pipe close, and it holds no reference on the caller's event
+ * loop, so a caller that ends on its own still exits. Called right after Chrome starts, with nothing waited on between.
+ */
+export function quitWithCaller(pid: number, profile: string): Guard {
+  const guard = spawn('/bin/sh', ['-c', GUARD, 'app-kit-chrome-guard', String(pid), profile], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] })
+  // A write is never made; this keeps an EPIPE after the guard ended from reaching the caller as an error.
+  guard.stdin?.on('error', () => {})
+  guard.on('error', () => {})
+  // A child's standard input has no unref of its own here: unref on the child is what lets the caller exit.
+  guard.unref()
+  const ended = new Promise<void>((resolve) => guard.on('exit', () => resolve()))
+  const stop = async () => {
+    if (guard.exitCode !== null || guard.signalCode !== null) return
+    // Held again while it is ended, so a caller awaiting this keeps running until the guard has gone.
+    guard.ref()
+    guard.kill('SIGKILL')
+    await ended
+  }
+  return { pid: guard.pid ?? 0, stop }
+}
+
 /** A running Chrome of the profile, connected. `page` is the run's window's page when it has one; `pid` is Chrome's. */
 export type Driven = { browser: Browser; page?: Page; pid: number; close: () => Promise<void> }
 
@@ -222,6 +273,10 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
   const how = window ? `with one window at ${window.left},${window.top} sized ${window.width} by ${window.height}` : 'headless'
   log(`drive: starting Chrome ${how} at its profile "${inside}" with DevTools on 127.0.0.1:${port}`)
   const chrome = spawn(CHROME, driveArguments({ profile, inside, port, userAgent: ordinaryUserAgent(version.stdout), window }), { stdio: 'ignore' })
+  // Started at once, with nothing waited on between, so a caller killed while Chrome is still starting takes it too.
+  const guard = chrome.pid ? quitWithCaller(chrome.pid, profile) : undefined
+  // Once Chrome has gone there is nothing left to guard, and the guard goes too.
+  const exited = new Promise<void>((resolve) => chrome.on('close', () => void (guard?.stop() ?? Promise.resolve()).then(resolve)))
   let browser: Browser
   let page: Page | undefined
   try {
@@ -231,15 +286,11 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
     if (window) page = await openWindow(browser, window)
   } catch (error) {
     // The Chrome this run started would otherwise hold the profile and refuse every later run.
-    if (chrome.exitCode === null && chrome.signalCode === null) {
-      const gone = new Promise((resolve) => chrome.on('close', resolve))
-      chrome.kill('SIGKILL')
-      await gone
-    }
+    if (chrome.exitCode === null && chrome.signalCode === null) chrome.kill('SIGKILL')
+    await exited
     log(`drive: Chrome never connected, so it was quit: ${error instanceof Error ? error.message : String(error)}`)
     throw error
   }
-  const exited = new Promise<void>((resolve) => chrome.on('close', () => resolve()))
   // Returns once Chrome's process has ended, so its window is gone before a caller removes the display it was on:
   // macOS moves a window still on a display that goes onto the owner's screen.
   const close = async () => {
@@ -254,9 +305,9 @@ export async function drive(profile: string, log: Log, window?: WindowPlace): Pr
       if (!quit) {
         log('drive: Chrome did not quit within 5 seconds of being asked, so it was killed')
         chrome.kill('SIGKILL')
-        await exited
       }
     }
+    await exited
     log('drive: Chrome closed')
   }
   return { browser, page, pid: chrome.pid ?? 0, close }
